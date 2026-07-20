@@ -1,4 +1,4 @@
 {
   "extends": "@kaenal/config/tsconfig.lib.json",
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

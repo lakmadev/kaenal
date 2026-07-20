@@ -1,0 +1,105 @@
+name: CI
+
+# Pipeline per 01 §5: install → typecheck → lint → unit → db:check → RLS
+# tenancy suite → build.
+#
+# The two isolation nets (db:check and the tenancy suite) are the reason this
+# file exists. Until now they only ran when someone remembered to run them
+# locally, which is the same as not having them: a tenant-isolation regression
+# that reaches main is the single worst failure mode this product has.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Throwaway credentials for the ephemeral service container below. These are
+  # not secrets and must never be reused anywhere else — real environments get
+  # their values from the deployment platform's secret store (01 §2).
+  PGPASSWORD: ci_local_pw
+  DATABASE_URL: postgres://kaenal_migrator:ci_local_pw@localhost:5432/kaenal
+  DATABASE_APP_URL: postgres://kaenal_app:kaenal_local_pw@localhost:5432/kaenal
+  DATABASE_PUBLIC_URL: postgres://kaenal_public:kaenal_local_pw@localhost:5432/kaenal
+  REDIS_URL: redis://localhost:6379
+  S3_ENDPOINT: http://localhost:9000
+  S3_BUCKET: kaenal-ci
+  S3_KEY: kaenal
+  S3_SECRET: ci_local_pw
+  S3_REGION: us-east-1
+  S3_FORCE_PATH_STYLE: "true"
+  AUTH_SECRET: ci-only-not-a-real-secret-000000000000000=
+  APP_BASE_URL: http://localhost:3000
+  NODE_ENV: test
+  LOG_LEVEL: warn
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kaenal_migrator
+          POSTGRES_PASSWORD: ci_local_pw
+          POSTGRES_DB: kaenal
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kaenal_migrator -d kaenal"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # corepack (which provides pnpm) must be enabled before setup-node's
+      # `cache: pnpm`, which shells out to pnpm to locate the store.
+      - name: Enable corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      # ---- Data plane -----------------------------------------------------
+      # Migrations run before any DB-backed test so the suite is always
+      # checked against the schema this commit actually produces.
+      - name: Migrate
+        run: pnpm db:migrate
+
+      - name: RLS schema lint (02 §6)
+        run: pnpm db:check
+
+      - name: Tenancy isolation suite
+        run: pnpm test:rls
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build

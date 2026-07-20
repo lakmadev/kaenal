@@ -217,9 +217,10 @@ async function smokeTestIsolation(tenantId: string): Promise<void> {
   });
 
   const visibleToOther = await withTenant(otherTenantId, null, async (tx) => {
-    const { rows } = await tx.query("SELECT count(*)::int AS n FROM plants WHERE code = $1", [
-      canaryCode,
-    ]);
+    const { rows } = await tx.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM plants WHERE code = $1",
+      [canaryCode],
+    );
     return rows[0]?.n ?? 0;
   });
 

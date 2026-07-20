@@ -1,0 +1,130 @@
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
+import boundaries from "eslint-plugin-boundaries";
+
+/**
+ * Repo-wide lint (01 §1, 01 §4).
+ *
+ * One flat config at the root rather than per-package configs, because the
+ * rule that matters most here — the dependency direction between packages —
+ * is not visible from inside any single package.
+ */
+export default tseslint.config(
+  {
+    ignores: [
+      "**/dist/**",
+      "**/.next/**",
+      "**/node_modules/**",
+      "project_brain/**", // the spec + visual prototype; never compiled
+      "**/*.config.js",
+      "**/*.config.ts",
+    ],
+  },
+
+  js.configs.recommended,
+  ...tseslint.configs.recommendedTypeChecked,
+
+  {
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    plugins: { boundaries },
+    settings: {
+      "boundaries/elements": [
+        { type: "types", pattern: "packages/types/**" },
+        { type: "core", pattern: "packages/core/**" },
+        { type: "db", pattern: "packages/db/**" },
+        { type: "api-client", pattern: "packages/api-client/**" },
+        { type: "app-api", pattern: "apps/api/**" },
+        { type: "app-web", pattern: "apps/web/**" },
+        { type: "app-mobile", pattern: "apps/mobile/**" },
+      ],
+      "boundaries/dependency-nodes": ["import", "dynamic-import"],
+      // Without a resolver, boundaries cannot map `@kaenal/db` back to
+      // packages/db and every cross-package rule silently passes. Verified by
+      // mutation test — see test note in PROGRESS.md.
+      "import/resolver": {
+        typescript: { project: ["packages/*/tsconfig.json", "apps/*/tsconfig.json"] },
+      },
+    },
+    rules: {
+      // Rule 1: no `any`. Not negotiable, so it is an error, not a warning.
+      "@typescript-eslint/no-explicit-any": "error",
+
+      // Unused vars are allowed only when explicitly marked with a leading _,
+      // which makes "I know, it's deliberate" visible in the diff.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+
+      /**
+       * Dependency direction: types <- core <- db/api-client <- apps.
+       *
+       * The load-bearing entries are `core` and `types` importing nothing
+       * workspace-internal beyond types, and `app-web`/`app-mobile` being
+       * unable to reach `db`. If a UI package could import `db` it could open
+       * its own unscoped connection and every RLS guarantee in the system
+       * would be one import away from being bypassed.
+       */
+      "boundaries/element-types": [
+        "error",
+        {
+          default: "disallow",
+          rules: [
+            { from: "types", allow: [] },
+            { from: "core", allow: ["types"] },
+            { from: "db", allow: ["types", "core"] },
+            { from: "api-client", allow: ["types", "core"] },
+            { from: "app-api", allow: ["types", "core", "db", "api-client"] },
+            { from: "app-web", allow: ["types", "core", "api-client"] },
+            { from: "app-mobile", allow: ["types", "core", "api-client"] },
+          ],
+        },
+      ],
+    },
+  },
+
+  /**
+   * `core` and `types` must run in the browser and React Native as well as
+   * Node (01 §1), so they may not reach for Node built-ins. Caught here
+   * rather than at runtime in a mobile bundle.
+   */
+  {
+    files: ["packages/core/**/*.ts", "packages/types/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["node:*", "fs", "path", "crypto", "os", "child_process"],
+              message:
+                "packages/core and packages/types must run in browser, React Native and Node — no Node built-ins (01 §1).",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  /**
+   * Tests assert on things the type system deliberately forbids (e.g. feeding
+   * an invalid enum value to prove the DB rejects it), so a few type-aware
+   * rules would fight the point of the test.
+   */
+  {
+    files: ["**/test/**/*.ts", "**/*.test.ts", "**/scripts/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      // Mutation stubs in withAudit tests are deliberately no-ops.
+      "@typescript-eslint/require-await": "off",
+      "boundaries/element-types": "off",
+    },
+  },
+);

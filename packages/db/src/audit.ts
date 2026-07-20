@@ -111,7 +111,7 @@ export async function withAudit<T>(
 ): Promise<T> {
   const result = await mutation(tx);
 
-  const events = Array.isArray(audit) ? audit : [audit as AuditEventInput];
+  const events = toEventList(audit);
   if (events.length === 0) {
     throw new Error(
       "withAudit was called with no events — every mutation must record at least one (rule 3)",
@@ -148,6 +148,21 @@ export async function withAudit<T>(
   }
 
   return result;
+}
+
+/**
+ * Normalises the one-or-many argument.
+ *
+ * `Array.isArray` cannot narrow a `T | readonly T[]` union — its signature
+ * asserts `any[]`, which silently widened every field access at the INSERT
+ * site below to `any`. A hand-written predicate keeps the event fields typed,
+ * so a renamed or misspelled field fails to compile rather than writing a
+ * malformed event into an append-only table.
+ */
+function toEventList(
+  audit: AuditEventInput | readonly AuditEventInput[],
+): readonly AuditEventInput[] {
+  return Array.isArray(audit) ? (audit as readonly AuditEventInput[]) : [audit as AuditEventInput];
 }
 
 function jsonOrNull(value: Record<string, unknown> | null): string | null {

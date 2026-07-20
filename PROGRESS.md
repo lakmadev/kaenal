@@ -6,14 +6,15 @@
 ## Current status
 
 **Phase 0 — Foundation, in flight.** Data plane + business logic + audit plumbing are done and
-proven. 473 tests pass (219 db integration, 254 core unit); all three packages typecheck under
-strict TS. The RLS schema lint covers 32 tenant tables. Both isolation nets and the DST math were
-mutation-tested — they genuinely fail when the thing they guard is broken.
+proven, and CI now runs them on every push/PR. 498 tests pass (219 db integration, 254 core unit,
+25 types unit); all three packages typecheck under strict TS and lint clean. The RLS schema lint
+covers 32 tenant tables. Both isolation nets, the DST math, and the new dependency-direction lint
+were mutation-tested — they genuinely fail when the thing they guard is broken.
 
 **Next task:** the NestJS API skeleton (`apps/api`) implementing the 01 §3.3 request lifecycle as
 middleware — resolve tenant → authenticate → scoped transaction → RBAC guard. Then auth
 (sessions, invitations, lockout), then the first vertical slice (inspections) once ts-rest
-contracts exist. Before that, wire CI: the two isolation nets currently run only locally.
+contracts exist.
 
 ### How to get running from a cold clone
 
@@ -75,9 +76,11 @@ Redis already running locally.
       (`users`, `sessions`, `memberships`) is in place; no logic yet.
 - [ ] **Drizzle schema mirror** — typed query layer over the hand-written SQL (see Decision 2).
 - [ ] **`apps/api` skeleton** — NestJS + the 01 §3.3 request lifecycle as middleware.
-- [ ] **CI (GitHub Actions)** — install → typecheck → lint → unit → `db:check` → `test:rls` →
-      build → Playwright smoke, per 01 §5.
-- [ ] **ESLint + `eslint-plugin-boundaries`** — enforce the dependency direction from 01 §1.
+- [x] **CI (GitHub Actions)** — `.github/workflows/ci.yml`: install → typecheck → lint →
+      migrate → `db:check` → `test:rls` → unit/integration tests → build, against postgres:16 and
+      redis:7 service containers. Playwright smoke still pending (no web app yet).
+- [x] **ESLint + `eslint-plugin-boundaries`** — root flat config enforcing the 01 §1 dependency
+      direction, plus no-`any` and a Node-builtin ban in `core`/`types`.
 - [ ] **Offboarding script** (01 §3.5) — export to S3, 30-day grace, legal-hold block.
 
 ## Phase 1 — Core loop (backend, then frontend)
@@ -199,6 +202,22 @@ Frontend (only after the backend slice for a module is green):
   trigger), so the only reset is table-wide as the owner. Serial execution is the cost of testing
   real guarantees instead of a mock. *Affects: 08 §1.*
 
+- **2026-07-20 — one root ESLint flat config, not per-package configs.** The rule that matters
+  most (01 §1 dependency direction) is invisible from inside any single package, so it has to be
+  evaluated from the root. `pnpm lint` is now `eslint .` rather than `turbo run lint`, which had
+  been matching zero packages and reporting green. *Affects: 01 §1, 01 §5.*
+
+- **2026-07-20 — `eslint-import-resolver-typescript` is mandatory for the boundaries rule.**
+  Without a resolver, `boundaries/element-types` cannot map `@kaenal/db` back to `packages/db`,
+  so every cross-package rule silently passes. Found by mutation test (a `core → db` import was
+  NOT flagged until the resolver was added), not by reading the docs. If the resolver is ever
+  removed, the dependency-direction net dies silently. *Affects: 01 §1.*
+
+- **2026-07-20 — CI service-container credentials are inline in `ci.yml`.** They belong to an
+  ephemeral container that exists for one job and is reachable only from it, so they are not
+  secrets and putting them in GitHub Secrets would imply otherwise. Real environments take every
+  value from the deployment platform's secret store (01 §2). *Affects: 01 §2, 01 §5.*
+
 ---
 
 ## Known issues / TODO
@@ -214,7 +233,11 @@ Frontend (only after the backend slice for a module is green):
 - **API-level cross-tenant probes not written** (08 §1.1 items 4–5: foreign id in body → 404,
   search/export/WS channel probes). Blocked on the API existing. Do not mark 08 §1.1 complete until
   these land — the DB-level suite is necessary but not sufficient.
-- **No CI yet**, so the two nets only run locally. Wire GitHub Actions before any further schema work.
+- **Playwright smoke is not in CI** (01 §5) — nothing to smoke-test until `apps/web` exists. Add
+  the job with the first web route, not before; an empty browser job is a green check that means
+  nothing.
+- **CI has no staging/production deploy stage yet** (01 §5 second half: migrate → deploy, expand →
+  migrate → contract). Deliberate — there is no deploy target. Revisit at the end of Phase 1.
 - **No enum-drift lint yet.** 01 §4 wants DB CHECK value lists generated from `packages/types`.
   They are currently hand-mirrored, and migration 0002 exists precisely because one was missed.
   Write `packages/db/scripts/check-enums.ts` to compare `pg_constraint` value lists against the
