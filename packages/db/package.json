@@ -1,0 +1,33 @@
+{
+  "name": "@kaenal/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx scripts/migrate.ts",
+    "reset": "tsx scripts/reset.ts",
+    "check-rls": "tsx scripts/check-rls.ts",
+    "provision-tenant": "tsx scripts/provision-tenant.ts",
+    "test": "vitest run",
+    "test:rls": "vitest run test/rls.test.ts"
+  },
+  "dependencies": {
+    "@kaenal/types": "workspace:*",
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@kaenal/config": "workspace:*",
+    "@types/pg": "^8.11.10",
+    "dotenv": "^16.4.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

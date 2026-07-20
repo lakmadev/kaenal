@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kaenal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kaenal_migrator
+      POSTGRES_PASSWORD: kaenal_local_pw
+      POSTGRES_DB: kaenal
+    ports:
+      - "5433:5432"
+    volumes:
+      - kaenal-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kaenal_migrator -d kaenal"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: kaenal-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - kaenal-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    container_name: kaenal-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: kaenal
+      MINIO_ROOT_PASSWORD: kaenal_local_pw
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - kaenal-miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  kaenal-pgdata:
+  kaenal-redisdata:
+  kaenal-miniodata:

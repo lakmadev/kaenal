@@ -1,0 +1,29 @@
+{
+  "name": "kaenal",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:rls": "pnpm --filter @kaenal/db test:rls",
+    "db:generate": "pnpm --filter @kaenal/db generate",
+    "db:migrate": "pnpm --filter @kaenal/db migrate",
+    "db:check": "pnpm --filter @kaenal/db check-rls",
+    "db:reset": "pnpm --filter @kaenal/db reset",
+    "provision-tenant": "pnpm --filter @kaenal/db provision-tenant",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3"
+  }
+}
