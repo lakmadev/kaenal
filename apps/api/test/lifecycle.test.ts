@@ -164,17 +164,24 @@ describe("step 1 — subdomain resolution", () => {
   });
 });
 
-describe("step 2 — authentication is not implemented yet", () => {
-  it("401s a request that presents a credential", async () => {
-    // Guards against the stub silently surviving the auth module: when auth
-    // ships, this test must be rewritten, not deleted.
+describe("step 2 — session authentication (03 §2)", () => {
+  it("401s a request with no credential (default-deny)", async () => {
+    const res = await request(server()).get("/v1/me").set("X-Tenant-Id", ACTIVE);
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("UNAUTHENTICATED");
+  });
+
+  it("401s a bogus bearer token as an expired session, without leaking why", async () => {
+    // A well-formed but unknown token must not fall through to anonymous, and
+    // must not distinguish "unknown" from "expired" — either would help an
+    // attacker probe for live sessions.
     const res = await request(server())
       .get("/v1/me")
       .set("X-Tenant-Id", ACTIVE)
-      .set("Authorization", "Bearer anything");
+      .set("Authorization", "Bearer not-a-real-session-token");
 
     expect(res.status).toBe(401);
-    expect(res.body.error.message).toMatch(/not yet implemented/i);
+    expect(res.body.error.code).toBe("UNAUTHENTICATED");
   });
 });
 

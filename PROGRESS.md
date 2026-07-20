@@ -5,25 +5,29 @@
 
 ## Current status
 
-**Phase 0 — Foundation, in flight.** Data plane, business logic, audit plumbing and the API
-request lifecycle are done and proven, and CI runs them on every push/PR. 617 tests pass (219 db
-integration, 342 core unit, 31 api integration, 25 types unit); all four packages typecheck under
-strict TS and lint clean. The RLS schema lint covers 32 tenant tables. The isolation nets, the DST
-math, the dependency-direction lint and the request lifecycle were all mutation-tested — they
-genuinely fail when the thing they guard is broken.
+**Phase 0 — Foundation, in flight.** Data plane, business logic, audit plumbing, the API request
+lifecycle AND authentication are done and proven, and CI runs them on every push/PR. 670 tests
+pass (233 db integration, 364 core unit, 48 api integration, 25 types unit); all four packages
+typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant tables. The
+isolation nets, the DST math, the dependency-direction lint, the request lifecycle, the composite
+member FKs, lockout durability and CSRF were all mutation-tested — they genuinely fail when the
+thing they guard is broken.
 
-`apps/api` boots, resolves tenants, opens the tenant-scoped transaction and enforces RBAC.
-Nothing can authenticate yet: `AUTHENTICATOR` is a stub that rejects every presented credential,
-so every non-`@Public` route 401s. That is deliberate and asserted by a test.
+`apps/api` authenticates: sign-in issues an httpOnly session cookie (+ double-submit CSRF) or a
+mobile bearer token; sign-out revokes; invite → accept → sign-in works end to end; lockout, weak-
+password rejection and single-use tokens are enforced. Every failure path returns the same
+envelope, so the login form is not an account/membership oracle.
 
-**Next task:** auth (03 §2) — sessions, invitations, lockout (10 fails → 15 min), password reset.
-It is a single provider swap at the `AUTHENTICATOR` token; the rest of the lifecycle stays put.
-Then ts-rest contracts in `packages/types/src/contracts/`, then the first vertical slice
-(inspections).
+**Identity conflict RESOLVED (02 §2 vs 07 §7 → 07 §7).** Migration `0003_shared_identity` moved
+`users` into `control.users` (global person) with `memberships` as the per-tenant join. Every
+user reference in a tenant table is now a composite FK to `memberships (tenant_id, user_id)`. See
+Decisions log + `control-identity.test.ts`.
 
-**Settle before starting auth:** the `users` identity-model conflict below (02 §2 vs 07 §7). It
-changes whether `users` lives in the tenant schema or `control`, which is a migration and an
-auth-design change, not a refactor.
+**Next task:** ts-rest contracts in `packages/types/src/contracts/` + OpenAPI at
+`/v1/openapi.json` (03 §1), then the first vertical slice — Inspections (templates → dynamic form
+engine → completion validation) — schema → contract → service → tests → UI. Rate limiting (03 §9,
+including the 5/min login limiter that completes the lockout story) should land alongside the
+contract layer.
 
 ### How to get running from a cold clone
 
@@ -31,11 +35,16 @@ auth-design change, not a refactor.
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order
+pnpm db:migrate               # apply migrations/*.sql in order (through 0003)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
-pnpm test:rls                 # tenancy suite — must pass
+pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
+pnpm test                     # full suite (serial: shares one DB) — 670 tests
 ```
+
+The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
+provisioned first. `pnpm test` is `turbo run test --concurrency=1` — do not parallelise it; the
+suites share one Postgres.
 
 Ports are shifted off the defaults (5433/6380) so the stack can coexist with any Postgres or
 Redis already running locally.
@@ -81,10 +90,18 @@ Redis already running locally.
       scoring with conditional items/N-A/zero-weight sections, supplier weighted score
       (normalise weights, weight 0 excludes, missing metric flagged not zeroed), recurrence
       expansion (Feb 29, month-end). Not needed until the inspections/suppliers slices.
-- [ ] **Auth** — sessions, invitations, lockout (10 fails → 15 min), password reset. Schema
-      (`users`, `sessions`, `memberships`) is in place; no logic yet. Insertion point is the
-      `AUTHENTICATOR` provider in `apps/api/src/auth/authenticator.ts` — implement the interface
-      and swap the binding in `app.module.ts`; nothing else in the lifecycle changes.
+- [x] **Shared identity migration** (2026-07-20) — `0003_shared_identity`: `users` → `control.users`,
+      per-tenant profile onto `memberships`, every user reference repointed to a composite FK to
+      `memberships (tenant_id, user_id)` via a `pg_constraint`-driven loop, plus `invitations`
+      (tenant-owned) and `control.password_resets`. 14 explicit tests in `control-identity.test.ts`
+      (the table is outside the RLS lint), mutation-tested against a single-column FK.
+- [x] **Auth** (2026-07-20) — 03 §2, 07 §4. argon2id credentials, tenant-scoped sessions
+      (httpOnly cookie + double-submit CSRF; mobile bearer), invitations (7-day single-use,
+      re-invite invalidates), lockout (10 → 15 min, counter + audit written OUTSIDE the request tx
+      so they survive the rejection), password reset (30-min single-use, kills all sessions),
+      uniform failure envelope so login is not an enumeration oracle. Policy math lives in
+      `packages/core/src/auth-policy.ts` (26 unit tests); the wiring is `apps/api/src/auth/*` with
+      48 api integration tests. The real `SessionAuthenticator` is now bound at `AUTHENTICATOR`.
 - [ ] **Drizzle schema mirror** — typed query layer over the hand-written SQL (see Decision 2).
 - [x] **`apps/api` skeleton** — NestJS + the 01 §3.3 request lifecycle. Tenant resolution
       (subdomain + `X-Tenant-Id`, Redis-cached registry), scoped transaction, RBAC guard, error
@@ -105,7 +122,7 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
 
 - [ ] ts-rest contracts in `packages/types/src/contracts/` + OpenAPI 3.1 at `/v1/openapi.json`
 - [x] Request lifecycle middleware: resolve tenant → authenticate → scoped tx → RBAC guard
-      (landed in Phase 0 with the api skeleton; authentication step still stubbed)
+      (Phase 0; authentication is now the real `SessionAuthenticator`, not a stub)
 - [x] RBAC guards from the 03 §3 matrix (+ plant scoping for inspector/viewer) — matrix and
       helpers done and tested; plant scoping is not yet APPLIED to any query (no list endpoints)
 - [ ] Cursor pagination, idempotency keys, optimistic concurrency (`STALE_WRITE`) — 03 §5–6
@@ -170,11 +187,44 @@ Frontend (only after the backend slice for a module is green):
   *result* from `pg_catalog` independently, so the two nets stay genuinely independent (08 §1.1).
   *Affects: 02 §1, §6.*
 
-- **2026-07-20 — `users` is tenant-owned with `unique(tenant_id, email)`.** Follows 02 §2 verbatim.
-  This means one person at two customers is two user rows, and the multi-tenant membership
-  described in 07 §7 resolves by email at sign-in rather than by a shared user row. Keeps the
-  "every table is tenant-owned" invariant total, which is what makes the dynamic RLS enumeration
-  sound. *Affects: 02 §2, 07 §7 — see Conflicts.*
+- **2026-07-20 — SUPERSEDED — `users` was tenant-owned with `unique(tenant_id, email)`.** Followed
+  02 §2 verbatim. Reversed the same day by the decision below once auth made the cost concrete.
+  Left here so the reversal is legible.
+
+- **2026-07-20 — identity is SHARED: `users` moved to `control.users` (0003).** Chose 07 §7 over
+  02 §2. 07 §7's workspace switcher and cross-tenant invites are specified product behaviour that
+  per-tenant user rows cannot deliver; the reverse (shared rows, single membership) degrades
+  gracefully. Cost: `users` leaves the dynamic RLS enumeration, so it carries its own explicit
+  access tests. The guarantee RLS used to give — no cross-tenant user references — is replaced by
+  a composite FK `(tenant_id, col) → memberships (tenant_id, user_id)` on every referencing
+  column, so the constraint can only be satisfied by a member of the SAME tenant. The FK is
+  driven off `pg_constraint` in the migration so a column added later is not silently missed.
+  *Affects: 02 §2, 07 §7, 03 §10.*
+
+- **2026-07-20 — the request lifecycle has three access levels, default-deny.** `@Public` (no
+  tenant, no session — health), `@AllowAnonymous` (tenant + scoped tx, no session — sign-in,
+  accept-invite, which must read/write tenant rows under RLS without a credential), and the
+  default (session required, optional `@RequireCapability`). A route with no decorator 401s, so a
+  forgotten guard fails closed. *Affects: 01 §3.3, 03 §2.*
+
+- **2026-07-20 — sign-in failures write their audit event and lockout counter OUTSIDE the request
+  transaction.** Every failure path throws, and a throw rolls the request transaction back — which
+  would erase the very record of the failed attempt and reset the counter, so lockout would never
+  engage. Both go through the control pool / a separate `withTenant`. Mutation-tested: routing the
+  counter through the request tx makes the lockout test fail. *Affects: 03 §2, 07 §1.*
+
+- **2026-07-20 — every auth failure returns the SAME envelope** (`UNAUTHENTICATED`, "Email or
+  password is incorrect"), whether the cause is unknown email, wrong password, locked account, or
+  a valid credential for a tenant the person is not a member of. Distinguishing them turns the
+  login form into an account/membership enumeration oracle — and tenant membership is exactly the
+  cross-tenant existence rule 8 forbids leaking. Unknown accounts also spend a dummy argon2 verify
+  to flatten timing. *Affects: 03 §2, rule 8.*
+
+- **2026-07-20 — `pnpm test` runs packages serially (`--concurrency=1`).** All integration tests
+  share one Postgres, and the db-package suites TRUNCATE shared tables (incl. `control.users`),
+  which corrupts the api suite's fixtures when the two run in parallel. Serial + each suite
+  seeding/cleaning its own data is the cheap fix; a per-package database or schema is the real one
+  (Known issues). *Affects: 08 §1.*
 
 - **2026-07-20 — Non-default local ports (postgres 5433, redis 6380).** Avoids collisions with
   developers' existing local services. *Affects: 01 §2.*
@@ -270,31 +320,55 @@ Frontend (only after the backend slice for a module is green):
 - **Model B (dedicated instance) provisioning is unimplemented.** `provision-tenant --model
   dedicated` exits with a clear error. Needs per-tenant DB creation + the migration fan-out with
   per-tenant locking (01 §3.4, 02 §5).
-- **Invite tokens are printed but not persisted.** `provision-tenant` prints an invite link; the
-  token isn't stored or verifiable until the auth module lands (03 §2). The seeded admin user sits
-  at `status='invited'` with no credential, so nothing is currently loginable — intended.
+- **The provisioned admin has no credential and no persisted invite.** `provision-tenant` still
+  prints a throwaway invite link that is not stored — the seeded admin sits at membership
+  `status='invited'` with no password. To make a tenant loginable, an existing admin must issue a
+  real invite via `POST /v1/auth/invite`. Bootstrapping the FIRST admin (no admin exists yet to
+  invite them) is unsolved: provisioning should persist a real invitation row and print its token.
+  Tracked for the provisioning pass.
+- **No email delivery.** `POST /v1/auth/invite` and `/forgot-password` return the one-time token
+  in the response body OUTSIDE production so flows are testable; in production they return nothing
+  and the token must be emailed. Until an email job exists (06), these flows are not usable in a
+  production deploy. The token is never logged.
 - **`kaenal_public` role has no grants yet.** Correct for now (02 §1 says none by default), but the
   public-route paths in 01 §3.3 need revisiting when auth ships.
 - **API-level cross-tenant probes not written** (08 §1.1 items 4–5: foreign id in body → 404,
   search/export/WS channel probes). Blocked on the API existing. Do not mark 08 §1.1 complete until
   these land — the DB-level suite is necessary but not sufficient.
-- **Nothing can authenticate.** `NotImplementedAuthenticator` returns null for a request with no
-  credential and throws UNAUTHENTICATED for one that presents any. Combined with the lifecycle's
-  default-deny, every non-`@Public` route 401s. A test asserts the "not yet implemented" message,
-  so the stub cannot survive the auth module unnoticed.
-- **`GET /v1/me` is the only tenant route**, and it exists to prove the lifecycle end to end
-  rather than to serve the UI. Its shape will change when 03 §2 defines the session.
+- **Sessions are opaque tokens, not JWTs.** 03 §2 describes the web session as an "encrypted JWT,
+  12h, sliding refresh". Implemented instead as a random token whose SHA-256 is stored in
+  `sessions`, looked up per request. Simpler, revocable server-side (a JWT is not), and the sliding
+  window is enforced on lookup. If a stateless JWT is later required for scale, it is a change to
+  `resolveSession`/`signIn` only. The 12h TTL slides on `slideSessionExpiry` at issue but is NOT
+  yet re-slid on each request — add that when session activity tracking lands.
+- **Deactivating a membership does not proactively kill live sessions.** `resolveSession` re-checks
+  `membership.status = 'active'` on every request, so a deactivated user is locked out on their
+  next call (07 §7 role re-evaluation) — but any long-poll/socket already open is not torn down.
+  Fine for REST; revisit with realtime (06).
+- **`GET /v1/me` returns a minimal shape** (userId, tenantSlug, role, capabilities). 03 §3 will
+  want more (name, plants, tenant display name) once the web shell needs it.
 - **Model B (dedicated) request routing throws INTERNAL.** The lifecycle refuses to serve a
   tenant whose registry row says `dedicated` rather than falling through to the shared pool.
   Loud failure is deliberate — the quiet version puts a dedicated tenant's data in the shared DB.
-- **The control-plane pool uses the migrator connection string** (`DATABASE_URL`), because
-  `control.tenants` is not readable by `kaenal_app`. It is used only for registry lookups and
-  health checks, never to serve tenant data. A dedicated least-privilege `kaenal_registry` role
-  with SELECT on `control.tenants` and nothing else would be strictly better — worth doing before
-  production, tracked here so it is not forgotten.
-- **No rate limiting yet** (03 §9): 60 rpm/user, 5/min on login endpoints. Needs Redis sliding
-  window. Must land with auth, since the login limiter is half of the lockout story.
-- **No CSRF protection yet** (03 §2) — needed the moment cookie auth exists, not before.
+- **The control-plane pool uses the migrator connection string** (`DATABASE_URL`), and auth now
+  READS AND WRITES `control.users` / `control.password_resets` / cross-tenant `sessions` through
+  it (sign-in, lockout counters, password reset revoking every session). Migration 0003 grants
+  `kaenal_app` SELECT/INSERT/UPDATE (never DELETE) on the control identity tables, so a dedicated
+  least-privilege `kaenal_registry`/`kaenal_auth` role could replace the migrator pool here and
+  should before production — the migrator is a superuser and this is more reach than the API needs.
+  Tracked so it is not forgotten.
+- **No rate limiting yet** (03 §9): 60 rpm/user, 5/min on login + reset endpoints. Needs a Redis
+  sliding window. This is now the most important gap — lockout caps attempts per ACCOUNT, but
+  without a per-IP login limiter, credential-stuffing across many accounts is unthrottled. Land it
+  with the contract layer.
+- **`equalizeTiming` only flattens the unknown-account path.** It spends a dummy argon2 verify when
+  the email is unknown, but the locked / wrong-password / no-membership branches have their own
+  (real) argon2 or query costs, which are close but not identical. Good enough against coarse
+  timing; a determined side-channel attacker is out of scope for now.
+- **Per-package test isolation is by convention, not enforced.** All suites share one Postgres;
+  `pnpm test` runs serially and each suite seeds/cleans its own fixtures, but nothing PREVENTS a
+  new suite from truncating a table another depends on. The real fix is a database or schema per
+  package (or per worker). Revisit if the suite grows or flakes.
 - **Playwright smoke is not in CI** (01 §5) — nothing to smoke-test until `apps/web` exists. Add
   the job with the first web route, not before; an empty browser job is a green check that means
   nothing.
@@ -325,13 +399,12 @@ Frontend (only after the backend slice for a module is green):
 - **Spec path** — CLAUDE.md says `implementation/` is at the repo root; it is actually at
   `project_brain/project/implementation/`. Recorded as Decision 1. Worth fixing CLAUDE.md, or
   moving the specs to the root, at the user's preference.
-- **User identity model** — 02 §2 specifies `users.email` unique *per tenant* (implying a user row
-  per tenant); 07 §7 describes one person holding membership in multiple tenants and picking a
-  workspace at sign-in (implying a shared user row). Per the ground-truth rule, `implementation/`
-  wins and both statements are in `implementation/`, so resolved in favour of the more concrete
-  one (02 §2 schema) — see Decision 5. **Flag for the user:** if true shared identity across
-  tenants is wanted, `users` must move to the `control` schema and the auth design changes
-  materially. Cheaper to settle before the auth module than after.
+- **User identity model — RESOLVED 2026-07-20 in favour of 07 §7 (shared identity).** 02 §2
+  specified `users.email` unique *per tenant*; 07 §7 described one person across tenants with a
+  workspace picker. Both are in `implementation/`, so the ground-truth rule did not settle it — the
+  user chose shared identity. `users` moved to `control.users` in migration `0003`; every tenant
+  reference is a composite FK to `memberships`. See the two Decisions-log entries and
+  `control-identity.test.ts`. Left here as a record that the conflict existed and how it closed.
 - `project_brain/README.md` is a Claude Design handoff note ("read Kaenal.html in full", "ask
   before implementing"). It describes the design-bundle workflow, not this build. Superseded by
   CLAUDE.md and `implementation/` — noted so a future session doesn't mistake it for instructions.

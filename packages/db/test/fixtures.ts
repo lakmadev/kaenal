@@ -19,22 +19,38 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
 
   const t = tenantId;
 
+  // People live in control.users now (0003) — global identity, no tenant_id.
+  // They become visible to this tenant only through a membership, which is
+  // what every other table's composite FK actually references.
   const userId = await q(
-    `INSERT INTO users (tenant_id, email, name, status)
-     VALUES ($1, $2, $3, 'active') RETURNING id`,
-    [t, `user@${tag}.test`, `${tag} User`],
+    `INSERT INTO control.users (email, name) VALUES ($1, $2) RETURNING id`,
+    [`user@${tag}.test`, `${tag} User`],
   );
 
-  // A second user so four-eyes paths (resolver ≠ verifier) are expressible.
+  // A second person so four-eyes paths (resolver != verifier) are expressible.
   const verifierId = await q(
-    `INSERT INTO users (tenant_id, email, name, status)
-     VALUES ($1, $2, $3, 'active') RETURNING id`,
-    [t, `verifier@${tag}.test`, `${tag} Verifier`],
+    `INSERT INTO control.users (email, name) VALUES ($1, $2) RETURNING id`,
+    [`verifier@${tag}.test`, `${tag} Verifier`],
   );
 
   await q(
-    `INSERT INTO memberships (tenant_id, user_id, role) VALUES ($1, $2, 'admin') RETURNING id`,
+    `INSERT INTO memberships (tenant_id, user_id, role, status)
+     VALUES ($1, $2, 'admin', 'active') RETURNING id`,
     [t, userId],
+  );
+
+  // Every user reference in a tenant table is a composite FK to
+  // memberships(tenant_id, user_id), so the verifier needs one too.
+  await q(
+    `INSERT INTO memberships (tenant_id, user_id, role, status)
+     VALUES ($1, $2, 'manager', 'active') RETURNING id`,
+    [t, verifierId],
+  );
+
+  await q(
+    `INSERT INTO invitations (tenant_id, email, role, token_hash, expires_at, invited_by)
+     VALUES ($1, $2, 'inspector', $3, now() + interval '7 days', $4) RETURNING id`,
+    [t, `invitee@${tag}.test`, `invite-hash-${tag}`, userId],
   );
 
   await q(
@@ -233,5 +249,11 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
  */
 export async function truncateAllTenantTables(tx: Tx, tables: readonly string[]): Promise<void> {
   if (tables.length === 0) return;
-  await tx.query(`TRUNCATE TABLE ${tables.map((t) => `public.${t}`).join(", ")} CASCADE`);
+  // control.users goes too: it is not tenant-owned, so it survives a
+  // tenant-table truncate, and its email is globally unique — re-seeding
+  // would collide on the second run rather than starting clean. Only the
+  // identity tables; control.tenants is the registry and must persist.
+  await tx.query(
+    `TRUNCATE TABLE ${tables.map((t) => `public.${t}`).join(", ")}, control.users CASCADE`,
+  );
 }

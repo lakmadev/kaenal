@@ -13,7 +13,7 @@ import { authorize, type Capability } from "@kaenal/core";
 import { ApiError, tenantNotFound } from "./errors.js";
 import { runWithContext } from "./context.js";
 import { slugFromHost, TenantRegistry } from "./tenant/registry.js";
-import { IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
+import { IS_ANONYMOUS, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
 import { AUTHENTICATOR, ENV, TENANT_REGISTRY } from "./tokens.js";
 import type { Authenticator } from "./auth/authenticator.js";
 import type { Env } from "./env.js";
@@ -61,14 +61,17 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
       handler,
       controller,
     ]);
+    const allowAnonymous =
+      this.reflector.getAllAndOverride<boolean>(IS_ANONYMOUS, [handler, controller]) ?? false;
 
-    return from(this.run(req, next, required));
+    return from(this.run(req, next, required, allowAnonymous));
   }
 
   private async run(
     req: Request,
     next: CallHandler<unknown>,
     required: Capability | undefined,
+    allowAnonymous: boolean,
   ): Promise<unknown> {
     // --- 1. Resolve tenant ------------------------------------------------
     // Subdomain for web; X-Tenant-Id header for the mobile app (01 §3.3).
@@ -96,19 +99,24 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
       // --- 2. Authenticate ------------------------------------------------
       const session = await this.authenticator.authenticate(req, tx);
 
-      // Default-deny. Anything not explicitly marked @Public requires a
-      // session, whether or not it declares a capability — so forgetting
+      // Default-deny. Anything not marked @Public or @AllowAnonymous requires
+      // a session, whether or not it declares a capability — so forgetting
       // @RequireCapability on a new route yields a 401, not an open endpoint.
-      if (session === null) {
+      if (session === null && !allowAnonymous) {
         throw new ApiError("UNAUTHENTICATED", "Authentication required");
       }
 
-      // Bind app.user_id now that we have one. Same transaction, so it is
-      // still SET LOCAL and still cannot outlive the request.
-      await tx.query("SELECT set_config('app.user_id', $1, true)", [session.userId]);
+      if (session !== null) {
+        // Bind app.user_id now that we have one. Same transaction, so it is
+        // still SET LOCAL and still cannot outlive the request.
+        await tx.query("SELECT set_config('app.user_id', $1, true)", [session.userId]);
+      }
 
       // --- 4. RBAC --------------------------------------------------------
       if (required !== undefined) {
+        // A capability requirement always implies a session, even on a route
+        // that also permits anonymous access.
+        if (session === null) throw new ApiError("UNAUTHENTICATED", "Authentication required");
         const decision = authorize(session.membership, required);
         if (!decision.ok) throw ApiError.from(decision);
       }
@@ -119,8 +127,8 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
           requestId: req.requestId ?? "unknown",
           tenantId: tenant.id,
           tenantSlug: tenant.slug,
-          userId: session.userId,
-          membership: session.membership,
+          userId: session?.userId ?? null,
+          membership: session?.membership ?? null,
           tx,
           ip: req.ip ?? null,
           userAgent: req.header("user-agent") ?? null,

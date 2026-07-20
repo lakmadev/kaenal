@@ -1,0 +1,199 @@
+import { Body, Controller, Inject, Post, Req, Res } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { z } from "zod";
+import { Role } from "@kaenal/types";
+import { WEB_SESSION_TTL_MS } from "@kaenal/core";
+import { currentContext, currentTx } from "../context.js";
+import { AllowAnonymous, Public, RequireCapability } from "../decorators.js";
+import { ApiError } from "../errors.js";
+import { AUTH_SERVICE, ENV } from "../tokens.js";
+import type { Env } from "../env.js";
+import type { AuthService } from "./auth.service.js";
+import { CSRF_COOKIE, SESSION_COOKIE } from "./session.authenticator.js";
+import { generateToken } from "./passwords.js";
+
+/**
+ * Auth routes (03 §2).
+ *
+ * Sign-in is `@Public` because it must run before a session exists — but it
+ * still needs the tenant, which it resolves itself rather than inheriting from
+ * the lifecycle. Everything else here goes through the normal chain.
+ */
+
+const SignInBody = z.object({
+  email: z.string().email().max(320),
+  password: z.string().min(1).max(256),
+});
+
+const AcceptInviteBody = z.object({
+  token: z.string().min(1).max(200),
+  name: z.string().min(1).max(120),
+  password: z.string().min(1).max(256),
+});
+
+const InviteBody = z.object({
+  email: z.string().email().max(320),
+  role: Role,
+  plantIds: z.array(z.string().uuid()).optional(),
+});
+
+const ForgotBody = z.object({ email: z.string().email().max(320) });
+
+const ResetBody = z.object({
+  token: z.string().min(1).max(200),
+  password: z.string().min(1).max(256),
+});
+
+function parse<T>(schema: z.ZodType<T>, body: unknown): T {
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    throw new ApiError("VALIDATION_FAILED", "Request body is invalid", {
+      issues: result.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+    });
+  }
+  return result.data;
+}
+
+@Controller("v1/auth")
+export class AuthController {
+  constructor(
+    @Inject(AUTH_SERVICE) private readonly auth: AuthService,
+    @Inject(ENV) private readonly env: Env,
+  ) {}
+
+  @AllowAnonymous()
+  @Post("sign-in")
+  async signIn(
+    @Body() body: unknown,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ userId: string; role: string; expiresAt: string }> {
+    const { email, password } = parse(SignInBody, body);
+    const ctx = currentContext();
+
+    const result = await this.auth.signIn(currentTx(), ctx.tenantId, email, password, {
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+      requestId: ctx.requestId,
+    });
+
+    const csrfToken = generateToken();
+    this.setCookies(res, result.sessionToken, csrfToken);
+
+    return {
+      userId: result.userId,
+      role: result.role,
+      expiresAt: result.expiresAt.toISOString(),
+    };
+  }
+
+  @Post("sign-out")
+  async signOut(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ ok: true }> {
+    const ctx = currentContext();
+    const token = this.sessionToken(req);
+
+    if (token !== null && ctx.userId !== null) {
+      await this.auth.signOut(currentTx(), ctx.tenantId, token, ctx.userId);
+    }
+
+    this.clearCookies(res);
+    return { ok: true };
+  }
+
+  @AllowAnonymous()
+  @Post("accept-invite")
+  async acceptInvite(@Body() body: unknown): Promise<{ ok: true }> {
+    // Unauthenticated by definition, but tenant-scoped: an invitation belongs
+    // to one tenant. @AllowAnonymous runs the lifecycle's tenant resolution and
+    // opens the scoped transaction, so this reads and writes tenant rows under
+    // RLS without a session — no hand-rolled tenant lookup.
+    const { token, name, password } = parse(AcceptInviteBody, body);
+    const ctx = currentContext();
+
+    await this.auth.acceptInvitation(currentTx(), ctx.tenantId, token, name, password);
+
+    return { ok: true };
+  }
+
+  @Post("invite")
+  @RequireCapability("members:manage")
+  async invite(@Body() body: unknown): Promise<{ email: string; expiresAt: string; token?: string }> {
+    const { email, role, plantIds } = parse(InviteBody, body);
+    const ctx = currentContext();
+    if (ctx.userId === null) throw new ApiError("UNAUTHENTICATED", "Authentication required");
+
+    const { token, expiresAt } = await this.auth.invite(
+      currentTx(),
+      ctx.tenantId,
+      ctx.userId,
+      email,
+      role,
+      plantIds ?? [],
+    );
+
+    // The token is returned only outside production, where there is no mail
+    // delivery yet. In production it must reach the invitee by email and
+    // nobody else — an admin who can read it can impersonate the invitee.
+    return this.env.NODE_ENV === "production"
+      ? { email, expiresAt: expiresAt.toISOString() }
+      : { email, expiresAt: expiresAt.toISOString(), token };
+  }
+
+  @Public()
+  @Post("forgot-password")
+  async forgotPassword(@Body() body: unknown): Promise<{ ok: true; token?: string }> {
+    const { email } = parse(ForgotBody, body);
+    const token = await this.auth.requestPasswordReset(email);
+
+    // Always `ok: true`, whether or not the address is known. Anything else is
+    // an unauthenticated account-enumeration endpoint.
+    return this.env.NODE_ENV === "production" || token === null ? { ok: true } : { ok: true, token };
+  }
+
+  @Public()
+  @Post("reset-password")
+  async resetPassword(@Body() body: unknown): Promise<{ ok: true }> {
+    const { token, password } = parse(ResetBody, body);
+    await this.auth.completePasswordReset(token, password);
+    return { ok: true };
+  }
+
+  private sessionToken(req: Request): string | null {
+    const header = req.header("cookie") ?? "";
+    for (const part of header.split(";")) {
+      const [k, ...rest] = part.split("=");
+      if (k?.trim() === SESSION_COOKIE) return decodeURIComponent(rest.join("=").trim());
+    }
+    const auth = req.header("authorization");
+    return auth?.startsWith("Bearer ") === true ? auth.slice(7) : null;
+  }
+
+  private setCookies(res: Response, sessionToken: string, csrfToken: string): void {
+    const secure = this.env.NODE_ENV === "production";
+
+    res.cookie(SESSION_COOKIE, sessionToken, {
+      httpOnly: true, // unreadable from JS, so XSS cannot exfiltrate the session
+      secure,
+      sameSite: "lax", // blocks cross-site POSTs while keeping normal navigation
+      maxAge: WEB_SESSION_TTL_MS,
+      path: "/",
+    });
+
+    // Readable by design: the client must echo it in a header for the
+    // double-submit check. It authorises nothing on its own.
+    res.cookie(CSRF_COOKIE, csrfToken, {
+      httpOnly: false,
+      secure,
+      sameSite: "lax",
+      maxAge: WEB_SESSION_TTL_MS,
+      path: "/",
+    });
+  }
+
+  private clearCookies(res: Response): void {
+    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    res.clearCookie(CSRF_COOKIE, { path: "/" });
+  }
+}

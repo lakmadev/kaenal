@@ -10,3 +10,4 @@ export const REDIS = Symbol("REDIS");
 export const CONTROL_POOL = Symbol("CONTROL_POOL");
 export const TENANT_REGISTRY = Symbol("TENANT_REGISTRY");
 export const AUTHENTICATOR = Symbol("AUTHENTICATOR");
+export const AUTH_SERVICE = Symbol("AUTH_SERVICE");

@@ -156,18 +156,20 @@ async function main(): Promise<void> {
         ],
       );
 
-      // The first admin. Status stays 'invited' until the invite is accepted —
-      // provisioning never creates a usable credential (03 §2).
+      // The first admin. The person is global (control.users, 0003); the
+      // membership is what makes them an admin HERE. Membership status stays
+      // 'invited' until the invite is accepted — provisioning never creates a
+      // usable credential (03 §2).
       await tx.query(
-        `INSERT INTO users (tenant_id, email, name, status)
-         VALUES ($1, $2, 'Administrator', 'invited')
-         ON CONFLICT (tenant_id, email) DO NOTHING`,
-        [tenantId, `admin@${slug}.invalid`],
+        `INSERT INTO control.users (email, name)
+         VALUES ($1, 'Administrator')
+         ON CONFLICT (email) DO NOTHING`,
+        [`admin@${slug}.invalid`],
       );
 
       await tx.query(
-        `INSERT INTO memberships (tenant_id, user_id, role)
-         SELECT $1, u.id, 'admin' FROM users u WHERE u.tenant_id = $1 AND u.email = $2
+        `INSERT INTO memberships (tenant_id, user_id, role, status)
+         SELECT $1, u.id, 'admin', 'invited' FROM control.users u WHERE u.email = $2
          ON CONFLICT (tenant_id, user_id) DO NOTHING`,
         [tenantId, `admin@${slug}.invalid`],
       );

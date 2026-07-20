@@ -25,6 +25,23 @@ All spec paths below are relative to `project_brain/project/`.
 7. A feature = migration + API contract + UI + tests + audit events. Missing any → not done.
 8. Never reveal cross-tenant existence: foreign-tenant ids → 404, not 403.
 
+## Settled architecture decisions (do not re-litigate; see PROGRESS.md Decisions log for why)
+- **Identity is shared, not per-tenant.** A person is one row in `control.users` (email globally
+  unique, holds the credential/MFA/lockout). A `membership` is the person in one tenant (role,
+  plant scope, per-tenant status). This resolves the 02 §2 vs 07 §7 conflict in favour of 07 §7
+  (one login, workspace picker, cross-tenant invites). `control.users` is outside RLS, so it has
+  its own explicit access tests (`packages/db/test/control-identity.test.ts`) — keep them green.
+- **Every user reference in a tenant table is a composite FK** `(tenant_id, col) → memberships
+  (tenant_id, user_id)`, not a plain FK to `control.users`. This is what replaces the RLS
+  invisibility that used to prevent cross-tenant user references — do not "simplify" it to a
+  single-column FK (a mutation test proves that regresses).
+- **The request lifecycle is ONE interceptor** (`apps/api/src/lifecycle.interceptor.ts`), not
+  middleware + guards, so authentication and RBAC run INSIDE the tenant-scoped transaction. Routes
+  are default-deny: `@Public` (no tenant, no session), `@AllowAnonymous` (tenant + scoped tx, no
+  session — sign-in, accept-invite), or authenticated (+ optional `@RequireCapability`).
+- **Integration tests share one Postgres**, so `pnpm test` runs packages serially
+  (`--concurrency=1`). Each suite must seed and clean up its own fixtures.
+
 ## Working rules
 - Vertical slices: schema → contract → service → tests → UI for ONE entity before the next.
 - Small conventional commits; tests ship with the module, not later.

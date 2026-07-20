@@ -7,3 +7,4 @@ export * from "./state-machines/document.js";
 export * from "./sla.js";
 export * from "./codes.js";
 export * from "./rbac.js";
+export * from "./auth-policy.js";

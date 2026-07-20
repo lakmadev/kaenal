@@ -9,12 +9,21 @@ import { RequestLifecycleInterceptor } from "./lifecycle.interceptor.js";
 import { RequestIdMiddleware } from "./request-id.middleware.js";
 import { TenantRegistry } from "./tenant/registry.js";
 import { ShutdownService } from "./shutdown.service.js";
-import { NotImplementedAuthenticator } from "./auth/authenticator.js";
+import { AuthService } from "./auth/auth.service.js";
+import { SessionAuthenticator } from "./auth/session.authenticator.js";
+import { AuthController } from "./auth/auth.controller.js";
 import { MeController } from "./me.controller.js";
-import { AUTHENTICATOR, CONTROL_POOL, ENV, REDIS, TENANT_REGISTRY } from "./tokens.js";
+import {
+  AUTH_SERVICE,
+  AUTHENTICATOR,
+  CONTROL_POOL,
+  ENV,
+  REDIS,
+  TENANT_REGISTRY,
+} from "./tokens.js";
 
 @Module({
-  controllers: [HealthController, MeController],
+  controllers: [HealthController, MeController, AuthController],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
 
@@ -41,9 +50,19 @@ import { AUTHENTICATOR, CONTROL_POOL, ENV, REDIS, TENANT_REGISTRY } from "./toke
       inject: [CONTROL_POOL, REDIS, ENV],
     },
 
-    // Swapped for the real implementation when 03 §2 lands; tests override it
-    // to exercise the rest of the lifecycle.
-    { provide: AUTHENTICATOR, useClass: NotImplementedAuthenticator },
+    {
+      provide: AUTH_SERVICE,
+      useFactory: (control: pg.Pool) => new AuthService(control),
+      inject: [CONTROL_POOL],
+    },
+
+    // The real step 2 (03 §2): resolves the session cookie / bearer token.
+    // Tests override AUTHENTICATOR with a stub to drive the rest of the chain.
+    {
+      provide: AUTHENTICATOR,
+      useFactory: (auth: AuthService) => new SessionAuthenticator(auth),
+      inject: [AUTH_SERVICE],
+    },
 
     ShutdownService,
 

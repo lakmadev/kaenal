@@ -4,6 +4,7 @@ import request from "supertest";
 import { Test } from "@nestjs/testing";
 import { Controller, Get, type INestApplication } from "@nestjs/common";
 import pg from "pg";
+import { withTenant } from "@kaenal/db";
 import { AppModule } from "../src/app.module.js";
 import { currentContext, currentTx } from "../src/context.js";
 import { RequireCapability } from "../src/decorators.js";
@@ -26,6 +27,7 @@ import type { Authenticator, Session } from "../src/auth/authenticator.js";
 const ACME = "acme";
 const GLOBEX = "globex";
 const STUB_USER = "019f0000-0000-7000-8000-0000000000f1";
+const PROBE_PLANT_CODE = "PROBE-PLANT";
 
 let role: "admin" | "viewer" = "admin";
 
@@ -91,6 +93,18 @@ beforeAll(async () => {
   }
   acmeId = id;
 
+  // Seed a plant this test owns, so the RLS-visibility assertion does not
+  // depend on provisioning seed that a db-package test may have truncated
+  // (control-identity truncates `plants`). Self-contained fixtures don't fail
+  // on cross-package test ordering.
+  await withTenant(acmeId, null, async (tx) => {
+    await tx.query(
+      `INSERT INTO plants (tenant_id, name, code) VALUES ($1, 'Probe Plant', $2)
+       ON CONFLICT (tenant_id, code) DO NOTHING`,
+      [acmeId, PROBE_PLANT_CODE],
+    );
+  });
+
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
     controllers: [ProbeController],
@@ -130,11 +144,11 @@ describe("step 3 — the handler runs inside a tenant-scoped transaction", () =>
   });
 
   it("applies RLS to queries the handler makes", async () => {
-    // The seeded default plant, and nothing from any other tenant. If the
-    // handler ran outside withTenant, current_setting would throw and this
-    // request would 500 instead.
+    // Sees the plant this test seeded for acme. If the handler ran outside
+    // withTenant, current_setting('app.tenant_id') would throw and this
+    // request would 500 instead of returning acme's rows.
     const { body } = await probe(ACME);
-    expect(body.visiblePlantCodes.length).toBeGreaterThan(0);
+    expect(body.visiblePlantCodes).toContain(PROBE_PLANT_CODE);
   });
 
   it("scopes two tenants' requests independently on a shared pool", async () => {
