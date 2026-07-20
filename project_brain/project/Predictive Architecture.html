@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kaenal — Predictive & Event-Driven Quality</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#070d1a; --panel:#0f1a2e; --panel2:#111c30; --raised:#162339;
+    --border:#1e2a44; --border2:#2b3a58;
+    --text:#f1f5f9; --muted:#94a3b8; --subtle:#64748b;
+    --blue:#3b82f6; --blue2:#60a5fa; --indigo:#818cf8; --teal:#2dd4bf;
+    --amber:#fbbf24; --green:#34d399; --purple:#c084fc; --rose:#fb7185;
+    --mono:'JetBrains Mono',ui-monospace,monospace;
+    --sans:'Inter',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:var(--sans); color:var(--text); background:var(--bg);
+    background-image:
+      radial-gradient(1100px 600px at 50% -8%, rgba(251,191,36,0.08), transparent 70%),
+      linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px);
+    background-size:auto, 32px 32px, 32px 32px;
+    -webkit-font-smoothing:antialiased; padding:48px 28px 64px;
+  }
+  .wrap{max-width:1340px;margin:0 auto}
+
+  /* Header */
+  header{display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;margin-bottom:8px}
+  .brand{display:flex;align-items:center;gap:13px}
+  .logo{width:42px;height:42px;border-radius:11px;display:grid;place-items:center;
+    background:linear-gradient(135deg,#d97706,#fbbf24);box-shadow:0 8px 26px -8px rgba(251,191,36,0.6)}
+  .logo svg{width:24px;height:24px;color:#1a1205}
+  .wordmark{font-size:21px;font-weight:800;letter-spacing:0.12em}
+  .sub{color:var(--muted);font-size:13px;margin-top:2px;letter-spacing:0.02em}
+  .htext{flex:1;min-width:260px}
+  h1{font-size:26px;font-weight:800;letter-spacing:-0.02em;margin-bottom:5px}
+  .crumb{font-family:var(--mono);font-size:11px;color:var(--amber);letter-spacing:0.06em;margin-bottom:7px}
+  .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .lg{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);
+    font-family:var(--mono);padding:4px 9px;border:1px solid var(--border);border-radius:999px;background:rgba(255,255,255,0.02)}
+  .dot{width:8px;height:8px;border-radius:50%}
+
+  /* Band */
+  .band{position:relative;border:1px solid var(--border);border-radius:18px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.018), rgba(255,255,255,0));
+    padding:16px 18px 18px;}
+  .band-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .band-tag{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:0.14em;
+    text-transform:uppercase;color:var(--subtle)}
+  .band-title{font-size:14.5px;font-weight:700;letter-spacing:-0.01em}
+  .accent-bar{width:4px;height:30px;border-radius:4px;flex-shrink:0}
+  .band-note{margin-left:auto;font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+
+  /* flow connector */
+  .flow{display:flex;justify-content:center;align-items:center;height:34px;position:relative}
+  .flow::before{content:"";width:2px;height:100%;
+    background:linear-gradient(180deg,var(--border2),rgba(251,191,36,0.55))}
+  .flow .cap{position:absolute;bottom:2px;width:0;height:0;
+    border-left:5px solid transparent;border-right:5px solid transparent;border-top:7px solid var(--amber)}
+  .flow .lbl{position:absolute;left:50%;transform:translateX(14px);font-family:var(--mono);
+    font-size:10px;color:var(--muted);white-space:nowrap;background:var(--bg);padding:2px 7px;border:1px solid var(--border);border-radius:999px}
+
+  /* cards */
+  .grid{display:grid;gap:12px}
+  .card{border:1px solid var(--border);border-radius:13px;background:var(--panel);
+    padding:13px 14px;position:relative;overflow:hidden;}
+  .card.edge::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c,var(--blue))}
+  .card h3{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:3px}
+  .card .role{font-size:11px;color:var(--subtle);font-family:var(--mono);letter-spacing:0.02em}
+  .card p{font-size:11.5px;color:var(--muted);margin-top:7px;line-height:1.5}
+  .ico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex-shrink:0;
+    background:var(--cs,rgba(59,130,246,0.14));color:var(--c,var(--blue2))}
+  .ico svg{width:15px;height:15px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .chip{font-family:var(--mono);font-size:10.5px;font-weight:500;color:var(--text);
+    background:var(--raised);border:1px solid var(--border2);padding:3px 8px;border-radius:6px}
+  .chip.muted{color:var(--muted);background:rgba(255,255,255,0.02);border-color:var(--border)}
+
+  .cols-4{grid-template-columns:repeat(4,1fr)}
+  .cols-3{grid-template-columns:repeat(3,1fr)}
+  .cols-2{grid-template-columns:repeat(2,1fr)}
+  .cols-5{grid-template-columns:repeat(5,1fr)}
+  @media(max-width:1000px){.cols-4,.cols-5{grid-template-columns:repeat(2,1fr)}.cols-3{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.grid{grid-template-columns:1fr!important}}
+
+  .sublane{border:1px dashed var(--border2);border-radius:12px;padding:12px 13px;margin-top:12px;background:rgba(255,255,255,0.015)}
+  .sublane .sl-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .sl-tag{font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--subtle)}
+
+  .mini{border:1px solid var(--border);border-radius:10px;background:var(--panel2);padding:10px 11px}
+  .mini h4{font-size:12px;font-weight:600;display:flex;align-items:center;gap:7px}
+  .mini .role{font-size:10px;color:var(--subtle);font-family:var(--mono);margin-top:2px}
+
+  /* Broker topic lanes */
+  .broker{border:1px solid rgba(251,191,36,0.3);border-radius:14px;background:linear-gradient(180deg,rgba(251,191,36,0.06),rgba(255,255,255,0));padding:14px;display:flex;flex-direction:column;gap:8px}
+  .topic{display:flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:10px;background:var(--panel2);padding:9px 12px}
+  .topic .tname{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--amber);min-width:200px}
+  .topic .tdesc{font-size:11.5px;color:var(--muted);flex:1}
+  .parts{display:flex;gap:3px}
+  .parts i{width:7px;height:16px;border-radius:2px;background:rgba(251,191,36,0.35);display:block}
+  .parts i.lit{background:var(--amber)}
+  .tmeta{font-family:var(--mono);font-size:10px;color:var(--subtle);white-space:nowrap}
+
+  /* Decision gate */
+  .gate{display:grid;grid-template-columns:1fr 1.1fr 1fr;gap:14px;align-items:stretch}
+  .gate-box{border:1px solid var(--rose);border-radius:14px;background:linear-gradient(180deg,rgba(251,113,133,0.08),rgba(255,255,255,0));padding:16px;display:flex;flex-direction:column;justify-content:center}
+  .gate-box .cond{font-family:var(--mono);font-size:12px;color:var(--text);background:var(--bg);border:1px solid var(--border2);border-radius:8px;padding:9px 11px;margin-top:9px;line-height:1.6}
+  .branch{display:flex;flex-direction:column;gap:10px;justify-content:center}
+  .branch .b{border:1px solid var(--border);border-radius:11px;background:var(--panel);padding:11px 13px}
+  .branch .b .bh{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700}
+  .branch .b p{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.45;font-family:var(--mono)}
+  .pill{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:999px;font-weight:600}
+
+  /* Code */
+  .payloads{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+  @media(max-width:900px){.payloads{grid-template-columns:1fr}.gate{grid-template-columns:1fr}}
+  .code{border:1px solid var(--border);border-radius:13px;background:#0a1322;overflow:hidden;display:flex;flex-direction:column}
+  .code-head{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.015)}
+  .code-head .num{width:20px;height:20px;border-radius:6px;background:var(--amber);color:#1a1205;font-family:var(--mono);font-weight:700;font-size:11px;display:grid;place-items:center}
+  .code-head .ttl{font-size:12.5px;font-weight:700}
+  .code-head .schema{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--subtle)}
+  pre{padding:14px 16px;overflow:auto;font-family:var(--mono);font-size:11px;line-height:1.7;color:#cbd5e1;flex:1}
+  pre .k{color:#7dd3fc}
+  pre .s{color:#86efac}
+  pre .n{color:#fbbf24}
+  pre .b{color:#c084fc}
+  pre .c{color:#5b6b86;font-style:italic}
+
+  .footer-note{margin-top:26px;color:var(--subtle);font-size:11.5px;font-family:var(--mono);text-align:center;letter-spacing:0.03em}
+  .sectiontitle{font-size:16px;font-weight:800;letter-spacing:-0.01em;margin:30px 0 13px;display:flex;align-items:center;gap:9px}
+  .sectiontitle .n{width:24px;height:24px;border-radius:7px;background:var(--raised);border:1px solid var(--border2);font-family:var(--mono);font-size:12px;font-weight:700;display:grid;place-items:center;color:var(--amber)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <header>
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>
+      </div>
+      <div>
+        <div class="wordmark">KAENAL</div>
+        <div class="sub">Quality &amp; Safety Management</div>
+      </div>
+    </div>
+    <div class="htext">
+      <div class="crumb">PHASE 2 · SYSTEM ARCHITECTURE</div>
+      <h1>Predictive &amp; Event-Driven Quality</h1>
+      <div class="sub">From a live sensor reading to an auto-drafted Non-Conformance — caught and contained <span style="color:var(--amber)">before the defect ships</span>, not in a post-mortem.</div>
+      <div class="legend">
+        <span class="lg"><span class="dot" style="background:var(--blue2)"></span>Producers</span>
+        <span class="lg"><span class="dot" style="background:var(--indigo)"></span>Ingest</span>
+        <span class="lg"><span class="dot" style="background:var(--amber)"></span>Event broker</span>
+        <span class="lg"><span class="dot" style="background:var(--purple)"></span>Rules engine</span>
+        <span class="lg"><span class="dot" style="background:var(--rose)"></span>Decision</span>
+        <span class="lg"><span class="dot" style="background:var(--green)"></span>QMS core</span>
+        <span class="lg"><span class="dot" style="background:var(--teal)"></span>Action</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="sectiontitle"><span class="n">A</span>End-to-end event pipeline</div>
+
+  <!-- 1. PRODUCERS -->
+  <div class="band">
+    <div class="band-head">
+      <div class="accent-bar" style="background:var(--blue2)"></div>
+      <div>
+        <div class="band-tag">Layer 1 · Producers</div>
+        <div class="band-title">Live telemetry sources</div>
+      </div>
+      <div class="band-note">push at the edge · 10–1000 Hz</div>
+    </div>
+    <div class="grid cols-4">
+      <div class="card edge" style="--c:var(--blue2);--cs:rgba(96,165,250,0.14)">
+        <h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h4l2-7 4 14 2-7h4"/></svg></span>IoT sensors</h3>
+        <div class="role">torque · temp · vibration</div>
+        <p>Per-station sensors on tools &amp; fixtures stream raw readings over MQTT.</p>
+      </div>
+      <div class="card edge" style="--c:var(--blue2);--cs:rgba(96,165,250,0.14)">
+        <h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 20h10M9 8l3 3 3-5"/></svg></span>Line PLC / SCADA</h3>
+        <div class="role">OPC-UA tags</div>
+        <p>Cell controllers expose process variables — feed speed, cycle time, scrap.</p>
+      </div>
+      <div class="card edge" style="--c:var(--blue2);--cs:rgba(96,165,250,0.14)">
+        <h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3.5"/><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M9 6l1.5-2h3L15 6"/></svg></span>Inline vision</h3>
+        <div class="role">gauges &amp; AOI</div>
+        <p>Automated optical inspection emits pass/fail + defect class per part.</p>
+      </div>
+      <div class="card edge" style="--c:var(--blue2);--cs:rgba(96,165,250,0.14)">
+        <h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></span>Software pipelines</h3>
+        <div class="role">CI/CD · OTLP</div>
+        <p>Build, test &amp; deploy events for software-defined product quality.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow"><span class="lbl">MQTT · OPC-UA · OTLP · HTTP</span><span class="cap"></span></div>
+
+  <!-- 2. INGEST -->
+  <div class="band">
+    <div class="band-head">
+      <div class="accent-bar" style="background:var(--indigo)"></div>
+      <div>
+        <div class="band-tag">Layer 2 · Ingest</div>
+        <div class="band-title">Edge collectors &amp; normalization</div>
+      </div>
+      <div class="band-note">at-least-once · backpressure-aware</div>
+    </div>
+    <div class="grid cols-4">
+      <div class="mini"><h4><span class="dot" style="background:var(--indigo)"></span>Protocol adapters</h4><div class="role">MQTT/OPC-UA → JSON</div></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--indigo)"></span>Schema validation</h4><div class="role">kaenal.telemetry.v1</div></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--indigo)"></span>Enrich &amp; tag</h4><div class="role">plant · line · part · lot</div></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--indigo)"></span>Store-&amp;-forward</h4><div class="role">offline buffer at edge</div></div>
+    </div>
+  </div>
+
+  <div class="flow"><span class="lbl">produce →</span><span class="cap"></span></div>
+
+  <!-- 3. EVENT BROKER -->
+  <div class="band">
+    <div class="band-head">
+      <div class="accent-bar" style="background:var(--amber)"></div>
+      <div>
+        <div class="band-tag">Layer 3 · Backbone</div>
+        <div class="band-title">Event broker — Kafka <span style="color:var(--subtle);font-weight:500">(RabbitMQ for low-volume tenants)</span></div>
+      </div>
+      <div class="band-note">partitioned by asset · 7-day retention · DLQ</div>
+    </div>
+    <div class="broker">
+      <div class="topic">
+        <span class="tname">telemetry.raw</span>
+        <span class="tdesc">Every reading, as-produced. Replayable for back-testing baselines.</span>
+        <span class="parts"><i class="lit"></i><i class="lit"></i><i></i><i class="lit"></i><i></i><i class="lit"></i></span>
+        <span class="tmeta">12 part · 7d</span>
+      </div>
+      <div class="topic">
+        <span class="tname">telemetry.normalized</span>
+        <span class="tdesc">Validated, enriched, unit-converted stream the processors consume.</span>
+        <span class="parts"><i class="lit"></i><i></i><i class="lit"></i><i class="lit"></i><i></i><i class="lit"></i></span>
+        <span class="tmeta">12 part · 7d</span>
+      </div>
+      <div class="topic">
+        <span class="tname">quality.anomalies</span>
+        <span class="tdesc">Scored anomalies emitted by the rules engine — consumed by the QMS writer.</span>
+        <span class="parts"><i class="lit"></i><i class="lit"></i><i class="lit"></i><i></i><i class="lit"></i><i></i></span>
+        <span class="tmeta">6 part · 30d</span>
+      </div>
+      <div class="topic">
+        <span class="tname">qms.events</span>
+        <span class="tdesc">Domain events out (NCR drafted, escalated) → notifications, webhooks, BI.</span>
+        <span class="parts"><i class="lit"></i><i></i><i class="lit"></i><i></i><i class="lit"></i><i class="lit"></i></span>
+        <span class="tmeta">6 part · 30d</span>
+      </div>
+    </div>
+    <div class="chips" style="margin-top:12px">
+      <span class="chip">idempotent producers</span>
+      <span class="chip">exactly-once into QMS</span>
+      <span class="chip muted">Schema Registry (Avro/JSON)</span>
+      <span class="chip muted">tenant key prefix</span>
+      <span class="chip muted">dead-letter queue</span>
+    </div>
+  </div>
+
+  <div class="flow"><span class="lbl">consume · subscribe</span><span class="cap"></span></div>
+
+  <!-- 4. RULES ENGINE -->
+  <div class="band">
+    <div class="band-head">
+      <div class="accent-bar" style="background:var(--purple)"></div>
+      <div>
+        <div class="band-tag">Layer 4 · Stream processing</div>
+        <div class="band-title">Rules engine / anomaly processor</div>
+      </div>
+      <div class="band-note">Flink / Kafka Streams · stateful windows</div>
+    </div>
+    <div class="grid cols-5">
+      <div class="card" style="--c:var(--purple)"><h3>Windowing (CEP)</h3><div class="role">sliding 10-min</div><p>Tumbling &amp; sliding windows per asset; pattern &amp; sequence detection.</p></div>
+      <div class="card" style="--c:var(--purple)"><h3>Baseline store</h3><div class="role">historical μ / σ</div><p>Rolling mean &amp; sigma per metric/asset, refreshed nightly from <span class="role" style="display:inline">telemetry.raw</span>.</p></div>
+      <div class="card" style="--c:var(--purple)"><h3>Anomaly scorer</h3><div class="role">z-score + ML</div><p>Robust z-score for drift; isolation-forest / forecast residual for complex modes.</p></div>
+      <div class="card" style="--c:var(--purple)"><h3>Rule registry</h3><div class="role">versioned DSL</div><p>Declarative rules (<span class="role" style="display:inline">rule.weld.feed_drift.v3</span>) with thresholds &amp; severity maps.</p></div>
+      <div class="card" style="--c:var(--purple)"><h3>Confidence model</h3><div class="role">0–1 score</div><p>Blends z-score, recurrence &amp; historical NCR matches into one confidence.</p></div>
+    </div>
+    <div class="sublane">
+      <div class="sl-head"><span class="ico" style="--c:var(--purple);--cs:rgba(192,132,252,0.14)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></span><span class="sl-tag">Evaluate against baseline · example</span></div>
+      <div class="chips">
+        <span class="chip">metric = wire_feed_speed</span>
+        <span class="chip">observed 9.84 m/min</span>
+        <span class="chip">baseline μ 9.10 · σ 0.18</span>
+        <span class="chip" style="color:var(--rose);border-color:var(--rose)">z = 4.11</span>
+        <span class="chip" style="color:var(--rose);border-color:var(--rose)">+8.1% drift</span>
+        <span class="chip muted">recurrence: 3rd in 30d</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow"><span class="lbl">emit → quality.anomalies</span><span class="cap"></span></div>
+
+  <!-- 5. DECISION GATE -->
+  <div class="band">
+    <div class="band-head">
+      <div class="accent-bar" style="background:var(--rose)"></div>
+      <div>
+        <div class="band-tag">Layer 5 · Decision</div>
+        <div class="band-title">Anomaly gate</div>
+      </div>
+      <div class="band-note">deterministic · auditable</div>
+    </div>
+    <div class="gate">
+      <div class="gate-box">
+        <div style="font-size:12.5px;font-weight:700">Gate condition</div>
+        <div class="cond">if (z_score &gt;= 3.5<br>&nbsp;&nbsp;&amp;&amp; confidence &gt;= 0.80<br>&nbsp;&nbsp;&amp;&amp; !suppressed)<br>&nbsp;&nbsp;→ <span style="color:var(--rose)">draft NCR</span></div>
+      </div>
+      <div class="branch">
+        <div class="b" style="border-color:rgba(52,211,153,0.4)">
+          <div class="bh"><span class="pill" style="background:rgba(52,211,153,0.16);color:var(--green)">WITHIN BASELINE</span></div>
+          <p>store to time-series · update baseline · no action</p>
+        </div>
+        <div class="b" style="border-color:rgba(251,191,36,0.4)">
+          <div class="bh"><span class="pill" style="background:rgba(251,191,36,0.16);color:var(--amber)">WATCH</span></div>
+          <p>2 &lt;= z &lt; 3.5 · raise a soft signal on the Predictive-Risk board</p>
+        </div>
+        <div class="b" style="border-color:rgba(251,113,133,0.5)">
+          <div class="bh"><span class="pill" style="background:rgba(251,113,133,0.16);color:var(--rose)">ANOMALY</span></div>
+          <p>passes gate · correlate &amp; dedupe · write Draft NCR</p>
+        </div>
+      </div>
+      <div class="gate-box" style="border-color:var(--border2);background:var(--panel2)">
+        <div style="font-size:12.5px;font-weight:700">Correlation &amp; dedupe</div>
+        <p style="font-size:11px;color:var(--muted);margin-top:7px;line-height:1.55;font-family:var(--mono)">Group bursts on the same asset+metric into one NCR · attach all source events · suppress if an open NCR already covers this scope.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow"><span class="lbl">exactly-once write</span><span class="cap"></span></div>
+
+  <!-- 6. QMS CORE -->
+  <div class="band">
+    <div class="band-head">
+      <div class="accent-bar" style="background:var(--green)"></div>
+      <div>
+        <div class="band-tag">Layer 6 · QMS core</div>
+        <div class="band-title">Auto-drafted Non-Conformance</div>
+      </div>
+      <div class="band-note">PostgreSQL · status = draft · origin = predictive</div>
+    </div>
+    <div class="grid cols-3">
+      <div class="card edge" style="--c:var(--green);--cs:rgba(52,211,153,0.14)">
+        <h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/></svg></span>NCR writer</h3>
+        <div class="role">INSERT non_conformances</div>
+        <p>Pre-fills title, scope, severity, predicted failure &amp; confidence from the anomaly.</p>
+      </div>
+      <div class="card edge" style="--c:var(--green);--cs:rgba(52,211,153,0.14)">
+        <h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z"/><path d="M12 7v5l3 3"/></svg></span>SLA &amp; routing</h3>
+        <div class="role">owner · queue · clock</div>
+        <p>Rules map severity → owner role, queue and SLA the instant the draft lands.</p>
+      </div>
+      <div class="card edge" style="--c:var(--green);--cs:rgba(52,211,153,0.14)">
+        <h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>Links to Phase 1</h3>
+        <div class="role">→ Quick-Log inbox</div>
+        <p>Draft surfaces in the collaboration workspace for a human to confirm or dismiss.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow"><span class="lbl">qms.events →</span><span class="cap"></span></div>
+
+  <!-- 7. ACTION -->
+  <div class="band" style="background:linear-gradient(180deg,rgba(45,212,191,0.05),rgba(255,255,255,0))">
+    <div class="band-head">
+      <div class="accent-bar" style="background:var(--teal)"></div>
+      <div>
+        <div class="band-tag">Layer 7 · Action</div>
+        <div class="band-title">Humans &amp; downstream</div>
+      </div>
+      <div class="band-note">closes the loop with Phase 1</div>
+    </div>
+    <div class="grid cols-4">
+      <div class="mini"><h4><span class="dot" style="background:var(--teal)"></span>Notify owner</h4><div class="role">push · email · in-app</div></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--teal)"></span>Quick-Log review</h4><div class="role">confirm / dismiss draft</div></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--teal)"></span>Predictive-risk board</h4><div class="role">trend &amp; watch signals</div></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--teal)"></span>Webhooks / ERP</h4><div class="role">quarantine lot in SAP</div></div>
+    </div>
+  </div>
+
+  <!-- PAYLOADS -->
+  <div class="sectiontitle"><span class="n">B</span>JSON payload contracts</div>
+  <div class="payloads">
+    <div class="code">
+      <div class="code-head">
+        <span class="num">1</span>
+        <span class="ttl">Incoming telemetry event</span>
+        <span class="schema">topic: telemetry.normalized</span>
+      </div>
+      <pre data-json>{
+  "event_id": "evt_9f3a7c21-4b08-4d2e-9c11-7a1f2b3c4d5e",
+  "schema": "kaenal.telemetry.v1",
+  "ts": "2026-04-15T09:50:12.448Z",
+  "tenant_id": "precision-auto",
+  "source": {
+    "device_id": "WELD-W03",
+    "type": "weld_controller",
+    "protocol": "opc-ua",
+    "plant": "plant-a",
+    "line": "weld-cell-3",
+    "station": "3B"
+  },
+  "metric": {
+    "name": "wire_feed_speed",
+    "value": 9.84,
+    "unit": "m/min",
+    "sample_rate_hz": 50
+  },
+  "context": {
+    "part_no": "A-7742",
+    "lot": "HJ-22-04",
+    "shift": "A",
+    "operator": "L.Wei",
+    "program": "WP-118"
+  },
+  "quality": {
+    "sensor_health": "ok",
+    "sequence": 880421,
+    "ingest_latency_ms": 38
+  }
+}</pre>
+    </div>
+
+    <div class="code">
+      <div class="code-head">
+        <span class="num">2</span>
+        <span class="ttl">Auto-generated predictive NCR</span>
+        <span class="schema">→ non_conformances (status: draft)</span>
+      </div>
+      <pre data-json>{
+  "ncr_id": "NCR-2026-DRAFT-0184",
+  "status": "draft",
+  "origin": "predictive",
+  "tenant_id": "precision-auto",
+  "created_at": "2026-04-15T09:50:31.002Z",
+  "confidence": 0.91,
+  "title": "Predicted weld porosity — Cell 3 / Station 3B",
+  "anomaly": {
+    "rule_id": "rule.weld.feed_drift.v3",
+    "metric": "wire_feed_speed",
+    "observed": 9.84,
+    "baseline_mean": 9.10,
+    "baseline_sigma": 0.18,
+    "z_score": 4.11,
+    "window": "PT10M",
+    "method": "rolling_zscore+cep"
+  },
+  "prediction": {
+    "failure_mode": "weld_porosity",
+    "lead_time": "PT22M",
+    "severity": "high",
+    "scope": { "part_no": "A-7742", "lot": "HJ-22-04", "est_units": 2840 }
+  },
+  "context": {
+    "plant": "plant-a", "line": "weld-cell-3",
+    "station": "3B", "asset": "WELD-W03", "shift": "A"
+  },
+  "evidence": {
+    "source_events": ["evt_9f3a7c21", "evt_9f3a7d05", "evt_9f3a7e6b"],
+    "similar_ncr": "NCR-2026-0118",
+    "recurrence_30d": 3
+  },
+  "suggested_actions": [
+    "Quarantine lot HJ-22-04",
+    "Inspect MIG liner on WELD-W03",
+    "Recalibrate wire-feed speed"
+  ],
+  "routing": { "owner_role": "quality_engineer", "queue": "weld", "sla_hours": 8 },
+  "requires_human_review": true
+}</pre>
+    </div>
+  </div>
+
+  <div class="footer-note">KAENAL · Phase 2 — predictive &amp; event-driven architecture · companion to the Phase 1 Quick-Log &amp; the system reference architecture</div>
+
+</div>
+
+<script>
+  // Lightweight JSON syntax highlighter
+  document.querySelectorAll('pre[data-json]').forEach(function(pre){
+    var src = pre.textContent;
+    var esc = src.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var html = esc.replace(/("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)/g,
+      function(m){
+        var cls = 'n';
+        if(/^"/.test(m)){ cls = /:\s*$/.test(m) ? 'k' : 's'; }
+        else if(/true|false|null/.test(m)){ cls = 'b'; }
+        return '<span class="'+cls+'">'+m+'</span>';
+      });
+    pre.innerHTML = html;
+  });
+</script>
+
+<template id="__bundler_thumbnail">
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100" height="100" fill="#070d1a"/>
+    <path d="M52 28L36 56h13l-2 18 18-30h-12z" fill="#fbbf24"/>
+  </svg>
+</template>
+
+</body>
+</html>

@@ -1,0 +1,1167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KAENAL — Proactive QMS Innovation Plan</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f6f8fb;
+  --bg-subtle: #eef2f7;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-subtle: #94a3b8;
+  --sidebar: #0f1d35;
+  --blue: #2563eb;
+  --blue-light: #3b82f6;
+  --blue-soft: #eff6ff;
+  --indigo: #4f46e5;
+  --teal: #0d9488;
+  --amber: #d97706;
+  --rose: #e11d48;
+  --green: #16a34a;
+  --purple: #7c3aed;
+  --shadow-sm: 0 1px 3px rgba(15,23,42,0.08), 0 1px 2px rgba(15,23,42,0.04);
+  --shadow-md: 0 4px 8px -2px rgba(15,23,42,0.08), 0 2px 4px -2px rgba(15,23,42,0.06);
+  --shadow-lg: 0 12px 20px -6px rgba(15,23,42,0.12), 0 4px 8px -4px rgba(15,23,42,0.08);
+  --r: 10px;
+  --font: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ── LAYOUT ── */
+.layout { display: flex; min-height: 100vh; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--sidebar);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 0 24px;
+}
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 24px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.logo-mark {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: linear-gradient(135deg, #2563eb, #60a5fa);
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.logo-mark svg { width: 18px; height: 18px; color: white; }
+.logo-name { font-size: 15px; font-weight: 800; color: white; letter-spacing: 0.1em; }
+.logo-tag { font-size: 10px; color: rgba(255,255,255,0.35); letter-spacing: 0.06em; margin-top: 1px; }
+
+.sidebar-section { padding: 18px 20px 6px; }
+.sidebar-section-label {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: rgba(255,255,255,0.28); margin-bottom: 6px;
+}
+.sidebar-link {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: 6px;
+  font-size: 12.5px; font-weight: 500;
+  color: rgba(255,255,255,0.55);
+  cursor: pointer; transition: all 120ms;
+  text-decoration: none;
+}
+.sidebar-link:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.06); }
+.sidebar-link.active { color: white; background: rgba(59,130,246,0.18); }
+.sidebar-link svg { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.7; }
+.sidebar-link.active svg { opacity: 1; }
+
+.sidebar-divider { height: 1px; background: rgba(255,255,255,0.07); margin: 12px 20px; }
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px 20px 0;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  display: flex; flex-direction: column; gap: 2px;
+}
+
+/* ── MAIN ── */
+.main { flex: 1; min-width: 0; overflow-x: hidden; }
+
+/* ── TOP BAR ── */
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 40px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.topbar-left { display: flex; align-items: center; gap: 8px; }
+.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); }
+.breadcrumb-sep { color: var(--text-subtle); font-size: 11px; }
+.breadcrumb-current { color: var(--text); font-weight: 600; }
+.topbar-badge {
+  padding: 3px 10px; border-radius: 99px;
+  background: #fef3c7; color: #92400e;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  border: 1px solid #fde68a;
+}
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-date { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+.topbar-avatar {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; color: white;
+}
+
+/* ── PAGE CONTENT ── */
+.page { padding: 36px 40px 64px; max-width: 1060px; }
+
+/* ── HERO ── */
+.hero {
+  background: linear-gradient(135deg, var(--sidebar) 0%, #1a2f58 100%);
+  border-radius: 16px;
+  padding: 44px 48px;
+  margin-bottom: 36px;
+  position: relative;
+  overflow: hidden;
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -60px; right: -80px;
+  width: 380px; height: 380px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(37,99,235,0.25), transparent 70%);
+  pointer-events: none;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: -40px; left: 160px;
+  width: 240px; height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99,102,241,0.15), transparent 70%);
+  pointer-events: none;
+}
+.hero-eyebrow {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(37,99,235,0.25); border: 1px solid rgba(96,165,250,0.3);
+  border-radius: 99px; padding: 4px 12px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #93c5fd; margin-bottom: 18px;
+}
+.hero-title {
+  font-size: 36px; font-weight: 900; color: white;
+  line-height: 1.15; letter-spacing: -0.02em;
+  margin-bottom: 14px; max-width: 540px;
+}
+.hero-title em { color: #60a5fa; font-style: normal; }
+.hero-sub {
+  font-size: 15px; color: rgba(255,255,255,0.6); max-width: 520px;
+  line-height: 1.65; margin-bottom: 28px;
+}
+.hero-stats { display: flex; gap: 32px; flex-wrap: wrap; }
+.hero-stat-val { font-size: 26px; font-weight: 800; color: white; line-height: 1; margin-bottom: 3px; }
+.hero-stat-val span { color: #60a5fa; }
+.hero-stat-label { font-size: 11.5px; color: rgba(255,255,255,0.45); font-weight: 500; letter-spacing: 0.03em; }
+
+/* ── SECTION TITLES ── */
+.section-block { margin-bottom: 36px; }
+.section-header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
+.section-eyebrow {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--blue); margin-bottom: 5px;
+}
+.section-title { font-size: 20px; font-weight: 800; color: var(--text); letter-spacing: -0.02em; }
+.section-sub { font-size: 13.5px; color: var(--text-muted); margin-top: 4px; line-height: 1.6; }
+
+/* ── SHIFT BANNER ── */
+.shift-banner {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  gap: 16px; margin-bottom: 36px;
+}
+.shift-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+}
+.shift-box.reactive { border-left: 4px solid #ef4444; }
+.shift-box.proactive { border-left: 4px solid #16a34a; }
+.shift-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.shift-box.reactive .shift-label { color: #ef4444; }
+.shift-box.proactive .shift-label { color: #16a34a; }
+.shift-box-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+.shift-item {
+  display: flex; align-items: flex-start; gap: 7px;
+  font-size: 12.5px; color: var(--text-muted); margin-bottom: 4px;
+}
+.shift-item::before { content: ''; width: 5px; height: 5px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+.reactive .shift-item::before { background: #ef4444; }
+.proactive .shift-item::before { background: #16a34a; }
+.shift-arrow {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  color: var(--text-subtle); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.shift-arrow-icon {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--blue), var(--indigo));
+  display: grid; place-items: center;
+  box-shadow: 0 4px 12px rgba(37,99,235,0.3);
+}
+.shift-arrow-icon svg { color: white; width: 20px; height: 20px; }
+
+/* ── PILLARS GRID ── */
+.pillars-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+.pillar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 22px 24px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 160ms, border-color 160ms;
+  position: relative;
+  overflow: hidden;
+}
+.pillar:hover { box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+.pillar-accent {
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  border-radius: var(--r) var(--r) 0 0;
+}
+.pillar-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px; }
+.pillar-icon {
+  width: 38px; height: 38px; border-radius: 9px;
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.pillar-icon svg { width: 18px; height: 18px; }
+.pillar-num {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: 3px;
+}
+.pillar-title { font-size: 14px; font-weight: 700; line-height: 1.3; }
+.pillar-body { font-size: 12.5px; color: var(--text-muted); line-height: 1.65; margin-bottom: 14px; }
+.pillar-tags { display: flex; gap: 5px; flex-wrap: wrap; }
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 99px;
+  font-size: 10.5px; font-weight: 600;
+  background: var(--bg-subtle, #eef2f7);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+/* pillar color variants */
+.p-blue .pillar-accent { background: linear-gradient(90deg, #2563eb, #60a5fa); }
+.p-blue .pillar-icon { background: #eff6ff; color: #2563eb; }
+.p-blue .pillar-num { color: #2563eb; }
+.p-teal .pillar-accent { background: linear-gradient(90deg, #0d9488, #2dd4bf); }
+.p-teal .pillar-icon { background: #f0fdfa; color: #0d9488; }
+.p-teal .pillar-num { color: #0d9488; }
+.p-purple .pillar-accent { background: linear-gradient(90deg, #7c3aed, #c084fc); }
+.p-purple .pillar-icon { background: #faf5ff; color: #7c3aed; }
+.p-purple .pillar-num { color: #7c3aed; }
+.p-amber .pillar-accent { background: linear-gradient(90deg, #d97706, #fbbf24); }
+.p-amber .pillar-icon { background: #fffbeb; color: #d97706; }
+.p-amber .pillar-num { color: #d97706; }
+.p-rose .pillar-accent { background: linear-gradient(90deg, #e11d48, #fb7185); }
+.p-rose .pillar-icon { background: #fff1f2; color: #e11d48; }
+.p-rose .pillar-num { color: #e11d48; }
+.p-green .pillar-accent { background: linear-gradient(90deg, #16a34a, #4ade80); }
+.p-green .pillar-icon { background: #f0fdf4; color: #16a34a; }
+.p-green .pillar-num { color: #16a34a; }
+.p-indigo .pillar-accent { background: linear-gradient(90deg, #4f46e5, #818cf8); }
+.p-indigo .pillar-icon { background: #eef2ff; color: #4f46e5; }
+.p-indigo .pillar-num { color: #4f46e5; }
+
+/* ── ROADMAP ── */
+.roadmap { display: flex; flex-direction: column; gap: 0; position: relative; padding-left: 28px; }
+.roadmap::before {
+  content: '';
+  position: absolute; left: 10px; top: 12px; bottom: 12px; width: 2px;
+  background: linear-gradient(to bottom, var(--blue), #4f46e5, var(--teal), #16a34a);
+  border-radius: 2px;
+}
+.phase { display: flex; gap: 20px; margin-bottom: 24px; position: relative; }
+.phase-dot {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 9px; font-weight: 800; color: white;
+  position: absolute; left: -28px; top: 10px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+.phase-dot.q1 { background: var(--blue); box-shadow: 0 0 0 4px rgba(37,99,235,0.2); }
+.phase-dot.q2 { background: var(--indigo); box-shadow: 0 0 0 4px rgba(79,70,229,0.2); }
+.phase-dot.q3 { background: var(--teal); box-shadow: 0 0 0 4px rgba(13,148,136,0.2); }
+.phase-dot.q4 { background: var(--green); box-shadow: 0 0 0 4px rgba(22,163,74,0.2); }
+.phase-content {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.phase-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.phase-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+}
+.phase-label.q1 { color: var(--blue); }
+.phase-label.q2 { color: var(--indigo); }
+.phase-label.q3 { color: var(--teal); }
+.phase-label.q4 { color: var(--green); }
+.phase-title { font-size: 14px; font-weight: 700; margin-top: 2px; }
+.phase-timeline {
+  font-size: 11px; font-weight: 600; color: var(--text-subtle);
+  background: var(--bg-subtle, #eef2f7); border: 1px solid var(--border);
+  padding: 3px 9px; border-radius: 99px;
+}
+.phase-items { display: flex; flex-direction: column; gap: 7px; }
+.phase-item {
+  display: flex; align-items: flex-start; gap: 9px;
+  font-size: 12.5px; color: var(--text-muted); line-height: 1.5;
+}
+.phase-item-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+.phase-item-dot.q1 { background: var(--blue); }
+.phase-item-dot.q2 { background: var(--indigo); }
+.phase-item-dot.q3 { background: var(--teal); }
+.phase-item-dot.q4 { background: var(--green); }
+.phase-item strong { color: var(--text); }
+
+/* ── INTEGRATION TABLE ── */
+.int-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.int-table th {
+  text-align: left; padding: 9px 14px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted); background: var(--bg-subtle, #eef2f7);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+.int-table td {
+  padding: 11px 14px; border-bottom: 1px solid var(--border);
+  vertical-align: top; line-height: 1.55;
+}
+.int-table tr:hover td { background: var(--bg-subtle, #f8fafc); }
+.int-table tr:last-child td { border-bottom: none; }
+.module-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 99px;
+  font-size: 11px; font-weight: 600;
+  background: var(--blue-soft, #eff6ff);
+  color: var(--blue);
+  border: 1px solid #bfdbfe;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+/* ── DIFFERENTIATOR CARDS ── */
+.diff-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.diff-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.diff-card-icon { font-size: 22px; margin-bottom: 10px; }
+.diff-card-title { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.diff-card-body { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+
+/* ── QUOTE BLOCK ── */
+.quote-block {
+  background: linear-gradient(135deg, #eff6ff, #eef2ff);
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid var(--blue);
+  border-radius: var(--r);
+  padding: 20px 24px;
+  margin-bottom: 32px;
+}
+.quote-text { font-size: 14px; font-style: italic; color: var(--text); line-height: 1.7; margin-bottom: 8px; }
+.quote-source { font-size: 11.5px; font-weight: 600; color: var(--text-muted); }
+
+/* ── ALERT / CALLOUT ── */
+.callout {
+  display: flex; gap: 14px; align-items: flex-start;
+  border-radius: var(--r); padding: 16px 18px;
+  margin-bottom: 28px; border: 1px solid;
+}
+.callout-info { background: #eff6ff; border-color: #bfdbfe; }
+.callout-warn { background: #fffbeb; border-color: #fde68a; }
+.callout-icon { font-size: 16px; margin-top: 1px; flex-shrink: 0; }
+.callout-title { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+.callout-info .callout-title { color: #1d4ed8; }
+.callout-warn .callout-title { color: #92400e; }
+.callout-body { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; }
+
+/* ── COMP MATRIX ── */
+.comp-matrix { overflow-x: auto; }
+.comp-table { min-width: 560px; width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.comp-table th {
+  text-align: center; padding: 10px 14px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-muted); background: var(--bg-subtle, #eef2f7);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+.comp-table th:first-child { text-align: left; }
+.comp-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); text-align: center; }
+.comp-table td:first-child { text-align: left; font-weight: 500; color: var(--text); }
+.comp-table tr:hover td { background: var(--bg-subtle, #f8fafc); }
+.comp-table tr:last-child td { border-bottom: none; }
+.comp-kaenal { background: rgba(37,99,235,0.06); font-weight: 700; color: var(--blue); }
+.check { color: #16a34a; font-size: 15px; }
+.cross { color: #94a3b8; font-size: 15px; }
+.partial { color: #d97706; font-size: 15px; }
+
+/* ── FOOTER ── */
+.plan-footer {
+  background: var(--sidebar);
+  color: rgba(255,255,255,0.5);
+  padding: 28px 40px;
+  font-size: 11.5px;
+  display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; gap: 10px;
+  margin-top: 16px;
+}
+.plan-footer-logo { font-size: 13px; font-weight: 800; color: white; letter-spacing: 0.1em; }
+.plan-footer span { color: rgba(255,255,255,0.25); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .page { padding: 24px 20px 48px; }
+  .pillars-grid { grid-template-columns: 1fr; }
+  .shift-banner { grid-template-columns: 1fr; }
+  .shift-arrow { display: none; }
+  .diff-grid { grid-template-columns: 1fr; }
+  .hero { padding: 28px 24px; }
+  .hero-title { font-size: 26px; }
+  .topbar { padding: 0 20px; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<!-- ── SIDEBAR ── -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <div>
+      <div class="logo-name">KAENAL</div>
+      <div class="logo-tag">QMS PLATFORM</div>
+    </div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Plan Sections</div>
+    <a class="sidebar-link active" href="#vision">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+      Strategic Vision
+    </a>
+    <a class="sidebar-link" href="#shift">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14m-7-7l7 7-7 7"/></svg>
+      The Shift
+    </a>
+    <a class="sidebar-link" href="#pillars">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      7 Innovation Pillars
+    </a>
+    <a class="sidebar-link" href="#roadmap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      Roadmap
+    </a>
+    <a class="sidebar-link" href="#integration">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg>
+      Integration Map
+    </a>
+    <a class="sidebar-link" href="#competitive">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+      Competitive Edge
+    </a>
+  </div>
+
+  <div class="sidebar-divider"></div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Quick Facts</div>
+    <div style="font-size:12px; color:rgba(255,255,255,0.4); padding: 6px 10px; line-height:1.8;">
+      Plan Version: <span style="color:rgba(255,255,255,0.7); font-weight:600;">1.0</span><br>
+      Date: <span style="color:rgba(255,255,255,0.7); font-weight:600;">June 2026</span><br>
+      Horizon: <span style="color:rgba(255,255,255,0.7); font-weight:600;">18 months</span><br>
+      Pillars: <span style="color:rgba(255,255,255,0.7); font-weight:600;">7 modules</span>
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div>Strategic Innovation Plan</div>
+    <div style="color:rgba(255,255,255,0.18);">Internal — Confidential</div>
+  </div>
+</nav>
+
+<!-- ── MAIN ── -->
+<div class="main">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="breadcrumb">
+        <span>KAENAL</span>
+        <span class="breadcrumb-sep">›</span>
+        <span>Strategy</span>
+        <span class="breadcrumb-sep">›</span>
+        <span class="breadcrumb-current">Proactive QMS Innovation Plan</span>
+      </div>
+      <div class="topbar-badge">Strategic · Draft v1.0</div>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-date">June 7, 2026</div>
+      <div class="topbar-avatar">MK</div>
+    </div>
+  </div>
+
+  <!-- PAGE -->
+  <div class="page">
+
+    <!-- HERO -->
+    <section id="vision" class="hero">
+      <div class="hero-eyebrow">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Innovation Strategy · 2026–2027
+      </div>
+      <div class="hero-title">From Reactive to<br><em>Predictive Quality</em></div>
+      <div class="hero-sub">
+        KAENAL currently resolves quality problems after they occur. This plan introduces a
+        proactive intelligence layer that detects and prevents defects <em style="color:rgba(255,255,255,0.85); font-style:normal; font-weight:600;">during product development</em> —
+        while preserving every existing reactive capability.
+      </div>
+      <div class="hero-stats">
+        <div>
+          <div class="hero-stat-val">7<span>×</span></div>
+          <div class="hero-stat-label">New innovation modules</div>
+        </div>
+        <div>
+          <div class="hero-stat-val">4</div>
+          <div class="hero-stat-label">Delivery phases</div>
+        </div>
+        <div>
+          <div class="hero-stat-val">18<span>mo</span></div>
+          <div class="hero-stat-label">Full rollout horizon</div>
+        </div>
+        <div>
+          <div class="hero-stat-val">0</div>
+          <div class="hero-stat-label">Existing features removed</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- THE SHIFT -->
+    <section id="shift" class="section-block">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">The Core Shift</div>
+          <div class="section-title">Reactive → Proactive Quality</div>
+          <div class="section-sub">The industry calls this "Shift-Left Quality" — embedding quality enforcement earlier in the value chain, before defects become costly NCRs.</div>
+        </div>
+      </div>
+
+      <div class="shift-banner">
+        <div class="shift-box reactive">
+          <div class="shift-label">Current State — Reactive</div>
+          <div class="shift-box-title">Problem occurs → System responds</div>
+          <div class="shift-item">NCR raised after defect found in production</div>
+          <div class="shift-item">8D triggered after customer complaint arrives</div>
+          <div class="shift-item">CAPA opened after audit failure is recorded</div>
+          <div class="shift-item">Supplier risk assessed after delivery failure</div>
+          <div class="shift-item">FMEA reviewed only at design freeze</div>
+        </div>
+        <div class="shift-arrow">
+          <div class="shift-arrow-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14m-7-7l7 7-7 7"/></svg>
+          </div>
+          <span>The Shift</span>
+        </div>
+        <div class="shift-box proactive">
+          <div class="shift-label">Future State — Proactive</div>
+          <div class="shift-box-title">System predicts → Team prevents</div>
+          <div class="shift-item">AI flags risk patterns during design review stage</div>
+          <div class="shift-item">Digital twins simulate failure modes before build</div>
+          <div class="shift-item">IoT anomalies detected before process drifts out of spec</div>
+          <div class="shift-item">Supplier intelligence forecasts delivery quality in advance</div>
+          <div class="shift-item">Live FMEA scoring evolves as design decisions are made</div>
+        </div>
+      </div>
+
+      <div class="callout callout-info">
+        <div class="callout-icon">💡</div>
+        <div>
+          <div class="callout-title">The Business Case</div>
+          <div class="callout-body">The cost of a defect found during design is <strong>~1×</strong>. The same defect found during production is <strong>~10×</strong>. At the customer is <strong>~100×</strong>. KAENAL's reactive system already captures the 10× and 100× events well — this plan targets the 1× opportunity that competitors have not yet productized.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 PILLARS -->
+    <section id="pillars" class="section-block">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Innovation Pillars</div>
+          <div class="section-title">7 Methods to Introduce</div>
+          <div class="section-sub">Each pillar is a distinct capability module that can be built independently and activated progressively.</div>
+        </div>
+      </div>
+
+      <div class="pillars-grid">
+
+        <!-- P1 -->
+        <div class="pillar p-blue">
+          <div class="pillar-accent"></div>
+          <div class="pillar-header">
+            <div class="pillar-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+            </div>
+            <div>
+              <div class="pillar-num">Pillar 01 — AI Layer</div>
+              <div class="pillar-title">Predictive Quality Intelligence Engine</div>
+            </div>
+          </div>
+          <div class="pillar-body">
+            Train ML models on KAENAL's historical NCR, CAPA, FMEA, and inspection data to score the predicted defect probability of new designs and processes <em>before</em> they enter production. The engine surfaces a <strong>"Quality Risk Score"</strong> at every design gate, continuously learning from each new outcome.
+          </div>
+          <div class="pillar-tags">
+            <span class="tag">ML scoring model</span>
+            <span class="tag">Design gate integration</span>
+            <span class="tag">Confidence bands</span>
+            <span class="tag">Continuous learning</span>
+          </div>
+        </div>
+
+        <!-- P2 -->
+        <div class="pillar p-teal">
+          <div class="pillar-accent"></div>
+          <div class="pillar-header">
+            <div class="pillar-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg>
+            </div>
+            <div>
+              <div class="pillar-num">Pillar 02 — Digital Twin</div>
+              <div class="pillar-title">Process & Product Digital Twins</div>
+            </div>
+          </div>
+          <div class="pillar-body">
+            Create virtual replicas of manufacturing processes and product assemblies. Engineers run <strong>quality simulations</strong> — tolerance stacks, thermal cycles, vibration profiles — in the twin before physical prototyping. Failure modes are predicted, ranked by RPN, and linked directly into KAENAL's FMEA workbench.
+          </div>
+          <div class="pillar-tags">
+            <span class="tag">Virtual simulation</span>
+            <span class="tag">FMEA linkage</span>
+            <span class="tag">What-if scenarios</span>
+            <span class="tag">BOM integration</span>
+          </div>
+        </div>
+
+        <!-- P3 -->
+        <div class="pillar p-purple">
+          <div class="pillar-accent"></div>
+          <div class="pillar-header">
+            <div class="pillar-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </div>
+            <div>
+              <div class="pillar-num">Pillar 03 — Shift-Left</div>
+              <div class="pillar-title">Development-Stage Quality Gates</div>
+            </div>
+          </div>
+          <div class="pillar-body">
+            Embed quality checkpoints <strong>directly inside the engineering workflow</strong> — at concept, design review, DV testing, PV testing, and PPAP. Each gate auto-scores risk using live FMEA RPN, open NCR patterns, and supplier history. Gates block progression when thresholds are breached, with an AI-assisted override rationale flow.
+          </div>
+          <div class="pillar-tags">
+            <span class="tag">5 gate types</span>
+            <span class="tag">Auto-RPN scoring</span>
+            <span class="tag">ECN integration</span>
+            <span class="tag">Override audit trail</span>
+          </div>
+        </div>
+
+        <!-- P4 -->
+        <div class="pillar p-amber">
+          <div class="pillar-accent"></div>
+          <div class="pillar-header">
+            <div class="pillar-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            </div>
+            <div>
+              <div class="pillar-num">Pillar 04 — Real-Time Sensing</div>
+              <div class="pillar-title">IoT Process Anomaly Detection</div>
+            </div>
+          </div>
+          <div class="pillar-body">
+            Integrate with shop-floor IoT sensors (temperature, torque, vibration, pressure, cycle time) to stream real-time process data into KAENAL's SPC engine. An ML anomaly detector identifies <strong>early drift signals</strong> — before the process crosses control limits — and triggers an alert, not just a record. Operators get a prescriptive action, not just a flag.
+          </div>
+          <div class="pillar-tags">
+            <span class="tag">OPC-UA / MQTT</span>
+            <span class="tag">SPC enhancement</span>
+            <span class="tag">Drift alerts</span>
+            <span class="tag">Prescriptive actions</span>
+          </div>
+        </div>
+
+        <!-- P5 -->
+        <div class="pillar p-rose">
+          <div class="pillar-accent"></div>
+          <div class="pillar-header">
+            <div class="pillar-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+            <div>
+              <div class="pillar-num">Pillar 05 — Vision AI</div>
+              <div class="pillar-title">Inline Computer Vision Inspection</div>
+            </div>
+          </div>
+          <div class="pillar-body">
+            Deploy AI-powered visual inspection at strategic production checkpoints via camera integration. The model is trained on accepted/rejected sample images from existing inspections. Defects are classified by type and severity in real time, auto-creating a draft NCR with photographic evidence and defect coordinates — <strong>zero manual logging</strong>.
+          </div>
+          <div class="pillar-tags">
+            <span class="tag">Camera integration</span>
+            <span class="tag">Auto-NCR creation</span>
+            <span class="tag">Defect classification</span>
+            <span class="tag">Edge-deployable</span>
+          </div>
+        </div>
+
+        <!-- P6 -->
+        <div class="pillar p-green">
+          <div class="pillar-accent"></div>
+          <div class="pillar-header">
+            <div class="pillar-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            </div>
+            <div>
+              <div class="pillar-num">Pillar 06 — Supply Chain</div>
+              <div class="pillar-title">Proactive Supplier Quality Forecasting</div>
+            </div>
+          </div>
+          <div class="pillar-body">
+            Extend the supplier scorecard with a <strong>forward-looking risk model</strong>: combine PPM trends, delivery history, open SCARs, capacity utilisation signals, and geopolitical data to forecast quality risk 4–8 weeks out. Automated early-warning triggers allow procurement to intervene before a bad batch ships — not after it arrives.
+          </div>
+          <div class="pillar-tags">
+            <span class="tag">Risk forecasting</span>
+            <span class="tag">4–8 week horizon</span>
+            <span class="tag">Capacity signals</span>
+            <span class="tag">Auto-SCAR trigger</span>
+          </div>
+        </div>
+
+        <!-- P7 -->
+        <div class="pillar p-indigo" style="grid-column: 1 / -1;">
+          <div class="pillar-accent"></div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items:start;">
+            <div>
+              <div class="pillar-header">
+                <div class="pillar-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1018 0 9 9 0 00-18 0"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a15.3 15.3 0 010 18M12 3a15.3 15.3 0 000 18"/></svg>
+                </div>
+                <div>
+                  <div class="pillar-num">Pillar 07 — Closed Loop</div>
+                  <div class="pillar-title">Continuous Learning & Knowledge Amplification</div>
+                </div>
+              </div>
+              <div class="pillar-body">
+                Every post-production problem KAENAL captures feeds back into the predictive models for the next development cycle. Root causes from 8D cases, CAPA outcomes, FMEA updates, and escaped defects are structured into a <strong>quality knowledge graph</strong> — so the system gets smarter with every product generation. This transforms KAENAL from a record-keeping tool into an institutional memory engine.
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11.5px; font-weight:700; color:#4f46e5; letter-spacing:0.06em; text-transform:uppercase; margin-bottom:10px;">Closed-Loop Cycle</div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                <div style="display:flex;align-items:center;gap:10px; font-size:12.5px;">
+                  <div style="width:26px;height:26px;border-radius:50%;background:#eef2ff;color:#4f46e5;display:grid;place-items:center;font-weight:800;font-size:11px;flex-shrink:0;">1</div>
+                  <span><strong>Capture</strong> — every NCR, 8D, CAPA, audit finding enters structured data</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px; font-size:12.5px;">
+                  <div style="width:26px;height:26px;border-radius:50%;background:#eef2ff;color:#4f46e5;display:grid;place-items:center;font-weight:800;font-size:11px;flex-shrink:0;">2</div>
+                  <span><strong>Classify</strong> — AI categorises root cause, product family, process type</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px; font-size:12.5px;">
+                  <div style="width:26px;height:26px;border-radius:50%;background:#eef2ff;color:#4f46e5;display:grid;place-items:center;font-weight:800;font-size:11px;flex-shrink:0;">3</div>
+                  <span><strong>Train</strong> — outcome updates predictive model weights quarterly</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px; font-size:12.5px;">
+                  <div style="width:26px;height:26px;border-radius:50%;background:#eef2ff;color:#4f46e5;display:grid;place-items:center;font-weight:800;font-size:11px;flex-shrink:0;">4</div>
+                  <span><strong>Predict</strong> — refined risk scores surface on next design cycle</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px; font-size:12.5px;">
+                  <div style="width:26px;height:26px;border-radius:50%;background:#eef2ff;color:#4f46e5;display:grid;place-items:center;font-weight:800;font-size:11px;flex-shrink:0;">5</div>
+                  <span><strong>Prevent</strong> — action taken in design; the loop closes</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="pillar-tags" style="margin-top:14px;">
+            <span class="tag">Knowledge graph</span>
+            <span class="tag">Auto-retraining pipeline</span>
+            <span class="tag">Cross-product learning</span>
+            <span class="tag">Root cause taxonomy</span>
+            <span class="tag">Horizontal deployment</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ROADMAP -->
+    <section id="roadmap" class="section-block">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Implementation Roadmap</div>
+          <div class="section-title">4 Phases · 18 Months</div>
+          <div class="section-sub">Sequenced to deliver early wins while building toward full predictive capability. Each phase ships usable features — no big bang.</div>
+        </div>
+      </div>
+
+      <div class="roadmap">
+
+        <div class="phase">
+          <div class="phase-dot q1">Q1</div>
+          <div class="phase-content">
+            <div class="phase-header">
+              <div>
+                <div class="phase-label q1">Phase 1 — Q3 2026 · Months 1–4</div>
+                <div class="phase-title">Data Foundation & Quick Wins</div>
+              </div>
+              <div class="phase-timeline">Months 1–4</div>
+            </div>
+            <div class="phase-items">
+              <div class="phase-item"><div class="phase-item-dot q1"></div><div><strong>Pillar 07 (partial):</strong> Structure and tag all historical NCR, CAPA, 8D data for ML training readiness. Build quality knowledge taxonomy.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q1"></div><div><strong>Pillar 03:</strong> Introduce Development-Stage Quality Gates within the existing ECN and PPAP modules — 3 gates initially (Design Review, DV Test, PPAP).</div></div>
+              <div class="phase-item"><div class="phase-item-dot q1"></div><div><strong>Pillar 04 (sensing):</strong> Ship IoT data ingestion connectors (OPC-UA/MQTT) and plumb live data into enhanced SPC charts. Alert on control-limit approach, not just breach.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q1"></div><div>Establish AI model governance policies in existing AI Governance Hub for predictive features.</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="phase-dot q2">Q2</div>
+          <div class="phase-content">
+            <div class="phase-header">
+              <div>
+                <div class="phase-label q2">Phase 2 — Q4 2026 · Months 5–9</div>
+                <div class="phase-title">Predictive Intelligence & Supplier Foresight</div>
+              </div>
+              <div class="phase-timeline">Months 5–9</div>
+            </div>
+            <div class="phase-items">
+              <div class="phase-item"><div class="phase-item-dot q2"></div><div><strong>Pillar 01:</strong> Train and deploy the Predictive Quality Engine (v1). Integrate Quality Risk Score into the Dashboard KPI panel and each Design Gate.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q2"></div><div><strong>Pillar 06:</strong> Launch Supplier Quality Forecasting. Surface 4-week forward risk scores on Supplier detail pages and add an "At-Risk Suppliers" widget to the Dashboard.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q2"></div><div><strong>Pillar 04 (anomaly detection):</strong> Layer ML anomaly detection on IoT streams. Move from threshold alerts to predictive drift warnings.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q2"></div><div>Extend the Knowledge Graph Explorer to visualise predictive signal chains — "this design decision correlates with NCR-type X".</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="phase-dot q3">Q3</div>
+          <div class="phase-content">
+            <div class="phase-header">
+              <div>
+                <div class="phase-label q3">Phase 3 — Q1–Q2 2027 · Months 10–14</div>
+                <div class="phase-title">Digital Twins & Vision Inspection</div>
+              </div>
+              <div class="phase-timeline">Months 10–14</div>
+            </div>
+            <div class="phase-items">
+              <div class="phase-item"><div class="phase-item-dot q3"></div><div><strong>Pillar 02:</strong> Launch Process Digital Twin module. Integrate with CAD/PLM systems via API. Output: simulated failure mode list → auto-populates FMEA workbench draft.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q3"></div><div><strong>Pillar 05:</strong> Roll out Computer Vision Inspection at pilot plants. Camera SDK + edge model deployment. Auto-NCR creation with image evidence and defect coordinates.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q3"></div><div><strong>Pillar 03 (full):</strong> Expand quality gates to all 5 types. Activate AI-assisted override rationale flow with approval chain.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q3"></div><div>Mobile Inspector app gains real-time risk score display for items under inspection.</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="phase">
+          <div class="phase-dot q4">Q4</div>
+          <div class="phase-content">
+            <div class="phase-header">
+              <div>
+                <div class="phase-label q4">Phase 4 — Q3 2027 · Months 15–18</div>
+                <div class="phase-title">Closed Loop & Full System Intelligence</div>
+              </div>
+              <div class="phase-timeline">Months 15–18</div>
+            </div>
+            <div class="phase-items">
+              <div class="phase-item"><div class="phase-item-dot q4"></div><div><strong>Pillar 07 (full):</strong> Auto-retraining pipeline live. Every closed NCR/8D/CAPA automatically enriches the predictive model. Quarterly model validation against held-out test sets.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q4"></div><div><strong>Pillar 01 (v2):</strong> Predictive engine upgraded with cross-product and cross-tenant (anonymised) learning. Benchmark model against industry defect rates.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q4"></div><div>New <strong>Proactive Quality Dashboard</strong> — a dedicated cockpit showing predicted vs. actual quality, gate pass rates, twin simulation vs. real-world accuracy, and AI model performance.</div></div>
+              <div class="phase-item"><div class="phase-item-dot q4"></div><div>Open <strong>Prediction API</strong> in Developer Platform — allow external tools (PLM, ERP, CAD) to pull quality risk scores programmatically.</div></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- INTEGRATION MAP -->
+    <section id="integration" class="section-block">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Integration Map</div>
+          <div class="section-title">How New Pillars Connect to Existing KAENAL Modules</div>
+          <div class="section-sub">No existing features are removed. Each pillar augments or feeds into what already exists.</div>
+        </div>
+      </div>
+
+      <div class="k-surface" style="overflow:hidden;">
+        <table class="int-table">
+          <thead>
+            <tr>
+              <th style="width:22%">New Pillar</th>
+              <th style="width:26%">Connects To (existing)</th>
+              <th>How it augments</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>P1 · Predictive Engine</strong></td>
+              <td><span class="module-chip">Dashboard</span> <span class="module-chip" style="margin-top:4px;">FMEA Workbench</span></td>
+              <td>Adds a "Quality Risk Score" KPI card; auto-populates risk RPN suggestions in FMEA before engineer manually scores.</td>
+            </tr>
+            <tr>
+              <td><strong>P2 · Digital Twin</strong></td>
+              <td><span class="module-chip">FMEA Workbench</span> <span class="module-chip">ECN</span></td>
+              <td>Twin simulation output is imported as a pre-filled FMEA row set; linked to the ECN change record that triggered the simulation.</td>
+            </tr>
+            <tr>
+              <td><strong>P3 · Dev Quality Gates</strong></td>
+              <td><span class="module-chip">ECN</span> <span class="module-chip">PPAP Submissions</span></td>
+              <td>Gates are enforced as required steps inside ECN change workflows and before PPAP submission is allowed to advance.</td>
+            </tr>
+            <tr>
+              <td><strong>P4 · IoT Anomaly Detection</strong></td>
+              <td><span class="module-chip">SPC Charts</span> <span class="module-chip">Inspections</span></td>
+              <td>Anomaly events auto-trigger a pre-scheduled inspection and surface in the SPC chart as a predictive warning band, not just a control-limit breach marker.</td>
+            </tr>
+            <tr>
+              <td><strong>P5 · Vision Inspection</strong></td>
+              <td><span class="module-chip">Inspections</span> <span class="module-chip">NCR Module</span></td>
+              <td>Camera findings auto-create a draft Inspection record and, on classification, directly raise a draft NCR with evidence photos and defect coordinates pre-attached.</td>
+            </tr>
+            <tr>
+              <td><strong>P6 · Supplier Forecasting</strong></td>
+              <td><span class="module-chip">Suppliers</span> <span class="module-chip">SCAR</span></td>
+              <td>Forward risk score replaces the backward-only scorecard. High forecast risk auto-triggers an early SCAR workflow with recommended inspection checklist.</td>
+            </tr>
+            <tr>
+              <td><strong>P7 · Closed-Loop Learning</strong></td>
+              <td><span class="module-chip">Knowledge Graph</span> <span class="module-chip">8D Reports</span></td>
+              <td>Closed 8D "Prevent Recurrence" outputs are structured and fed into the Knowledge Graph as training signal edges, enriching the next predictive cycle.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- COMPETITIVE EDGE -->
+    <section id="competitive" class="section-block">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">Competitive Differentiation</div>
+          <div class="section-title">Where KAENAL Leads the Market</div>
+          <div class="section-sub">Benchmarked against the major QMS platforms in the automotive/manufacturing space.</div>
+        </div>
+      </div>
+
+      <div class="comp-matrix k-surface" style="overflow:hidden; overflow-x:auto; margin-bottom:28px;">
+        <table class="comp-table">
+          <thead>
+            <tr>
+              <th>Capability</th>
+              <th class="comp-kaenal">KAENAL<br><span style="font-size:9px;font-weight:600;color:#3b82f6;">Post-Plan</span></th>
+              <th>ETQ Reliance</th>
+              <th>Qualio</th>
+              <th>MasterControl</th>
+              <th>Intelex</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Reactive NCR / CAPA / 8D workflows</td>
+              <td class="comp-kaenal"><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+              <td><span class="check">✓</span></td>
+            </tr>
+            <tr>
+              <td>AI-powered root cause suggestions</td>
+              <td class="comp-kaenal"><span class="check">✓</span></td>
+              <td><span class="partial">~</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="partial">~</span></td>
+            </tr>
+            <tr>
+              <td>Predictive Quality Risk Scoring at design</td>
+              <td class="comp-kaenal"><span class="check">✓</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+            </tr>
+            <tr>
+              <td>Development-Stage Quality Gates</td>
+              <td class="comp-kaenal"><span class="check">✓</span></td>
+              <td><span class="partial">~</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="partial">~</span></td>
+              <td><span class="cross">✗</span></td>
+            </tr>
+            <tr>
+              <td>IoT Process Anomaly Detection</td>
+              <td class="comp-kaenal"><span class="check">✓</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="partial">~</span></td>
+            </tr>
+            <tr>
+              <td>Digital Twin / Process Simulation</td>
+              <td class="comp-kaenal"><span class="check">✓</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+            </tr>
+            <tr>
+              <td>Computer Vision Inline Inspection</td>
+              <td class="comp-kaenal"><span class="check">✓</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+            </tr>
+            <tr>
+              <td>Supplier Quality Forecasting (forward)</td>
+              <td class="comp-kaenal"><span class="check">✓</span></td>
+              <td><span class="partial">~</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="partial">~</span></td>
+            </tr>
+            <tr>
+              <td>Closed-Loop Learning Knowledge Graph</td>
+              <td class="comp-kaenal"><span class="check">✓</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+              <td><span class="cross">✗</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:11px; color:var(--text-subtle); display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+        <span><span class="check">✓</span> Full capability</span>
+        <span><span class="partial">~</span> Partial / add-on</span>
+        <span><span class="cross">✗</span> Not available</span>
+        <span style="color:var(--text-subtle);">· Competitor data based on publicly available product documentation, June 2026</span>
+      </div>
+    </section>
+
+    <!-- WHAT STAYS -->
+    <section class="section-block">
+      <div class="callout callout-warn">
+        <div class="callout-icon">🔒</div>
+        <div>
+          <div class="callout-title">Backward Compatibility Commitment</div>
+          <div class="callout-body">
+            Every existing KAENAL feature — NCR workflows, 8D problem solving, audits, CAPA, document management, SPC, MSA, FMEA workbench, supplier portal, compliance dashboards, AI governance, developer platform — is <strong>preserved without change</strong>. The proactive layer is additive. Users who do not engage with predictive features see no disruption to their current workflows.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DIFFERENTIATOR SUMMARY -->
+    <section class="section-block">
+      <div class="section-header">
+        <div>
+          <div class="section-eyebrow">The Differentiating Idea</div>
+          <div class="section-title">One Statement</div>
+        </div>
+      </div>
+      <div class="quote-block">
+        <div class="quote-text">"KAENAL is the only QMS that operates across the full quality timeline — predicting problems in the design lab, detecting them in the factory, and learning from every outcome to make the next product better before it is built."</div>
+        <div class="quote-source">Strategic positioning · KAENAL Proactive QMS · 2026</div>
+      </div>
+
+      <div class="diff-grid">
+        <div class="diff-card">
+          <div class="diff-card-icon">🧠</div>
+          <div class="diff-card-title">Institutional Memory</div>
+          <div class="diff-card-body">Competitors store quality records. KAENAL learns from them — turning every NCR into a signal that makes future designs safer.</div>
+        </div>
+        <div class="diff-card">
+          <div class="diff-card-icon">⚡</div>
+          <div class="diff-card-title">Zero-Gap Coverage</div>
+          <div class="diff-card-body">From design intent to shipped product to customer complaint — every quality event in every lifecycle stage is covered in one platform.</div>
+        </div>
+        <div class="diff-card">
+          <div class="diff-card-icon">🔗</div>
+          <div class="diff-card-title">Native Integration</div>
+          <div class="diff-card-body">Predictive features aren't bolted-on modules — they are deeply wired into FMEA, ECN, PPAP, SPC, and NCR workflows that users already live in.</div>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- /page -->
+
+  <!-- FOOTER -->
+  <div class="plan-footer">
+    <div>
+      <div class="plan-footer-logo">KAENAL</div>
+      <div style="margin-top:4px;">Proactive QMS Innovation Plan · Version 1.0 · June 2026</div>
+    </div>
+    <div style="text-align:right;">
+      <div>Quality & Safety Management · Automotive / IATF 16949</div>
+      <div style="color:rgba(255,255,255,0.18); margin-top:3px;">Internal strategic document — not for external distribution</div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+</div><!-- /layout -->
+</body>
+</html>

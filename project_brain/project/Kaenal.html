@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kaenal — Quality & Safety Management</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Dancing+Script:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles/tokens.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  .phone-shadow { filter: drop-shadow(0 30px 50px rgba(15,23,42,0.18)) drop-shadow(0 8px 16px rgba(15,23,42,0.10)); }
+  .phone-shadow-android { filter: drop-shadow(0 30px 50px rgba(15,23,42,0.18)) drop-shadow(0 8px 16px rgba(15,23,42,0.10)); }
+  .k-widget-dragging { opacity: 0.4; transform: scale(0.98); }
+  .k-widget-drop-target::before {
+    content: ''; position: absolute; inset: -4px;
+    border: 2px dashed var(--accent); border-radius: 14px;
+    background: var(--accent-soft); pointer-events: none; z-index: 1;
+  }
+  .k-widget-handle:hover { color: var(--accent) !important; }
+  /* Animations for mic pulse */
+  @keyframes k-pulse { 0%, 100% { opacity: 0.4; transform: scale(1); } 50% { opacity: 0.1; transform: scale(1.1); } }
+  @keyframes k-spin { to { transform: rotate(360deg); } }
+  .k-spin { animation: k-spin 0.8s linear infinite; }
+  @keyframes k-hovercard-in { from { opacity: 0; } to { opacity: 1; } }
+</style>
+<style>
+  /* Accent overrides for Tweaks */
+  [data-accent="indigo"] { --accent: #4f46e5; --accent-hover: #4338ca; --accent-soft: #eef2ff; --ring: rgba(79,70,229,0.25); --sidebar-accent: #818cf8; --sidebar-active-bg: rgba(129,140,248,0.14); }
+  [data-accent="teal"] { --accent: #0d9488; --accent-hover: #0f766e; --accent-soft: #f0fdfa; --ring: rgba(13,148,136,0.25); --sidebar-accent: #5eead4; --sidebar-active-bg: rgba(94,234,212,0.14); }
+  [data-accent="orange"] { --accent: #ea580c; --accent-hover: #c2410c; --accent-soft: #fff7ed; --ring: rgba(234,88,12,0.25); --sidebar-accent: #fb923c; --sidebar-active-bg: rgba(251,146,60,0.14); }
+
+  [data-density="dense"] .k-surface { border-radius: var(--r-md); }
+  [data-density="dense"] .k-table td { padding: 7px 12px; font-size: 12.5px; }
+  [data-density="dense"] .k-table th { padding: 7px 12px; }
+  [data-density="dense"] .k-btn { height: 30px; padding: 6px 11px; }
+</style>
+<style>
+  /* ============================================================
+     RESPONSIVE LAYER — reflows the (otherwise fixed-1280) app for
+     tablet & phone. The app is inline-styled, so these rules use
+     !important to win over inline `style` attributes, matched on
+     their serialized substrings (e.g. [style*="repeat(4, 1fr)"]).
+     ============================================================ */
+
+  /* Never let a stray wide element scroll the whole page sideways;
+     tables/long content get their own internal scroll instead.
+     `clip` on <html> is the real backstop (it's the element that
+     scrolls); it doesn't break the sticky sidebar the way hidden can. */
+  html { overflow-x: clip; }
+  html, body { max-width: 100%; }
+  body { overflow-x: hidden; }
+
+  /* ---------- TABLET (≤ 1024px) ---------- */
+  @media (max-width: 1024px) {
+    /* Big KPI strips: 4/5/6-up → 2-up */
+    main [style*="repeat(4, 1fr)"]:not([style*="auto-fit"]):not([style*="auto-fill"]),
+    main [style*="repeat(5, 1fr)"]:not([style*="auto-fit"]):not([style*="auto-fill"]):not([style*="gap: 4px"]),
+    main [style*="repeat(6, 1fr)"]:not([style*="auto-fit"]):not([style*="auto-fill"]):not(.k-heatmap-grid) {
+      grid-template-columns: repeat(2, 1fr) !important;
+    }
+    /* Fixed side-rail two-pane layouts → stack */
+    main [style*="px 28px"][style*="320px"],
+    main [style*="px 28px"][style*="322px"],
+    main [style*="px 28px"][style*="300px"],
+    main [style*="1fr 280px"],
+    main [style*="1fr 320px"],
+    main [style*="320px 1fr"],
+    main [style*="300px 1fr"],
+    main [style*="380px 1fr"],
+    main [style*="322px"],
+    main [style*="300px"][style*="grid-template-columns"] {
+      grid-template-columns: 1fr !important;
+    }
+  }
+
+  /* ---------- PHONE (≤ 720px) ---------- */
+  @media (max-width: 720px) {
+    /* Collapse ALL fixed multi-column grids in the page body to a
+       single column. Leaves auto-fit/auto-fill grids (already
+       responsive) and the 5×5 risk heat-map (tight gap:4px) intact. */
+    main [style*="grid-template-columns"]:not([style*="auto-fit"]):not([style*="auto-fill"]) {
+      grid-template-columns: 1fr !important;
+    }
+    /* Widgets/tiles use explicit grid-column spans (e.g. "span 6", "1 / 3")
+       which would otherwise force implicit columns back open. Reset every
+       explicit placement so items stack in the single column. */
+    main [style*="grid-column"] { grid-column: auto !important; }
+    main [style*="grid-row"] { grid-row: auto !important; }
+    /* Re-protect the 5×5 risk heat-map + its axis labels (id-:not bumps
+       specificity so this wins over the blanket rule above). */
+    main [style*="repeat(5, 1fr)"][style*="gap: 4px"]:not(#_) {
+      grid-template-columns: repeat(5, 1fr) !important;
+    }
+    /* Risk heatmap (area × category matrix) must stay a matrix: restore its
+       columns with a narrower label rail so 6 cells fit a phone width. */
+    main .k-heatmap-grid:not(#_) { grid-template-columns: 52px repeat(6, 1fr) !important; }
+    main .k-heatmap-grid .k-heatmap-rowlabel { font-size: 9.5px !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Tighten page gutters: every page wrapper uses `<v>px 28px ...` */
+    main [style*="px 28px"] {
+      padding-left: 16px !important;
+      padding-right: 16px !important;
+    }
+
+    /* Tables scroll horizontally instead of forcing the page wide. */
+    .k-table {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      white-space: nowrap;
+    }
+
+    /* Fixed-width form controls shouldn't overflow the viewport. */
+    main .k-input { max-width: 100%; }
+
+    /* Horizontal toolbar / filter rows (Segmented + search + actions,
+       often with a `margin-left:auto` spacer) must wrap instead of
+       pushing content off-screen. Only horizontal flex rows are
+       affected; flex-wrap is a no-op until content actually overflows. */
+    main [style*="display: flex"]:not([style*="flex-direction: column"]) {
+      flex-wrap: wrap !important;
+    }
+    /* Neutralize right-aligning spacers so controls reflow to the left. */
+    main [style*="margin-left: auto"] { margin-left: 0 !important; }
+
+    /* ----- Condense the top bar ----- */
+    header { padding-left: 12px !important; padding-right: 12px !important; gap: 8px !important; }
+    /* Show only the current-page breadcrumb */
+    header > nav > * { display: none !important; }
+    header > nav > button:last-child { display: inline-block !important; }
+    /* Search collapses to an icon button */
+    header [style*="width: 400px"] { width: auto !important; min-width: 0 !important; padding: 0 10px !important; }
+    header [style*="width: 400px"] > span,
+    header [style*="width: 400px"] > kbd { display: none !important; }
+    /* Hide the name/role text next to the avatar */
+    header [aria-haspopup="menu"] > div { display: none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+  const TWEAK_DEFAULS = /*EDITMODE-BEGIN*/{
+    "theme": "light",
+    "density": "dense",
+    "sidebar": "expanded",
+    "accent": "blue",
+    "ai": "quiet",
+    "supplierWeights": {
+      "ppm": 8,
+      "otd": 0,
+      "oqe": 70,
+      "scar": 22
+    }
+  }/*EDITMODE-END*/;
+  window.__TWEAK_DEFAULTS = TWEAK_DEFAULS;
+</script>
+
+<script type="text/babel" src="src/data.js"></script>
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel" src="src/addons.jsx"></script>
+<script type="text/babel" src="src/shell.jsx"></script>
+<script type="text/babel" src="starters/ios-frame.jsx"></script>
+<script type="text/babel" src="starters/android-frame.jsx"></script>
+<script type="text/babel" src="src/dashboard.jsx"></script>
+<script type="text/babel" src="src/mobile-inspector.jsx"></script>
+<script type="text/babel" src="src/supplier-portal.jsx"></script>
+<script type="text/babel" src="src/pdf-designer.jsx"></script>
+<script type="text/babel" src="src/inspections.jsx"></script>
+<script type="text/babel" src="src/ncr.jsx"></script>
+<script type="text/babel" src="src/eightd-agentic.jsx"></script>
+<script type="text/babel" src="src/eightd.jsx"></script>
+<script type="text/babel" src="src/audits.jsx"></script>
+<script type="text/babel" src="src/capa.jsx"></script>
+<script type="text/babel" src="src/notifications.jsx"></script>
+<script type="text/babel" src="src/ai.jsx"></script>
+<script type="text/babel" src="src/auth.jsx"></script>
+<script type="text/babel" src="src/documents.jsx"></script>
+<script type="text/babel" src="src/reports.jsx"></script>
+<script type="text/babel" src="src/settings.jsx"></script>
+<script type="text/babel" src="src/createwizard.jsx"></script>
+<script type="text/babel" src="src/template-editor.jsx"></script>
+<script type="text/babel" src="src/schedule.jsx"></script>
+<script type="text/babel" src="src/notifications-center.jsx"></script>
+<script type="text/babel" src="src/prebuilt-dashboards.jsx"></script>
+<script type="text/babel" src="src/eightd-templates.jsx"></script>
+<script type="text/babel" src="src/eightd-pdf.jsx"></script>
+<script type="text/babel" src="src/settings-extra.jsx"></script>
+<script type="text/babel" src="src/auth-extra.jsx"></script>
+<script type="text/babel" src="src/upload-flow.jsx"></script>
+<script type="text/babel" src="src/realtime-empty-skel.jsx"></script>
+<script type="text/babel" src="src/trust-center.jsx"></script>
+<script type="text/babel" src="src/identity-advanced.jsx"></script>
+<script type="text/babel" src="src/ai-governance.jsx"></script>
+<script type="text/babel" src="src/dev-platform.jsx"></script>
+<script type="text/babel" src="src/multi-tenancy.jsx"></script>
+<script type="text/babel" src="src/qms-modules.jsx"></script>
+<script type="text/babel" src="src/qms-risk-spc.jsx"></script>
+<script type="text/babel" src="src/compliance-extra.jsx"></script>
+<script type="text/babel" src="src/operations.jsx"></script>
+<script type="text/babel" src="src/adoption.jsx"></script>
+<script type="text/babel" src="src/suppliers-data.js"></script>
+<script type="text/babel" src="src/suppliers.jsx"></script>
+<script type="text/babel" src="src/suppliers-ppap.jsx"></script>
+<script type="text/babel" src="src/graph-explorer.jsx"></script>
+<script type="text/babel" src="src/predictive.jsx"></script>
+<script type="text/babel" src="src/pqe.jsx"></script>
+<script type="text/babel" src="src/quicklog-mobile.jsx"></script>
+<script type="text/babel" src="src/quicklog-collab.jsx"></script>
+<script type="text/babel" src="src/quicklog.jsx"></script>
+<script type="text/babel" src="src/pricing.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const BREADCRUMBS = {
+  'dashboard': [{ label: 'Dashboard' }],
+  'quicklog': [{ label: 'Quick-Log & Collaboration' }],
+  'inspections': [{ label: 'Inspections' }],
+  'inspection-detail': [{ label: 'Inspections', route: 'inspections' }, { label: 'Detail' }],
+  'ncr': [{ label: 'Non-Conformities' }],
+  'ncr-mine': [{ label: 'Non-Conformities', route: 'ncr' }, { label: 'My Assignments' }],
+  'ncr-overdue': [{ label: 'Non-Conformities', route: 'ncr' }, { label: 'At Risk' }],
+  'ncr-detail': [{ label: 'Non-Conformities', route: 'ncr' }, { label: 'Detail' }],
+  '8d': [{ label: '8D Reports' }],
+  '8d-detail': [{ label: '8D Reports', route: '8d' }, { label: 'Detail' }],
+  'audits': [{ label: 'Audits' }],
+  'audits-mine': [{ label: 'Audits', route: 'audits' }, { label: 'My Audits' }],
+  'audits-schedule': [{ label: 'Audits', route: 'audits' }, { label: 'Schedule' }],
+  'audit-detail': [{ label: 'Audits', route: 'audits' }, { label: 'Detail' }],
+  'capa': [{ label: 'CAPA' }],
+  'capa-mine': [{ label: 'CAPA', route: 'capa' }, { label: 'My CAPAs' }],
+  'capa-overdue': [{ label: 'CAPA', route: 'capa' }, { label: 'At Risk' }],
+  'capa-detail': [{ label: 'CAPA', route: 'capa' }, { label: 'Detail' }],
+  'documents': [{ label: 'Documents' }],
+  'graph': [{ label: 'Intelligence' }, { label: 'Knowledge graph' }],
+  'predictive': [{ label: 'Intelligence' }, { label: 'Predictive risk' }],
+  'pqe': [{ label: 'Intelligence' }, { label: 'Quality Engine' }],
+  'document-detail': [{ label: 'Documents', route: 'documents' }, { label: 'Detail' }],
+  'reports': [{ label: 'Reports' }],
+  'reports-dashboards': [{ label: 'Reports', route: 'reports' }, { label: 'Dashboards' }],
+  'report-builder': [{ label: 'Reports', route: 'reports' }, { label: 'Builder' }],
+  'settings': [{ label: 'Settings' }],
+  'inspections-templates': [{ label: 'Inspections', route: 'inspections' }, { label: 'Templates' }],
+  'inspection-template-editor': [{ label: 'Inspections', route: 'inspections' }, { label: 'Templates', route: 'inspections-templates' }, { label: 'Editor' }],
+  'inspections-schedule': [{ label: 'Inspections', route: 'inspections' }, { label: 'Schedule' }],
+  '8d-templates': [{ label: '8D Reports', route: '8d' }, { label: 'Templates' }],
+  '8d-template-editor': [{ label: '8D Reports', route: '8d' }, { label: 'Templates', route: '8d-templates' }, { label: 'Editor' }],
+  '8d-pdf': [{ label: '8D Reports', route: '8d' }, { label: 'Detail', route: '8d-detail' }, { label: 'PDF Report' }],
+  'notifications': [{ label: 'Notifications' }],
+  'training': [{ label: 'Quality system' }, { label: 'Training & competency' }],
+  'calibration': [{ label: 'Quality system' }, { label: 'Calibration' }],
+  'complaints': [{ label: 'Quality system' }, { label: 'Customer complaints' }],
+  'ecn': [{ label: 'Quality system' }, { label: 'Engineering changes' }],
+  'risk': [{ label: 'Quality system' }, { label: 'Risk register' }],
+  'fmea': [{ label: 'Quality system' }, { label: 'FMEA' }],
+  'spc': [{ label: 'Quality system' }, { label: 'SPC charts' }],
+  'msa': [{ label: 'Quality system' }, { label: 'MSA / Gauge R&R' }],
+  'ai-governance': [{ label: 'Platform' }, { label: 'AI Governance' }],
+  'dev-platform': [{ label: 'Platform' }, { label: 'Developer Platform' }],
+  'multi-tenancy': [{ label: 'Platform' }, { label: 'Multi-tenancy' }],
+  'pricing': [{ label: 'Platform' }, { label: 'Plans & add-ons' }],
+  'empty-states': [{ label: 'Patterns' }, { label: 'Empty states' }],
+  'skeletons': [{ label: 'Patterns' }, { label: 'Loading skeletons' }],
+  'suppliers': [{ label: 'Supply chain' }, { label: 'Suppliers' }],
+  'suppliers-scorecards': [{ label: 'Supply chain' }, { label: 'Suppliers', route: 'suppliers' }, { label: 'Scorecards' }],
+  'suppliers-risk': [{ label: 'Supply chain' }, { label: 'Suppliers', route: 'suppliers' }, { label: 'Risk matrix' }],
+  'supplier-detail': [{ label: 'Supply chain' }, { label: 'Suppliers', route: 'suppliers' }, { label: 'Detail' }],
+  'ppap': [{ label: 'Supply chain' }, { label: 'PPAP submissions' }],
+  'ppap-detail': [{ label: 'Supply chain' }, { label: 'PPAP submissions', route: 'ppap' }, { label: 'Detail' }],
+  'scar': [{ label: 'Supply chain' }, { label: 'SCAR & chargebacks' }],
+};
+
+function App() {
+  const [route, _setRoute] = useState(() => localStorage.getItem('k_route') || 'dashboard');
+  const [ncrId, setNcrId] = useState(() => localStorage.getItem('k_ncr') || 'NCR-2026-0142');
+  const [eightDId, set8dId] = useState(() => localStorage.getItem('k_8d') || '8D-2026-0015');
+  const [inspectionId, setInspectionId] = useState(() => localStorage.getItem('k_insp') || 'INS-2026-0342');
+  const [auditId, setAuditId] = useState(() => localStorage.getItem('k_audit') || 'AUD-2026-0021');
+  const [capaId, setCapaId] = useState(() => localStorage.getItem('k_capa') || 'CAPA-2026-0042');
+  const [docId, setDocId] = useState(() => localStorage.getItem('k_doc') || 'D-001');
+  const [reportId, setReportId] = useState(() => localStorage.getItem('k_report') || 'r1');
+  const [templateId, setTemplateId] = useState(() => localStorage.getItem('k_template') || 'iatf-process-audit-v2');
+  const [supplierId, setSupplierId] = useState(() => localStorage.getItem('k_supplier') || 'SUP-0188');
+  const [ppapId, setPpapId] = useState(() => localStorage.getItem('k_ppap') || 'PPAP-2026-0042');
+
+  // Auth gate
+  const [signedIn, setSignedIn] = useState(() => localStorage.getItem('k_signed_in') === '1');
+  const onSignIn = () => { localStorage.setItem('k_signed_in', '1'); setSignedIn(true); };
+  const signOut = () => { localStorage.removeItem('k_signed_in'); setSignedIn(false); };
+
+  // Live mode (real-time toasts)
+  const [liveMode, setLiveMode] = useState(() => localStorage.getItem('k_live') === '1');
+  const toggleLive = () => setLiveMode(v => {
+    const next = !v; localStorage.setItem('k_live', next ? '1' : '0'); return next;
+  });
+
+  // Upload modal
+  const [uploadOpen, setUploadOpen] = useState(false);
+
+  const setRoute = (r) => { _setRoute(r); localStorage.setItem('k_route', r); };
+  // Dev/test hook: allows deep-linking + automated route checks
+  useEffect(() => { window.__navigate = (r) => setRoute(r); }, []);
+  const setNcr = (id) => { setNcrId(id); localStorage.setItem('k_ncr', id); };
+  const set8d = (id) => { set8dId(id); localStorage.setItem('k_8d', id); };
+  const setInspection = (id) => { setInspectionId(id); localStorage.setItem('k_insp', id); };
+  const setAudit = (id) => { setAuditId(id); localStorage.setItem('k_audit', id); };
+  const setCapa = (id) => { setCapaId(id); localStorage.setItem('k_capa', id); };
+  const setDoc = (id) => { setDocId(id); localStorage.setItem('k_doc', id); };
+  const setReport = (id) => { setReportId(id); localStorage.setItem('k_report', id); };
+  const setTemplate = (id) => { setTemplateId(id); localStorage.setItem('k_template', id); };
+  const setSupplier = (id) => { setSupplierId(id); localStorage.setItem('k_supplier', id); };
+  const setPpap = (id) => { setPpapId(id); localStorage.setItem('k_ppap', id); };
+
+  // Settings with Tweaks persistence
+  const [settings, setSettings] = useState(() => {
+    const d = window.__TWEAK_DEFAULTS;
+    return { ...d, ...JSON.parse(localStorage.getItem('k_settings') || '{}') };
+  });
+  const updateSettings = (patch) => {
+    setSettings(s => {
+      const next = { ...s, ...patch };
+      localStorage.setItem('k_settings', JSON.stringify(next));
+      try { window.parent.postMessage({ type: '__edit_mode_set_keys', edits: patch }, '*'); } catch(e) {}
+      return next;
+    });
+  };
+
+  // Apply theme + accent + density
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', settings.theme);
+    document.documentElement.setAttribute('data-accent', settings.accent);
+    document.documentElement.setAttribute('data-density', settings.density);
+  }, [settings.theme, settings.accent, settings.density]);
+
+  // Edit mode (Tweaks) wiring
+  const [tweaksOpen, setTweaksOpen] = useState(false);
+  useEffect(() => {
+    const handle = (ev) => {
+      if (ev.data?.type === '__activate_edit_mode') setTweaksOpen(true);
+      if (ev.data?.type === '__deactivate_edit_mode') setTweaksOpen(false);
+    };
+    window.addEventListener('message', handle);
+    try { window.parent.postMessage({ type: '__edit_mode_available' }, '*'); } catch(e) {}
+    return () => window.removeEventListener('message', handle);
+  }, []);
+
+  // AI drawer
+  const [aiOpen, setAiOpen] = useState(false);
+
+  // Create wizard
+  const [createType, setCreateType] = useState(null); // null | 'inspection' | 'ncr' | '8d' | 'document'
+  const openCreate = (type) => setCreateType(type || 'inspection');
+  const closeCreate = () => setCreateType(null);
+  const [toast, setToast] = useState(null);
+  const onCreateComplete = (data) => {
+    const label = ENTITY_TYPES[data.type].label;
+    setToast(`✨ ${label} created — ${data.title}`);
+    if (data.type === 'inspection') setRoute('inspection-detail');
+    else if (data.type === 'ncr') setRoute('ncr-detail');
+    else if (data.type === '8d') setRoute('8d-detail');
+    else if (data.type === 'document') setRoute('document-detail');
+  };
+
+  // Command palette + notifications
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [notifsOpen, setNotifsOpen] = useState(false);
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setCmdOpen(true); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'i') { e.preventDefault(); openCreate('inspection'); }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'd' && !e.shiftKey) { e.preventDefault(); openCreate('8d'); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+  const aiContext = (() => {
+    if (route === 'dashboard') return 'Dashboard';
+    if (route === 'inspections') return 'Inspections list';
+    if (route === 'inspection-detail') return `Inspection ${inspectionId}`;
+    if (route === 'ncr') return 'NCR list';
+    if (route === 'ncr-detail') return `NCR ${ncrId}`;
+    if (route === '8d') return '8D list';
+    if (route === '8d-detail') return `8D ${eightDId}`;
+    return route;
+  })();
+
+  const collapsed = settings.sidebar === 'collapsed';
+
+  // Responsive shell: below 860px the sidebar becomes an off-canvas drawer.
+  const isMobile = useIsMobile();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // Close the drawer whenever the route changes or we leave mobile.
+  useEffect(() => { setDrawerOpen(false); }, [route]);
+  useEffect(() => { if (!isMobile) setDrawerOpen(false); }, [isMobile]);
+  const onHamburger = () => isMobile
+    ? setDrawerOpen((o) => !o)
+    : updateSettings({ sidebar: collapsed ? 'expanded' : 'collapsed' });
+
+  // Add-on entitlements — re-render when a pack is purchased/removed
+  const entitlements = useEntitlements();
+
+  const renderPage = () => {
+    const inner = (() => {
+    switch (route) {
+      case 'dashboard': return <Dashboard setRoute={setRoute} setNcr={setNcr} set8d={set8d} setInspection={setInspection} openCreate={openCreate}/>;
+      case 'inspections':
+        return <InspectionsList setRoute={setRoute} setInspection={setInspection} openCreate={openCreate}/>;
+      case 'inspections-templates':
+        return <InspectionTemplatesList setRoute={setRoute} setTemplate={setTemplate}/>;
+      case 'inspection-template-editor':
+        return <InspectionTemplateEditor id={templateId} setRoute={setRoute}/>;
+      case 'inspections-schedule':
+        return <ScheduleView setRoute={setRoute} setInspection={setInspection} setAudit={setAudit} openCreate={openCreate}/>;
+      case 'inspection-detail': return <InspectionDetail id={inspectionId} setRoute={setRoute} setNcr={setNcr}/>;
+      case 'ncr':
+      case 'ncr-mine':
+      case 'ncr-overdue':
+        return <NCRList route={route} setRoute={setRoute} setNcr={setNcr} openCreate={openCreate}/>;
+      case 'ncr-detail': return <NCRDetail id={ncrId} setRoute={setRoute} setNcr={setNcr} set8d={set8d} setInspection={setInspection}/>;
+      case '8d':
+      case '8d-completed':
+        return <EightDList setRoute={setRoute} set8d={set8d} openCreate={openCreate}/>;
+      case '8d-templates':
+        return <EightDTemplatesList setRoute={setRoute} setTemplate={setTemplate}/>;
+      case '8d-template-editor':
+        return <EightDTemplateEditor id={templateId} setRoute={setRoute}/>;
+      case '8d-pdf': return <EightDPdfReport id={eightDId} setRoute={setRoute}/>;
+      case '8d-detail': return <EightDDetail id={eightDId} setRoute={setRoute} setNcr={setNcr} set8d={set8d} setCapa={setCapa}/>;
+      case 'audits':
+      case 'audits-mine':
+      case 'audits-schedule':
+        return <AuditList setRoute={setRoute} setAudit={setAudit} openCreate={openCreate}/>;
+      case 'audit-detail': return <AuditDetail id={auditId} setRoute={setRoute} setNcr={setNcr}/>;
+      case 'capa':
+      case 'capa-mine':
+      case 'capa-overdue':
+        return <CapaList setRoute={setRoute} setCapa={setCapa} openCreate={openCreate}/>;
+      case 'capa-detail': return <CapaDetail id={capaId} setRoute={setRoute} setNcr={setNcr} set8d={set8d}/>;
+      case 'documents': return <DocsList setRoute={setRoute} setDoc={setDoc} openCreate={openCreate} onUpload={() => setUploadOpen(true)}/>;
+      case 'document-detail': return <DocDetail id={docId} setRoute={setRoute}/>;
+      case 'reports': return <ReportsHub setRoute={setRoute} setReport={setReport}/>;
+      case 'reports-dashboards': return <PrebuiltDashboards setRoute={setRoute} setReport={setReport}/>;
+      case 'report-builder': return <ReportBuilder id={reportId} setRoute={setRoute}/>;
+      case 'notifications': return <NotificationsCenter setRoute={setRoute} setNcr={setNcr} set8d={set8d} setAudit={setAudit} setCapa={setCapa} setInspection={setInspection}/>;
+      case 'training': return <TrainingMatrix setRoute={setRoute}/>;
+      case 'calibration': return <CalibrationManagement setRoute={setRoute}/>;
+      case 'complaints': return <CustomerComplaints setRoute={setRoute} setNcr={setNcr}/>;
+      case 'ecn': return <ECNWorkbench setRoute={setRoute}/>;
+      case 'risk': return <RiskRegister setRoute={setRoute}/>;
+      case 'fmea': return <FMEAWorkbench setRoute={setRoute}/>;
+      case 'spc': return <SPCCharts setRoute={setRoute}/>;
+      case 'msa': return <MSAStudy setRoute={setRoute}/>;
+      case 'ai-governance': return <AIGovernanceHub setRoute={setRoute}/>;
+      case 'dev-platform': return <DevPlatformHub setRoute={setRoute}/>;
+      case 'multi-tenancy': return <MultiTenancyHub/>;
+      case 'empty-states': return <EmptyStatesGallery setRoute={setRoute} openCreate={openCreate}/>;
+      case 'skeletons': return <SkeletonsGallery setRoute={setRoute}/>;
+      case 'suppliers': return <SupplierList setRoute={setRoute} setSupplier={setSupplier} openCreate={openCreate} settings={settings}/>;
+      case 'suppliers-scorecards': return <SupplierScorecards setRoute={setRoute} setSupplier={setSupplier}/>;
+      case 'suppliers-risk': return <SupplierRiskMatrix setRoute={setRoute} setSupplier={setSupplier} settings={settings}/>;
+      case 'supplier-detail': return <SupplierDetail id={supplierId} setRoute={setRoute} setSupplier={setSupplier} setNcr={setNcr} set8d={set8d} setAudit={setAudit} setCapa={setCapa} settings={settings}/>;
+      case 'ppap': return <PpapSubmissionsList setRoute={setRoute} setSupplier={setSupplier} setPpap={setPpap}/>;
+      case 'ppap-detail': return <PpapDetail id={ppapId} setRoute={setRoute} setSupplier={setSupplier} settings={settings}/>;
+      case 'scar': return <ScarWorkflow setRoute={setRoute} setSupplier={setSupplier} setNcr={setNcr} set8d={set8d}/>;
+      case 'graph': return <GraphExplorer setRoute={setRoute} setNcr={setNcr} set8d={set8d} setCapa={setCapa} setInspection={setInspection} setSupplier={setSupplier} setAudit={setAudit} setDoc={setDoc}/>;
+      case 'predictive': return <PredictiveRisk setRoute={setRoute} setSupplier={setSupplier} setNcr={setNcr}/>;
+      case 'pqe': return <PQEModule setRoute={setRoute}/>;
+      case 'settings': return <Settings setRoute={setRoute}/>;
+      case 'pricing': return <PricingPage setRoute={setRoute}/>;
+      case 'mobile': return <MobileInspectorPage setRoute={setRoute}/>;
+      case 'quicklog': return <QuickLogPage setRoute={setRoute}/>;
+      case 'supplier': return <SupplierPortal setRoute={setRoute}/>;
+      case 'pdf-designer': return <PDFTemplateDesigner setRoute={setRoute}/>;
+      default: return <Dashboard setRoute={setRoute} setNcr={setNcr} set8d={set8d} setInspection={setInspection}/>;
+    }
+    })();
+    const lockedPackId = packForRoute(route);
+    if (lockedPackId && isRouteLocked(route, entitlements)) {
+      return <UpgradeOverlay packId={lockedPackId} setRoute={setRoute}>{inner}</UpgradeOverlay>;
+    }
+    return inner;
+  };
+
+  if (!signedIn) {
+    return (
+      <>
+        <Auth onSignIn={onSignIn}/>
+        <TweaksPanel open={tweaksOpen} settings={settings} update={updateSettings}/>
+      </>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>
+      {isMobile && drawerOpen &&
+        <div onClick={() => setDrawerOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.55)', zIndex: 65, backdropFilter: 'blur(1px)' }} />
+      }
+      <Sidebar collapsed={collapsed} onToggle={() => updateSettings({ sidebar: collapsed ? 'expanded' : 'collapsed' })}
+        route={route} setRoute={setRoute} mobile={isMobile} open={drawerOpen} onClose={() => setDrawerOpen(false)}/>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <TopBar
+          onToggleSidebar={onHamburger}
+          mobile={isMobile}
+          breadcrumbs={BREADCRUMBS[route] || [{ label: route }]}
+          onToggleTheme={() => updateSettings({ theme: settings.theme === 'light' ? 'dark' : 'light' })}
+          theme={settings.theme}
+          onOpenAI={() => setAiOpen(true)} aiOpen={aiOpen}
+          aiProminence={settings.ai}
+          onOpenCmd={() => setCmdOpen(true)}
+          onOpenNotifs={() => setNotifsOpen(true)}
+          openCreate={openCreate}
+          onOpenUpload={() => setUploadOpen(true)}
+          liveMode={liveMode}
+          onToggleLive={toggleLive}
+          onSignOut={signOut}
+          setRoute={setRoute}
+        />
+        <main style={{ flex: 1, minHeight: 0 }}>
+          {renderPage()}
+        </main>
+      </div>
+
+      <AIDrawer open={aiOpen} onClose={() => setAiOpen(false)} context={aiContext}/>
+      <TweaksPanel open={tweaksOpen} settings={settings} update={updateSettings}/>
+      {createType && <CreateWizard initialType={createType} onClose={closeCreate} onComplete={onCreateComplete}/>}
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} onCreate={openCreate} setRoute={setRoute}
+        setNcr={setNcr} set8d={set8d} setInspection={setInspection} setAudit={setAudit} setCapa={setCapa}
+        onToggleTheme={() => updateSettings({ theme: settings.theme === 'light' ? 'dark' : 'light' })}
+        onOpenAI={() => setAiOpen(true)}/>
+      <NotificationsPanel open={notifsOpen} onClose={() => setNotifsOpen(false)}
+        onSeeAll={() => { setNotifsOpen(false); setRoute('notifications'); }}
+        onOpenItem={(t) => {
+          if (t.kind === 'ncr') { setNcr(t.id); setRoute('ncr-detail'); }
+          else if (t.kind === '8d') { set8d(t.id); setRoute('8d-detail'); }
+          else if (t.kind === 'audit') { setAudit(t.id); setRoute('audit-detail'); }
+          else if (t.kind === 'capa') { setCapa(t.id); setRoute('capa-detail'); }
+          else if (t.kind === 'inspection') { setInspection(t.id); setRoute('inspection-detail'); }
+        }}/>
+      {toast && <Toast message={toast} onClose={() => setToast(null)}/>}
+      <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} onComplete={() => setToast('✨ 4 documents uploaded · OCR & AI summary complete')}/>
+      <LiveToastProvider enabled={liveMode} onOpenTarget={(t) => {
+        if (t.kind === 'ncr') { setNcr(t.id); setRoute('ncr-detail'); }
+        else if (t.kind === '8d') { set8d(t.id); setRoute('8d-detail'); }
+        else if (t.kind === 'audit') { setAudit(t.id); setRoute('audit-detail'); }
+        else if (t.kind === 'capa') { setCapa(t.id); setRoute('capa-detail'); }
+        else if (t.kind === 'inspection') { setInspection(t.id); setRoute('inspection-detail'); }
+        else if (t.kind === 'document') { setDoc(t.id); setRoute('document-detail'); }
+      }}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

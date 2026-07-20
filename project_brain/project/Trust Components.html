@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kaenal — Trust Components</title>
+<meta name="viewport" content="width=1280">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles/tokens.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  @keyframes k-spin { to { transform: rotate(360deg); } }
+  .k-spin { animation: k-spin 0.8s linear infinite; }
+  .ts-faux-input {
+    height: 38px; border: 1px solid var(--border); border-radius: var(--r-md);
+    background: var(--surface); display: flex; align-items: center; padding: 0 12px;
+    font-size: 13px; color: var(--text-subtle);
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="src/data.js"></script>
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel" src="src/trust-components.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ── Local showcase chrome (no app shell needed) ──
+function Section({ n, eyebrow, title, desc, children }) {
+  return (
+    <section style={{ marginBottom: 56 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{n}</span>
+        <div className="k-overline" style={{ color: 'var(--text-subtle)' }}>{eyebrow}</div>
+      </div>
+      <h2 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', margin: '0 0 6px' }}>{title}</h2>
+      <p style={{ fontSize: 13.5, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 24px', maxWidth: 660 }}>{desc}</p>
+      {children}
+    </section>
+  );
+}
+
+function Frame({ label, sub, children, width }) {
+  return (
+    <div style={{ width }}>
+      {label && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text)' }}>{label}</span>
+          {sub && <span style={{ fontSize: 11, color: 'var(--text-subtle)' }}>{sub}</span>}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+// A faux "host surface" so suggestions are shown where they'd actually appear
+function HostCard({ crumb, children }) {
+  return (
+    <div className="k-surface" style={{ padding: 0, overflow: 'visible' }}>
+      <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+        <Icon name="alert" size={13} style={{ color: 'var(--text-subtle)' }}/>
+        {crumb}
+      </div>
+      <div style={{ padding: 18 }}>{children}</div>
+    </div>
+  );
+}
+
+// ── Demo data ──
+const rootCause = {
+  label: 'Kaenal AI · Root-cause suggestion',
+  context: 'From this NCR, the process control plan & 2 similar resolved cases',
+  confidence: 86,
+  headline: 'Wire-feed speed calibration drift on weld station 4',
+  detail: 'Penetration has walked down 0.6 mm over the last 47 operating hours — the signature of a slow calibration drift rather than a one-off event.',
+  acceptLabel: 'Use as root cause',
+  reasoning: [
+    'The defect is weld porosity with measured penetration 4.2 mm, against a 5.0–7.0 mm specification.',
+    'The CMM trend on station 4 shows penetration declining 0.6 mm over 47 operating hours — a monotonic drift, not a step change.',
+    'PCP §3.2 sets wire-feed at 4.8 m/min ± 0.3; the station was last calibrated 51 days ago, beyond the 30-day interval.',
+    'Two historically similar NCRs on the same station were both resolved by re-calibrating the wire feed.',
+  ],
+  signals: ['NCR-2026-0142 fields', 'CMM penetration trend', 'Process Control Plan v4.3', 'Calibration log · WS-4', '2 similar NCRs'],
+  alternatives: [
+    { text: 'Shielding-gas mix off-spec', confidence: 22 },
+    { text: 'Joint-preparation gap out of tolerance', confidence: 16 },
+  ],
+  sources: [
+    { kind: 'clause', label: 'Process Control Plan', ref: '§3.2', title: 'Welding Process Control Plan v4.3', meta: 'Controlled doc · DOC-WLD-0042',
+      passage: [{ t: 'Wire-feed speed for the MIG cell shall be maintained at ' }, { t: '4.8 m/min ± 0.3', hl: true }, { t: '. Calibration interval: 30 days. Out-of-range feed is the dominant driver of penetration variation.' }] },
+    { kind: 'data', label: 'CMM trend', ref: 'WS-4', title: 'Penetration — Station 4 (CMM)', meta: 'Measurement record · last 60 h', mono: true,
+      passage: [{ t: 'h+00   5.1 mm\nh+18   4.9 mm\nh+34   ' }, { t: '4.6 mm', hl: true }, { t: '\nh+47   ' }, { t: '4.2 mm  below 5.0 spec', hl: true }] },
+    { kind: 'case', label: '8D-2024-0089', title: 'Recurring weld porosity — Station 4', meta: 'Closed · root cause confirmed',
+      passage: [{ t: 'Root cause: wire-feed calibration drift. Containment: re-calibrate + 24 h SPC watch. ' }, { t: 'No recurrence in 14 months.', hl: true }] },
+    { kind: 'log', label: 'Calibration log', ref: 'WS-4', title: 'Calibration history — Weld Station 4', meta: 'Asset CAL-WS4',
+      passage: [{ t: 'Last calibrated ' }, { t: '51 days ago', hl: true }, { t: ' — exceeds the 30-day interval defined in PCP §3.2.' }] },
+  ],
+};
+
+const disposition = {
+  label: 'Kaenal AI · Disposition recommendation',
+  context: 'NCR-2026-0142 · 1,240 affected parts',
+  confidence: 64,
+  headline: 'Sort & rework — do not scrap',
+  detail: 'Porosity is within reworkable surface depth; modelled rework cost is ~8% of scrap-and-remake.',
+  acceptLabel: 'Apply disposition',
+  approval: 'Requires Quality Manager sign-off',
+  reasoning: [
+    'Measured defect depth is 0.4 mm — inside the 0.8 mm reworkable limit in WI-220.',
+    'Cost model: rework €1.80/part vs €22.40 scrap-and-remake across 1,240 parts.',
+    'Customer deviation history shows reworked hinge brackets accepted on 3 prior lots.',
+  ],
+  signals: ['Defect depth 0.4 mm', 'Rework spec WI-220', 'Cost model', 'Customer deviation history'],
+  sources: [
+    { kind: 'clause', label: 'Work Instruction', ref: 'WI-220', title: 'Rework — MIG weld porosity', meta: 'Controlled doc',
+      passage: [{ t: 'Surface porosity up to ' }, { t: '0.8 mm depth', hl: true }, { t: ' may be ground and re-welded under WI-220 without customer concession.' }] },
+    { kind: 'data', label: 'Cost model', title: 'Disposition cost comparison', meta: 'Auto-computed',
+      passage: [{ t: 'Rework total €2,232 vs scrap+remake ' }, { t: '€27,776', hl: true }, { t: ' — rework saves 92%.' }] },
+  ],
+};
+
+const lowConf = {
+  label: 'Kaenal AI · Suggested category',
+  context: 'Auto-classification on import',
+  confidence: 38,
+  headline: 'Category: Surface finish',
+  detail: 'Weak signal — the description is brief and overlaps two categories. Confirm before saving.',
+  acceptLabel: 'Use category',
+  reasoning: [
+    'Keywords "porosity" and "finish" appear with similar weight.',
+    'Only 6 words of free text were available to classify from.',
+  ],
+  signals: ['NCR title text', 'Category embeddings'],
+  sources: [],
+};
+
+const auditEntries = [
+  { id: 'a6', time: '16:42:10', date: 'May 19', type: 'closure', actor: 'u1', action: 'e-signed NCR closure', entity: 'NCR-2026-0142',
+    note: 'Closure certificate sealed; awaiting external trusted timestamp.', signed: true,
+    hash: '5f1c…0b8a', prevHash: '9d34…2c93', signer: 'Manjunath Kumar', keyId: 'kaenal-signer-3', signedAt: '2026-05-19 16:42:10Z', start: 'pending', result: 'pending' },
+  { id: 'a5', time: '15:08:44', date: 'May 19', type: 'approve', actor: 'u5', action: 'approved disposition — sort & rework', signed: true,
+    hash: '9d34…2c93', prevHash: '7a02…41ef', signer: 'David Chen', keyId: 'kaenal-signer-3', signedAt: '2026-05-19 15:08:44Z', start: 'signed', result: 'verified' },
+  { id: 'a4', time: '14:55:02', date: 'May 19', type: 'verify', actor: 'u4', action: 'verified corrective-action effectiveness', signed: true,
+    hash: '7a02…41ef', prevHash: 'c81b…77d0', signer: 'Priya Nair', keyId: 'kaenal-signer-2', signedAt: '2026-05-19 14:55:02Z', start: 'signed', result: 'verified' },
+  { id: 'a3', time: '14:31:19', date: 'May 19', type: 'edit', actor: 'u2', action: 'edited the root-cause statement', signed: true,
+    note: 'This record was changed after it was signed — its integrity check fails.',
+    hash: 'c81b…77d0', prevHash: '3e9f…a14c', signer: 'Anna Schmidt', keyId: 'kaenal-signer-2', signedAt: '2026-05-19 14:31:19Z', start: 'signed', result: 'tampered' },
+  { id: 'a2', time: '11:20:08', date: 'May 19', type: 'status', actor: 'u2', action: 'changed status In Progress → Resolved', signed: true,
+    hash: '3e9f…a14c', prevHash: '0a77…d2b1', signer: 'Anna Schmidt', keyId: 'kaenal-signer-2', signedAt: '2026-05-19 11:20:08Z', start: 'signed', result: 'verified' },
+  { id: 'a1', time: '09:02:55', date: 'May 18', type: 'create', actor: 'u1', action: 'created NCR from inspection finding', entity: 'INS-2026-0342', signed: true,
+    hash: '0a77…d2b1', prevHash: null, signer: 'Manjunath Kumar', keyId: 'kaenal-signer-3', signedAt: '2026-05-18 09:02:55Z', start: 'signed', result: 'verified' },
+];
+
+const sampleSig = { hash: '7a02…41ef', prevHash: 'c81b…77d0', signer: 'Priya Nair', keyId: 'kaenal-signer-2', signedAt: '2026-05-19 14:55:02Z' };
+
+function App() {
+  const [theme, setTheme] = useState('light');
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('data-accent', 'blue');
+    document.documentElement.setAttribute('data-density', 'comfy');
+  }, [theme]);
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+      {/* Top bar */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 40, height: 56, background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, padding: '0 28px' }}>
+        <div style={{ width: 28, height: 28, borderRadius: 7, background: 'var(--sidebar-bg)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name="logo" size={17}/>
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>Kaenal</div>
+        <span style={{ color: 'var(--border-strong)' }}>/</span>
+        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>Trust components</div>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Segmented size="sm" value={theme} onChange={setTheme} options={[
+            { value: 'light', label: 'Light', icon: 'sun' },
+            { value: 'dark', label: 'Dark', icon: 'moon' },
+          ]}/>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1080, margin: '0 auto', padding: '44px 28px 100px' }}>
+        {/* Hero */}
+        <div style={{ marginBottom: 56 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 11px', borderRadius: 'var(--r-full)', background: 'var(--accent-soft)', color: 'var(--accent)', fontSize: 12, fontWeight: 600, marginBottom: 18 }}>
+            <Icon name="shieldCheck" size={13}/> Trust as a feature
+          </div>
+          <h1 style={{ fontSize: 38, fontWeight: 800, letterSpacing: '-0.03em', margin: '0 0 14px', lineHeight: 1.1, maxWidth: 740 }}>
+            Two components that make AI and audit trails answerable to a quality manager.
+          </h1>
+          <p style={{ fontSize: 15.5, color: 'var(--text-muted)', lineHeight: 1.65, margin: 0, maxWidth: 680 }}>
+            In a regulated factory, no one accepts a machine's word on faith. Every AI proposal must show its
+            reasoning and its sources; every recorded action must be provably untampered. These two patterns carry that
+            burden so the rest of Kaenal doesn't have to.
+          </p>
+        </div>
+
+        {/* SECTION 1 — AI SUGGESTION */}
+        <Section
+          n="01"
+          eyebrow="Component"
+          title="AI suggestion"
+          desc="Shown anywhere AI proposes something — a root cause, a disposition, a category, a draft. It always carries four things: a clear suggestion, a self-reported confidence, reasoning you can expand, and the source documents it cited (each opens an inline preview). Accept, edit, or dismiss — every outcome is logged.">
+
+          <Frame label="In context" sub="NCR-2026-0142 · Investigation › Root cause" width={620}>
+            <HostCard crumb={<>Non-Conformity · <span className="mono" style={{ color: 'var(--accent)' }}>NCR-2026-0142</span> · Root cause</>}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>The root-cause field is empty. Kaenal AI offered a starting point:</div>
+              <AISuggestion {...rootCause}/>
+            </HostCard>
+          </Frame>
+
+          <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', marginTop: 32 }}>
+            <Frame label="Medium confidence + human gate" sub="needs sign-off" width={500}>
+              <AISuggestion {...disposition}/>
+            </Frame>
+            <Frame label="Low confidence" sub="model flags its own uncertainty" width={500}>
+              <AISuggestion {...lowConf}/>
+            </Frame>
+          </div>
+
+          <div style={{ marginTop: 32 }}>
+            <Frame label="Inline variant" sub="for autocomplete inside a form field — minimal chrome" width={620}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>NCR title</label>
+                <div className="ts-faux-input">Describe the non-conformity…</div>
+                <AISuggestionInline field="title" value="Weld porosity on Line 4 hinge bracket — penetration below 5.0 mm spec"/>
+              </div>
+            </Frame>
+          </div>
+        </Section>
+
+        {/* SECTION 2 — AUDIT TRAIL + SIGNATURE */}
+        <Section
+          n="02"
+          eyebrow="Component"
+          title="Audit-trail row & signature badge"
+          desc="Each entry in an audit trail can be cryptographically signed and chained to the one before it. The signature badge lets anyone verify a record on the spot — recomputing the hash, checking the signature, and confirming the chain is unbroken. If a record was altered after signing, the badge says so, and shows exactly where the chain breaks.">
+
+          <Frame label="Live trail" sub="press Verify on a row, or Verify all — one entry was tampered with" width={760}>
+            <AuditTrail
+              entries={auditEntries}
+              title="NCR-2026-0142 — audit trail"
+              subtitle="Tamper-evident · Ed25519 signatures chained with SHA-256"/>
+          </Frame>
+
+          <div style={{ marginTop: 36 }}>
+            <Frame label="Signature badge — every state">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
+                <SigTile caption="Signed — not yet checked" desc="Idle. A Verify action is offered.">
+                  <SelfVerifyBadge entry={sampleSig}/>
+                </SigTile>
+                <SigTile caption="Verifying" desc="Recomputing hash & checking the signature.">
+                  <SignatureBadge entry={sampleSig} status="verifying" onVerify={() => {}}/>
+                </SigTile>
+                <SigTile caption="Verified" desc="Signature valid, chain intact. Expand for crypto detail.">
+                  <SignatureBadge entry={sampleSig} status="verified" onVerify={() => {}}/>
+                </SigTile>
+                <SigTile caption="Tamper detected" desc="Stored hash ≠ recomputed payload.">
+                  <SignatureBadge entry={{ ...sampleSig, hash: 'c81b…77d0', prevHash: '3e9f…a14c', signer: 'Anna Schmidt' }} status="tampered" onVerify={() => {}}/>
+                </SigTile>
+                <SigTile caption="Awaiting notarization" desc="Signed locally; external RFC 3161 timestamp pending.">
+                  <SignatureBadge entry={{ ...sampleSig, hash: '5f1c…0b8a', signer: 'Manjunath Kumar' }} status="pending" onVerify={() => {}}/>
+                </SigTile>
+              </div>
+            </Frame>
+          </div>
+        </Section>
+      </div>
+    </div>
+  );
+}
+
+// Tile wrapper for the state gallery
+function SigTile({ caption, desc, children }) {
+  return (
+    <div>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 600 }}>{caption}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{desc}</div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// A badge that lets you click Verify in the gallery and watch it resolve
+function SelfVerifyBadge({ entry }) {
+  const [status, setStatus] = useState('signed');
+  const verify = () => {
+    setStatus('verifying');
+    setTimeout(() => setStatus('verified'), 1100);
+  };
+  return <SignatureBadge entry={entry} status={status} onVerify={verify}/>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
