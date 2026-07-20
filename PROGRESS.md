@@ -5,15 +5,15 @@
 
 ## Current status
 
-**Phase 0 — Foundation, in flight.** The data plane is real and proven: docker stack runs,
-migrations apply, the RLS schema lint passes over 32 tenant tables, and the tenancy suite passes
-197 assertions across two seeded tenants (`acme`, `globex`). Both nets were mutation-tested —
-they genuinely fail when isolation is broken.
+**Phase 0 — Foundation, in flight.** Data plane + business logic + audit plumbing are done and
+proven. 473 tests pass (219 db integration, 254 core unit); all three packages typecheck under
+strict TS. The RLS schema lint covers 32 tenant tables. Both isolation nets and the DST math were
+mutation-tested — they genuinely fail when the thing they guard is broken.
 
-**Next task:** `packages/core` (state machines + SLA math, pure + unit-tested), then `withAudit`
-in `packages/db`, then the NestJS API skeleton with the request lifecycle from 01 §3.3.
-Nothing user-visible ships until `withAudit` exists, because rule 3 (audit event per mutation,
-in-transaction) cannot be retrofitted onto services written without it.
+**Next task:** the NestJS API skeleton (`apps/api`) implementing the 01 §3.3 request lifecycle as
+middleware — resolve tenant → authenticate → scoped transaction → RBAC guard. Then auth
+(sessions, invitations, lockout), then the first vertical slice (inspections) once ts-rest
+contracts exist. Before that, wire CI: the two isolation nets currently run only locally.
 
 ### How to get running from a cold clone
 
@@ -53,10 +53,24 @@ Redis already running locally.
 - [x] **RLS / tenancy test suite** (2026-07-20) — 08 §1.1. 197 assertions. Tables enumerated
       dynamically from `pg_catalog`; a table with no fixture fails the suite rather than being
       skipped. Mutation-tested against both a dropped policy and a `USING(true)` leak.
-- [ ] **`packages/core`** — state machines (02 §4), `computeDueAt` SLA math, scoring, supplier
-      weighting. Pure, no Node/React imports. NEXT UP.
-- [ ] **`withAudit` helper** (02 §3, 07 §1) — repo methods must be impossible to call without an
-      audit event argument. Table + immutability triggers already exist and are tested.
+- [x] **`packages/core` — state machines** (2026-07-20) — NCR, inspection, CAPA, document (02 §4)
+      as declarative graphs + guards. 199 tests covering the FULL (from, to) matrix per entity,
+      legal and illegal, plus four-eyes, corrective-action gating, open-8D force-close, document
+      self-approval, and last-approved-version protection.
+- [x] **`packages/core` — SLA math** (2026-07-20) — `addBusinessHours` / `computeDueAt` /
+      `computeSlaState` / `businessHoursBetween` in tenant timezone + business hours. 30 tests
+      including DST in both directions, weekends, holidays, half-hour offsets. Mutation-tested:
+      a naive wall-clock window implementation fails the spring-forward case.
+- [x] **`packages/core` — entity codes** (2026-07-20) — `formatCode`/`parseCode`/`counterYear`,
+      25 tests including year rollover in the tenant's timezone (02 §7).
+- [x] **`withAudit` helper** (2026-07-20) — 02 §3, 07 §1. Wraps a mutation so the change and its
+      audit events commit or roll back together; refuses a mutation recording zero events; redacts
+      credential-shaped fields; `diffFields` stores only what changed. 22 integration tests against
+      real Postgres, including both rollback directions.
+- [ ] **`packages/core` — scoring + supplier weighting + recurrence** (08 §1.2) — dynamic-form
+      scoring with conditional items/N-A/zero-weight sections, supplier weighted score
+      (normalise weights, weight 0 excludes, missing metric flagged not zeroed), recurrence
+      expansion (Feb 29, month-end). Not needed until the inspections/suppliers slices.
 - [ ] **Auth** — sessions, invitations, lockout (10 fails → 15 min), password reset. Schema
       (`users`, `sessions`, `memberships`) is in place; no logic yet.
 - [ ] **Drizzle schema mirror** — typed query layer over the hand-written SQL (see Decision 2).
@@ -152,6 +166,39 @@ Frontend (only after the backend slice for a module is green):
   a friendly `409`, but `ncrs_four_eyes_ck` means no code path — job, sync replay, support tool —
   can bypass it. *Affects: 02 §4.*
 
+- **2026-07-20 — `packages/core` returns `Decision` values, never throws for domain rules.** A
+  denial carries an `ErrorCode` + `details`, which the API maps onto the 03 §4 envelope. Keeps core
+  free of HTTP concepts so it runs unchanged in the browser and React Native. Genuine
+  misconfiguration (business hours with no working days) still throws — that's a bug, not a
+  domain outcome. *Affects: 03 §4, 01 §1.*
+
+- **2026-07-20 — Business time is consumed as ELAPSED hours, not wall-clock hours.** On a
+  spring-forward day an 08:00–17:00 shift is 8 real hours, not 9. Since the shop floor works clock
+  hours, consuming elapsed time is the honest reading of "resolve within 24 business hours".
+  Verified against independently-confirmed DST facts. *Affects: 03 §10, 08 §1.2.*
+
+- **2026-07-20 — `at_risk` threshold set to 80% of the SLA window consumed.** The spec names the
+  three states (02 §2) but not the boundary. Exported as `AT_RISK_THRESHOLD`; make it a tenant
+  setting if customers ask. *Affects: 02 §2.*
+
+- **2026-07-20 — NCR graph additions beyond the literal spec text.** 02 §4 does not say what
+  follows `escalated`, or what happens when verification rejects the work. Added
+  `escalated → {assigned, in_progress, resolved}` (escalation is a flag on a live NCR, not a dead
+  end) and `resolved → in_progress` (verification can bounce work back without a close/reopen
+  round trip). *Affects: 02 §4 — flag if either is wrong.*
+
+- **2026-07-20 — `audit_events.action` gained a CHECK constraint (migration 0002).** 0001 created
+  it as free text, so a typo'd action could enter an append-only table where it can never be
+  corrected. Found by a `withAudit` test that expected the invalid write to fail. 01 §4 requires
+  enum columns to carry a CHECK generated from the same list as `packages/types`.
+  *Affects: 01 §4, 02 §3.*
+
+- **2026-07-20 — `@kaenal/db` tests run with `fileParallelism: false`.** They are integration
+  tests against one real database and several TRUNCATE shared tables. TRUNCATE is unavoidable
+  because `audit_events` is append-only (DELETE is denied to the app role and blocked by a
+  trigger), so the only reset is table-wide as the owner. Serial execution is the cost of testing
+  real guarantees instead of a mock. *Affects: 08 §1.*
+
 ---
 
 ## Known issues / TODO
@@ -168,6 +215,15 @@ Frontend (only after the backend slice for a module is green):
   search/export/WS channel probes). Blocked on the API existing. Do not mark 08 §1.1 complete until
   these land — the DB-level suite is necessary but not sufficient.
 - **No CI yet**, so the two nets only run locally. Wire GitHub Actions before any further schema work.
+- **No enum-drift lint yet.** 01 §4 wants DB CHECK value lists generated from `packages/types`.
+  They are currently hand-mirrored, and migration 0002 exists precisely because one was missed.
+  Write `packages/db/scripts/check-enums.ts` to compare `pg_constraint` value lists against the
+  exported enum tuples and fail CI on drift — the enums already expose `.values` for this.
+- **`sla_configs.entity_kind` / `priority` have no CHECK constraints**, same class of gap as the
+  one 0002 fixed. Roll into the enum-drift lint rather than patching ad hoc.
+- **The fall-back DST test does not discriminate** against the naive wall-clock mutation (both
+  implementations agree there, because 12h fits inside both a 12h and a 13h window). The
+  spring-forward test is the one carrying the weight. Kept both as regression cover.
 - **Question (out of scope, not built):** `FEATURES.md` describes modules (graph explorer,
   predictive, trust center, dev platform) that have no `implementation/` spec section. Treating them
   as Phase 4+ and not designing schema for them yet.
