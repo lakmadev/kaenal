@@ -98,6 +98,13 @@ jobs:
       - name: Tenancy isolation suite
         run: pnpm test:rls
 
+      # The API lifecycle tests resolve real tenants through the registry, so
+      # two must exist. Provisioning is idempotent (01 §3.4).
+      - name: Provision test tenants
+        run: |
+          pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
+          pnpm provision-tenant --slug globex --name "Globex" --model shared
+
       - name: Tests
         run: pnpm test
 

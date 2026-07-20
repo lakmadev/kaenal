@@ -5,16 +5,25 @@
 
 ## Current status
 
-**Phase 0 — Foundation, in flight.** Data plane + business logic + audit plumbing are done and
-proven, and CI now runs them on every push/PR. 498 tests pass (219 db integration, 254 core unit,
-25 types unit); all three packages typecheck under strict TS and lint clean. The RLS schema lint
-covers 32 tenant tables. Both isolation nets, the DST math, and the new dependency-direction lint
-were mutation-tested — they genuinely fail when the thing they guard is broken.
+**Phase 0 — Foundation, in flight.** Data plane, business logic, audit plumbing and the API
+request lifecycle are done and proven, and CI runs them on every push/PR. 617 tests pass (219 db
+integration, 342 core unit, 31 api integration, 25 types unit); all four packages typecheck under
+strict TS and lint clean. The RLS schema lint covers 32 tenant tables. The isolation nets, the DST
+math, the dependency-direction lint and the request lifecycle were all mutation-tested — they
+genuinely fail when the thing they guard is broken.
 
-**Next task:** the NestJS API skeleton (`apps/api`) implementing the 01 §3.3 request lifecycle as
-middleware — resolve tenant → authenticate → scoped transaction → RBAC guard. Then auth
-(sessions, invitations, lockout), then the first vertical slice (inspections) once ts-rest
-contracts exist.
+`apps/api` boots, resolves tenants, opens the tenant-scoped transaction and enforces RBAC.
+Nothing can authenticate yet: `AUTHENTICATOR` is a stub that rejects every presented credential,
+so every non-`@Public` route 401s. That is deliberate and asserted by a test.
+
+**Next task:** auth (03 §2) — sessions, invitations, lockout (10 fails → 15 min), password reset.
+It is a single provider swap at the `AUTHENTICATOR` token; the rest of the lifecycle stays put.
+Then ts-rest contracts in `packages/types/src/contracts/`, then the first vertical slice
+(inspections).
+
+**Settle before starting auth:** the `users` identity-model conflict below (02 §2 vs 07 §7). It
+changes whether `users` lives in the tenant schema or `control`, which is a migration and an
+auth-design change, not a refactor.
 
 ### How to get running from a cold clone
 
@@ -73,9 +82,16 @@ Redis already running locally.
       (normalise weights, weight 0 excludes, missing metric flagged not zeroed), recurrence
       expansion (Feb 29, month-end). Not needed until the inspections/suppliers slices.
 - [ ] **Auth** — sessions, invitations, lockout (10 fails → 15 min), password reset. Schema
-      (`users`, `sessions`, `memberships`) is in place; no logic yet.
+      (`users`, `sessions`, `memberships`) is in place; no logic yet. Insertion point is the
+      `AUTHENTICATOR` provider in `apps/api/src/auth/authenticator.ts` — implement the interface
+      and swap the binding in `app.module.ts`; nothing else in the lifecycle changes.
 - [ ] **Drizzle schema mirror** — typed query layer over the hand-written SQL (see Decision 2).
-- [ ] **`apps/api` skeleton** — NestJS + the 01 §3.3 request lifecycle as middleware.
+- [x] **`apps/api` skeleton** — NestJS + the 01 §3.3 request lifecycle. Tenant resolution
+      (subdomain + `X-Tenant-Id`, Redis-cached registry), scoped transaction, RBAC guard, error
+      envelope (03 §4), `/healthz` + `/readyz` (03 §9), `GET /v1/me`, graceful shutdown.
+      Authentication is a stubbed provider — see Known issues.
+- [x] **RBAC capability matrix** (03 §3) in `packages/core/src/rbac.ts`, incl. plant scoping and
+      the four-eyes rule. Full role x capability grid asserted cell by cell.
 - [x] **CI (GitHub Actions)** — `.github/workflows/ci.yml`: install → typecheck → lint →
       migrate → `db:check` → `test:rls` → unit/integration tests → build, against postgres:16 and
       redis:7 service containers. Playwright smoke still pending (no web app yet).
@@ -88,8 +104,10 @@ Redis already running locally.
 Backend, in vertical slices (schema → contract → service → tests) one entity at a time:
 
 - [ ] ts-rest contracts in `packages/types/src/contracts/` + OpenAPI 3.1 at `/v1/openapi.json`
-- [ ] Request lifecycle middleware: resolve tenant → authenticate → scoped tx → RBAC guard
-- [ ] RBAC guards from the 03 §3 matrix (+ plant scoping for inspector/viewer)
+- [x] Request lifecycle middleware: resolve tenant → authenticate → scoped tx → RBAC guard
+      (landed in Phase 0 with the api skeleton; authentication step still stubbed)
+- [x] RBAC guards from the 03 §3 matrix (+ plant scoping for inspector/viewer) — matrix and
+      helpers done and tested; plant scoping is not yet APPLIED to any query (no list endpoints)
 - [ ] Cursor pagination, idempotency keys, optimistic concurrency (`STALE_WRITE`) — 03 §5–6
 - [ ] Inspections (templates, dynamic form engine, completion validation server-side)
 - [ ] Findings → NCR creation flow
@@ -218,6 +236,33 @@ Frontend (only after the backend slice for a module is green):
   secrets and putting them in GitHub Secrets would imply otherwise. Real environments take every
   value from the deployment platform's secret store (01 §2). *Affects: 01 §2, 01 §5.*
 
+- **2026-07-20 — the whole request lifecycle is ONE interceptor, not middleware + guards.**
+  Nest runs guards before interceptors, so the conventional split would run authentication and the
+  RBAC membership lookup OUTSIDE the transaction that scopes them — unscoped reads on a connection
+  with no `app.tenant_id`, which is exactly what RLS exists to constrain. Keeping the chain inside
+  `withTenant` makes every query of a request, including the ones deciding whether it is allowed,
+  subject to the same tenant policy. *Affects: 01 §3.3, 03 §3.*
+
+- **2026-07-20 — routes are default-deny.** Anything not marked `@Public` requires a session,
+  whether or not it declares a `@RequireCapability`. Forgetting the decorator on a new route
+  yields a 401, not an open endpoint. *Affects: 03 §3.*
+
+- **2026-07-20 — `emitDecoratorMetadata` is OFF in `apps/api`; all DI uses explicit
+  `@Inject(TOKEN)`.** esbuild (tsx, vitest) cannot emit decorator metadata, so type-based
+  injection would typecheck under `tsc` and then resolve to `undefined` at runtime — a failure
+  that appears only when a code path is first exercised. Explicit tokens remove the class of bug
+  rather than adding a build step to work around it. *Affects: 01 §1.*
+
+- **2026-07-20 — the tenant registry caches MISSES as well as hits**, for the same 60s TTL. The
+  subdomain is attacker-controlled and unauthenticated, so without negative caching a burst of
+  requests for non-existent tenants is a free amplification vector against the registry.
+  *Affects: 01 §3.2.*
+
+- **2026-07-20 — RBAC capabilities live in `packages/core`, not in the API guard.** Three
+  consumers need the same answer and must never disagree: the guard (enforcement), `GET /v1/me`
+  (what the UI renders), and the clients (what they hide). The list handed to a client is a
+  rendering hint; enforcement is always server-side. *Affects: 03 §3, rule 5.*
+
 ---
 
 ## Known issues / TODO
@@ -233,6 +278,23 @@ Frontend (only after the backend slice for a module is green):
 - **API-level cross-tenant probes not written** (08 §1.1 items 4–5: foreign id in body → 404,
   search/export/WS channel probes). Blocked on the API existing. Do not mark 08 §1.1 complete until
   these land — the DB-level suite is necessary but not sufficient.
+- **Nothing can authenticate.** `NotImplementedAuthenticator` returns null for a request with no
+  credential and throws UNAUTHENTICATED for one that presents any. Combined with the lifecycle's
+  default-deny, every non-`@Public` route 401s. A test asserts the "not yet implemented" message,
+  so the stub cannot survive the auth module unnoticed.
+- **`GET /v1/me` is the only tenant route**, and it exists to prove the lifecycle end to end
+  rather than to serve the UI. Its shape will change when 03 §2 defines the session.
+- **Model B (dedicated) request routing throws INTERNAL.** The lifecycle refuses to serve a
+  tenant whose registry row says `dedicated` rather than falling through to the shared pool.
+  Loud failure is deliberate — the quiet version puts a dedicated tenant's data in the shared DB.
+- **The control-plane pool uses the migrator connection string** (`DATABASE_URL`), because
+  `control.tenants` is not readable by `kaenal_app`. It is used only for registry lookups and
+  health checks, never to serve tenant data. A dedicated least-privilege `kaenal_registry` role
+  with SELECT on `control.tenants` and nothing else would be strictly better — worth doing before
+  production, tracked here so it is not forgotten.
+- **No rate limiting yet** (03 §9): 60 rpm/user, 5/min on login endpoints. Needs Redis sliding
+  window. Must land with auth, since the login limiter is half of the lockout story.
+- **No CSRF protection yet** (03 §2) — needed the moment cookie auth exists, not before.
 - **Playwright smoke is not in CI** (01 §5) — nothing to smoke-test until `apps/web` exists. Add
   the job with the first web route, not before; an empty browser job is a green check that means
   nothing.
@@ -244,6 +306,13 @@ Frontend (only after the backend slice for a module is green):
   exported enum tuples and fail CI on drift — the enums already expose `.values` for this.
 - **`sla_configs.entity_kind` / `priority` have no CHECK constraints**, same class of gap as the
   one 0002 fixed. Roll into the enum-drift lint rather than patching ad hoc.
+- **A survived mutation, now fixed — recorded because the lesson generalises.** The original
+  "rejects a deeper subdomain" test used `a.acme.kaenal.local` and passed against a deliberately
+  broken `split(".")[0]` host parser, because tenant `a` does not exist so both parsers 404. The
+  test asserted the right outcome for the wrong reason. Replaced with
+  `acme.attacker.kaenal.local` — a REAL tenant as the leading label — which fails against the
+  broken parser. When writing a negative test, check that the fixture can distinguish the bug
+  from an unrelated reason for the same status code.
 - **The fall-back DST test does not discriminate** against the naive wall-clock mutation (both
   implementations agree there, because 12h fits inside both a 12h and a 13h window). The
   spring-forward test is the one carrying the weight. Kept both as regression cover.

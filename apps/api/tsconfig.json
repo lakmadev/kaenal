@@ -1,0 +1,13 @@
+{
+  "extends": "@kaenal/config/tsconfig.lib.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // NestJS uses parameter decorators for injection. emitDecoratorMetadata is
+    // deliberately OFF: esbuild (tsx, vitest) cannot emit it, so relying on it
+    // would work under tsc and silently fail to resolve providers at runtime.
+    // Every injection here uses an explicit @Inject(TOKEN) instead.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

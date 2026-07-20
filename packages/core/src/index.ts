@@ -6,3 +6,4 @@ export * from "./state-machines/capa.js";
 export * from "./state-machines/document.js";
 export * from "./sla.js";
 export * from "./codes.js";
+export * from "./rbac.js";
