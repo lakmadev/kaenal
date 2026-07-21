@@ -10,8 +10,9 @@ request lifecycle, authentication, the contract layer AND the first vertical sli
 are done and proven, and CI runs them on every push/PR. 701 tests pass (233 db integration, 380
 core unit, 63 api integration, 25 types unit); all four packages typecheck under strict TS and lint
 clean. The RLS schema lint covers 32 tenant tables. The isolation nets, DST math, dependency
-direction, request lifecycle, composite member FKs, lockout durability, CSRF and the sliding-window
-limiter were all mutation-tested.
+direction, request lifecycle, composite member FKs, lockout durability, CSRF and plant-scope 404
+(rule 8, one level down) were all mutation-tested — proven to fail when the guard is disabled. The
+rate limiter has behavioural tests (allow/deny + window slide), not a formal mutation.
 
 `apps/api` authenticates (httpOnly session cookie + double-submit CSRF, or mobile bearer) and now
 serves a **contract-first** API: the ts-rest contract in `packages/types/src/contract.ts` is the
