@@ -6,7 +6,8 @@ import { WEB_SESSION_TTL_MS } from "@kaenal/core";
 import { currentContext, currentTx } from "../context.js";
 import { AllowAnonymous, Public, RequireCapability } from "../decorators.js";
 import { ApiError } from "../errors.js";
-import { AUTH_SERVICE, ENV } from "../tokens.js";
+import { AUTH_SERVICE, ENV, RATE_LIMITER } from "../tokens.js";
+import { LOGIN_LIMIT, type RateLimiter } from "../http/rate-limit.js";
 import type { Env } from "../env.js";
 import type { AuthService } from "./auth.service.js";
 import { CSRF_COOKIE, SESSION_COOKIE } from "./session.authenticator.js";
@@ -59,7 +60,19 @@ export class AuthController {
   constructor(
     @Inject(AUTH_SERVICE) private readonly auth: AuthService,
     @Inject(ENV) private readonly env: Env,
+    @Inject(RATE_LIMITER) private readonly rateLimiter: RateLimiter,
   ) {}
+
+  /**
+   * Per-IP throttle for the credential endpoints (03 §9). This is the limit
+   * that matters against credential stuffing: account lockout caps guesses at
+   * one account, but an attacker spreading five guesses each across a thousand
+   * accounts never trips a per-account lock — only a per-IP cap does.
+   */
+  private async throttleLogin(ip: string | null): Promise<void> {
+    if (!this.env.RATE_LIMIT_ENABLED) return;
+    await this.rateLimiter.enforce(`login:${ip ?? "unknown"}`, LOGIN_LIMIT.limit, LOGIN_LIMIT.windowMs);
+  }
 
   @AllowAnonymous()
   @Post("sign-in")
@@ -69,6 +82,7 @@ export class AuthController {
   ): Promise<{ userId: string; role: string; expiresAt: string }> {
     const { email, password } = parse(SignInBody, body);
     const ctx = currentContext();
+    await this.throttleLogin(ctx.ip);
 
     const result = await this.auth.signIn(currentTx(), ctx.tenantId, email, password, {
       ip: ctx.ip,
@@ -143,7 +157,11 @@ export class AuthController {
 
   @Public()
   @Post("forgot-password")
-  async forgotPassword(@Body() body: unknown): Promise<{ ok: true; token?: string }> {
+  async forgotPassword(
+    @Body() body: unknown,
+    @Req() req: Request,
+  ): Promise<{ ok: true; token?: string }> {
+    await this.throttleLogin(req.ip ?? null);
     const { email } = parse(ForgotBody, body);
     const token = await this.auth.requestPasswordReset(email);
 
@@ -154,7 +172,8 @@ export class AuthController {
 
   @Public()
   @Post("reset-password")
-  async resetPassword(@Body() body: unknown): Promise<{ ok: true }> {
+  async resetPassword(@Body() body: unknown, @Req() req: Request): Promise<{ ok: true }> {
+    await this.throttleLogin(req.ip ?? null);
     const { token, password } = parse(ResetBody, body);
     await this.auth.completePasswordReset(token, password);
     return { ok: true };

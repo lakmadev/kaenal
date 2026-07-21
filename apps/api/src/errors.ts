@@ -89,6 +89,13 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
 
     const { status, body } = this.render(exception, requestId);
 
+    // A 429 without Retry-After tells the client to back off but not for how
+    // long, so it retries immediately and the limiter never gets a break.
+    if (body.error.code === "RATE_LIMITED") {
+      const retryAfter = body.error.details?.["retryAfterSeconds"];
+      if (typeof retryAfter === "number") res.setHeader("Retry-After", String(retryAfter));
+    }
+
     if (status >= 500) {
       // The only place the real error is recorded. It must not reach the
       // client (03 §4: "no internals leaked"), so it is correlated by

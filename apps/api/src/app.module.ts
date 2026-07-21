@@ -13,17 +13,35 @@ import { AuthService } from "./auth/auth.service.js";
 import { SessionAuthenticator } from "./auth/session.authenticator.js";
 import { AuthController } from "./auth/auth.controller.js";
 import { MeController } from "./me.controller.js";
+import { OpenApiController } from "./openapi.controller.js";
+import { IdempotencyStore } from "./http/idempotency.js";
+import { RateLimiter } from "./http/rate-limit.js";
+import { TemplatesController } from "./inspections/templates.controller.js";
+import { TemplatesService } from "./inspections/templates.service.js";
+import { InspectionsController } from "./inspections/inspections.controller.js";
+import { InspectionsService } from "./inspections/inspections.service.js";
 import {
   AUTH_SERVICE,
   AUTHENTICATOR,
   CONTROL_POOL,
   ENV,
+  IDEMPOTENCY,
+  INSPECTIONS_SERVICE,
+  RATE_LIMITER,
   REDIS,
+  TEMPLATES_SERVICE,
   TENANT_REGISTRY,
 } from "./tokens.js";
 
 @Module({
-  controllers: [HealthController, MeController, AuthController],
+  controllers: [
+    HealthController,
+    MeController,
+    AuthController,
+    OpenApiController,
+    TemplatesController,
+    InspectionsController,
+  ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
 
@@ -62,6 +80,19 @@ import {
       provide: AUTHENTICATOR,
       useFactory: (auth: AuthService) => new SessionAuthenticator(auth),
       inject: [AUTH_SERVICE],
+    },
+
+    {
+      provide: IDEMPOTENCY,
+      useFactory: (redis: Redis) => new IdempotencyStore(redis),
+      inject: [REDIS],
+    },
+    { provide: TEMPLATES_SERVICE, useFactory: () => new TemplatesService() },
+    { provide: INSPECTIONS_SERVICE, useFactory: () => new InspectionsService() },
+    {
+      provide: RATE_LIMITER,
+      useFactory: (redis: Redis) => new RateLimiter(redis),
+      inject: [REDIS],
     },
 
     ShutdownService,

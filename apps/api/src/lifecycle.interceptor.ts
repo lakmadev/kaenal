@@ -14,8 +14,9 @@ import { ApiError, tenantNotFound } from "./errors.js";
 import { runWithContext } from "./context.js";
 import { slugFromHost, TenantRegistry } from "./tenant/registry.js";
 import { IS_ANONYMOUS, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
-import { AUTHENTICATOR, ENV, TENANT_REGISTRY } from "./tokens.js";
+import { AUTHENTICATOR, ENV, RATE_LIMITER, TENANT_REGISTRY } from "./tokens.js";
 import type { Authenticator } from "./auth/authenticator.js";
+import { USER_LIMIT, type RateLimiter } from "./http/rate-limit.js";
 import type { Env } from "./env.js";
 
 /**
@@ -44,6 +45,7 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     @Inject(TENANT_REGISTRY) private readonly registry: TenantRegistry,
     @Inject(ENV) private readonly env: Env,
     @Inject(AUTHENTICATOR) private readonly authenticator: Authenticator,
+    @Inject(RATE_LIMITER) private readonly rateLimiter: RateLimiter,
     @Inject(Reflector) private readonly reflector: Reflector,
   ) {}
 
@@ -110,6 +112,18 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
         // Bind app.user_id now that we have one. Same transaction, so it is
         // still SET LOCAL and still cannot outlive the request.
         await tx.query("SELECT set_config('app.user_id', $1, true)", [session.userId]);
+
+        // Per-user request cap (03 §9). Enforced after authentication because
+        // it is keyed on the user; a rejection here rolls back the (so far
+        // empty) transaction. Per-IP login limiting lives on the auth routes,
+        // which are anonymous and so never reach this branch.
+        if (this.env.RATE_LIMIT_ENABLED) {
+          await this.rateLimiter.enforce(
+            `user:${tenant.id}:${session.userId}`,
+            USER_LIMIT.limit,
+            USER_LIMIT.windowMs,
+          );
+        }
       }
 
       // --- 4. RBAC --------------------------------------------------------

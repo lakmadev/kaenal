@@ -11,3 +11,7 @@ export const CONTROL_POOL = Symbol("CONTROL_POOL");
 export const TENANT_REGISTRY = Symbol("TENANT_REGISTRY");
 export const AUTHENTICATOR = Symbol("AUTHENTICATOR");
 export const AUTH_SERVICE = Symbol("AUTH_SERVICE");
+export const IDEMPOTENCY = Symbol("IDEMPOTENCY");
+export const TEMPLATES_SERVICE = Symbol("TEMPLATES_SERVICE");
+export const INSPECTIONS_SERVICE = Symbol("INSPECTIONS_SERVICE");
+export const RATE_LIMITER = Symbol("RATE_LIMITER");

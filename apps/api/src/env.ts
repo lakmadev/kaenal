@@ -33,7 +33,18 @@ const EnvSchema = z.object({
 
   /** Registry cache TTL in seconds (01 §3.2 specifies 60). */
   TENANT_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
-});
+
+  /**
+   * Rate limiting (03 §9). Left unset it follows the environment: on
+   * everywhere except automated tests, which fire hundreds of requests as one
+   * user in one second and would otherwise trip their own limiter. The
+   * dedicated rate-limit test sets this true explicitly.
+   */
+  RATE_LIMIT_ENABLED: z.coerce.boolean().optional(),
+}).transform((e) => ({
+  ...e,
+  RATE_LIMIT_ENABLED: e.RATE_LIMIT_ENABLED ?? e.NODE_ENV !== "test",
+}));
 
 export type Env = z.infer<typeof EnvSchema>;
 

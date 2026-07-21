@@ -5,29 +5,34 @@
 
 ## Current status
 
-**Phase 0 — Foundation, in flight.** Data plane, business logic, audit plumbing, the API request
-lifecycle AND authentication are done and proven, and CI runs them on every push/PR. 670 tests
-pass (233 db integration, 364 core unit, 48 api integration, 25 types unit); all four packages
-typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant tables. The
-isolation nets, the DST math, the dependency-direction lint, the request lifecycle, the composite
-member FKs, lockout durability and CSRF were all mutation-tested — they genuinely fail when the
-thing they guard is broken.
+**Phase 0 done; Phase 1 core loop under way.** Data plane, business logic, audit plumbing, the
+request lifecycle, authentication, the contract layer AND the first vertical slice (Inspections)
+are done and proven, and CI runs them on every push/PR. 701 tests pass (233 db integration, 380
+core unit, 63 api integration, 25 types unit); all four packages typecheck under strict TS and lint
+clean. The RLS schema lint covers 32 tenant tables. The isolation nets, DST math, dependency
+direction, request lifecycle, composite member FKs, lockout durability, CSRF and the sliding-window
+limiter were all mutation-tested.
 
-`apps/api` authenticates: sign-in issues an httpOnly session cookie (+ double-submit CSRF) or a
-mobile bearer token; sign-out revokes; invite → accept → sign-in works end to end; lockout, weak-
-password rejection and single-use tokens are enforced. Every failure path returns the same
-envelope, so the login form is not an account/membership oracle.
+`apps/api` authenticates (httpOnly session cookie + double-submit CSRF, or mobile bearer) and now
+serves a **contract-first** API: the ts-rest contract in `packages/types/src/contract.ts` is the
+single source for both the OpenAPI 3.x doc at `GET /v1/openapi.json` and the typed web client.
+Handlers validate against the contract's own Zod schemas.
 
-**Identity conflict RESOLVED (02 §2 vs 07 §7 → 07 §7).** Migration `0003_shared_identity` moved
-`users` into `control.users` (global person) with `memberships` as the per-tenant join. Every
-user reference in a tenant table is now a composite FK to `memberships (tenant_id, user_id)`. See
-Decisions log + `control-identity.test.ts`.
+**Inspections slice (03 §1, §5–6; 02 §4; 08 §1.2):** templates (create draft → publish, schema
+immutable once published), inspections (schedule from a published template with a server-minted
+`INS-YYYY-NNNN` code → start → complete). Completion validates responses AND computes the score
+server-side via the `packages/core` form engine — the client never sends a score. Cross-cutting
+guarantees all landed and tested: cursor pagination, idempotent create (`Idempotency-Key`, Redis),
+optimistic concurrency (`lock_version` compare-and-set → `STALE_WRITE`), plant scoping (out-of-scope
+record → 404 not 403), RBAC per capability.
 
-**Next task:** ts-rest contracts in `packages/types/src/contracts/` + OpenAPI at
-`/v1/openapi.json` (03 §1), then the first vertical slice — Inspections (templates → dynamic form
-engine → completion validation) — schema → contract → service → tests → UI. Rate limiting (03 §9,
-including the 5/min login limiter that completes the lockout story) should land alongside the
-contract layer.
+**Rate limiting (03 §9):** Redis sliding-window limiter — 60 rpm/user (in the lifecycle, after
+auth) and 5/min per-IP on the credential endpoints (the credential-stuffing gap lockout could not
+close). Off by default only in `NODE_ENV=test`; `RATE_LIMIT_ENABLED` overrides.
+
+**Next task:** Findings → NCR creation flow, then NCR (state machine + four-eyes verify + SLA
+fields) — schema → contract → service → tests. Web app shell (04) proves DB→API→UI; sign-in +
+inspections/templates screens exist (`apps/web`), full design system deferred.
 
 ### How to get running from a cold clone
 
@@ -120,13 +125,17 @@ Redis already running locally.
 
 Backend, in vertical slices (schema → contract → service → tests) one entity at a time:
 
-- [ ] ts-rest contracts in `packages/types/src/contracts/` + OpenAPI 3.1 at `/v1/openapi.json`
+- [x] ts-rest contract in `packages/types/src/contract.ts` + OpenAPI at `/v1/openapi.json`
+      (2026-07-21). `@ts-rest/nest` deliberately NOT used — see Decisions log.
 - [x] Request lifecycle middleware: resolve tenant → authenticate → scoped tx → RBAC guard
       (Phase 0; authentication is now the real `SessionAuthenticator`, not a stub)
-- [x] RBAC guards from the 03 §3 matrix (+ plant scoping for inspector/viewer) — matrix and
-      helpers done and tested; plant scoping is not yet APPLIED to any query (no list endpoints)
-- [ ] Cursor pagination, idempotency keys, optimistic concurrency (`STALE_WRITE`) — 03 §5–6
-- [ ] Inspections (templates, dynamic form engine, completion validation server-side)
+- [x] RBAC guards from the 03 §3 matrix (+ plant scoping for inspector/viewer) — matrix, helpers
+      AND now APPLIED: inspections list/get fold plant scope into the query / 404 (2026-07-21)
+- [x] Cursor pagination, idempotency keys, optimistic concurrency (`STALE_WRITE`) — 03 §5–6
+      (2026-07-21) — `apps/api/src/http/{pagination,idempotency}.ts`, `lock_version` (migration 0004)
+- [x] Inspections (templates, dynamic form engine, completion validation + scoring server-side)
+      (2026-07-21) — `packages/core/src/form-engine.ts` + `apps/api/src/inspections/*`
+- [x] Rate limiting: Redis sliding window, 60 rpm/user + 5/min per-IP login (2026-07-21, 03 §9)
 - [ ] Findings → NCR creation flow
 - [ ] NCR (state machine, four-eyes verify, SLA fields)
 - [ ] CAPA (phase advance, explicit audited revert)
@@ -164,6 +173,41 @@ Frontend (only after the backend slice for a module is green):
 ---
 
 ## Decisions log
+
+- **2026-07-21 — contract-first via ts-rest, but WITHOUT `@ts-rest/nest`.** The contract lives in
+  `packages/types` and drives the OpenAPI doc (`@ts-rest/open-api`) and the typed web client
+  (`@ts-rest/core` `initClient`). The Nest handlers are plain controllers that validate against the
+  contract's Zod schemas, rather than `@ts-rest/nest`'s `@TsRestHandler`. Reason: the whole request
+  lifecycle is ONE interceptor running inside the tenant-scoped transaction (see the Phase-0
+  decision), and `@ts-rest/nest` wants to own request handling in a way that fights the
+  AsyncLocalStorage + `withTenant` chain. Keeping the contract as the shared artifact gets the
+  contract-first guarantee (client and server can't drift) without surrendering the lifecycle.
+  *Affects: 03 §1.*
+
+- **2026-07-21 — optimistic concurrency is a real `lock_version int` column (migration 0004), not
+  `updated_at`.** A trigger bumps it on any real UPDATE, so no code path can move a row without
+  advancing the token; services compare-and-set `WHERE id = $ AND lock_version = $expected` and map
+  zero rows to `STALE_WRITE`. `inspection_templates.version` already means the published template
+  version, so the concurrency token is a separate column. *Affects: 03 §6, 02 §7.*
+
+- **2026-07-21 — the score is computed server-side and the client's is ignored.** `completeInspection`
+  takes responses + a version, never a score. `packages/core/form-engine.ts` validates responses
+  against the pinned template version and computes the weighted score; weight 0 and N/A drop an item
+  from the denominator rather than counting as zero. A client-sent score is a number a customer could
+  forge. *Affects: 08 §1.2, 02 §4.*
+
+- **2026-07-21 — idempotency is Redis-backed, not a table.** `Idempotency-Key` on a create is checked
+  before the tenant transaction opens; `SET NX` closes the check-then-mark race so two concurrent
+  retries can't both proceed (the loser gets CONFLICT). A failed mutation clears the marker so it
+  stays retryable. A DB idempotency table is the stronger form; revisit if replay-after-restart
+  durability is needed. *Affects: 03 §6.*
+
+- **2026-07-21 — rate limiting is a sliding log (ZSET), and EVERY hit is logged, including a rejected
+  one.** So hammering while blocked pushes the window forward — a deliberate penalty for brute force.
+  Enforced at two keys: `user:{tenant}:{userId}` (60/min, in the lifecycle after auth) and
+  `login:{ip}` (5/min, on the credential routes — the credential-stuffing gap per-account lockout
+  cannot close). Gated by `RATE_LIMIT_ENABLED`, which defaults on except in `test` because the
+  suites fire hundreds of requests as one user in one second. *Affects: 03 §9.*
 
 - **2026-07-20 — Spec location differs from CLAUDE.md.** CLAUDE.md and the kickoff prompt describe
   `implementation/` at the repo root; the files actually live at
@@ -357,10 +401,10 @@ Frontend (only after the backend slice for a module is green):
   least-privilege `kaenal_registry`/`kaenal_auth` role could replace the migrator pool here and
   should before production — the migrator is a superuser and this is more reach than the API needs.
   Tracked so it is not forgotten.
-- **No rate limiting yet** (03 §9): 60 rpm/user, 5/min on login + reset endpoints. Needs a Redis
-  sliding window. This is now the most important gap — lockout caps attempts per ACCOUNT, but
-  without a per-IP login limiter, credential-stuffing across many accounts is unthrottled. Land it
-  with the contract layer.
+- **Rate limiting DONE** (2026-07-21, 03 §9): Redis sliding window, 60 rpm/user + 5/min per-IP on
+  the credential routes. Remaining nuance: the per-user limit is enforced *after* the tenant tx
+  opens (it is keyed on the authenticated user), so a flood still pays for tenant resolution + a
+  BEGIN before being rejected; acceptable, but a pre-tx per-IP global cap would shed load earlier.
 - **`equalizeTiming` only flattens the unknown-account path.** It spends a dummy argon2 verify when
   the email is unknown, but the locked / wrong-password / no-membership branches have their own
   (real) argon2 or query costs, which are close but not identical. Good enough against coarse
