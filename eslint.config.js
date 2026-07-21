@@ -18,6 +18,7 @@ export default tseslint.config(
       "project_brain/**", // the spec + visual prototype; never compiled
       "**/*.config.js",
       "**/*.config.ts",
+      "**/*.config.mjs",
     ],
   },
 

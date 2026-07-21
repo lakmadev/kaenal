@@ -57,6 +57,13 @@ export const contract = c.router(
       responses: { 201: TemplateDto, ...commonErrors },
       summary: "Create a draft template",
     },
+    getTemplate: {
+      method: "GET",
+      path: "/v1/inspection-templates/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: TemplateDto, ...commonErrors },
+      summary: "Fetch one template (with its form schema)",
+    },
     publishTemplate: {
       method: "POST",
       path: "/v1/inspection-templates/:id/publish",

@@ -90,6 +90,12 @@ export class TemplatesService {
     return rows[0] ?? null;
   }
 
+  async getOne(tx: Tx, id: string): Promise<TemplateDto> {
+    const row = await this.get(tx, id);
+    if (row === null) throw notFound();
+    return toDto(row);
+  }
+
   async create(
     tx: Tx,
     tenantId: string,

@@ -37,6 +37,13 @@ export class TemplatesController {
     });
   }
 
+  @Get("v1/inspection-templates/:id")
+  @RequireCapability("inspection:view")
+  async getOne(@Param("id") id: string): Promise<TemplateDto> {
+    const uuid = parse(z.string().uuid(), id);
+    return this.templates.getOne(currentTx(), uuid);
+  }
+
   @Post("v1/inspection-templates")
   @RequireCapability("settings:manage")
   async create(@Body() body: unknown): Promise<TemplateDto> {
