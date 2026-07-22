@@ -249,7 +249,13 @@ async function main(): Promise<void> {
       tx,
       tenantId,
       userId,
-      { title: "Line Safety Work Instruction", category: "work_instruction" },
+      {
+        title: "Line Safety Work Instruction",
+        category: "work_instruction",
+        // Expires soon, so the `docs` expiry-reminder job has a live target
+        // once the document is approved.
+        expiresAt: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString(),
+      },
       ctx,
     );
     await documents.transition(tx, tenantId, admin, userId, doc.id, { to: "pending", version: doc.lockVersion }, ctx);

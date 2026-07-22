@@ -12,6 +12,7 @@ export const QUEUES = {
   files: "files",
   reports: "reports",
   schedule: "schedule",
+  docs: "docs",
 } as const;
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
@@ -30,6 +31,10 @@ export const JOBS = {
   scheduleSweep: "schedule.sweep",
   /** Per-tenant: expand recurring inspection series into occurrences. */
   materializeSchedule: "schedule.materialize",
+  /** Repeatable fan-out trigger: enqueues one expiry-check job per active tenant. */
+  docsSweep: "docs.sweep",
+  /** Per-tenant: remind owners of documents nearing their expiry. */
+  documentExpiryCheck: "docs.expiry",
 } as const;
 
 export interface RecomputeSlaJob {
@@ -50,6 +55,9 @@ export interface RunExportJob {
 export interface MaterializeScheduleJob {
   readonly tenantId: string;
 }
+export interface DocumentExpiryJob {
+  readonly tenantId: string;
+}
 
 /**
  * Job rules (06 §1): 5 attempts, exponential backoff. `removeOnFail: false`
@@ -68,3 +76,6 @@ export const SLA_SWEEP_CRON = "*/5 * * * *";
 
 /** How often the schedule sweep runs (06 §1: hourly). */
 export const SCHEDULE_SWEEP_CRON = "0 * * * *";
+
+/** How often the document-expiry sweep runs (06 §1: daily, early morning). */
+export const DOCS_SWEEP_CRON = "0 6 * * *";

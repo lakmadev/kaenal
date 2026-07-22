@@ -12,10 +12,12 @@ import { S3Storage } from "../files/s3-storage.js";
 import type { Storage } from "../files/storage.js";
 import {
   DEFAULT_JOB_OPTS,
+  DOCS_SWEEP_CRON,
   JOBS,
   QUEUES,
   SCHEDULE_SWEEP_CRON,
   SLA_SWEEP_CRON,
+  type DocumentExpiryJob,
   type MaterializeScheduleJob,
   type RecomputeSlaJob,
   type RunExportJob,
@@ -28,6 +30,7 @@ import { scanFile } from "./processors/scan-file.js";
 import { deliverNotification } from "./processors/deliver-notification.js";
 import { runExport } from "./processors/run-export.js";
 import { materializeScheduleForTenant } from "./processors/materialize-schedule.js";
+import { documentExpiryCheckForTenant } from "./processors/document-expiry.js";
 
 /**
  * The worker process (06 §1). Run separately from the API —
@@ -125,9 +128,34 @@ async function main(): Promise<void> {
     { connection, concurrency: 4 },
   );
 
+  const docsQueue = new Queue(QUEUES.docs, { connection });
+
+  const docsWorker = new Worker(
+    QUEUES.docs,
+    async (job: Job) => {
+      if (job.name === JOBS.docsSweep) {
+        const { rows } = await control.query<{ id: string }>(
+          "SELECT id FROM control.tenants WHERE status = 'active'",
+        );
+        for (const t of rows) {
+          await docsQueue.add(JOBS.documentExpiryCheck, { tenantId: t.id } satisfies DocumentExpiryJob, {
+            ...DEFAULT_JOB_OPTS,
+            jobId: `docs:${t.id}:${docsBucket()}`,
+          });
+        }
+        return;
+      }
+      if (job.name === JOBS.documentExpiryCheck) {
+        await documentExpiryCheckForTenant(job.data as DocumentExpiryJob, { notifications });
+      }
+    },
+    { connection, concurrency: 4 },
+  );
+
   // Register the repeatable sweeps once; BullMQ dedupes the schedule by name.
   await slaQueue.add(JOBS.slaSweep, {}, { repeat: { pattern: SLA_SWEEP_CRON }, jobId: "sla-sweep" });
   await scheduleQueue.add(JOBS.scheduleSweep, {}, { repeat: { pattern: SCHEDULE_SWEEP_CRON }, jobId: "schedule-sweep" });
+  await docsQueue.add(JOBS.docsSweep, {}, { repeat: { pattern: DOCS_SWEEP_CRON }, jobId: "docs-sweep" });
 
   const shutdown = async (): Promise<void> => {
     await Promise.allSettled([
@@ -136,9 +164,11 @@ async function main(): Promise<void> {
       notifyWorker.close(),
       reportsWorker.close(),
       scheduleWorker.close(),
+      docsWorker.close(),
     ]);
     await slaQueue.close();
     await scheduleQueue.close();
+    await docsQueue.close();
     await connection.quit();
     await control.end();
     process.exit(0);
@@ -146,7 +176,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
 
-  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule");
+  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule, docs");
 }
 
 /** 5-minute bucket so a retriggered sweep within one window dedupes per tenant. */
@@ -157,6 +187,11 @@ function slaBucket(): number {
 /** 1-hour bucket so a retriggered schedule sweep within the hour dedupes per tenant. */
 function scheduleBucket(): number {
   return Math.floor(Date.now() / (60 * 60 * 1000));
+}
+
+/** 1-day bucket so a retriggered docs sweep within the day dedupes per tenant. */
+function docsBucket(): number {
+  return Math.floor(Date.now() / (24 * 60 * 60 * 1000));
 }
 
 main().catch((err: unknown) => {

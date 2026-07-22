@@ -9,10 +9,11 @@
 plane, business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all
 five Phase-1 vertical slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search,
 Notifications, the typed `@kaenal/api-client`, the BullMQ jobs runtime (SLA escalation, AV scan,
-notification delivery, async exports, recurring-inspection scheduling), the 8D workflow, the Audits
-module, async Reports/exports AND scheduling/recurrence are
+notification delivery, async exports, recurring-inspection scheduling, document-expiry reminders), the
+8D workflow, the Audits
+module, async Reports/exports, scheduling/recurrence AND document-expiry reminders are
 done and proven, and CI runs them on
-every push/PR. 850 tests pass (239 db integration, 437 core unit, 138 api integration, 25 types unit,
+every push/PR. 858 tests pass (239 db integration, 442 core unit, 141 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 33 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -20,6 +21,19 @@ forward-only/revert directionality and the document rules (approver-role, self-a
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Document-expiry slice (06 `docs`):** the daily `docs` BullMQ queue
+(`documentExpiryCheckForTenant`, fanned out per active tenant) reminds a controlled document's owner
+as its `expires_at` approaches — at 90, then 30, then 7 days out. The "which reminder is due now"
+decision is pure + unit-tested in `packages/core/document-expiry.ts` (`activeExpiryThreshold` returns
+the smallest crossed threshold — the most urgent applicable notice — so a doc created already inside a
+window gets only that window's reminder; 5 unit tests). The processor scans only `approved` documents
+within the 90-day horizon (riding the `documents_tenant_expires_idx`) and notifies via the dedupe-safe
+`NotificationsService.notify` with key `(document, threshold)`, so the daily re-run never re-sends and
+a doc escalates to the next window only once. No new schema (documents already carry `expires_at`, and
+`CreateDocumentBody` already sets it); notifications are a delivery artifact, so no audit events. 3 api
+tests (threshold selection + skip-outside-window, idempotent re-run, no-owner skip) + 5 core; the
+`docs` queue is the sixth in the jobs runtime.
 
 **Scheduling/recurrence slice (02 §2, 06 `schedule`, 08 §1.2):** a recurring inspection is a series
 head carrying a `recurrence` rule (`{freq: daily|weekly|monthly, interval, byweekday[], until}`); the
@@ -80,16 +94,18 @@ Not plant-scoped; rides the NCR capabilities (`ncr:view`/`ncr:manage`) since the
 `lock_version` (migration 0009). 6 api tests incl. the full close-blocked → resolve → close flow.
 
 **BullMQ jobs runtime (06 §1):** a worker process (`pnpm --filter @kaenal/api worker`) separate from
-the API, with five queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
+the API, with six queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
 job per active tenant → reclassifies open NCRs against their SLA window with the core business-time
 math, escalates breaches through `ncrMachine`, audits as a `system` actor, notifies the owner),
 `files` (`scanFile` → a pluggable `Scanner` port flips `scan_status`; infected notifies the uploader),
 `notify` (`deliverNotification` → a `DeliveryChannels` port fans an in-app row to
 email/push/SMS per the user's `notification_prefs`, recording `channels_sent`), and `reports`
 (`runExport` → renders a requested export server-side and uploads it via the `Storage` port; see the
-Reports/exports slice), and `schedule` (repeatable hourly sweep → fans out one
+Reports/exports slice), `schedule` (repeatable hourly sweep → fans out one
 `materializeSchedule` job per tenant → expands recurring inspection series into occurrences; see the
-Scheduling slice). Scanner + delivery are stub ports (no ClamAV/Resend yet); the plumbing, DB
+Scheduling slice), and `docs` (repeatable daily sweep → fans out one `documentExpiryCheck` job per
+tenant → reminds owners of documents nearing expiry; see the Document-expiry slice). Scanner +
+delivery are stub ports (no ClamAV/Resend yet); the plumbing, DB
 effects and idempotency are real. The API only
 ENQUEUES, behind a `JOBS_ENABLED` gate — off in `test` (a `NoopProducer`, no queue connection), so the
 HTTP suites never touch BullMQ; `FilesService.complete` enqueues a scan, `NotificationsService.notify`
@@ -193,9 +209,9 @@ FEATURES bullet + a visual-only prototype (`src/qms-risk-spc.jsx`), but `impleme
 `03-API` and `08-TESTING` define no tables, endpoints, or algorithms for it, so building it means
 inventing the whole module (control-chart limits/Western-Electric rules, FMEA RPN, risk register,
 MSA/Gauge R&R). Per the "no invented scope" rule that's a spec question, logged under Known issues,
-not a silent build. The clear remaining backend work is the other 06 queues (`docs` — document
-expiry checks at 90/30/7 days; `housekeeping` — purge soft-deleted, partition roll; `ai` — the AI
-gateway) and XLSX/PDF export renderers behind the existing `reports` pipeline. Real ClamAV +
+not a silent build. The clear remaining backend work is the last two 06 queues (`housekeeping` — purge
+soft-deleted > 90 days minus legal holds, audit-event partition roll; `ai` — the AI gateway chokepoint,
+06 §3) and XLSX/PDF export renderers behind the existing `reports` pipeline. Real ClamAV +
 email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4.
 The dedicated **FE** can also start against `@kaenal/api-client`.
 
@@ -209,7 +225,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0012)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 850 tests
+pnpm test                     # full suite (serial: shares one DB) — 858 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -356,14 +372,18 @@ to build the frontend.)
 - [x] Audits + audit findings (2026-07-22) — `packages/core/state-machines/audit.ts` +
       `apps/api/src/audits/*`; phase machine, findings, raise-NCR/raise-CAPA seam, migration 0010
 - [~] BullMQ jobs runtime (2026-07-22) — worker process + `sla` (escalation), `files` (AV scan),
-      `notify` (delivery), `reports` (async export render), `schedule` (recurrence materialisation)
-      queues DONE (`apps/api/src/jobs/*`); `docs`/`housekeeping`/`ai` queues still pending
+      `notify` (delivery), `reports` (async export render), `schedule` (recurrence materialisation),
+      `docs` (document-expiry reminders) queues DONE (`apps/api/src/jobs/*`); `housekeeping`/`ai`
+      queues still pending
 - [x] Reports / exports (2026-07-22) — `packages/core/exports.ts` + `apps/api/src/exports/*` +
       `apps/api/src/jobs/processors/run-export.ts`; 202 → `reports` render → presigned download,
       100k-row cap → chunked zip (`fflate`), plant-scoped + requester-scoped, migration 0011
 - [x] Scheduling & recurrence (2026-07-22) — `packages/core/recurrence.ts` (expand incl. Feb 29 /
       month-end) + `inspections` service/controller + `apps/api/src/jobs/processors/materialize-schedule.ts`;
       hourly `schedule` queue, idempotent on `(series_id, date)`, migration 0012
+- [x] Document-expiry reminders (2026-07-22) — `packages/core/document-expiry.ts` (90/30/7 threshold
+      cascade) + `apps/api/src/jobs/processors/document-expiry.ts`; daily `docs` queue, dedupe on
+      `(document, threshold)`, no schema change
 - [ ] SPC / FMEA — deferred pending spec (see Known issues): no backend schema/API/algorithm in
       `implementation/`, only a FEATURES bullet + visual prototype
 
@@ -381,6 +401,15 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — document-expiry reminders reuse the notification dedupe key, no new schema.** The
+  `docs` job notifies at the *smallest* crossed threshold (90 → 30 → 7), so a document created already
+  inside a window gets only that window's reminder, not the ones it skipped. Idempotency is the
+  existing `(tenant_id, dedupe_key)` unique index with key `doc-expiry:{doc}:{threshold}` — the daily
+  re-run re-sends nothing and a doc escalates to the next window exactly once. Only `approved`
+  documents are scanned (a draft's expiry isn't "in effect"), bounded to the 90-day horizon so the
+  scan rides `documents_tenant_expires_idx`. Like the rest of the notifications path it writes no audit
+  events (a reminder is a delivery artifact). *Affects: 06 §1 `docs`.*
 
 - **2026-07-22 — recurrence lives on `inspections`; occurrences are child rows; SPC/FMEA deferred.**
   The spec puts `recurrence` on the inspection row itself, so a recurring inspection is a "series head"

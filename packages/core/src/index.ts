@@ -14,3 +14,4 @@ export * from "./file-policy.js";
 export * from "./eight-d.js";
 export * from "./exports.js";
 export * from "./recurrence.js";
+export * from "./document-expiry.js";
