@@ -41,6 +41,13 @@ export class S3Storage implements Storage {
     );
   }
 
+  async put(key: string, body: Buffer, contentType: string): Promise<{ sizeBytes: number }> {
+    await this.client.send(
+      new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }),
+    );
+    return { sizeBytes: body.byteLength };
+  }
+
   async stat(key: string): Promise<StatResult | null> {
     try {
       const head = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));

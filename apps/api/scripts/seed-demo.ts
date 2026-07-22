@@ -14,8 +14,10 @@ import { config } from "dotenv";
 config({ path: new URL("../../../.env", import.meta.url).pathname });
 
 import pg from "pg";
+import { S3Client } from "@aws-sdk/client-s3";
 import type { FormSchema } from "@kaenal/types";
 import { withTenant } from "@kaenal/db";
+import { loadEnv } from "../src/env.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import { TemplatesService } from "../src/inspections/templates.service.js";
 import { InspectionsService } from "../src/inspections/inspections.service.js";
@@ -25,6 +27,10 @@ import { CapaService } from "../src/capa/capa.service.js";
 import { DocumentsService } from "../src/documents/documents.service.js";
 import { EightDService } from "../src/eight-d/eight-d.service.js";
 import { AuditsService } from "../src/audits/audits.service.js";
+import { ExportsService } from "../src/exports/exports.service.js";
+import { NotificationsService } from "../src/notifications/notifications.service.js";
+import { S3Storage } from "../src/files/s3-storage.js";
+import { runExport } from "../src/jobs/processors/run-export.js";
 
 const TENANT = "acme";
 const EMAIL = "demo@acme.test";
@@ -59,6 +65,18 @@ async function main(): Promise<void> {
   const documents = new DocumentsService();
   const eightDs = new EightDService();
   const audits = new AuditsService(ncrs, capas);
+  const env = loadEnv();
+  const storage = new S3Storage(
+    new S3Client({
+      endpoint: env.S3_ENDPOINT,
+      region: env.S3_REGION,
+      credentials: { accessKeyId: env.S3_KEY, secretAccessKey: env.S3_SECRET },
+      forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    }),
+    env.S3_BUCKET,
+    env.S3_URL_TTL_SECONDS,
+  );
+  const exports = new ExportsService(storage);
   const admin = { role: "admin" as const, plantIds: [] };
 
   const { rows: tenantRows } = await control.query<{ id: string }>(
@@ -221,6 +239,18 @@ async function main(): Promise<void> {
     );
     await documents.transition(tx, tenantId, admin, userId, doc.id, { to: "pending", version: doc.lockVersion }, ctx);
   });
+
+  // A completed NCR export — rendered inline (the demo runs no worker) so the
+  // exports endpoint shows a finished, downloadable case. Created in its own
+  // committed transaction first, because the render opens a separate tenant
+  // transaction and must see the queued row.
+  const csvExport = await withTenant(tenantId, userId, (tx) =>
+    exports.create(tx, tenantId, admin, userId, { resource: "ncrs", format: "csv" }, ctx),
+  );
+  await runExport(
+    { tenantId, exportId: csvExport.id },
+    { storage, bucket: env.S3_BUCKET, notifications: new NotificationsService() },
+  );
 
   console.log(`Seeded. Sign in at /login as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
   await control.end();

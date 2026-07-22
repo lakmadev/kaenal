@@ -4,14 +4,18 @@ config({ path: new URL("../../../../.env", import.meta.url).pathname });
 import pg from "pg";
 import IORedis from "ioredis";
 import { Queue, Worker, type Job } from "bullmq";
+import { S3Client } from "@aws-sdk/client-s3";
 import { loadEnv } from "../env.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
+import { S3Storage } from "../files/s3-storage.js";
+import type { Storage } from "../files/storage.js";
 import {
   DEFAULT_JOB_OPTS,
   JOBS,
   QUEUES,
   SLA_SWEEP_CRON,
   type RecomputeSlaJob,
+  type RunExportJob,
   type ScanFileJob,
   type DeliverNotificationJob,
 } from "./job-types.js";
@@ -19,6 +23,7 @@ import { StubDelivery, StubScanner } from "./ports.js";
 import { recomputeSlaStatesForTenant } from "./processors/sla.js";
 import { scanFile } from "./processors/scan-file.js";
 import { deliverNotification } from "./processors/deliver-notification.js";
+import { runExport } from "./processors/run-export.js";
 
 /**
  * The worker process (06 §1). Run separately from the API —
@@ -35,6 +40,16 @@ async function main(): Promise<void> {
   const notifications = new NotificationsService();
   const scanner = new StubScanner();
   const delivery = new StubDelivery();
+  const storage: Storage = new S3Storage(
+    new S3Client({
+      endpoint: env.S3_ENDPOINT,
+      region: env.S3_REGION,
+      credentials: { accessKeyId: env.S3_KEY, secretAccessKey: env.S3_SECRET },
+      forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    }),
+    env.S3_BUCKET,
+    env.S3_URL_TTL_SECONDS,
+  );
 
   const slaQueue = new Queue(QUEUES.sla, { connection });
 
@@ -74,11 +89,22 @@ async function main(): Promise<void> {
     { connection, concurrency: 10 },
   );
 
+  const reportsWorker = new Worker(
+    QUEUES.reports,
+    (job: Job) => runExport(job.data as RunExportJob, { storage, bucket: env.S3_BUCKET, notifications }),
+    { connection, concurrency: 3 },
+  );
+
   // Register the repeatable sweep once; BullMQ dedupes the schedule by name.
   await slaQueue.add(JOBS.slaSweep, {}, { repeat: { pattern: SLA_SWEEP_CRON }, jobId: "sla-sweep" });
 
   const shutdown = async (): Promise<void> => {
-    await Promise.allSettled([slaWorker.close(), filesWorker.close(), notifyWorker.close()]);
+    await Promise.allSettled([
+      slaWorker.close(),
+      filesWorker.close(),
+      notifyWorker.close(),
+      reportsWorker.close(),
+    ]);
     await slaQueue.close();
     await connection.quit();
     await control.end();
@@ -87,7 +113,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
 
-  console.log("kaenal worker up — queues: sla, files, notify");
+  console.log("kaenal worker up — queues: sla, files, notify, reports");
 }
 
 /** 5-minute bucket so a retriggered sweep within one window dedupes per tenant. */

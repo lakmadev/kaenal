@@ -26,6 +26,7 @@
     "@ts-rest/open-api": "^3.52.1",
     "argon2": "^0.41.1",
     "bullmq": "^5",
+    "fflate": "^0.8.2",
     "ioredis": "^5.4.2",
     "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",

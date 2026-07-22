@@ -10,6 +10,7 @@ export const QUEUES = {
   sla: "sla",
   notify: "notify",
   files: "files",
+  reports: "reports",
 } as const;
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
@@ -22,6 +23,8 @@ export const JOBS = {
   scanFile: "files.scan",
   /** Deliver an in-app notification's out-of-band channels (email/push/sms). */
   deliverNotification: "notify.deliver",
+  /** Render a requested export server-side and upload it to object storage. */
+  runExport: "reports.export",
 } as const;
 
 export interface RecomputeSlaJob {
@@ -34,6 +37,10 @@ export interface ScanFileJob {
 export interface DeliverNotificationJob {
   readonly tenantId: string;
   readonly notificationId: string;
+}
+export interface RunExportJob {
+  readonly tenantId: string;
+  readonly exportId: string;
 }
 
 /**

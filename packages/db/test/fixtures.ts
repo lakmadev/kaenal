@@ -187,6 +187,12 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
   );
 
   await q(
+    `INSERT INTO exports (tenant_id, resource, format, status, requested_by)
+     VALUES ($1, 'ncrs', 'csv', 'queued', $2) RETURNING id`,
+    [t, userId],
+  );
+
+  await q(
     `INSERT INTO counters (tenant_id, kind, year, value) VALUES ($1, 'ncr', 2026, 1) RETURNING id`,
     [t],
   );

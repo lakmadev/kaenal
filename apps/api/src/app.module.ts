@@ -34,6 +34,8 @@ import { DocumentsController } from "./documents/documents.controller.js";
 import { DocumentsService } from "./documents/documents.service.js";
 import { FilesController } from "./files/files.controller.js";
 import { FilesService } from "./files/files.service.js";
+import { ExportsController } from "./exports/exports.controller.js";
+import { ExportsService } from "./exports/exports.service.js";
 import { S3Storage } from "./files/s3-storage.js";
 import { S3Client } from "@aws-sdk/client-s3";
 import type { Storage } from "./files/storage.js";
@@ -51,6 +53,7 @@ import {
   DOCUMENTS_SERVICE,
   EIGHT_D_SERVICE,
   ENV,
+  EXPORTS_SERVICE,
   FILES_SERVICE,
   FINDINGS_SERVICE,
   IDEMPOTENCY,
@@ -81,6 +84,7 @@ import {
     AuditsController,
     DocumentsController,
     FilesController,
+    ExportsController,
     SearchController,
     NotificationsController,
   ],
@@ -163,6 +167,11 @@ import {
       useFactory: (storage: Storage, env: Env, jobs: JobProducer) =>
         new FilesService(storage, env.S3_BUCKET, env.S3_URL_TTL_SECONDS, jobs),
       inject: [STORAGE, ENV, JOB_PRODUCER],
+    },
+    {
+      provide: EXPORTS_SERVICE,
+      useFactory: (storage: Storage, jobs: JobProducer) => new ExportsService(storage, jobs),
+      inject: [STORAGE, JOB_PRODUCER],
     },
     { provide: SEARCH_SERVICE, useFactory: () => new SearchService() },
 

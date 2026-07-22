@@ -17,6 +17,11 @@ export interface Storage {
   presignGet(key: string, filename: string): Promise<string>;
   /** Object metadata, or null if it does not exist (upload never happened). */
   stat(key: string): Promise<StatResult | null>;
+  /**
+   * Upload bytes server-side (the export renderer, 03 §8 — not a client
+   * upload). Returns the stored object's byte size.
+   */
+  put(key: string, body: Buffer, contentType: string): Promise<{ sizeBytes: number }>;
 }
 
 /**
@@ -26,6 +31,8 @@ export interface Storage {
  */
 export class FakeStorage implements Storage {
   private readonly objects = new Map<string, number>();
+  /** Bytes stored by server-side `put`, so tests can read the rendered output. */
+  private readonly bodies = new Map<string, Buffer>();
   /** Default object size reported by `stat` after a presigned put. */
   private readonly defaultSize: number;
 
@@ -49,9 +56,21 @@ export class FakeStorage implements Storage {
     return Promise.resolve(size === undefined ? null : { sizeBytes: size, etag: `fake-etag-${key.length}` });
   }
 
+  put(key: string, body: Buffer, _contentType: string): Promise<{ sizeBytes: number }> {
+    this.objects.set(key, body.byteLength);
+    this.bodies.set(key, body);
+    return Promise.resolve({ sizeBytes: body.byteLength });
+  }
+
+  /** Test hook: read back what `put` stored, to assert on rendered bytes. */
+  read(key: string): Buffer | null {
+    return this.bodies.get(key) ?? null;
+  }
+
   /** Test hook: pretend the object was never uploaded. */
   remove(key: string): void {
     this.objects.delete(key);
+    this.bodies.delete(key);
   }
 
   /** Test hook: simulate the uploaded object having a specific size. */

@@ -20,10 +20,12 @@ import {
   CreateNcrBody,
   CreateTemplateBody,
   CreateEightDBody,
+  CreateExportBody,
   DocumentDto,
   DocumentVersionDto,
   DownloadFileResult,
   EightDDto,
+  ExportDto,
   FileDto,
   FindingDto,
   InspectionDto,
@@ -62,6 +64,8 @@ import {
   DocumentCategory,
   DocumentStatus,
   EightDStatus,
+  ExportResource,
+  ExportStatus,
   InspectionStatus,
   NcrPriority,
   NcrStatus,
@@ -374,6 +378,33 @@ export const contract = c.router(
       body: RaiseCapaFromFindingBody,
       responses: { 201: CapaDto, ...commonErrors },
       summary: "Raise a CAPA from an audit finding (links the finding)",
+    },
+
+    // --- Exports -----------------------------------------------------------
+    listExports: {
+      method: "GET",
+      path: "/v1/exports",
+      query: PageQuery.extend({
+        resource: ExportResource.optional(),
+        status: ExportStatus.optional(),
+      }),
+      responses: { 200: page(ExportDto), ...commonErrors },
+      summary: "List exports (cursor-paginated, newest first)",
+    },
+    createExport: {
+      method: "POST",
+      path: "/v1/exports",
+      body: CreateExportBody,
+      // 202: the render runs on the `reports` queue; poll getExport for the URL.
+      responses: { 202: ExportDto, ...commonErrors },
+      summary: "Request an async export (returns 202; poll for the download URL)",
+    },
+    getExport: {
+      method: "GET",
+      path: "/v1/exports/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: ExportDto, ...commonErrors },
+      summary: "Fetch an export's status (with a presigned URL once completed)",
     },
 
     // --- CAPAs -------------------------------------------------------------

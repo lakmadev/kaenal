@@ -10,6 +10,9 @@ import {
   DocumentStatus,
   EightDStatus,
   EightDStepStatus,
+  ExportFormat,
+  ExportResource,
+  ExportStatus,
   FindingSeverity,
   InspectionStatus,
   NcrActionKind,
@@ -637,6 +640,43 @@ export const RaiseCapaFromFindingBody = z.object({
   title: z.string().min(1).max(200).optional(),
 });
 export type RaiseCapaFromFindingBody = z.infer<typeof RaiseCapaFromFindingBody>;
+
+// --- Exports (03 §8) --------------------------------------------------------
+
+/** Optional filters narrowing the exported set; applied by the renderer. */
+export const ExportFilters = z.object({
+  status: z.string().max(60).optional(),
+});
+export type ExportFilters = z.infer<typeof ExportFilters>;
+
+export const ExportDto = z.object({
+  id: z.string().uuid(),
+  resource: ExportResource,
+  format: ExportFormat,
+  status: ExportStatus,
+  filters: ExportFilters,
+  rowCount: z.number().int().nonnegative().nullable(),
+  byteSize: z.number().int().nonnegative().nullable(),
+  error: z.string().nullable(),
+  /**
+   * A short-TTL presigned download URL, present only once the export is
+   * `completed`. Minted per read (07 §3) — never stored — so it is absent on
+   * `queued`/`processing`/`failed`.
+   */
+  downloadUrl: z.string().url().nullable(),
+  requestedBy: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type ExportDto = z.infer<typeof ExportDto>;
+
+export const CreateExportBody = z.object({
+  resource: ExportResource,
+  /** Only `csv` is built today; the enum is where new renderers slot in. */
+  format: ExportFormat.default("csv"),
+  filters: ExportFilters.optional(),
+});
+export type CreateExportBody = z.infer<typeof CreateExportBody>;
 
 // --- Me (session identity) --------------------------------------------------
 

@@ -5,19 +5,41 @@
 
 ## Current status
 
-**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 under way (jobs runtime + 8D + Audits).** Data
+**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 under way (jobs runtime + 8D + Audits + Exports).** Data
 plane, business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all
 five Phase-1 vertical slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search,
 Notifications, the typed `@kaenal/api-client`, the BullMQ jobs runtime (SLA escalation, AV scan,
-notification delivery), the 8D workflow AND the Audits module are done and proven, and CI runs them on
-every push/PR. 811 tests pass (233 db integration, 414 core unit, 128 api integration, 25 types unit,
-11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant
+notification delivery, async exports), the 8D workflow, the Audits module AND async Reports/exports are
+done and proven, and CI runs them on
+every push/PR. 833 tests pass (239 db integration, 424 core unit, 134 api integration, 25 types unit,
+11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 33 tenant
 tables. The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Reports/exports slice (03 §8, 06 `reports`):** a large export is an async job, not a synchronous
+response. `POST /v1/exports {resource, format}` records a `queued` row and returns **202**; the new
+`reports` BullMQ queue renders it server-side (`run-export` processor), uploads the artifact to object
+storage, and flips the row to `completed`; the client polls `GET /v1/exports/:id`, which mints a
+short-TTL presigned download URL once the object exists (`GET /v1/exports` lists your own, paginated).
+The two rules the spec pins live pure + unit-tested in `packages/core/exports.ts`: RFC-4180 CSV
+quoting, and the **100k-row cap → a zip of chunked CSVs** (`chunkRows`/`toCsv`, 10 unit tests). The
+processor plant-scopes by re-deriving the requester's membership and querying through the SAME tenant
+tx, so an export is not a way to read rows the requester can't see; table/column selection comes only
+from a fixed `EXPORTABLES` map (ncrs/inspections/capas/audits), never request input. Exports are
+scoped to their requester (a foreign export is a 404 — rule 8), because the snapshot was plant-scoped
+to whoever asked. You can only export a resource you may VIEW (the `<resource>:view` capability, checked
+in the service since it depends on the body). Creation is audited (`created`); each presigned URL mint
+is the data egress, audited `exported` like a file download. CSV is the built renderer; XLSX/PDF are
+future renderers behind the same pipeline (the `ExportFormat` enum is the slot). `run-export` is
+idempotent (claims the `queued` row → `processing`; a retry finds it non-queued and skips); failures
+land as `status='failed'` with the message. Storage grew a server-side `put`; migration 0011 (the
+first brand-new tenant table after 0003 → explicit composite member FK). 6 api tests (202→render→poll,
+idempotency, zip split, plant scope, requester 404, own-only list) + the 10 core; `zip` via `fflate`.
+The demo seed renders one completed NCR export against real MinIO.
 
 **Audits slice (02 §2, 03 §3, 07 module):** audits run through fixed phases
 (planned → preparation → fieldwork → reporting → closed, forward-only `auditMachine`), accumulate
@@ -40,16 +62,19 @@ Not plant-scoped; rides the NCR capabilities (`ncr:view`/`ncr:manage`) since the
 `lock_version` (migration 0009). 6 api tests incl. the full close-blocked → resolve → close flow.
 
 **BullMQ jobs runtime (06 §1):** a worker process (`pnpm --filter @kaenal/api worker`) separate from
-the API, with three queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
+the API, with four queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
 job per active tenant → reclassifies open NCRs against their SLA window with the core business-time
 math, escalates breaches through `ncrMachine`, audits as a `system` actor, notifies the owner),
 `files` (`scanFile` → a pluggable `Scanner` port flips `scan_status`; infected notifies the uploader),
-and `notify` (`deliverNotification` → a `DeliveryChannels` port fans an in-app row to
-email/push/SMS per the user's `notification_prefs`, recording `channels_sent`). Scanner + delivery are
-stub ports (no ClamAV/Resend yet); the plumbing, DB effects and idempotency are real. The API only
+`notify` (`deliverNotification` → a `DeliveryChannels` port fans an in-app row to
+email/push/SMS per the user's `notification_prefs`, recording `channels_sent`), and `reports`
+(`runExport` → renders a requested export server-side and uploads it via the `Storage` port; see the
+Reports/exports slice). Scanner + delivery are stub ports (no ClamAV/Resend yet); the plumbing, DB
+effects and idempotency are real. The API only
 ENQUEUES, behind a `JOBS_ENABLED` gate — off in `test` (a `NoopProducer`, no queue connection), so the
-HTTP suites never touch BullMQ; `FilesService.complete` enqueues a scan and `NotificationsService.notify`
-enqueues a delivery. Job rules per 06: 5× exponential backoff, `jobId` dedupe, failed jobs retained as
+HTTP suites never touch BullMQ; `FilesService.complete` enqueues a scan, `NotificationsService.notify`
+enqueues a delivery, and `ExportsService.create` enqueues a render. Job rules per 06: 5× exponential
+backoff, `jobId` dedupe, failed jobs retained as
 a dead-letter set. 6 tests — each processor against real Postgres (escalate/scan/deliver + idempotency)
 and a real BullMQ enqueue→process round-trip against the test Redis.
 
@@ -142,12 +167,13 @@ web frontend in this repo (a dedicated FE is planned separately). `seed:demo` no
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
 **Next task:** per the README build order (Phase 2 = 8D, audits, notifications, reports, SPC/FMEA,
-scheduling), 8D, audits and notifications are done — **reports / exports** is next (03 §8: async jobs,
-`POST /v1/exports` → 202 {jobId} → poll/notify → presigned S3 download; CSV/XLSX/PDF, 100k-row cap →
-chunked zip). That is the `reports` BullMQ queue, so it also grows the jobs runtime. Then **SPC/FMEA +
-scheduling/recurrence** and the remaining 06 queues (`schedule`, `docs`, `housekeeping`, `ai`). Real
-ClamAV + email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is
-Phase 4. The dedicated **FE** can also start against `@kaenal/api-client`.
+scheduling), 8D, audits, notifications and reports/exports are done — **SPC/FMEA + scheduling/recurrence**
+is next. Scheduling is the `schedule` BullMQ queue (`materializeRecurringInspections`: expand
+`recurrence` rules 14 days ahead, idempotent on `(seriesId, date)`), so it grows the jobs runtime again.
+Then the remaining 06 queues (`docs` — document expiry checks; `housekeeping`; `ai`). XLSX/PDF export
+renderers slot behind the existing `reports` pipeline (the `ExportFormat` enum). Real ClamAV +
+email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4. The
+dedicated **FE** can also start against `@kaenal/api-client`.
 
 ### How to get running from a cold clone
 
@@ -155,11 +181,11 @@ Phase 4. The dedicated **FE** can also start against `@kaenal/api-client`.
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0010)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0011)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 811 tests
+pnpm test                     # full suite (serial: shares one DB) — 833 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -306,9 +332,11 @@ to build the frontend.)
 - [x] Audits + audit findings (2026-07-22) — `packages/core/state-machines/audit.ts` +
       `apps/api/src/audits/*`; phase machine, findings, raise-NCR/raise-CAPA seam, migration 0010
 - [~] BullMQ jobs runtime (2026-07-22) — worker process + `sla` (escalation), `files` (AV scan),
-      `notify` (delivery) queues DONE (`apps/api/src/jobs/*`); `schedule`/`reports`/`docs`/
-      `housekeeping`/`ai` queues still pending
-- [ ] Reports / exports (async jobs, 100k row cap → chunked zip)
+      `notify` (delivery), `reports` (async export render) queues DONE (`apps/api/src/jobs/*`);
+      `schedule`/`docs`/`housekeeping`/`ai` queues still pending
+- [x] Reports / exports (2026-07-22) — `packages/core/exports.ts` + `apps/api/src/exports/*` +
+      `apps/api/src/jobs/processors/run-export.ts`; 202 → `reports` render → presigned download,
+      100k-row cap → chunked zip (`fflate`), plant-scoped + requester-scoped, migration 0011
 - [ ] SPC / FMEA, scheduling & recurrence
 
 ## Phase 3 — Mobile
@@ -325,6 +353,23 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — exports are async jobs with their own artifact + requester scoping; CSV first.**
+  `POST /v1/exports` → 202 + `queued` row; the new `reports` queue renders it and the client polls
+  `GET /v1/exports/:id` for a presigned URL. Several choices worth recording: (1) the rendered file
+  lives on the `exports` row (`bucket`/`object_key`), NOT in `files`, so it bypasses the AV-scan
+  download gate that guards user uploads — an export is generated output, not an upload. (2) Exports
+  are scoped to their requester (foreign → 404), not tenant-wide, because a completed export is a
+  frozen snapshot that was plant-scoped to whoever asked; handing it to another user would leak rows
+  outside their scope. (3) The processor re-derives the requester's membership and queries through the
+  same tenant tx, so plant scope + RLS apply to the render exactly as to the list endpoint; table
+  selection is a fixed `EXPORTABLES` map (never request input). (4) `ExportFormat` ships as `csv` only
+  — XLSX/PDF (headless Chromium) are additional renderers behind the same pipeline; the contract
+  advertises only what is built, so the FE never offers a format that 422s. (5) The 100k-row cap →
+  chunked-zip and CSV quoting are pure `packages/core` functions (unit-tested), leaving the processor
+  to I/O. Egress is audited where it happens: `created` at request, `exported` each time a presigned
+  URL is minted (mirrors `file_downloaded`). `exports` is the first brand-new tenant table after 0003,
+  so its user reference is a hand-written composite member FK. *Affects: 03 §8, 06 `reports`.*
 
 - **2026-07-22 — audit findings reuse the corrective seam by delegating to `NcrService`/`CapaService`.**
   Rather than reimplement NCR/CAPA creation (code minting, SLA, audit events) inside the audits
@@ -696,6 +741,12 @@ to build the frontend.)
 
 ## Known issues / TODO
 
+- **Exports are CSV only; XLSX and PDF are not yet rendered.** The async pipeline (202 → `reports`
+  render → presigned download) and the 100k-row cap → zip are format-agnostic and done, but only the
+  CSV renderer is built. `ExportFormat` is `['csv']`; XLSX (a sheet writer) and PDF (headless
+  Chromium against print routes, 06 `reports`) slot in as additional renderers + enum values behind
+  the same `run-export` processor. Also, export filters are minimal (an optional `status`) — richer
+  per-resource filters would mirror each list endpoint's query. *06 `reports`, 03 §8.*
 - **Model B (dedicated instance) provisioning is unimplemented.** `provision-tenant --model
   dedicated` exits with a clear error. Needs per-tenant DB creation + the migration fan-out with
   per-tenant locking (01 §3.4, 02 §5).

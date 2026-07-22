@@ -240,6 +240,23 @@ export const ScarStatus = defineEnum([
 ]);
 export type ScarStatus = z.infer<typeof ScarStatus>;
 
+// --- Exports (03 §8, 06 `reports` queue) -----------------------------------
+
+/** The record kinds an export can render. Each has a list endpoint + view cap. */
+export const ExportResource = defineEnum(["ncrs", "inspections", "capas", "audits"]);
+export type ExportResource = z.infer<typeof ExportResource>;
+
+/**
+ * Output formats. CSV is the built renderer; XLSX and PDF (headless Chromium
+ * against print routes, 06 `reports`) are additional renderers to add behind
+ * the same async pipeline — the contract advertises only what is implemented.
+ */
+export const ExportFormat = defineEnum(["csv"]);
+export type ExportFormat = z.infer<typeof ExportFormat>;
+
+export const ExportStatus = defineEnum(["queued", "processing", "completed", "failed"]);
+export type ExportStatus = z.infer<typeof ExportStatus>;
+
 // --- Audit trail (07 §1) ---------------------------------------------------
 
 export const ActorKind = defineEnum(["user", "system", "api_key", "support"]);
