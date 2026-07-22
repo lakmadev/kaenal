@@ -28,6 +28,11 @@ import { CapaController } from "./capa/capa.controller.js";
 import { CapaService } from "./capa/capa.service.js";
 import { DocumentsController } from "./documents/documents.controller.js";
 import { DocumentsService } from "./documents/documents.service.js";
+import { FilesController } from "./files/files.controller.js";
+import { FilesService } from "./files/files.service.js";
+import { S3Storage } from "./files/s3-storage.js";
+import { S3Client } from "@aws-sdk/client-s3";
+import type { Storage } from "./files/storage.js";
 import {
   AUTH_SERVICE,
   AUTHENTICATOR,
@@ -35,12 +40,14 @@ import {
   CONTROL_POOL,
   DOCUMENTS_SERVICE,
   ENV,
+  FILES_SERVICE,
   FINDINGS_SERVICE,
   IDEMPOTENCY,
   INSPECTIONS_SERVICE,
   NCR_SERVICE,
   RATE_LIMITER,
   REDIS,
+  STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
 } from "./tokens.js";
@@ -57,6 +64,7 @@ import {
     NcrController,
     CapaController,
     DocumentsController,
+    FilesController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -109,6 +117,28 @@ import {
     { provide: NCR_SERVICE, useFactory: () => new NcrService() },
     { provide: CAPA_SERVICE, useFactory: () => new CapaService() },
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
+
+    // Object storage (03 §7). One S3 client for the process; MinIO locally.
+    {
+      provide: STORAGE,
+      useFactory: (env: Env): Storage =>
+        new S3Storage(
+          new S3Client({
+            endpoint: env.S3_ENDPOINT,
+            region: env.S3_REGION,
+            credentials: { accessKeyId: env.S3_KEY, secretAccessKey: env.S3_SECRET },
+            forcePathStyle: env.S3_FORCE_PATH_STYLE,
+          }),
+          env.S3_BUCKET,
+          env.S3_URL_TTL_SECONDS,
+        ),
+      inject: [ENV],
+    },
+    {
+      provide: FILES_SERVICE,
+      useFactory: (storage: Storage, env: Env) => new FilesService(storage, env.S3_BUCKET, env.S3_URL_TTL_SECONDS),
+      inject: [STORAGE, ENV],
+    },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

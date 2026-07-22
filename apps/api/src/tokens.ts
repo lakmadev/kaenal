@@ -18,4 +18,6 @@ export const FINDINGS_SERVICE = Symbol("FINDINGS_SERVICE");
 export const NCR_SERVICE = Symbol("NCR_SERVICE");
 export const CAPA_SERVICE = Symbol("CAPA_SERVICE");
 export const DOCUMENTS_SERVICE = Symbol("DOCUMENTS_SERVICE");
+export const FILES_SERVICE = Symbol("FILES_SERVICE");
+export const STORAGE = Symbol("STORAGE");
 export const RATE_LIMITER = Symbol("RATE_LIMITER");

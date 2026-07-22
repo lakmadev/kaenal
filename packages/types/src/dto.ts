@@ -13,6 +13,7 @@ import {
   NcrSource,
   NcrStatus,
   RiskLevel,
+  ScanStatus,
   SlaState,
   TemplateStatus,
 } from "./enums.js";
@@ -387,6 +388,58 @@ export const NewDocumentVersionBody = z.object({
   changelog: z.string().max(4000).nullable().optional(),
 });
 export type NewDocumentVersionBody = z.infer<typeof NewDocumentVersionBody>;
+
+// --- Files ------------------------------------------------------------------
+
+export const FileDto = z.object({
+  id: z.string().uuid(),
+  filename: z.string(),
+  mime: z.string(),
+  sizeBytes: z.number().int().nonnegative(),
+  sha256: z.string().nullable(),
+  scanStatus: ScanStatus,
+  entityKind: z.string().nullable(),
+  entityId: z.string().uuid().nullable(),
+  uploadedBy: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type FileDto = z.infer<typeof FileDto>;
+
+/**
+ * Step 1 of the upload (03 §7): the server validates mime + size, creates a
+ * `pending` row, and returns a presigned PUT the client uploads to directly.
+ * The real byte cap is enforced server-side (`validateUpload` in core), so the
+ * declared `sizeBytes` is a hint the server re-checks against the actual object
+ * on complete.
+ */
+export const PresignFileBody = z.object({
+  filename: z.string().min(1).max(255),
+  mime: z.string().min(1).max(255),
+  sizeBytes: z.number().int().positive(),
+  entityKind: z.string().min(1).max(64).nullable().optional(),
+  entityId: z.string().uuid().nullable().optional(),
+});
+export type PresignFileBody = z.infer<typeof PresignFileBody>;
+
+export const PresignFileResult = z.object({
+  fileId: z.string().uuid(),
+  uploadUrl: z.string().url(),
+  expiresIn: z.number().int().positive(),
+});
+export type PresignFileResult = z.infer<typeof PresignFileResult>;
+
+/** Step 3: the client tells the server the upload finished; body carries nothing. */
+export const CompleteFileBody = z.object({});
+export type CompleteFileBody = z.infer<typeof CompleteFileBody>;
+
+export const DownloadFileResult = z.object({
+  url: z.string().url(),
+  expiresIn: z.number().int().positive(),
+  /** True when the file is not yet scanned clean — the client should watermark it. */
+  scanPending: z.boolean(),
+});
+export type DownloadFileResult = z.infer<typeof DownloadFileResult>;
 
 // --- Me (session identity) --------------------------------------------------
 

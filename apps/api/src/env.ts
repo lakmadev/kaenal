@@ -35,6 +35,20 @@ const EnvSchema = z.object({
   TENANT_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
 
   /**
+   * Object storage (03 §7). MinIO locally, S3/R2 in cloud. Defaults target the
+   * docker-compose MinIO so uploads work out of the box; production overrides
+   * every value. `S3_FORCE_PATH_STYLE` is required for MinIO (no vhost buckets).
+   */
+  S3_ENDPOINT: z.string().url().default("http://localhost:9000"),
+  S3_BUCKET: z.string().min(1).default("kaenal-local"),
+  S3_KEY: z.string().min(1).default("kaenal"),
+  S3_SECRET: z.string().min(1).default("kaenal_local_pw"),
+  S3_REGION: z.string().min(1).default("us-east-1"),
+  S3_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+  /** Presigned-URL TTL in seconds — 03 §7 / §8 specify 15 minutes. */
+  S3_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+
+  /**
    * Rate limiting (03 §9). Left unset it follows the environment: on
    * everywhere except automated tests, which fire hundreds of requests as one
    * user in one second and would otherwise trip their own limiter. The

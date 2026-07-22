@@ -6,16 +6,27 @@
 ## Current status
 
 **Phase 0 done; Phase 1 core loop under way.** Data plane, business logic, audit plumbing, the
-request lifecycle, authentication, the contract layer AND the first four vertical slices
-(Inspections, Findings → NCR, CAPA, then Documents) are done and proven, and CI runs them on every
-push/PR. 736 tests pass (233 db integration, 390 core unit, 88 api integration, 25 types unit); all
-four packages typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant tables.
-The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs, lockout
-durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA forward-only/revert
-directionality and the document rules (approver-role, self-approval four-eyes, last-approved-version
-protection) were all mutation-tested (the CAPA and document rules via the full (from, to) matrix in
-core) — proven to fail when the guard is disabled. The rate limiter has behavioural tests
-(allow/deny + window slide), not a formal mutation.
+request lifecycle, authentication, the contract layer AND the first five vertical slices
+(Inspections, Findings → NCR, CAPA, Documents, then Files) are done and proven, and CI runs them on
+every push/PR. 752 tests pass (233 db integration, 396 core unit, 98 api integration, 25 types unit);
+all four packages typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant
+tables. The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs,
+lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
+forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
+last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
+(from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
+file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Files slice (03 §7, 07 §3):** the three-step upload — `POST /v1/files/presign` (mime allowlist +
+size cap in `packages/core/file-policy.ts`, a `pending` row, a short-TTL presigned PUT) → client
+uploads to storage directly → `POST /v1/files/:id/complete` (server verifies the object exists,
+re-checks its real size against the cap, records the hash). The security rule is the download gate
+(`GET /v1/files/:id/download`): a file that is not `clean` is downloadable only by its uploader while
+pending (watermarked client-side via a `scanPending` flag), and by no one once `infected`; every
+successful download is audited (`file_downloaded`, 07 §1). Storage is a port (`Storage`) with a real
+`S3Storage` adapter (MinIO locally, proven with a live round-trip) and a `FakeStorage` bound in
+tests, so none of this needs a live bucket in CI. The AV scanner itself is a Phase-2 job — until it
+runs, files stay `pending`. No migration (the `files` table already carried every column).
 
 **Documents slice (02 §4, 03 §3):** controlled documents run draft → pending → approved|rejected,
 approved → archived, rejected → draft, driven by `documentMachine`, which carries the three rules
@@ -67,9 +78,9 @@ The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI
 web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** Files (presign → upload → complete → AV scan gate, 03 §7) — so a document/finding can
-carry an actual attachment; then federated Search (FTS + `/v1/search` for the command palette).
-8D (step gating) is Phase 2.
+**Next task:** federated Search (FTS + `/v1/search` for the command palette — one endpoint fanning
+across inspections/NCRs/CAPAs/documents, tenant- and plant-scoped), then Notifications. The AV-scan
+job that flips a completed file to clean/infected is Phase 2 (06). 8D (step gating) is Phase 2.
 
 ### How to get running from a cold clone
 
@@ -81,7 +92,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0003)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 736 tests
+pnpm test                     # full suite (serial: shares one DB) — 752 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -200,7 +211,9 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
 - [x] Documents (+ versions, approval flow) (2026-07-22) — `apps/api/src/documents/documents.*`;
       lifecycle + review (four-eyes), version history (`document_versions`), new-version-resets-to-
       draft, keep-one-approved-version guard, migration 0007
-- [ ] Files (presign → upload → complete → AV scan gate) — 03 §7
+- [x] Files (presign → upload → complete → AV scan gate) (2026-07-22, 03 §7) —
+      `apps/api/src/files/*` + `packages/core/file-policy.ts`; `Storage` port (real `S3Storage`/MinIO
+      + `FakeStorage`), download gated on scan status, no migration (files table pre-existed)
 - [ ] Search / FTS + federated `/v1/search` for the command palette
 - [ ] Notifications
 - [ ] `packages/api-client` — typed client + TanStack Query hooks
@@ -236,6 +249,29 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — file routes carry NO capability; the controls are tenant RLS + the scan gate.** The
+  03 §3 matrix defines no file capability, so presign/complete/get/download require only an
+  authenticated session (any tenant member can attach a file — an inspector uploading an evidence
+  photo, an admin a document). Access is governed instead by (a) tenant RLS on the `files` table and
+  (b) the AV-scan download gate. Deliberately did NOT invent a `file:*` capability — there is no
+  matrix row to anchor it, and the real risk (serving unscanned/infected bytes) is the download gate's
+  job, not a role check. *Affects: 03 §3, 03 §7.*
+
+- **2026-07-22 — storage is a port; the download gate + size re-check are the security surface.**
+  `Storage` (presignPut/presignGet/stat) is injected, with a real `S3Storage` (MinIO/S3, proven with
+  a live round-trip) and a `FakeStorage` bound in tests, so the presign→complete→download logic is
+  fully tested without a bucket (CI has no MinIO). Two server-side checks matter: `complete` stats the
+  real object and rejects it if it exceeds the cap (a client that under-declared size to pass presign
+  is caught), and `download` refuses any file whose `scan_status` is not `clean` — except the uploader
+  while `pending` — and refuses `infected` to everyone. `sha256` is recorded from the S3 ETag (a
+  re-hash for multipart uploads is a TODO). *Affects: 03 §7, 07 §3.*
+
+- **2026-07-22 — a completed file stays `pending`, not auto-`clean`.** `complete` records the hash and
+  hands off to the AV scan, which is a BullMQ job (06, Phase 2) that does not exist yet — so files sit
+  at `pending` and are downloadable only by their uploader until the scanner flips them. This is the
+  fail-safe posture (unscanned ≠ trusted); tests simulate the scanner's verdict by setting
+  `scan_status` directly. *Affects: 03 §7, 06.*
 
 - **2026-07-22 — added a `document:manage` capability; authoring is split from approval.** The 03 §3
   matrix names only "Approve documents" (admin/manager) and universal "View", leaving no capability
@@ -547,6 +583,19 @@ to build the frontend.)
   the email is unknown, but the locked / wrong-password / no-membership branches have their own
   (real) argon2 or query costs, which are close but not identical. Good enough against coarse
   timing; a determined side-channel attacker is out of scope for now.
+- **AV scanning is unimplemented, so completed files never become downloadable to non-uploaders.**
+  `complete` records the hash and would enqueue a scan, but the BullMQ AV job (06) does not exist —
+  files stay `pending`. Until it lands, sharing an uploaded file with other members does not work
+  through the gate. Also deferred to that job (it is the thing that reads the bytes): server-side
+  magic-byte mime sniffing and SVG sanitisation (07 §3) — presign only checks the client-declared
+  mime string today. And the nightly orphaned-`pending`-row cleanup (03 §7) and (tenant, sha256)
+  dedup are not built.
+- **MinIO bucket creation is manual/ad hoc.** `S3Storage` assumes the bucket exists; the local one
+  (`kaenal-local`) was created by a one-off smoke script, not by provisioning. `provision-tenant`
+  (or a bootstrap step) should ensure the bucket per region (07 §4 data residency) before production.
+- **`files.sizeBytes` is exposed as a JS number.** The column is `bigint`; sizes are capped at 25 MB
+  so they fit safely, but if the cap ever rises past 2^53 the DTO mapping (`Number(size_bytes)`) needs
+  revisiting.
 - **Generic request helpers are housed under `apps/api/src/ncr/`.** `ncr/audit-context.ts`
   (`AuditContext`) and `ncr/handler-ctx.ts` (`membershipOf`/`actorIdOf`/`auditCtxOf`) are
   feature-agnostic but the CAPA controller now imports them across the `capa/ → ncr/` boundary,
