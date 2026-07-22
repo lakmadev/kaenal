@@ -7,15 +7,26 @@
 
 **Phase 0 done; Phase 1 core loop under way.** Data plane, business logic, audit plumbing, the
 request lifecycle, authentication, the contract layer AND the first five vertical slices
-(Inspections, Findings → NCR, CAPA, Documents, Files) plus federated Search are done and proven, and
-CI runs them on every push/PR. 757 tests pass (233 db integration, 396 core unit, 103 api
-integration, 25 types unit); all four packages typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant
+(Inspections, Findings → NCR, CAPA, Documents, Files) plus federated Search and Notifications are
+done and proven, and CI runs them on every push/PR. 763 tests pass (233 db integration, 396 core
+unit, 109 api integration, 25 types unit); all four packages typecheck under strict TS and lint
+clean. The RLS schema lint covers 32 tenant
 tables. The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Notifications slice (02 §2, 06):** the consumer API — `GET /v1/notifications` (cursor, unread
+filter), `GET /v1/notifications/unread-count` (bell badge), `POST /v1/notifications/:id/read` +
+`/read-all`, `GET`/`PUT /v1/notification-prefs` (the per-kind channel matrix) — all scoped to the
+current user (a foreign notification is a 404, not a 403; rule 8). Plus `NotificationsService.notify`,
+the dedupe-safe write primitive (`ON CONFLICT (tenant_id, dedupe_key) DO NOTHING`) the producing side
+will call inside an event's own transaction. Notification rows are a delivery artifact, not an
+audited business entity, so this slice deliberately does NOT go through `withAudit`. Producing
+notifications on events (NCR assigned, SLA breach) and email/push/SMS fan-out are the Phase-2 `notify`
+job (06); no migration (the tables + dedupe index pre-existed).
 
 **Search slice (03 §1, 04 command palette):** one `GET /v1/search?q=` federates full-text search
 across inspections, NCRs, CAPAs and documents, ranked over each entity's generated `search_vector`
@@ -85,10 +96,11 @@ The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI
 web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** Notifications (the `notifications` / `notification_prefs` tables exist, no service yet
-— create/list/mark-read + the per-user channel preference matrix), then `packages/api-client` (typed
-client + TanStack Query hooks). The AV-scan job that flips a completed file to clean/infected is
-Phase 2 (06). 8D (step gating) is Phase 2.
+**Next task:** `packages/api-client` (typed client over the ts-rest contract + TanStack Query hooks)
+— the last Phase-1 backend item before the dedicated FE consumes it. After that, Phase 1's backend is
+complete; the remaining producers/delivery (the `notify` job, SLA escalation, the AV-scan job that
+flips a completed file to clean/infected) are the Phase-2 jobs runtime (06). 8D (step gating) is
+Phase 2.
 
 ### How to get running from a cold clone
 
@@ -100,7 +112,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0008)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 757 tests
+pnpm test                     # full suite (serial: shares one DB) — 763 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -225,7 +237,9 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
 - [x] Search / FTS + federated `/v1/search` for the command palette (2026-07-22) —
       `apps/api/src/search/*`; generated `search_vector` columns + GIN (migration 0008), top 6/kind,
       plant-scoped
-- [ ] Notifications
+- [x] Notifications (2026-07-22) — `apps/api/src/notifications/*`; consumer API (list/unread-count/
+      mark-read/read-all/prefs), per-user scoped, + the dedupe-safe `notify()` write primitive. No
+      migration. Producers/delivery are the Phase-2 `notify` job.
 - [ ] `packages/api-client` — typed client + TanStack Query hooks
 
 Frontend — NOT in this repo. A dedicated FE implementation is planned separately; it will consume
@@ -259,6 +273,18 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — notifications are NOT audited, and this slice owns the consumer side only.**
+  Notification rows are a delivery artifact — the downstream product of an already-audited event — and
+  07 §1's "what gets logged" list does not include them, so `NotificationsService` deliberately does
+  not route through `withAudit` (the one place a mutation legitimately skips it; marking-read and
+  personal channel prefs are likewise personal state, not the tenant "settings changes" the audit list
+  means). The slice ships the read/manage/prefs API + the `notify()` write primitive (dedupe-safe via
+  the pre-existing `notifications_dedupe_uq` partial index); PRODUCING notifications on domain events
+  and the email/push/SMS fan-out are the Phase-2 `notify` job (06, "on event"), kept out of the domain
+  services so notification concerns don't smear across NCR/CAPA/Documents before the event layer
+  exists. Everything is per-user scoped (a foreign notification id → 404, not 403; rule 8).
+  *Affects: 02 §2, 06, 07 §1, rule 8.*
 
 - **2026-07-22 — search uses GENERATED `tsvector` columns, not a trigger.** 03 §1 says "tsvector
   column, updated by trigger"; a `GENERATED ALWAYS AS (...) STORED` column is the stronger form —

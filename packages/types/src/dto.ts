@@ -462,6 +462,46 @@ export const SearchResults = z.object({
 });
 export type SearchResults = z.infer<typeof SearchResults>;
 
+// --- Notifications ----------------------------------------------------------
+
+export const NotificationDto = z.object({
+  id: z.string().uuid(),
+  kind: z.string(),
+  title: z.string(),
+  body: z.string().nullable(),
+  entityKind: z.string().nullable(),
+  entityId: z.string().uuid().nullable(),
+  readAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type NotificationDto = z.infer<typeof NotificationDto>;
+
+export const UnreadCountDto = z.object({ count: z.number().int().nonnegative() });
+export type UnreadCountDto = z.infer<typeof UnreadCountDto>;
+
+/** How many rows a bulk action touched (mark-all-read). */
+export const CountDto = z.object({ count: z.number().int().nonnegative() });
+export type CountDto = z.infer<typeof CountDto>;
+
+/** Per-notification-kind channel switches (the `notification_prefs.matrix`). */
+export const ChannelPrefs = z.object({
+  inapp: z.boolean(),
+  email: z.boolean(),
+  push: z.boolean(),
+  sms: z.boolean(),
+});
+export type ChannelPrefs = z.infer<typeof ChannelPrefs>;
+
+export const NotificationPrefsDto = z.object({
+  matrix: z.record(z.string(), ChannelPrefs),
+});
+export type NotificationPrefsDto = z.infer<typeof NotificationPrefsDto>;
+
+export const UpdateNotificationPrefsBody = z.object({
+  matrix: z.record(z.string(), ChannelPrefs),
+});
+export type UpdateNotificationPrefsBody = z.infer<typeof UpdateNotificationPrefsBody>;
+
 // --- Me (session identity) --------------------------------------------------
 
 export const MeDto = z.object({

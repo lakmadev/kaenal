@@ -35,6 +35,8 @@ import { S3Client } from "@aws-sdk/client-s3";
 import type { Storage } from "./files/storage.js";
 import { SearchController } from "./search/search.controller.js";
 import { SearchService } from "./search/search.service.js";
+import { NotificationsController } from "./notifications/notifications.controller.js";
+import { NotificationsService } from "./notifications/notifications.service.js";
 import {
   AUTH_SERVICE,
   AUTHENTICATOR,
@@ -47,6 +49,7 @@ import {
   IDEMPOTENCY,
   INSPECTIONS_SERVICE,
   NCR_SERVICE,
+  NOTIFICATIONS_SERVICE,
   RATE_LIMITER,
   REDIS,
   SEARCH_SERVICE,
@@ -69,6 +72,7 @@ import {
     DocumentsController,
     FilesController,
     SearchController,
+    NotificationsController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -144,6 +148,7 @@ import {
       inject: [STORAGE, ENV],
     },
     { provide: SEARCH_SERVICE, useFactory: () => new SearchService() },
+    { provide: NOTIFICATIONS_SERVICE, useFactory: () => new NotificationsService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),
