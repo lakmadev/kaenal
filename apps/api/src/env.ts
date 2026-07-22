@@ -55,9 +55,18 @@ const EnvSchema = z.object({
    * dedicated rate-limit test sets this true explicitly.
    */
   RATE_LIMIT_ENABLED: z.coerce.boolean().optional(),
+
+  /**
+   * Background jobs (06). When off, the API's job producers are no-ops (nothing
+   * is enqueued and no BullMQ Redis connection is opened) — the default in
+   * `test`, so suites never leak queue connections. The worker process
+   * (`pnpm --filter @kaenal/api worker`) sets it on to consume.
+   */
+  JOBS_ENABLED: z.coerce.boolean().optional(),
 }).transform((e) => ({
   ...e,
   RATE_LIMIT_ENABLED: e.RATE_LIMIT_ENABLED ?? e.NODE_ENV !== "test",
+  JOBS_ENABLED: e.JOBS_ENABLED ?? e.NODE_ENV !== "test",
 }));
 
 export type Env = z.infer<typeof EnvSchema>;

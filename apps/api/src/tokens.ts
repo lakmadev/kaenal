@@ -22,4 +22,5 @@ export const FILES_SERVICE = Symbol("FILES_SERVICE");
 export const STORAGE = Symbol("STORAGE");
 export const SEARCH_SERVICE = Symbol("SEARCH_SERVICE");
 export const NOTIFICATIONS_SERVICE = Symbol("NOTIFICATIONS_SERVICE");
+export const JOB_PRODUCER = Symbol("JOB_PRODUCER");
 export const RATE_LIMITER = Symbol("RATE_LIMITER");

@@ -37,6 +37,7 @@ import { SearchController } from "./search/search.controller.js";
 import { SearchService } from "./search/search.service.js";
 import { NotificationsController } from "./notifications/notifications.controller.js";
 import { NotificationsService } from "./notifications/notifications.service.js";
+import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AUTH_SERVICE,
   AUTHENTICATOR,
@@ -48,6 +49,7 @@ import {
   FINDINGS_SERVICE,
   IDEMPOTENCY,
   INSPECTIONS_SERVICE,
+  JOB_PRODUCER,
   NCR_SERVICE,
   NOTIFICATIONS_SERVICE,
   RATE_LIMITER,
@@ -144,11 +146,25 @@ import {
     },
     {
       provide: FILES_SERVICE,
-      useFactory: (storage: Storage, env: Env) => new FilesService(storage, env.S3_BUCKET, env.S3_URL_TTL_SECONDS),
-      inject: [STORAGE, ENV],
+      useFactory: (storage: Storage, env: Env, jobs: JobProducer) =>
+        new FilesService(storage, env.S3_BUCKET, env.S3_URL_TTL_SECONDS, jobs),
+      inject: [STORAGE, ENV, JOB_PRODUCER],
     },
     { provide: SEARCH_SERVICE, useFactory: () => new SearchService() },
-    { provide: NOTIFICATIONS_SERVICE, useFactory: () => new NotificationsService() },
+
+    // Job producer: real BullMQ queues when jobs are enabled, else a no-op that
+    // opens no Redis connection (default in tests). The worker process consumes.
+    {
+      provide: JOB_PRODUCER,
+      useFactory: (env: Env): JobProducer =>
+        env.JOBS_ENABLED ? new BullMqProducer(env.REDIS_URL) : new NoopProducer(),
+      inject: [ENV],
+    },
+    {
+      provide: NOTIFICATIONS_SERVICE,
+      useFactory: (jobs: JobProducer) => new NotificationsService(jobs),
+      inject: [JOB_PRODUCER],
+    },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

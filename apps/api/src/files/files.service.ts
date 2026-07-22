@@ -5,6 +5,7 @@ import { MAX_FILE_BYTES, validateUpload } from "@kaenal/core";
 import type { DownloadFileResult, FileDto, PresignFileBody, PresignFileResult } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
 import type { AuditContext } from "../ncr/audit-context.js";
+import { NoopProducer, type JobProducer } from "../jobs/producer.js";
 import type { Storage } from "./storage.js";
 
 interface FileRow {
@@ -63,6 +64,7 @@ export class FilesService {
     private readonly storage: Storage,
     private readonly bucket: string,
     private readonly urlTtlSeconds: number,
+    private readonly jobs: JobProducer = new NoopProducer(),
   ) {}
 
   async presign(
@@ -147,7 +149,7 @@ export class FilesService {
       });
     }
 
-    return withAudit(
+    const dto = await withAudit(
       tx,
       tenantId,
       {
@@ -162,8 +164,8 @@ export class FilesService {
         userAgent: context.userAgent,
       },
       async (t) => {
-        // scan_status stays 'pending' — the AV scan is a job (06, Phase 2) that
-        // flips it to 'clean' or 'infected'. Until then downloads are gated.
+        // scan_status stays 'pending' — the AV scan job flips it to 'clean' or
+        // 'infected' (06). Until then downloads are gated to the uploader.
         const { rows } = await t.query<FileRow>(
           `UPDATE files SET sha256 = $2, size_bytes = $3, updated_by = $4
             WHERE id = $1 AND scan_status = 'pending' AND sha256 IS NULL
@@ -175,6 +177,10 @@ export class FilesService {
         return toFileDto(updated);
       },
     );
+
+    // Enqueue the AV scan (06 §1 `files`). A no-op when jobs are disabled.
+    await this.jobs.scanFile({ tenantId, fileId: id });
+    return dto;
   }
 
   async get(tx: Tx, id: string): Promise<FileDto> {

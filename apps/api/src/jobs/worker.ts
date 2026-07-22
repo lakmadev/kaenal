@@ -1,0 +1,101 @@
+import { config } from "dotenv";
+config({ path: new URL("../../../../.env", import.meta.url).pathname });
+
+import pg from "pg";
+import IORedis from "ioredis";
+import { Queue, Worker, type Job } from "bullmq";
+import { loadEnv } from "../env.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
+import {
+  DEFAULT_JOB_OPTS,
+  JOBS,
+  QUEUES,
+  SLA_SWEEP_CRON,
+  type RecomputeSlaJob,
+  type ScanFileJob,
+  type DeliverNotificationJob,
+} from "./job-types.js";
+import { StubDelivery, StubScanner } from "./ports.js";
+import { recomputeSlaStatesForTenant } from "./processors/sla.js";
+import { scanFile } from "./processors/scan-file.js";
+import { deliverNotification } from "./processors/deliver-notification.js";
+
+/**
+ * The worker process (06 §1). Run separately from the API —
+ * `pnpm --filter @kaenal/api worker` — so background work never shares the HTTP
+ * event loop. Every processor opens a tenant-scoped transaction from the job's
+ * `tenantId`, so RLS applies to jobs exactly as it does to requests.
+ */
+async function main(): Promise<void> {
+  const env = loadEnv();
+  // BullMQ needs maxRetriesPerRequest: null; one shared connection for all workers.
+  const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
+  const control = new pg.Pool({ connectionString: env.DATABASE_URL, max: 4 });
+
+  const notifications = new NotificationsService();
+  const scanner = new StubScanner();
+  const delivery = new StubDelivery();
+
+  const slaQueue = new Queue(QUEUES.sla, { connection });
+
+  const slaWorker = new Worker(
+    QUEUES.sla,
+    async (job: Job) => {
+      if (job.name === JOBS.slaSweep) {
+        // Fan out one recompute job per active tenant, so a huge tenant cannot
+        // starve the others (06 §1).
+        const { rows } = await control.query<{ id: string }>(
+          "SELECT id FROM control.tenants WHERE status = 'active'",
+        );
+        for (const t of rows) {
+          await slaQueue.add(JOBS.recomputeSla, { tenantId: t.id } satisfies RecomputeSlaJob, {
+            ...DEFAULT_JOB_OPTS,
+            jobId: `sla:${t.id}:${slaBucket()}`,
+          });
+        }
+        return;
+      }
+      if (job.name === JOBS.recomputeSla) {
+        await recomputeSlaStatesForTenant((job.data as RecomputeSlaJob).tenantId, new Date(), { notifications });
+      }
+    },
+    { connection, concurrency: 4 },
+  );
+
+  const filesWorker = new Worker(
+    QUEUES.files,
+    (job: Job) => scanFile(job.data as ScanFileJob, { scanner, notifications }),
+    { connection, concurrency: 5 },
+  );
+
+  const notifyWorker = new Worker(
+    QUEUES.notify,
+    (job: Job) => deliverNotification(job.data as DeliverNotificationJob, { delivery }),
+    { connection, concurrency: 10 },
+  );
+
+  // Register the repeatable sweep once; BullMQ dedupes the schedule by name.
+  await slaQueue.add(JOBS.slaSweep, {}, { repeat: { pattern: SLA_SWEEP_CRON }, jobId: "sla-sweep" });
+
+  const shutdown = async (): Promise<void> => {
+    await Promise.allSettled([slaWorker.close(), filesWorker.close(), notifyWorker.close()]);
+    await slaQueue.close();
+    await connection.quit();
+    await control.end();
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => void shutdown());
+  process.on("SIGINT", () => void shutdown());
+
+  console.log("kaenal worker up — queues: sla, files, notify");
+}
+
+/** 5-minute bucket so a retriggered sweep within one window dedupes per tenant. */
+function slaBucket(): number {
+  return Math.floor(Date.now() / (5 * 60 * 1000));
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exit(1);
+});

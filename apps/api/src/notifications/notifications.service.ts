@@ -15,6 +15,7 @@ import {
   toPage,
   type Cursor,
 } from "../http/pagination.js";
+import { NoopProducer, type JobProducer } from "../jobs/producer.js";
 
 interface NotificationRow {
   id: string;
@@ -69,6 +70,9 @@ export interface NotifyInput {
  */
 @Injectable()
 export class NotificationsService {
+  /** The producer defaults to a no-op, so seeds/tests can `new NotificationsService()`. */
+  constructor(private readonly jobs: JobProducer = new NoopProducer()) {}
+
   async list(
     tx: Tx,
     userId: string,
@@ -178,6 +182,11 @@ export class NotificationsService {
       ],
     );
     const row = rows[0];
-    return row === undefined ? null : toDto(row);
+    if (row === undefined) return null; // deduped — a retry already delivered it
+
+    // Hand off out-of-band delivery (email/push/sms) to the notify queue. The
+    // in-app row above is the source of truth; the job only fans to channels.
+    await this.jobs.deliverNotification({ tenantId, notificationId: row.id });
+    return toDto(row);
   }
 }

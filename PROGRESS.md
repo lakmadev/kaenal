@@ -5,18 +5,33 @@
 
 ## Current status
 
-**Phase 0 done; Phase 1 backend COMPLETE.** Data plane, business logic, audit plumbing, the request
-lifecycle, authentication, the contract layer, all five vertical slices (Inspections, Findings → NCR,
-CAPA, Documents, Files), federated Search, Notifications AND the typed `@kaenal/api-client` are done
-and proven, and CI runs them on every push/PR. 774 tests pass (233 db integration, 396 core unit, 109
-api integration, 25 types unit, 11 api-client unit); all five workspaces typecheck under strict TS and
-lint clean. The RLS schema lint covers 32 tenant
+**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 jobs runtime under way.** Data plane, business
+logic, audit plumbing, the request lifecycle, authentication, the contract layer, all five vertical
+slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search, Notifications, the
+typed `@kaenal/api-client` AND the BullMQ jobs runtime (SLA escalation, AV scan, notification
+delivery) are done and proven, and CI runs them on every push/PR. 780 tests pass (233 db integration,
+396 core unit, 115 api integration, 25 types unit, 11 api-client unit); all five workspaces typecheck
+under strict TS and lint clean. The RLS schema lint covers 32 tenant
 tables. The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**BullMQ jobs runtime (06 §1):** a worker process (`pnpm --filter @kaenal/api worker`) separate from
+the API, with three queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
+job per active tenant → reclassifies open NCRs against their SLA window with the core business-time
+math, escalates breaches through `ncrMachine`, audits as a `system` actor, notifies the owner),
+`files` (`scanFile` → a pluggable `Scanner` port flips `scan_status`; infected notifies the uploader),
+and `notify` (`deliverNotification` → a `DeliveryChannels` port fans an in-app row to
+email/push/SMS per the user's `notification_prefs`, recording `channels_sent`). Scanner + delivery are
+stub ports (no ClamAV/Resend yet); the plumbing, DB effects and idempotency are real. The API only
+ENQUEUES, behind a `JOBS_ENABLED` gate — off in `test` (a `NoopProducer`, no queue connection), so the
+HTTP suites never touch BullMQ; `FilesService.complete` enqueues a scan and `NotificationsService.notify`
+enqueues a delivery. Job rules per 06: 5× exponential backoff, `jobId` dedupe, failed jobs retained as
+a dead-letter set. 6 tests — each processor against real Postgres (escalate/scan/deliver + idempotency)
+and a real BullMQ enqueue→process round-trip against the test Redis.
 
 **`@kaenal/api-client` (03 §1, 01 §1):** the typed client the FE (and mobile) consume. `createApiClient`
 wraps ts-rest `initClient` over the shared contract and threads the API's conventions through a custom
@@ -106,13 +121,12 @@ The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI
 web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** Phase 1's BACKEND is complete — the natural next backend workstream is the **Phase-2
-jobs runtime (BullMQ, 06)**, which retroactively finishes three things already stubbed for it: the
-`notify` job (deliver + email/push/SMS fan-out reading `notification_prefs`), SLA escalation
-(recompute `sla_state`, escalate overdue NCRs), and the AV-scan job (flip a completed file to
-clean/infected). Redis/BullMQ deps aren't wired yet. Alternatively the dedicated **FE** can now start
-against `@kaenal/api-client`. 8D (step gating), Audits, and Suppliers are the other Phase-2/4 modules
-with schema but no API.
+**Next task:** the jobs runtime's first three queues (sla/files/notify) are live; the remaining 06
+queues are `schedule` (materialize recurring inspections), `reports`/exports (async CSV/XLSX/PDF →
+S3), `docs` (expiry reminders), `housekeeping` (purge soft-deleted, partition roll), and the `ai`
+gateway. Real ClamAV + an email/push provider would replace the stub scanner/delivery ports. The other
+untouched modules with schema-but-no-API are **8D** (step gating), **Audits + audit findings**, and
+**Suppliers/PPAP/SCAR**. Alternatively the dedicated **FE** can now start against `@kaenal/api-client`.
 
 ### How to get running from a cold clone
 
@@ -124,7 +138,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0008)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 774 tests
+pnpm test                     # full suite (serial: shares one DB) — 780 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -268,7 +282,9 @@ to build the frontend.)
 ## Phase 2 — Depth
 - [ ] 8D workflow (step gating: N requires 1..N-1, D3 may parallel D2)
 - [ ] Audits + audit findings
-- [ ] BullMQ jobs: SLA escalation, notifications, scheduled reports
+- [~] BullMQ jobs runtime (2026-07-22) — worker process + `sla` (escalation), `files` (AV scan),
+      `notify` (delivery) queues DONE (`apps/api/src/jobs/*`); `schedule`/`reports`/`docs`/
+      `housekeeping`/`ai` queues still pending
 - [ ] Reports / exports (async jobs, 100k row cap → chunked zip)
 - [ ] SPC / FMEA, scheduling & recurrence
 
@@ -286,6 +302,26 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — the jobs runtime is gated by `JOBS_ENABLED`, with a `NoopProducer` when off.** The
+  API process only ENQUEUES; the worker (`pnpm --filter @kaenal/api worker`) consumes. Rather than
+  couple the HTTP services to a live BullMQ connection, the producer is an interface bound to
+  `NoopProducer` whenever jobs are disabled — the default in `test`, so no suite opens a queue
+  connection or leaks one (same pattern as `RATE_LIMIT_ENABLED`). Processors are plain functions that
+  open their OWN tenant-scoped transaction from the job's `tenantId` (06 §1 — a job is inside RLS just
+  like a request) and take their collaborators as deps, so they're tested directly against Postgres;
+  a separate case proves the BullMQ enqueue→process wiring against the test Redis. System-initiated
+  writes (SLA recompute/escalation, scan verdict) audit with `actorKind: 'system'`, `actorId: null`.
+  *Affects: 06 §1, 01 §3.3.*
+
+- **2026-07-22 — AV scanning and channel delivery are PORTS with stub implementations.** `Scanner`
+  (ClamAV in prod) and `DeliveryChannels` (Resend/Expo/Twilio in prod) are injected into their
+  processors, exactly like the storage `Storage` port. The stubs make both outcomes exercisable
+  without an engine or provider credentials (the stub scanner verdicts `infected` on an EICAR-marked
+  filename; the stub delivery reports success), and the real DB effects — `scan_status` flip +
+  uploader notification, `channels_sent` recorded per `notification_prefs` — are fully wired and
+  tested. Swapping in real adapters is a provider change, not a pipeline change. *Affects: 06 §1,
+  07 §3.*
 
 - **2026-07-22 — `@kaenal/api-client` is framework-agnostic: query-option factories, not react-query
   hooks.** The shared client ships to both Next and Expo (and can run server-side), so baking in React
@@ -666,13 +702,29 @@ to build the frontend.)
   the email is unknown, but the locked / wrong-password / no-membership branches have their own
   (real) argon2 or query costs, which are close but not identical. Good enough against coarse
   timing; a determined side-channel attacker is out of scope for now.
-- **AV scanning is unimplemented, so completed files never become downloadable to non-uploaders.**
-  `complete` records the hash and would enqueue a scan, but the BullMQ AV job (06) does not exist —
-  files stay `pending`. Until it lands, sharing an uploaded file with other members does not work
-  through the gate. Also deferred to that job (it is the thing that reads the bytes): server-side
-  magic-byte mime sniffing and SVG sanitisation (07 §3) — presign only checks the client-declared
-  mime string today. And the nightly orphaned-`pending`-row cleanup (03 §7) and (tenant, sha256)
-  dedup are not built.
+- **AV scanning now runs, but on a STUB scanner.** `FilesService.complete` enqueues a `scanFile` job
+  and the worker flips `scan_status` — but the `Scanner` port is a filename-marker stub, not ClamAV,
+  so it never actually inspects bytes. Consequently server-side magic-byte mime sniffing and SVG
+  sanitisation (07 §3) are still not done (they belong in the real scanner that reads the object);
+  presign only checks the client-declared mime string. The nightly orphaned-`pending`-row cleanup
+  (03 §7) and (tenant, sha256) dedup are not built. Likewise notification email/push/SMS delivery
+  runs through a stub `DeliveryChannels` port — no real provider yet.
+- **Jobs are enqueued INSIDE the request transaction, before commit (no transactional outbox).**
+  `FilesService.complete` / `NotificationsService.notify` call the producer within the request's tx,
+  so a request that rolls back after the enqueue leaves an orphaned job (the scan job is idempotent
+  and no-ops on a missing/again-pending row, so the blast radius is small). 06 §2 prescribes a
+  transactional `outbox_events` table drained by a worker; adopt it when realtime lands, and route
+  job enqueues through it too.
+- **The SLA sweep's `sla_state` recompute bumps `lock_version`.** The system UPDATE trips the
+  `bump_lock_version` trigger, so a user who loaded an NCR exactly as the 5-min sweep reclassifies it
+  can get a spurious `STALE_WRITE` on their next write. Rare (only the one NCR being edited at that
+  instant) and self-correcting on refetch; the real fix is excluding derived columns from the
+  concurrency token. The sweep also selects active tenants by `control.tenants.status = 'active'` —
+  revisit if provisioning uses other live statuses.
+- **The worker is not in CI and has no deploy target.** `pnpm test` covers the processors + a BullMQ
+  round-trip, but nothing boots the long-running `worker.ts` in CI, and there is no process manager /
+  deploy stage for it yet. Its producer/queue connections are also not closed on API shutdown (only
+  the `NoopProducer` runs in tests, so nothing leaks there; a dev/prod API relies on process exit).
 - **MinIO bucket creation is manual/ad hoc.** `S3Storage` assumes the bucket exists; the local one
   (`kaenal-local`) was created by a one-off smoke script, not by provisioning. `provision-tenant`
   (or a bootstrap step) should ensure the bucket per region (07 §4 data residency) before production.
