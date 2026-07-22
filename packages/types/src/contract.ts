@@ -2,15 +2,24 @@ import { initContract } from "@ts-rest/core";
 import { z } from "zod";
 import {
   CompleteInspectionBody,
+  CreateFindingBody,
   CreateInspectionBody,
+  CreateNcrActionBody,
+  CreateNcrBody,
   CreateTemplateBody,
+  FindingDto,
   InspectionDto,
   MeDto,
+  NcrActionDto,
+  NcrDto,
   StartInspectionBody,
   TemplateDto,
+  TransitionNcrBody,
+  UpdateNcrActionStatusBody,
+  VerifyNcrBody,
 } from "./dto.js";
 import { ErrorBody, PageQuery, page } from "./http.js";
-import { InspectionStatus, TemplateStatus } from "./enums.js";
+import { InspectionStatus, NcrPriority, NcrStatus, TemplateStatus } from "./enums.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -113,6 +122,93 @@ export const contract = c.router(
       body: CompleteInspectionBody,
       responses: { 200: InspectionDto, ...commonErrors },
       summary: "Submit responses, validate + score, and complete an inspection",
+    },
+
+    // --- Findings ----------------------------------------------------------
+    listFindings: {
+      method: "GET",
+      path: "/v1/inspections/:id/findings",
+      pathParams: z.object({ id: z.string().uuid() }),
+      query: PageQuery,
+      responses: { 200: page(FindingDto), ...commonErrors },
+      summary: "List an inspection's findings",
+    },
+    createFinding: {
+      method: "POST",
+      path: "/v1/inspections/:id/findings",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: CreateFindingBody,
+      responses: { 201: FindingDto, ...commonErrors },
+      summary: "Record a finding against an inspection",
+    },
+
+    // --- NCRs --------------------------------------------------------------
+    listNcrs: {
+      method: "GET",
+      path: "/v1/ncrs",
+      query: PageQuery.extend({
+        status: NcrStatus.optional(),
+        priority: NcrPriority.optional(),
+        plantId: z.string().uuid().optional(),
+      }),
+      responses: { 200: page(NcrDto), ...commonErrors },
+      summary: "List NCRs (cursor-paginated, plant-scoped by role)",
+    },
+    createNcr: {
+      method: "POST",
+      path: "/v1/ncrs",
+      body: CreateNcrBody,
+      responses: { 201: NcrDto, ...commonErrors },
+      summary: "Raise an NCR (optionally from a finding)",
+    },
+    getNcr: {
+      method: "GET",
+      path: "/v1/ncrs/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: NcrDto, ...commonErrors },
+      summary: "Fetch one NCR",
+    },
+    transitionNcr: {
+      method: "POST",
+      path: "/v1/ncrs/:id/transition",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: TransitionNcrBody,
+      responses: { 200: NcrDto, ...commonErrors },
+      summary: "Advance an NCR through its lifecycle (assign, start, resolve, close, escalate, reopen)",
+    },
+    verifyNcr: {
+      method: "POST",
+      path: "/v1/ncrs/:id/verify",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: VerifyNcrBody,
+      responses: { 200: NcrDto, ...commonErrors },
+      summary: "Verify a resolved NCR (four-eyes: not the resolver)",
+    },
+
+    // --- NCR corrective actions -------------------------------------------
+    listNcrActions: {
+      method: "GET",
+      path: "/v1/ncrs/:id/actions",
+      pathParams: z.object({ id: z.string().uuid() }),
+      query: PageQuery,
+      responses: { 200: page(NcrActionDto), ...commonErrors },
+      summary: "List an NCR's corrective/preventive actions",
+    },
+    createNcrAction: {
+      method: "POST",
+      path: "/v1/ncrs/:id/actions",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: CreateNcrActionBody,
+      responses: { 201: NcrActionDto, ...commonErrors },
+      summary: "Add a corrective/preventive/containment action to an NCR",
+    },
+    updateNcrActionStatus: {
+      method: "POST",
+      path: "/v1/ncr-actions/:id/status",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UpdateNcrActionStatusBody,
+      responses: { 200: NcrActionDto, ...commonErrors },
+      summary: "Advance an action's status (pending → in_progress → done → verified)",
     },
   },
   {

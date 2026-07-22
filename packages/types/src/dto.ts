@@ -1,5 +1,16 @@
 import { z } from "zod";
-import { InspectionStatus, RiskLevel, TemplateStatus } from "./enums.js";
+import {
+  FindingSeverity,
+  InspectionStatus,
+  NcrActionKind,
+  NcrActionStatus,
+  NcrPriority,
+  NcrSource,
+  NcrStatus,
+  RiskLevel,
+  SlaState,
+  TemplateStatus,
+} from "./enums.js";
 import { FormResponses, FormSchema } from "./form.js";
 
 /**
@@ -79,6 +90,126 @@ export const StartInspectionBody = z.object({
   version: z.number().int().nonnegative(),
 });
 export type StartInspectionBody = z.infer<typeof StartInspectionBody>;
+
+// --- Findings ---------------------------------------------------------------
+
+export const FindingDto = z.object({
+  id: z.string().uuid(),
+  inspectionId: z.string().uuid(),
+  itemRef: z.string(),
+  severity: FindingSeverity,
+  description: z.string(),
+  ncrId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type FindingDto = z.infer<typeof FindingDto>;
+
+export const CreateFindingBody = z.object({
+  itemRef: z.string().min(1).max(200),
+  severity: FindingSeverity,
+  description: z.string().min(1).max(4000),
+});
+export type CreateFindingBody = z.infer<typeof CreateFindingBody>;
+
+// --- NCRs -------------------------------------------------------------------
+
+export const NcrDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  source: NcrSource,
+  sourceId: z.string().uuid().nullable(),
+  priority: NcrPriority,
+  status: NcrStatus,
+  ownerId: z.string().uuid().nullable(),
+  plantId: z.string().uuid().nullable(),
+  areaId: z.string().uuid().nullable(),
+  dueAt: z.string().datetime().nullable(),
+  slaState: SlaState,
+  resolvedBy: z.string().uuid().nullable(),
+  resolvedAt: z.string().datetime().nullable(),
+  verifiedBy: z.string().uuid().nullable(),
+  verifiedAt: z.string().datetime().nullable(),
+  closedAt: z.string().datetime().nullable(),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type NcrDto = z.infer<typeof NcrDto>;
+
+export const CreateNcrBody = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().max(8000).nullable().optional(),
+  priority: NcrPriority,
+  source: NcrSource.optional(),
+  sourceId: z.string().uuid().nullable().optional(),
+  /** Raising an NCR from a finding links the finding and defaults the source. */
+  findingId: z.string().uuid().optional(),
+  plantId: z.string().uuid().nullable().optional(),
+  areaId: z.string().uuid().nullable().optional(),
+});
+export type CreateNcrBody = z.infer<typeof CreateNcrBody>;
+
+/** The manager-side moves (everything except verify, which has its own route). */
+export const NcrTransition = z.enum([
+  "open",
+  "assigned",
+  "in_progress",
+  "resolved",
+  "closed",
+  "escalated",
+  "reopened",
+]);
+export type NcrTransition = z.infer<typeof NcrTransition>;
+
+export const TransitionNcrBody = z.object({
+  to: NcrTransition,
+  version: z.number().int().nonnegative(),
+  /** Required when `to === "assigned"`: the member who takes ownership. */
+  ownerId: z.string().uuid().optional(),
+  reason: z.string().max(2000).optional(),
+  /** Admin/manager override to close over an open 8D (audited). */
+  force: z.boolean().optional(),
+});
+export type TransitionNcrBody = z.infer<typeof TransitionNcrBody>;
+
+export const VerifyNcrBody = z.object({
+  version: z.number().int().nonnegative(),
+  reason: z.string().max(2000).optional(),
+});
+export type VerifyNcrBody = z.infer<typeof VerifyNcrBody>;
+
+// --- NCR corrective actions -------------------------------------------------
+
+export const NcrActionDto = z.object({
+  id: z.string().uuid(),
+  ncrId: z.string().uuid(),
+  kind: NcrActionKind,
+  description: z.string(),
+  ownerId: z.string().uuid().nullable(),
+  dueAt: z.string().datetime().nullable(),
+  status: NcrActionStatus,
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type NcrActionDto = z.infer<typeof NcrActionDto>;
+
+export const CreateNcrActionBody = z.object({
+  kind: NcrActionKind,
+  description: z.string().min(1).max(4000),
+  ownerId: z.string().uuid().nullable().optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+});
+export type CreateNcrActionBody = z.infer<typeof CreateNcrActionBody>;
+
+export const UpdateNcrActionStatusBody = z.object({
+  status: NcrActionStatus,
+  version: z.number().int().nonnegative(),
+});
+export type UpdateNcrActionStatusBody = z.infer<typeof UpdateNcrActionStatusBody>;
 
 // --- Me (session identity) --------------------------------------------------
 

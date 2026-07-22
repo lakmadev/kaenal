@@ -19,6 +19,8 @@ import { withTenant } from "@kaenal/db";
 import { hashPassword } from "../src/auth/passwords.js";
 import { TemplatesService } from "../src/inspections/templates.service.js";
 import { InspectionsService } from "../src/inspections/inspections.service.js";
+import { FindingsService } from "../src/ncr/findings.service.js";
+import { NcrService } from "../src/ncr/ncr.service.js";
 
 const TENANT = "acme";
 const EMAIL = "demo@acme.test";
@@ -47,6 +49,9 @@ async function main(): Promise<void> {
   const control = new pg.Pool({ connectionString: process.env["DATABASE_URL"] });
   const templates = new TemplatesService();
   const inspections = new InspectionsService();
+  const findings = new FindingsService();
+  const ncrs = new NcrService();
+  const admin = { role: "admin" as const, plantIds: [] };
 
   const { rows: tenantRows } = await control.query<{ id: string }>(
     "SELECT id FROM control.tenants WHERE slug = $1",
@@ -96,15 +101,45 @@ async function main(): Promise<void> {
     await inspections.start(tx, tenantId, { role: "admin", plantIds: [] }, userId, running.id, running.lockVersion, ctx);
 
     const done = await inspections.create(tx, tenantId, userId, { title: "Line 3 — weekly walk", templateId: template.id }, ctx);
-    const started = await inspections.start(tx, tenantId, { role: "admin", plantIds: [] }, userId, done.id, done.lockVersion, ctx);
+    const started = await inspections.start(tx, tenantId, admin, userId, done.id, done.lockVersion, ctx);
     await inspections.complete(
       tx,
       tenantId,
-      { role: "admin", plantIds: [] },
+      admin,
       userId,
       done.id,
       { guard: "pass", ppe: "yes", housekeeping: 4 },
       started.lockVersion,
+      ctx,
+    );
+
+    // A finding on that inspection, and an NCR raised from it — so the
+    // findings/NCR endpoints have data too. The NCR is left mid-workflow
+    // (assigned) to show a live case.
+    const finding = await findings.create(
+      tx,
+      tenantId,
+      admin,
+      userId,
+      done.id,
+      { itemRef: "guard", severity: "major", description: "Guard interlock intermittently disengages" },
+      ctx,
+    );
+    const ncr = await ncrs.create(
+      tx,
+      tenantId,
+      admin,
+      userId,
+      { title: "Guard interlock fault on Line 3", priority: "major", findingId: finding.id },
+      ctx,
+    );
+    await ncrs.transition(
+      tx,
+      tenantId,
+      admin,
+      userId,
+      ncr.id,
+      { to: "assigned", ownerId: userId, version: ncr.lockVersion },
       ctx,
     );
   });

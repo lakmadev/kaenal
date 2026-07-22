@@ -20,13 +20,19 @@ import { TemplatesController } from "./inspections/templates.controller.js";
 import { TemplatesService } from "./inspections/templates.service.js";
 import { InspectionsController } from "./inspections/inspections.controller.js";
 import { InspectionsService } from "./inspections/inspections.service.js";
+import { FindingsController } from "./ncr/findings.controller.js";
+import { FindingsService } from "./ncr/findings.service.js";
+import { NcrController } from "./ncr/ncr.controller.js";
+import { NcrService } from "./ncr/ncr.service.js";
 import {
   AUTH_SERVICE,
   AUTHENTICATOR,
   CONTROL_POOL,
   ENV,
+  FINDINGS_SERVICE,
   IDEMPOTENCY,
   INSPECTIONS_SERVICE,
+  NCR_SERVICE,
   RATE_LIMITER,
   REDIS,
   TEMPLATES_SERVICE,
@@ -41,6 +47,8 @@ import {
     OpenApiController,
     TemplatesController,
     InspectionsController,
+    FindingsController,
+    NcrController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -89,6 +97,8 @@ import {
     },
     { provide: TEMPLATES_SERVICE, useFactory: () => new TemplatesService() },
     { provide: INSPECTIONS_SERVICE, useFactory: () => new InspectionsService() },
+    { provide: FINDINGS_SERVICE, useFactory: () => new FindingsService() },
+    { provide: NCR_SERVICE, useFactory: () => new NcrService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

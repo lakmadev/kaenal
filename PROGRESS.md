@@ -6,13 +6,22 @@
 ## Current status
 
 **Phase 0 done; Phase 1 core loop under way.** Data plane, business logic, audit plumbing, the
-request lifecycle, authentication, the contract layer AND the first vertical slice (Inspections)
-are done and proven, and CI runs them on every push/PR. 701 tests pass (233 db integration, 380
-core unit, 63 api integration, 25 types unit); all four packages typecheck under strict TS and lint
-clean. The RLS schema lint covers 32 tenant tables. The isolation nets, DST math, dependency
-direction, request lifecycle, composite member FKs, lockout durability, CSRF and plant-scope 404
-(rule 8, one level down) were all mutation-tested — proven to fail when the guard is disabled. The
-rate limiter has behavioural tests (allow/deny + window slide), not a formal mutation.
+request lifecycle, authentication, the contract layer AND the first two vertical slices
+(Inspections, then Findings → NCR) are done and proven, and CI runs them on every push/PR. 707
+tests pass (233 db integration, 380 core unit, 69 api integration, 25 types unit); all four packages
+typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant tables. The
+isolation nets, DST math, dependency direction, request lifecycle, composite member FKs, lockout
+durability, CSRF, plant-scope 404 (rule 8, one level down) and NCR four-eyes were all
+mutation-tested — proven to fail when the guard is disabled. The rate limiter has behavioural tests
+(allow/deny + window slide), not a formal mutation.
+
+**Findings → NCR slice (02 §4, 03 §3, §10):** findings recorded against an inspection; NCRs raised
+(optionally FROM a finding, which links it and defaults source/plant off the inspection). NCR
+lifecycle driven by `ncrMachine` — the corrective-action gate (can't resolve without a done
+corrective action), four-eyes verify (resolver ≠ verifier, enforced in the machine AND the
+`ncrs_four_eyes_ck` DB CHECK), plant scoping, SLA due dates computed on creation in the plant's
+timezone. Corrective/preventive actions with their own status flow. `verify` is a separate route
+(cap `ncr:verify`) so auditors — who can verify but not manage — can reach it.
 
 `apps/api` authenticates (httpOnly session cookie + double-submit CSRF, or mobile bearer) and now
 serves a **contract-first** API: the ts-rest contract in `packages/types/src/contract.ts` is the
@@ -32,10 +41,11 @@ auth) and 5/min per-IP on the credential endpoints (the credential-stuffing gap 
 close). Off by default only in `NODE_ENV=test`; `RATE_LIMIT_ENABLED` overrides.
 
 The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI doc — there is no
-web frontend in this repo (a dedicated FE is planned separately).
+web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
+finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** Findings → NCR creation flow, then NCR (state machine + four-eyes verify + SLA
-fields) — schema → contract → service → tests.
+**Next task:** CAPA (phase advance with explicit audited revert), then Documents (+ versions,
+approval flow) — schema → contract → service → tests. 8D (step gating) is Phase 2.
 
 ### How to get running from a cold clone
 
@@ -157,8 +167,10 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
 - [x] Inspections (templates, dynamic form engine, completion validation + scoring server-side)
       (2026-07-21) — `packages/core/src/form-engine.ts` + `apps/api/src/inspections/*`
 - [x] Rate limiting: Redis sliding window, 60 rpm/user + 5/min per-IP login (2026-07-21, 03 §9)
-- [ ] Findings → NCR creation flow
-- [ ] NCR (state machine, four-eyes verify, SLA fields)
+- [x] Findings → NCR creation flow (2026-07-22) — `apps/api/src/ncr/findings.*`; raising an NCR
+      from a finding links it and defaults source/plant off the inspection
+- [x] NCR (state machine, four-eyes verify, SLA fields) (2026-07-22) — `apps/api/src/ncr/ncr.*`;
+      transition + verify routes, corrective actions, SLA due dates, four-eyes mutation-tested
 - [ ] CAPA (phase advance, explicit audited revert)
 - [ ] Documents (+ versions, approval flow)
 - [ ] Files (presign → upload → complete → AV scan gate) — 03 §7
@@ -197,6 +209,34 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — NCR `verify` is a separate route from `transition`, split on capability.** The 03
+  §3 matrix gives auditors `ncr:verify` but NOT `ncr:manage`, and managers-without-manage do not
+  exist but the split still matters: a single `/transition` endpoint could only carry one
+  `@RequireCapability`. So the manager-side moves (assign/start/resolve/close/escalate/reopen) live
+  on `POST /v1/ncrs/:id/transition` (`ncr:manage`) and verification on `POST /v1/ncrs/:id/verify`
+  (`ncr:verify`), which is exactly the set of roles allowed to be the second pair of eyes.
+  *Affects: 03 §3, 02 §4.*
+
+- **2026-07-22 — four-eyes is defended in BOTH the machine and the DB, and the mutation test proved
+  why.** Feeding `resolvedBy: null` into the verify check (hiding who resolved it) let the app guard
+  pass — but the write then hit `ncrs_four_eyes_ck` and failed with a 500 instead of the friendly
+  409. So the security property held via the DB backstop even with the app guard defeated; the test
+  caught the regression by status code. The app guard exists for the good error message; the CHECK
+  exists so no path (job, sync replay, support tool) can bypass the rule. *Affects: 02 §4, 08 §1.*
+
+- **2026-07-22 — NCR SLA due date is computed on creation, in the plant's timezone.** `computeDueAt`
+  walks the tenant's `sla_configs` (per priority) and the plant's business hours; a manual NCR with
+  no plant falls back to UTC. If no SLA row exists for the priority, `due_at` is left null rather
+  than guessed. The sliding SLA state (`on_track`/`at_risk`/`breached`) recomputation over time is a
+  job (Phase 2); creation sets `on_track`. *Affects: 03 §10, 08 §1.2.*
+
+- **2026-07-22 — the NCR test suite seeds its own `sla_configs`.** The db-package suite truncates
+  every tenant table (incl. `sla_configs`) earlier in the same serial `pnpm test` run, so relying on
+  the provisioned rows made the NCR SLA assertion order-dependent (green alone, red in the full run).
+  Seeding in the suite's own `beforeAll` — after that truncation — is the fix, consistent with "each
+  suite seeds its own fixtures". A per-package database is still the real answer (Known issues).
+  *Affects: 08 §1.*
 
 - **2026-07-21 — contract-first via ts-rest, but WITHOUT `@ts-rest/nest`.** The contract lives in
   `packages/types` and drives the OpenAPI doc (`@ts-rest/open-api`) and the typed web client
