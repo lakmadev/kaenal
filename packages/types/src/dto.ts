@@ -20,6 +20,7 @@ import {
   NcrPriority,
   NcrSource,
   NcrStatus,
+  RecurrenceFreq,
   RiskLevel,
   ScanStatus,
   SlaState,
@@ -56,6 +57,20 @@ export type CreateTemplateBody = z.infer<typeof CreateTemplateBody>;
 
 // --- Inspections ------------------------------------------------------------
 
+/**
+ * A recurrence rule for a scheduled-inspection series (02 §2). The `schedule`
+ * job expands it into occurrence inspections 14 days ahead. `byweekday` is
+ * 0=Sunday … 6=Saturday (JS `getUTCDay`), used only by `weekly`. `until` caps
+ * the series (inclusive); null/absent means open-ended.
+ */
+export const RecurrenceRule = z.object({
+  freq: RecurrenceFreq,
+  interval: z.number().int().min(1).max(365),
+  byweekday: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  until: z.string().datetime().nullable().optional(),
+});
+export type RecurrenceRule = z.infer<typeof RecurrenceRule>;
+
 export const InspectionDto = z.object({
   id: z.string().uuid(),
   code: z.string(),
@@ -72,6 +87,12 @@ export const InspectionDto = z.object({
   completedAt: z.string().datetime().nullable(),
   score: z.number().nullable(),
   responses: FormResponses,
+  /** Set on a series head; the rule its occurrences are generated from. */
+  recurrence: RecurrenceRule.nullable(),
+  /** Set on a generated occurrence; the series head it belongs to. */
+  seriesId: z.string().uuid().nullable(),
+  /** Set on a generated occurrence; its calendar date (idempotency key). */
+  occurrenceDate: z.string().nullable(),
   lockVersion: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -85,8 +106,17 @@ export const CreateInspectionBody = z.object({
   plantId: z.string().uuid().nullable().optional(),
   areaId: z.string().uuid().nullable().optional(),
   scheduledAt: z.string().datetime().nullable().optional(),
+  /** Makes this a recurring series head; occurrences are materialised by 06. */
+  recurrence: RecurrenceRule.nullable().optional(),
 });
 export type CreateInspectionBody = z.infer<typeof CreateInspectionBody>;
+
+/** Set, change, or clear (null) the recurrence on a series head. */
+export const SetRecurrenceBody = z.object({
+  recurrence: RecurrenceRule.nullable(),
+  version: z.number().int().nonnegative(),
+});
+export type SetRecurrenceBody = z.infer<typeof SetRecurrenceBody>;
 
 /**
  * Completing an inspection submits the answers and the concurrency token. The

@@ -11,6 +11,7 @@ export const QUEUES = {
   notify: "notify",
   files: "files",
   reports: "reports",
+  schedule: "schedule",
 } as const;
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
@@ -25,6 +26,10 @@ export const JOBS = {
   deliverNotification: "notify.deliver",
   /** Render a requested export server-side and upload it to object storage. */
   runExport: "reports.export",
+  /** Repeatable fan-out trigger: enqueues one materialise job per active tenant. */
+  scheduleSweep: "schedule.sweep",
+  /** Per-tenant: expand recurring inspection series into occurrences. */
+  materializeSchedule: "schedule.materialize",
 } as const;
 
 export interface RecomputeSlaJob {
@@ -42,6 +47,9 @@ export interface RunExportJob {
   readonly tenantId: string;
   readonly exportId: string;
 }
+export interface MaterializeScheduleJob {
+  readonly tenantId: string;
+}
 
 /**
  * Job rules (06 §1): 5 attempts, exponential backoff. `removeOnFail: false`
@@ -57,3 +65,6 @@ export const DEFAULT_JOB_OPTS: JobsOptions = {
 
 /** How often the SLA sweep runs (06 §1: every 5 minutes). */
 export const SLA_SWEEP_CRON = "*/5 * * * *";
+
+/** How often the schedule sweep runs (06 §1: hourly). */
+export const SCHEDULE_SWEEP_CRON = "0 * * * *";

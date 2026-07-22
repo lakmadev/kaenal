@@ -7,13 +7,16 @@ import { Queue, Worker, type Job } from "bullmq";
 import { S3Client } from "@aws-sdk/client-s3";
 import { loadEnv } from "../env.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
+import { InspectionsService } from "../inspections/inspections.service.js";
 import { S3Storage } from "../files/s3-storage.js";
 import type { Storage } from "../files/storage.js";
 import {
   DEFAULT_JOB_OPTS,
   JOBS,
   QUEUES,
+  SCHEDULE_SWEEP_CRON,
   SLA_SWEEP_CRON,
+  type MaterializeScheduleJob,
   type RecomputeSlaJob,
   type RunExportJob,
   type ScanFileJob,
@@ -24,6 +27,7 @@ import { recomputeSlaStatesForTenant } from "./processors/sla.js";
 import { scanFile } from "./processors/scan-file.js";
 import { deliverNotification } from "./processors/deliver-notification.js";
 import { runExport } from "./processors/run-export.js";
+import { materializeScheduleForTenant } from "./processors/materialize-schedule.js";
 
 /**
  * The worker process (06 §1). Run separately from the API —
@@ -38,6 +42,7 @@ async function main(): Promise<void> {
   const control = new pg.Pool({ connectionString: env.DATABASE_URL, max: 4 });
 
   const notifications = new NotificationsService();
+  const inspections = new InspectionsService();
   const scanner = new StubScanner();
   const delivery = new StubDelivery();
   const storage: Storage = new S3Storage(
@@ -95,8 +100,34 @@ async function main(): Promise<void> {
     { connection, concurrency: 3 },
   );
 
-  // Register the repeatable sweep once; BullMQ dedupes the schedule by name.
+  const scheduleQueue = new Queue(QUEUES.schedule, { connection });
+
+  const scheduleWorker = new Worker(
+    QUEUES.schedule,
+    async (job: Job) => {
+      if (job.name === JOBS.scheduleSweep) {
+        // Same fan-out shape as the SLA sweep: one materialise job per tenant.
+        const { rows } = await control.query<{ id: string }>(
+          "SELECT id FROM control.tenants WHERE status = 'active'",
+        );
+        for (const t of rows) {
+          await scheduleQueue.add(JOBS.materializeSchedule, { tenantId: t.id } satisfies MaterializeScheduleJob, {
+            ...DEFAULT_JOB_OPTS,
+            jobId: `schedule:${t.id}:${scheduleBucket()}`,
+          });
+        }
+        return;
+      }
+      if (job.name === JOBS.materializeSchedule) {
+        await materializeScheduleForTenant(job.data as MaterializeScheduleJob, { inspections });
+      }
+    },
+    { connection, concurrency: 4 },
+  );
+
+  // Register the repeatable sweeps once; BullMQ dedupes the schedule by name.
   await slaQueue.add(JOBS.slaSweep, {}, { repeat: { pattern: SLA_SWEEP_CRON }, jobId: "sla-sweep" });
+  await scheduleQueue.add(JOBS.scheduleSweep, {}, { repeat: { pattern: SCHEDULE_SWEEP_CRON }, jobId: "schedule-sweep" });
 
   const shutdown = async (): Promise<void> => {
     await Promise.allSettled([
@@ -104,8 +135,10 @@ async function main(): Promise<void> {
       filesWorker.close(),
       notifyWorker.close(),
       reportsWorker.close(),
+      scheduleWorker.close(),
     ]);
     await slaQueue.close();
+    await scheduleQueue.close();
     await connection.quit();
     await control.end();
     process.exit(0);
@@ -113,12 +146,17 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
 
-  console.log("kaenal worker up — queues: sla, files, notify, reports");
+  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule");
 }
 
 /** 5-minute bucket so a retriggered sweep within one window dedupes per tenant. */
 function slaBucket(): number {
   return Math.floor(Date.now() / (5 * 60 * 1000));
+}
+
+/** 1-hour bucket so a retriggered schedule sweep within the hour dedupes per tenant. */
+function scheduleBucket(): number {
+  return Math.floor(Date.now() / (60 * 60 * 1000));
 }
 
 main().catch((err: unknown) => {

@@ -31,6 +31,7 @@ import { ExportsService } from "../src/exports/exports.service.js";
 import { NotificationsService } from "../src/notifications/notifications.service.js";
 import { S3Storage } from "../src/files/s3-storage.js";
 import { runExport } from "../src/jobs/processors/run-export.js";
+import { materializeScheduleForTenant } from "../src/jobs/processors/materialize-schedule.js";
 
 const TENANT = "acme";
 const EMAIL = "demo@acme.test";
@@ -122,6 +123,20 @@ async function main(): Promise<void> {
 
     // One scheduled, one in-progress, one completed (scored).
     await inspections.create(tx, tenantId, userId, { title: "Line 1 — weekly walk", templateId: template.id }, ctx);
+
+    // A recurring weekly series head; occurrences are materialised below.
+    await inspections.create(
+      tx,
+      tenantId,
+      userId,
+      {
+        title: "Line 4 — recurring weekly walk",
+        templateId: template.id,
+        scheduledAt: new Date().toISOString(),
+        recurrence: { freq: "weekly", interval: 1 },
+      },
+      ctx,
+    );
 
     const running = await inspections.create(tx, tenantId, userId, { title: "Line 2 — weekly walk", templateId: template.id }, ctx);
     await inspections.start(tx, tenantId, { role: "admin", plantIds: [] }, userId, running.id, running.lockVersion, ctx);
@@ -251,6 +266,10 @@ async function main(): Promise<void> {
     { tenantId, exportId: csvExport.id },
     { storage, bucket: env.S3_BUCKET, notifications: new NotificationsService() },
   );
+
+  // Materialise the recurring series' occurrences 14 days ahead (the `schedule`
+  // job, run inline — the demo has no worker).
+  await materializeScheduleForTenant({ tenantId }, { inspections });
 
   console.log(`Seeded. Sign in at /login as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
   await control.end();

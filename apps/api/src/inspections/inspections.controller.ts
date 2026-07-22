@@ -7,6 +7,7 @@ import {
   Inject,
   Param,
   Post,
+  Put,
   Query,
 } from "@nestjs/common";
 import { z } from "zod";
@@ -15,6 +16,7 @@ import {
   CreateInspectionBody,
   InspectionStatus,
   PageQuery,
+  SetRecurrenceBody,
   StartInspectionBody,
   type InspectionDto,
   type Page,
@@ -98,6 +100,35 @@ export class InspectionsController {
       actorId(ctx),
       uuid,
       version,
+      auditCtx(ctx),
+    );
+  }
+
+  @Get("v1/inspections/:id/occurrences")
+  @RequireCapability("inspection:view")
+  async listOccurrences(@Param("id") id: string, @Query() query: unknown): Promise<Page<InspectionDto>> {
+    const uuid = parse(z.string().uuid(), id);
+    const q = parse(PageQuery, query);
+    const ctx = currentContext();
+    return this.inspections.listOccurrences(currentTx(), membership(ctx), uuid, {
+      ...(q.cursor !== undefined ? { cursor: q.cursor } : {}),
+      limit: q.limit,
+    });
+  }
+
+  @Put("v1/inspections/:id/recurrence")
+  @RequireCapability("inspection:perform")
+  async setRecurrence(@Param("id") id: string, @Body() body: unknown): Promise<InspectionDto> {
+    const uuid = parse(z.string().uuid(), id);
+    const input = parse(SetRecurrenceBody, body);
+    const ctx = currentContext();
+    return this.inspections.setRecurrence(
+      currentTx(),
+      ctx.tenantId,
+      membership(ctx),
+      actorId(ctx),
+      uuid,
+      input,
       auditCtx(ctx),
     );
   }

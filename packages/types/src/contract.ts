@@ -46,6 +46,7 @@ import {
   UpdateEightDStepBody,
   UpdateNotificationPrefsBody,
   RevertCapaBody,
+  SetRecurrenceBody,
   StartInspectionBody,
   TemplateDto,
   TransitionDocumentBody,
@@ -182,6 +183,22 @@ export const contract = c.router(
       body: CompleteInspectionBody,
       responses: { 200: InspectionDto, ...commonErrors },
       summary: "Submit responses, validate + score, and complete an inspection",
+    },
+    setInspectionRecurrence: {
+      method: "PUT",
+      path: "/v1/inspections/:id/recurrence",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: SetRecurrenceBody,
+      responses: { 200: InspectionDto, ...commonErrors },
+      summary: "Set, change, or clear a series head's recurrence (06 materialises occurrences)",
+    },
+    listInspectionOccurrences: {
+      method: "GET",
+      path: "/v1/inspections/:id/occurrences",
+      pathParams: z.object({ id: z.string().uuid() }),
+      query: PageQuery,
+      responses: { 200: page(InspectionDto), ...commonErrors },
+      summary: "List a recurring series' materialised occurrences",
     },
 
     // --- Findings ----------------------------------------------------------

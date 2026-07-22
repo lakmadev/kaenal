@@ -55,6 +55,10 @@ export const InspectionStatus = defineEnum([
 ]);
 export type InspectionStatus = z.infer<typeof InspectionStatus>;
 
+/** Recurrence frequency for a scheduled inspection series (02 §2, 06 `schedule`). */
+export const RecurrenceFreq = defineEnum(["daily", "weekly", "monthly"]);
+export type RecurrenceFreq = z.infer<typeof RecurrenceFreq>;
+
 export const RiskLevel = defineEnum(["low", "medium", "high", "critical"]);
 export type RiskLevel = z.infer<typeof RiskLevel>;
 

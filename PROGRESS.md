@@ -5,20 +5,38 @@
 
 ## Current status
 
-**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 under way (jobs runtime + 8D + Audits + Exports).** Data
+**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 nearly done (jobs + 8D + Audits + Exports + Scheduling).** Data
 plane, business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all
 five Phase-1 vertical slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search,
 Notifications, the typed `@kaenal/api-client`, the BullMQ jobs runtime (SLA escalation, AV scan,
-notification delivery, async exports), the 8D workflow, the Audits module AND async Reports/exports are
+notification delivery, async exports, recurring-inspection scheduling), the 8D workflow, the Audits
+module, async Reports/exports AND scheduling/recurrence are
 done and proven, and CI runs them on
-every push/PR. 833 tests pass (239 db integration, 424 core unit, 134 api integration, 25 types unit,
+every push/PR. 850 tests pass (239 db integration, 437 core unit, 138 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 33 tenant
-tables. The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs,
+tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Scheduling/recurrence slice (02 §2, 06 `schedule`, 08 §1.2):** a recurring inspection is a series
+head carrying a `recurrence` rule (`{freq: daily|weekly|monthly, interval, byweekday[], until}`); the
+hourly `schedule` BullMQ queue (`materializeScheduleForTenant`, fanned out one job per active tenant
+like the SLA sweep) expands each head into occurrence inspections 14 days ahead. The calendar math is
+pure + unit-tested in `packages/core/recurrence.ts` (`expandOccurrences`), with the traps the spec
+calls out pinned: a 31st clamps to each month's last day, a Feb-29 anchor lands on Feb 28 in non-leap
+years (never Mar 1), weekly honours `byweekday` and skips inactive weeks at interval > 1 — 13 unit
+tests. Materialisation is idempotent on `(series_id, occurrence_date)` (migration 0012 adds those
+columns + a unique partial index; the hourly re-run only creates days newly in the window), audited as
+a `system` actor and recorded only on a real insert. `POST /v1/inspections` accepts `recurrence` to
+make a head; `PUT /v1/inspections/:id/recurrence` sets/changes/clears it (optimistic concurrency; an
+occurrence can't carry its own → 409); `GET /v1/inspections/:id/occurrences` lists a series' occurrences,
+plant-scoped by role (rule 8). Occurrences inherit the head's template/plant/inspector and carry a
+freshly minted `INS-YYYY-NNNN`. 4 api tests (expand + idempotent re-run, clear-stops-materialising,
+stale/occurrence-recurrence 409s, plant-scope 404); `seed:demo` materialises a weekly series. The
+`schedule` queue is the fifth in the jobs runtime.
 
 **Reports/exports slice (03 §8, 06 `reports`):** a large export is an async job, not a synchronous
 response. `POST /v1/exports {resource, format}` records a `queued` row and returns **202**; the new
@@ -62,18 +80,21 @@ Not plant-scoped; rides the NCR capabilities (`ncr:view`/`ncr:manage`) since the
 `lock_version` (migration 0009). 6 api tests incl. the full close-blocked → resolve → close flow.
 
 **BullMQ jobs runtime (06 §1):** a worker process (`pnpm --filter @kaenal/api worker`) separate from
-the API, with four queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
+the API, with five queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
 job per active tenant → reclassifies open NCRs against their SLA window with the core business-time
 math, escalates breaches through `ncrMachine`, audits as a `system` actor, notifies the owner),
 `files` (`scanFile` → a pluggable `Scanner` port flips `scan_status`; infected notifies the uploader),
 `notify` (`deliverNotification` → a `DeliveryChannels` port fans an in-app row to
 email/push/SMS per the user's `notification_prefs`, recording `channels_sent`), and `reports`
 (`runExport` → renders a requested export server-side and uploads it via the `Storage` port; see the
-Reports/exports slice). Scanner + delivery are stub ports (no ClamAV/Resend yet); the plumbing, DB
+Reports/exports slice), and `schedule` (repeatable hourly sweep → fans out one
+`materializeSchedule` job per tenant → expands recurring inspection series into occurrences; see the
+Scheduling slice). Scanner + delivery are stub ports (no ClamAV/Resend yet); the plumbing, DB
 effects and idempotency are real. The API only
 ENQUEUES, behind a `JOBS_ENABLED` gate — off in `test` (a `NoopProducer`, no queue connection), so the
 HTTP suites never touch BullMQ; `FilesService.complete` enqueues a scan, `NotificationsService.notify`
-enqueues a delivery, and `ExportsService.create` enqueues a render. Job rules per 06: 5× exponential
+enqueues a delivery, and `ExportsService.create` enqueues a render (the `sla`/`schedule` sweeps are
+worker-internal repeatables, not API-enqueued). Job rules per 06: 5× exponential
 backoff, `jobId` dedupe, failed jobs retained as
 a dead-letter set. 6 tests — each processor against real Postgres (escalate/scan/deliver + idempotency)
 and a real BullMQ enqueue→process round-trip against the test Redis.
@@ -166,14 +187,17 @@ The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI
 web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** per the README build order (Phase 2 = 8D, audits, notifications, reports, SPC/FMEA,
-scheduling), 8D, audits, notifications and reports/exports are done — **SPC/FMEA + scheduling/recurrence**
-is next. Scheduling is the `schedule` BullMQ queue (`materializeRecurringInspections`: expand
-`recurrence` rules 14 days ahead, idempotent on `(seriesId, date)`), so it grows the jobs runtime again.
-Then the remaining 06 queues (`docs` — document expiry checks; `housekeeping`; `ai`). XLSX/PDF export
-renderers slot behind the existing `reports` pipeline (the `ExportFormat` enum). Real ClamAV +
-email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4. The
-dedicated **FE** can also start against `@kaenal/api-client`.
+**Next task:** Phase 2's specified backend is now essentially complete (8D, audits, notifications,
+reports/exports, scheduling/recurrence all done). **SPC / FMEA is deferred pending spec** — it is a
+FEATURES bullet + a visual-only prototype (`src/qms-risk-spc.jsx`), but `implementation/02-DATABASE`,
+`03-API` and `08-TESTING` define no tables, endpoints, or algorithms for it, so building it means
+inventing the whole module (control-chart limits/Western-Electric rules, FMEA RPN, risk register,
+MSA/Gauge R&R). Per the "no invented scope" rule that's a spec question, logged under Known issues,
+not a silent build. The clear remaining backend work is the other 06 queues (`docs` — document
+expiry checks at 90/30/7 days; `housekeeping` — purge soft-deleted, partition roll; `ai` — the AI
+gateway) and XLSX/PDF export renderers behind the existing `reports` pipeline. Real ClamAV +
+email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4.
+The dedicated **FE** can also start against `@kaenal/api-client`.
 
 ### How to get running from a cold clone
 
@@ -181,11 +205,11 @@ dedicated **FE** can also start against `@kaenal/api-client`.
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0011)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0012)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 833 tests
+pnpm test                     # full suite (serial: shares one DB) — 850 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -332,12 +356,16 @@ to build the frontend.)
 - [x] Audits + audit findings (2026-07-22) — `packages/core/state-machines/audit.ts` +
       `apps/api/src/audits/*`; phase machine, findings, raise-NCR/raise-CAPA seam, migration 0010
 - [~] BullMQ jobs runtime (2026-07-22) — worker process + `sla` (escalation), `files` (AV scan),
-      `notify` (delivery), `reports` (async export render) queues DONE (`apps/api/src/jobs/*`);
-      `schedule`/`docs`/`housekeeping`/`ai` queues still pending
+      `notify` (delivery), `reports` (async export render), `schedule` (recurrence materialisation)
+      queues DONE (`apps/api/src/jobs/*`); `docs`/`housekeeping`/`ai` queues still pending
 - [x] Reports / exports (2026-07-22) — `packages/core/exports.ts` + `apps/api/src/exports/*` +
       `apps/api/src/jobs/processors/run-export.ts`; 202 → `reports` render → presigned download,
       100k-row cap → chunked zip (`fflate`), plant-scoped + requester-scoped, migration 0011
-- [ ] SPC / FMEA, scheduling & recurrence
+- [x] Scheduling & recurrence (2026-07-22) — `packages/core/recurrence.ts` (expand incl. Feb 29 /
+      month-end) + `inspections` service/controller + `apps/api/src/jobs/processors/materialize-schedule.ts`;
+      hourly `schedule` queue, idempotent on `(series_id, date)`, migration 0012
+- [ ] SPC / FMEA — deferred pending spec (see Known issues): no backend schema/API/algorithm in
+      `implementation/`, only a FEATURES bullet + visual prototype
 
 ## Phase 3 — Mobile
 - [ ] Expo field-inspector app
@@ -353,6 +381,20 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — recurrence lives on `inspections`; occurrences are child rows; SPC/FMEA deferred.**
+  The spec puts `recurrence` on the inspection row itself, so a recurring inspection is a "series head"
+  (recurrence set, `series_id` null) and the `schedule` job materialises child occurrence rows
+  (`series_id` = head, `occurrence_date` set) rather than a separate `inspection_series` table — no
+  invented schema. Idempotency is a unique partial index on `(tenant_id, series_id, occurrence_date)`;
+  the materialiser pre-checks existence so a re-run doesn't burn a code sequence, and the unique index
+  still guards a genuine race. Occurrences are audited as a `system` actor, recorded only on a real
+  insert (the withAudit event is written after confirming the ON CONFLICT insert returned a row).
+  Expansion is UTC calendar-date math in core (DST is irrelevant to whole-day occurrences; a follow-up
+  could localise the window to the plant tz). **SPC/FMEA was explicitly requested alongside scheduling
+  but deferred**: `implementation/02,03,08` define no tables/endpoints/algorithms for it — only a
+  FEATURES bullet and a visual-only prototype — so per "no invented scope" it is a spec question
+  (Known issues), not a speculative build. *Affects: 02 §2, 06 `schedule`, 08 §1.2.*
 
 - **2026-07-22 — exports are async jobs with their own artifact + requester scoping; CSV first.**
   `POST /v1/exports` → 202 + `queued` row; the new `reports` queue renders it and the client polls
@@ -741,6 +783,18 @@ to build the frontend.)
 
 ## Known issues / TODO
 
+- **SPC / FMEA has no backend spec — needs one before it can be built.** It is listed in FEATURES.md
+  (SPC charts, FMEA workbench, risk register, MSA/Gauge R&R) and has a visual prototype
+  (`project_brain/project/src/qms-risk-spc.jsx`), but `implementation/02-DATABASE`, `03-API` and
+  `08-TESTING` define no tables, endpoints, or algorithms. Building it means specifying: SPC data
+  capture + control-limit / Western-Electric / Nelson rule evaluation and Cp/Cpk; the FMEA workbench
+  (failure modes, S/O/D → RPN, action tracking); the ISO-31000 risk register (5×5 residual scoring);
+  and MSA/Gauge R&R studies. Requested during the scheduling slice but deferred here as a spec
+  question rather than an invented module. *FEATURES §12; needs an `implementation/` addendum.*
+- **Recurrence occurrences are computed on UTC calendar dates**, not the plant's timezone. Whole-day
+  occurrences make this harmless for now (a "date" is a date), but a plant far from UTC could see an
+  occurrence land a day early/late relative to local intent. Localising the expansion window to the
+  plant tz is a follow-up. *02 §2.*
 - **Exports are CSV only; XLSX and PDF are not yet rendered.** The async pipeline (202 → `reports`
   render → presigned download) and the 100k-row cap → zip are format-agnostic and done, but only the
   CSV renderer is built. `ExportFormat` is `['csv']`; XLSX (a sheet writer) and PDF (headless

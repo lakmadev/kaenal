@@ -4,11 +4,14 @@ import { withAudit, type Tx } from "@kaenal/db";
 import {
   formatCode,
   counterYear,
+  expandOccurrences,
   inspectionMachine,
   isPlantScoped,
+  SCHEDULE_HORIZON_DAYS,
   scoreInspection,
   validateResponses,
   type Membership,
+  type RecurrenceRule as CoreRecurrenceRule,
 } from "@kaenal/core";
 import {
   type CreateInspectionBody,
@@ -17,6 +20,8 @@ import {
   type InspectionDto,
   type InspectionStatus,
   type Page,
+  type RecurrenceRule,
+  type SetRecurrenceBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
 import {
@@ -43,13 +48,19 @@ interface InspectionRow {
   completed_at: Date | null;
   score: string | null;
   responses: FormResponses;
+  recurrence: RecurrenceRule | null;
+  series_id: string | null;
+  occurrence_date: string | null;
   lock_version: number;
   created_at: Date;
   updated_at: Date;
 }
 
+// occurrence_date is a `date`; cast to text so pg hands back a clean
+// 'YYYY-MM-DD' string rather than a local-midnight Date that can shift a day.
 const COLUMNS = `id, code, title, template_id, template_version, inspector_id, plant_id, area_id,
-  status, risk, scheduled_at, started_at, completed_at, score, responses, lock_version,
+  status, risk, scheduled_at, started_at, completed_at, score, responses,
+  recurrence, series_id, occurrence_date::text AS occurrence_date, lock_version,
   created_at, updated_at`;
 
 function iso(d: Date | null): string | null {
@@ -75,6 +86,9 @@ function toDto(row: InspectionRow): InspectionDto {
     // honest without dragging in a decimal library for a display value.
     score: row.score === null ? null : Number(row.score),
     responses: row.responses,
+    recurrence: row.recurrence,
+    seriesId: row.series_id,
+    occurrenceDate: row.occurrence_date,
     lockVersion: row.lock_version,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -200,8 +214,9 @@ export class InspectionsService {
         const { rows } = await t.query<InspectionRow>(
           `INSERT INTO inspections
              (id, tenant_id, code, title, template_id, template_version,
-              inspector_id, plant_id, area_id, status, scheduled_at, created_by, updated_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled', $10, $11, $11)
+              inspector_id, plant_id, area_id, status, scheduled_at, recurrence,
+              created_by, updated_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled', $10, $11, $12, $12)
            RETURNING ${COLUMNS}`,
           [
             id,
@@ -214,6 +229,7 @@ export class InspectionsService {
             body.plantId ?? null,
             body.areaId ?? null,
             body.scheduledAt ?? null,
+            body.recurrence != null ? JSON.stringify(body.recurrence) : null,
             actorId,
           ],
         );
@@ -326,7 +342,187 @@ export class InspectionsService {
     );
   }
 
+  /**
+   * Set, change, or clear the recurrence on a series head (02 §2). Occupies the
+   * normal optimistic-concurrency path; a generated occurrence cannot carry its
+   * own recurrence (that would make an occurrence a series of its own).
+   */
+  async setRecurrence(
+    tx: Tx,
+    tenantId: string,
+    membership: Membership,
+    actorId: string,
+    id: string,
+    body: SetRecurrenceBody,
+    context: AuditContext,
+  ): Promise<InspectionDto> {
+    const row = await this.fetch(tx, id);
+    if (row === null) throw notFound();
+    this.assertInScope(membership, row.plant_id);
+    this.assertVersion(row, body.version);
+    if (row.series_id !== null) {
+      throw new ApiError("CONFLICT", "A generated occurrence cannot carry its own recurrence");
+    }
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "inspection",
+        entityId: id,
+        action: "updated",
+        before: { recurrence: row.recurrence },
+        after: { recurrence: body.recurrence },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      (t) =>
+        this.applyUpdate(t, id, body.version, "recurrence = $3", [
+          body.recurrence != null ? JSON.stringify(body.recurrence) : null,
+        ]),
+    );
+  }
+
+  /** List a series head's materialised occurrences (newest first). */
+  async listOccurrences(
+    tx: Tx,
+    membership: Membership,
+    seriesId: string,
+    opts: { cursor?: string; limit: number },
+  ): Promise<Page<InspectionDto>> {
+    // Visibility follows the head: if the caller can't see the series, the
+    // occurrences are a 404 too (rule 8).
+    const head = await this.fetch(tx, seriesId);
+    if (head === null) throw notFound();
+    this.assertInScope(membership, head.plant_id);
+
+    const limit = clampLimit(opts.limit);
+    const cursor: Cursor | null = opts.cursor !== undefined ? decodeCursor(opts.cursor) : null;
+    const params: unknown[] = [seriesId];
+    const keyset = keysetPredicate(cursor, params.length + 1);
+    params.push(...keyset.params);
+    params.push(limit + 1);
+
+    const { rows } = await tx.query<InspectionRow>(
+      `SELECT ${COLUMNS} FROM inspections
+        WHERE series_id = $1 AND deleted_at IS NULL ${keyset.sql}
+        ORDER BY created_at DESC, id DESC
+        LIMIT $${params.length}`,
+      params,
+    );
+    return toPage(rows, limit, toDto);
+  }
+
+  /**
+   * The `schedule` job body (06 §1): expand every recurring series head into
+   * occurrence inspections within the horizon window, idempotent on
+   * `(series_id, occurrence_date)`. Runs inside a tenant transaction from the
+   * worker (system actor), so RLS applies exactly as to a request. Returns how
+   * many NEW occurrences were created (a re-run within the same window creates
+   * none).
+   */
+  async materializeDueOccurrences(
+    tx: Tx,
+    tenantId: string,
+    now: Date,
+    horizonDays: number = SCHEDULE_HORIZON_DAYS,
+  ): Promise<{ created: number }> {
+    const to = new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
+    const { rows: heads } = await tx.query<InspectionRow>(
+      `SELECT ${COLUMNS} FROM inspections
+        WHERE recurrence IS NOT NULL AND series_id IS NULL
+          AND status <> 'cancelled' AND deleted_at IS NULL`,
+    );
+
+    let created = 0;
+    for (const head of heads) {
+      const rule = head.recurrence;
+      const anchor = head.scheduled_at;
+      // A series with no start has nothing to phase occurrences against.
+      if (rule == null || anchor === null) continue;
+      const dates = expandOccurrences(rule as CoreRecurrenceRule, { anchor, from: now, to });
+      for (const date of dates) {
+        if (await this.materializeOne(tx, tenantId, head, date)) created += 1;
+      }
+    }
+    return { created };
+  }
+
   // --- internals ------------------------------------------------------------
+
+  /** Create one occurrence for a series/date, or return false if it exists. */
+  private async materializeOne(
+    tx: Tx,
+    tenantId: string,
+    head: InspectionRow,
+    date: string,
+  ): Promise<boolean> {
+    // Pre-check so the common re-run path doesn't mint (and waste) a code for a
+    // day that already exists. The unique index still guards a genuine race.
+    const existing = await tx.query(
+      `SELECT 1 FROM inspections WHERE tenant_id = $1 AND series_id = $2 AND occurrence_date = $3`,
+      [tenantId, head.id, date],
+    );
+    if (existing.rows.length > 0) return false;
+
+    const id = randomUUID();
+    const year = counterYear(new Date(`${date}T00:00:00Z`), "UTC");
+    const scheduledAt = occurrenceTimestamp(head.scheduled_at, date);
+
+    const { rows: counter } = await tx.query<{ value: number }>(
+      `INSERT INTO counters (tenant_id, kind, year, value) VALUES ($1, 'inspection', $2, 1)
+       ON CONFLICT (tenant_id, kind, year) DO UPDATE SET value = counters.value + 1, updated_at = now()
+       RETURNING value`,
+      [tenantId, year],
+    );
+    const seq = counter[0]?.value;
+    if (seq === undefined) throw new ApiError("INTERNAL", "Could not allocate an inspection code");
+    const code = formatCode("inspection", year, seq);
+
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO inspections
+         (id, tenant_id, code, title, template_id, template_version, inspector_id, plant_id, area_id,
+          status, scheduled_at, series_id, occurrence_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'scheduled',$10,$11,$12)
+       ON CONFLICT (tenant_id, series_id, occurrence_date) WHERE series_id IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [
+        id,
+        tenantId,
+        code,
+        head.title,
+        head.template_id,
+        head.template_version,
+        head.inspector_id,
+        head.plant_id,
+        head.area_id,
+        scheduledAt,
+        head.id,
+        date,
+      ],
+    );
+    if (rows.length === 0) return false; // lost the race — the day already exists
+
+    // Audited as a system actor (no request behind it). Recorded only on a real
+    // insert, so a skipped re-run writes no spurious event.
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId: null,
+        actorKind: "system",
+        entityKind: "inspection",
+        entityId: id,
+        action: "created",
+        after: { code, seriesId: head.id, occurrenceDate: date },
+      },
+      () => Promise.resolve(),
+    );
+    return true;
+  }
 
   private async fetch(tx: Tx, id: string): Promise<InspectionRow | null> {
     const { rows } = await tx.query<InspectionRow>(
@@ -392,4 +588,17 @@ interface AuditContext {
   readonly requestId: string | null;
   readonly ip: string | null;
   readonly userAgent: string | null;
+}
+
+/**
+ * An occurrence's `scheduled_at`: its calendar date carrying the series
+ * anchor's UTC time-of-day, so a series anchored at 09:00 produces occurrences
+ * at 09:00. Falls back to midnight UTC if the head has no time.
+ */
+function occurrenceTimestamp(anchor: Date | null, date: string): Date {
+  const dayStart = new Date(`${date}T00:00:00Z`);
+  if (anchor === null) return dayStart;
+  const timeOfDayMs =
+    anchor.getTime() - Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate());
+  return new Date(dayStart.getTime() + timeOfDayMs);
 }
