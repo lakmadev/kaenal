@@ -17,4 +17,5 @@ export const INSPECTIONS_SERVICE = Symbol("INSPECTIONS_SERVICE");
 export const FINDINGS_SERVICE = Symbol("FINDINGS_SERVICE");
 export const NCR_SERVICE = Symbol("NCR_SERVICE");
 export const CAPA_SERVICE = Symbol("CAPA_SERVICE");
+export const DOCUMENTS_SERVICE = Symbol("DOCUMENTS_SERVICE");
 export const RATE_LIMITER = Symbol("RATE_LIMITER");

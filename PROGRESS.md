@@ -6,15 +6,27 @@
 ## Current status
 
 **Phase 0 done; Phase 1 core loop under way.** Data plane, business logic, audit plumbing, the
-request lifecycle, authentication, the contract layer AND the first three vertical slices
-(Inspections, Findings → NCR, then CAPA) are done and proven, and CI runs them on every push/PR. 721
-tests pass (233 db integration, 385 core unit, 78 api integration, 25 types unit); all four packages
-typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant tables. The
-isolation nets, DST math, dependency direction, request lifecycle, composite member FKs, lockout
-durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes and CAPA
-forward-only/revert directionality were all mutation-tested (the CAPA rules via the full
-(from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter has
-behavioural tests (allow/deny + window slide), not a formal mutation.
+request lifecycle, authentication, the contract layer AND the first four vertical slices
+(Inspections, Findings → NCR, CAPA, then Documents) are done and proven, and CI runs them on every
+push/PR. 736 tests pass (233 db integration, 390 core unit, 88 api integration, 25 types unit); all
+four packages typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant tables.
+The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs, lockout
+durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA forward-only/revert
+directionality and the document rules (approver-role, self-approval four-eyes, last-approved-version
+protection) were all mutation-tested (the CAPA and document rules via the full (from, to) matrix in
+core) — proven to fail when the guard is disabled. The rate limiter has behavioural tests
+(allow/deny + window slide), not a formal mutation.
+
+**Documents slice (02 §4, 03 §3):** controlled documents run draft → pending → approved|rejected,
+approved → archived, rejected → draft, driven by `documentMachine`, which carries the three rules
+that make a document "controlled": only an admin/manager reviews (`document:approve`), an author
+cannot approve their own document (four-eyes), and the last approved version cannot be archived out
+from under the shop floor. Authoring (create/submit/revise/archive/new-version) is a separate
+`document:manage` capability; review (`POST /v1/documents/:id/review`, approve|reject) is its own
+route so the second pair of eyes lands on a different person. A new version never moves the record
+backward — `POST /v1/documents/:id/versions` opens a fresh draft `document_versions` row while the
+approved version stays approved and auditable (`GET .../versions` is the history). Optimistic
+concurrency via `lock_version` (migration 0007); documents are not plant-scoped.
 
 **CAPA slice (02 §4, 03 §3):** corrective/preventive actions run as a phased programme
 (initiation → root_cause → action_plan → implementation → verification → effectiveness → closed).
@@ -55,9 +67,9 @@ The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI
 web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** Documents (+ versions, approval flow — draft→pending→approved|rejected, approved→
-archived; a new version resets to draft as a new `document_versions` row) — schema → contract →
-service → tests. 8D (step gating) is Phase 2.
+**Next task:** Files (presign → upload → complete → AV scan gate, 03 §7) — so a document/finding can
+carry an actual attachment; then federated Search (FTS + `/v1/search` for the command palette).
+8D (step gating) is Phase 2.
 
 ### How to get running from a cold clone
 
@@ -69,7 +81,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0003)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 721 tests
+pnpm test                     # full suite (serial: shares one DB) — 736 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -185,7 +197,9 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
       transition + verify routes, corrective actions, SLA due dates, four-eyes mutation-tested
 - [x] CAPA (phase advance, explicit audited revert) (2026-07-22) — `apps/api/src/capa/capa.*`;
       forward-only `advance` + audited `revert` (reason required), CAPA actions, migration 0006
-- [ ] Documents (+ versions, approval flow)
+- [x] Documents (+ versions, approval flow) (2026-07-22) — `apps/api/src/documents/documents.*`;
+      lifecycle + review (four-eyes), version history (`document_versions`), new-version-resets-to-
+      draft, keep-one-approved-version guard, migration 0007
 - [ ] Files (presign → upload → complete → AV scan gate) — 03 §7
 - [ ] Search / FTS + federated `/v1/search` for the command palette
 - [ ] Notifications
@@ -222,6 +236,24 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — added a `document:manage` capability; authoring is split from approval.** The 03 §3
+  matrix names only "Approve documents" (admin/manager) and universal "View", leaving no capability
+  for *authoring* a controlled document. Rather than gate create/submit/revise/archive/new-version on
+  `document:approve` (which would misname the check and prevent a future author-but-not-approver
+  role), added `document:manage` (admin/manager) for the author-side lifecycle and kept
+  `document:approve` for the `/review` route. The split is what lets four-eyes land on a different
+  person than the author. `document:view` (all roles) covers list/get/version-history; documents are
+  not plant-scoped (no plant_id). rbac "every cell" grid updated on both sides. *Affects: 03 §3.*
+
+- **2026-07-22 — a new document version can only be opened from `approved`, and it resets the record
+  to draft.** `POST /v1/documents/:id/versions` is not a state-machine edge — it is the "new version
+  resets to draft" rule (02 §4). It requires the current status to be `approved` (else 409
+  INVALID_TRANSITION), inserts a fresh `document_versions` row at the new label, and moves the
+  `documents` row to draft at that label with `approver_id` cleared — the previously approved
+  version keeps its own row and approval stamp, so it stays approved and auditable. The
+  keep-one-approved-version guard counts *other* approved `document_versions` rows, so archiving is
+  blocked until a superseding version has been approved. *Affects: 02 §4, 03 §10.*
 
 - **2026-07-22 — CAPA advance and revert are SEPARATE endpoints, not one transition route with a
   direction flag.** 02 §4 says phases advance only forward *except* an explicit, reasoned, audited
@@ -550,6 +582,13 @@ to build the frontend.)
   as Phase 4+ and not designing schema for them yet.
 
 ## Conflicts found (project_brain vs implementation/)
+
+- **Document code prefix — `DOC-` vs `D-`.** `reference/FEATURES.md` lists the document ID
+  convention as `D-`; the committed `packages/core/src/codes.ts` (with 25 passing tests) uses
+  `DOC-YYYY-NNNN`, consistent with the other three-letter prefixes (NCR, INS, CAPA, AUD, SUP). Kept
+  `DOC-` — it is the built, tested artifact and `implementation/`-adjacent code wins over the
+  reference inventory. Flag if the product wants literal `D-`. *Affects: codes.ts, FEATURES.md.*
+
 
 - **Spec path** — CLAUDE.md says `implementation/` is at the repo root; it is actually at
   `project_brain/project/implementation/`. Recorded as Decision 1. Worth fixing CLAUDE.md, or

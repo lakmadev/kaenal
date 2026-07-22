@@ -22,6 +22,7 @@ import { InspectionsService } from "../src/inspections/inspections.service.js";
 import { FindingsService } from "../src/ncr/findings.service.js";
 import { NcrService } from "../src/ncr/ncr.service.js";
 import { CapaService } from "../src/capa/capa.service.js";
+import { DocumentsService } from "../src/documents/documents.service.js";
 
 const TENANT = "acme";
 const EMAIL = "demo@acme.test";
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
   const findings = new FindingsService();
   const ncrs = new NcrService();
   const capas = new CapaService();
+  const documents = new DocumentsService();
   const admin = { role: "admin" as const, plantIds: [] };
 
   const { rows: tenantRows } = await control.query<{ id: string }>(
@@ -161,6 +163,18 @@ async function main(): Promise<void> {
       ctx,
     );
     await capas.advance(tx, tenantId, userId, capa.id, { to: "root_cause", version: capa.lockVersion }, ctx);
+
+    // A controlled document, submitted and awaiting review — left at `pending`
+    // because approval is four-eyes and this seed has only one user, so the
+    // demo admin cannot approve their own document.
+    const doc = await documents.create(
+      tx,
+      tenantId,
+      userId,
+      { title: "Line Safety Work Instruction", category: "work_instruction" },
+      ctx,
+    );
+    await documents.transition(tx, tenantId, admin, userId, doc.id, { to: "pending", version: doc.lockVersion }, ctx);
   });
 
   console.log(`Seeded. Sign in at /login as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);

@@ -3,6 +3,8 @@ import {
   CapaActionStatus,
   CapaPhase,
   CapaType,
+  DocumentCategory,
+  DocumentStatus,
   FindingSeverity,
   InspectionStatus,
   NcrActionKind,
@@ -304,6 +306,87 @@ export const UpdateCapaActionStatusBody = z.object({
   version: z.number().int().nonnegative(),
 });
 export type UpdateCapaActionStatusBody = z.infer<typeof UpdateCapaActionStatusBody>;
+
+// --- Documents --------------------------------------------------------------
+
+export const DocumentDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string(),
+  category: DocumentCategory,
+  status: DocumentStatus,
+  version: z.string(), // the semantic version label, e.g. "1.0"
+  fileId: z.string().uuid().nullable(),
+  ownerId: z.string().uuid().nullable(),
+  approverId: z.string().uuid().nullable(),
+  expiresAt: z.string().datetime().nullable(),
+  frameworks: z.array(z.string()),
+  aiSummary: z.string().nullable(),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type DocumentDto = z.infer<typeof DocumentDto>;
+
+export const DocumentVersionDto = z.object({
+  id: z.string().uuid(),
+  documentId: z.string().uuid(),
+  version: z.string(),
+  fileId: z.string().uuid().nullable(),
+  changelog: z.string().nullable(),
+  approvedBy: z.string().uuid().nullable(),
+  approvedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type DocumentVersionDto = z.infer<typeof DocumentVersionDto>;
+
+export const CreateDocumentBody = z.object({
+  title: z.string().min(1).max(200),
+  category: DocumentCategory,
+  /** The file is attached separately (03 §7, not yet built), so it is optional. */
+  fileId: z.string().uuid().nullable().optional(),
+  frameworks: z.array(z.string().min(1).max(64)).max(50).optional(),
+  expiresAt: z.string().datetime().nullable().optional(),
+  changelog: z.string().max(4000).nullable().optional(),
+});
+export type CreateDocumentBody = z.infer<typeof CreateDocumentBody>;
+
+/**
+ * The author-side lifecycle moves (submit for review, send a rejected draft back
+ * to editing, retire an approved document). Approval/rejection is a separate
+ * route (its own capability + the four-eyes rule), like NCR verify.
+ */
+export const DocumentTransition = z.enum(["pending", "draft", "archived"]);
+export type DocumentTransition = z.infer<typeof DocumentTransition>;
+
+export const TransitionDocumentBody = z.object({
+  to: DocumentTransition,
+  version: z.number().int().nonnegative(), // optimistic-concurrency token
+  reason: z.string().max(2000).optional(),
+});
+export type TransitionDocumentBody = z.infer<typeof TransitionDocumentBody>;
+
+/** A controlled document is approved or rejected by someone other than its author. */
+export const ReviewDocumentBody = z.object({
+  decision: z.enum(["approve", "reject"]),
+  version: z.number().int().nonnegative(), // optimistic-concurrency token
+  reason: z.string().max(2000).optional(),
+});
+export type ReviewDocumentBody = z.infer<typeof ReviewDocumentBody>;
+
+/**
+ * Revising an approved document does not move it backwards — it opens a new
+ * draft version (a fresh `document_versions` row) while the approved version
+ * stays approved and auditable. `nextVersion` is the new label; `version` is the
+ * concurrency token on the current row.
+ */
+export const NewDocumentVersionBody = z.object({
+  nextVersion: z.string().min(1).max(32),
+  version: z.number().int().nonnegative(),
+  fileId: z.string().uuid().nullable().optional(),
+  changelog: z.string().max(4000).nullable().optional(),
+});
+export type NewDocumentVersionBody = z.infer<typeof NewDocumentVersionBody>;
 
 // --- Me (session identity) --------------------------------------------------
 

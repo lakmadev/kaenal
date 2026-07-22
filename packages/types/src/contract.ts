@@ -7,26 +7,41 @@ import {
   CompleteInspectionBody,
   CreateCapaActionBody,
   CreateCapaBody,
+  CreateDocumentBody,
   CreateFindingBody,
   CreateInspectionBody,
   CreateNcrActionBody,
   CreateNcrBody,
   CreateTemplateBody,
+  DocumentDto,
+  DocumentVersionDto,
   FindingDto,
   InspectionDto,
   MeDto,
   NcrActionDto,
   NcrDto,
+  NewDocumentVersionBody,
+  ReviewDocumentBody,
   RevertCapaBody,
   StartInspectionBody,
   TemplateDto,
+  TransitionDocumentBody,
   TransitionNcrBody,
   UpdateCapaActionStatusBody,
   UpdateNcrActionStatusBody,
   VerifyNcrBody,
 } from "./dto.js";
 import { ErrorBody, PageQuery, page } from "./http.js";
-import { CapaPhase, CapaType, InspectionStatus, NcrPriority, NcrStatus, TemplateStatus } from "./enums.js";
+import {
+  CapaPhase,
+  CapaType,
+  DocumentCategory,
+  DocumentStatus,
+  InspectionStatus,
+  NcrPriority,
+  NcrStatus,
+  TemplateStatus,
+} from "./enums.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -285,6 +300,64 @@ export const contract = c.router(
       body: UpdateCapaActionStatusBody,
       responses: { 200: CapaActionDto, ...commonErrors },
       summary: "Advance a CAPA action's status (pending → in_progress → done → verified)",
+    },
+
+    // --- Documents ---------------------------------------------------------
+    listDocuments: {
+      method: "GET",
+      path: "/v1/documents",
+      query: PageQuery.extend({
+        status: DocumentStatus.optional(),
+        category: DocumentCategory.optional(),
+      }),
+      responses: { 200: page(DocumentDto), ...commonErrors },
+      summary: "List documents (cursor-paginated)",
+    },
+    createDocument: {
+      method: "POST",
+      path: "/v1/documents",
+      body: CreateDocumentBody,
+      responses: { 201: DocumentDto, ...commonErrors },
+      summary: "Create a document (draft, version 1.0)",
+    },
+    getDocument: {
+      method: "GET",
+      path: "/v1/documents/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: DocumentDto, ...commonErrors },
+      summary: "Fetch one document",
+    },
+    transitionDocument: {
+      method: "POST",
+      path: "/v1/documents/:id/transition",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: TransitionDocumentBody,
+      responses: { 200: DocumentDto, ...commonErrors },
+      summary: "Author-side lifecycle: submit (→pending), revise (rejected→draft), archive",
+    },
+    reviewDocument: {
+      method: "POST",
+      path: "/v1/documents/:id/review",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: ReviewDocumentBody,
+      responses: { 200: DocumentDto, ...commonErrors },
+      summary: "Approve or reject a pending document (four-eyes: not the author)",
+    },
+    listDocumentVersions: {
+      method: "GET",
+      path: "/v1/documents/:id/versions",
+      pathParams: z.object({ id: z.string().uuid() }),
+      query: PageQuery,
+      responses: { 200: page(DocumentVersionDto), ...commonErrors },
+      summary: "List a document's version history",
+    },
+    newDocumentVersion: {
+      method: "POST",
+      path: "/v1/documents/:id/versions",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: NewDocumentVersionBody,
+      responses: { 201: DocumentDto, ...commonErrors },
+      summary: "Open a new draft version of an approved document",
     },
   },
   {
