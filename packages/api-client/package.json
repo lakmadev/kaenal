@@ -1,0 +1,24 @@
+{
+  "name": "@kaenal/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kaenal/types": "workspace:*",
+    "@ts-rest/core": "^3.52.1"
+  },
+  "devDependencies": {
+    "@kaenal/config": "workspace:*",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

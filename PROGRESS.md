@@ -5,18 +5,28 @@
 
 ## Current status
 
-**Phase 0 done; Phase 1 core loop under way.** Data plane, business logic, audit plumbing, the
-request lifecycle, authentication, the contract layer AND the first five vertical slices
-(Inspections, Findings → NCR, CAPA, Documents, Files) plus federated Search and Notifications are
-done and proven, and CI runs them on every push/PR. 763 tests pass (233 db integration, 396 core
-unit, 109 api integration, 25 types unit); all four packages typecheck under strict TS and lint
-clean. The RLS schema lint covers 32 tenant
+**Phase 0 done; Phase 1 backend COMPLETE.** Data plane, business logic, audit plumbing, the request
+lifecycle, authentication, the contract layer, all five vertical slices (Inspections, Findings → NCR,
+CAPA, Documents, Files), federated Search, Notifications AND the typed `@kaenal/api-client` are done
+and proven, and CI runs them on every push/PR. 774 tests pass (233 db integration, 396 core unit, 109
+api integration, 25 types unit, 11 api-client unit); all five workspaces typecheck under strict TS and
+lint clean. The RLS schema lint covers 32 tenant
 tables. The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**`@kaenal/api-client` (03 §1, 01 §1):** the typed client the FE (and mobile) consume. `createApiClient`
+wraps ts-rest `initClient` over the shared contract and threads the API's conventions through a custom
+fetcher: `X-Tenant-Id`, cookie-vs-bearer auth, and double-submit CSRF (`kaenal_csrf` → `x-csrf-token`)
+on unsafe cookie requests only. It is framework-agnostic (plain `fetch`, runs in browser/RN/server);
+tenant + auth are resolvable getters so one instance follows the active workspace/session. TanStack
+Query integration is v5 query-option factories (`apiQueries.ncrs.list(client, args) → {queryKey,
+queryFn}`) + a `queryKeys` factory, rather than a hard dependency on React or a react-query major — the
+FE feeds them to `useQuery`; mutations compose the client call with `unwrap`. 11 unit tests (request
+wiring incl. CSRF/bearer/tenant-getter, non-2xx-as-data, key shapes, unwrap).
 
 **Notifications slice (02 §2, 06):** the consumer API — `GET /v1/notifications` (cursor, unread
 filter), `GET /v1/notifications/unread-count` (bell badge), `POST /v1/notifications/:id/read` +
@@ -96,11 +106,13 @@ The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI
 web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** `packages/api-client` (typed client over the ts-rest contract + TanStack Query hooks)
-— the last Phase-1 backend item before the dedicated FE consumes it. After that, Phase 1's backend is
-complete; the remaining producers/delivery (the `notify` job, SLA escalation, the AV-scan job that
-flips a completed file to clean/infected) are the Phase-2 jobs runtime (06). 8D (step gating) is
-Phase 2.
+**Next task:** Phase 1's BACKEND is complete — the natural next backend workstream is the **Phase-2
+jobs runtime (BullMQ, 06)**, which retroactively finishes three things already stubbed for it: the
+`notify` job (deliver + email/push/SMS fan-out reading `notification_prefs`), SLA escalation
+(recompute `sla_state`, escalate overdue NCRs), and the AV-scan job (flip a completed file to
+clean/infected). Redis/BullMQ deps aren't wired yet. Alternatively the dedicated **FE** can now start
+against `@kaenal/api-client`. 8D (step gating), Audits, and Suppliers are the other Phase-2/4 modules
+with schema but no API.
 
 ### How to get running from a cold clone
 
@@ -112,7 +124,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0008)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 763 tests
+pnpm test                     # full suite (serial: shares one DB) — 774 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -240,7 +252,8 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
 - [x] Notifications (2026-07-22) — `apps/api/src/notifications/*`; consumer API (list/unread-count/
       mark-read/read-all/prefs), per-user scoped, + the dedupe-safe `notify()` write primitive. No
       migration. Producers/delivery are the Phase-2 `notify` job.
-- [ ] `packages/api-client` — typed client + TanStack Query hooks
+- [x] `packages/api-client` — typed client + TanStack Query option factories (2026-07-22) —
+      `createApiClient` (tenant/cookie-bearer/CSRF), `apiQueries` + `queryKeys`, framework-agnostic
 
 Frontend — NOT in this repo. A dedicated FE implementation is planned separately; it will consume
 the ts-rest contract via `initClient(contract)`. Until then the API is browsable via Swagger UI at
@@ -273,6 +286,19 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — `@kaenal/api-client` is framework-agnostic: query-option factories, not react-query
+  hooks.** The shared client ships to both Next and Expo (and can run server-side), so baking in React
+  or a specific `@tanstack/react-query` major would force a version and a runtime on every consumer.
+  Instead it exports `createApiClient` (a plain-`fetch` ts-rest client) plus TanStack v5 query-OPTION
+  factories (`apiQueries.x(client, args) → {queryKey, queryFn}`) + a `queryKeys` factory; the app feeds
+  those to its own `useQuery`, and mutations are `client.x(...)` composed with `unwrap`. This is the
+  pattern TanStack itself now recommends, keeps the package dependency-light (only `@kaenal/types` +
+  `@ts-rest/core`, satisfying the boundaries `allow: ["types","core"]`), and stays node-testable (no
+  jsdom). Tenant/auth/CSRF are threaded through a custom ts-rest fetcher so a single instance follows
+  the active workspace/session; the package's tsconfig adds the `DOM` lib (it needs `fetch`/cookies),
+  with a `typeof document` guard for React Native. If the FE later wants literal generated hooks,
+  adding `@ts-rest/react-query` on top is a small, additive follow-up. *Affects: 03 §1, 01 §1.*
 
 - **2026-07-22 — notifications are NOT audited, and this slice owns the consumer side only.**
   Notification rows are a delivery artifact — the downstream product of an already-audited event — and

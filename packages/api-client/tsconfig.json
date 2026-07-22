@@ -1,0 +1,10 @@
+{
+  "extends": "@kaenal/config/tsconfig.lib.json",
+  "compilerOptions": {
+    // This package talks HTTP and reads cookies, so it needs the web platform
+    // types (fetch/Request/Response/document). It still runs in React Native,
+    // where `document` is absent — hence the runtime guard in client.ts.
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

@@ -121,6 +121,25 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)
 
+  packages/api-client:
+    dependencies:
+      '@kaenal/types':
+        specifier: workspace:*
+        version: link:../types
+      '@ts-rest/core':
+        specifier: ^3.52.1
+        version: 3.52.1(@types/node@22.20.1)(zod@3.25.76)
+    devDependencies:
+      '@kaenal/config':
+        specifier: workspace:*
+        version: link:../config
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)
+
   packages/config: {}
 
   packages/core:

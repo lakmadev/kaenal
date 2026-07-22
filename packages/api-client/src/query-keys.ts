@@ -1,0 +1,49 @@
+/**
+ * Query-key factory (TanStack Query). Centralising the keys keeps invalidation
+ * honest: a mutation invalidates `queryKeys.ncrs.all` and every list/detail
+ * under it updates, with no stringly-typed keys drifting across the app.
+ */
+export const queryKeys = {
+  me: () => ["me"] as const,
+
+  search: (q: string) => ["search", q] as const,
+
+  inspections: {
+    all: ["inspections"] as const,
+    list: (params?: unknown) => ["inspections", "list", params ?? null] as const,
+    detail: (id: string) => ["inspections", "detail", id] as const,
+    findings: (id: string) => ["inspections", id, "findings"] as const,
+  },
+
+  ncrs: {
+    all: ["ncrs"] as const,
+    list: (params?: unknown) => ["ncrs", "list", params ?? null] as const,
+    detail: (id: string) => ["ncrs", "detail", id] as const,
+    actions: (id: string) => ["ncrs", id, "actions"] as const,
+  },
+
+  capas: {
+    all: ["capas"] as const,
+    list: (params?: unknown) => ["capas", "list", params ?? null] as const,
+    detail: (id: string) => ["capas", "detail", id] as const,
+    actions: (id: string) => ["capas", id, "actions"] as const,
+  },
+
+  documents: {
+    all: ["documents"] as const,
+    list: (params?: unknown) => ["documents", "list", params ?? null] as const,
+    detail: (id: string) => ["documents", "detail", id] as const,
+    versions: (id: string) => ["documents", id, "versions"] as const,
+  },
+
+  files: {
+    detail: (id: string) => ["files", "detail", id] as const,
+  },
+
+  notifications: {
+    all: ["notifications"] as const,
+    list: (params?: unknown) => ["notifications", "list", params ?? null] as const,
+    unreadCount: () => ["notifications", "unread-count"] as const,
+    prefs: () => ["notification-prefs"] as const,
+  },
+} as const;
