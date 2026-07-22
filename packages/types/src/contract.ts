@@ -1,7 +1,12 @@
 import { initContract } from "@ts-rest/core";
 import { z } from "zod";
 import {
+  AdvanceCapaBody,
+  CapaActionDto,
+  CapaDto,
   CompleteInspectionBody,
+  CreateCapaActionBody,
+  CreateCapaBody,
   CreateFindingBody,
   CreateInspectionBody,
   CreateNcrActionBody,
@@ -12,14 +17,16 @@ import {
   MeDto,
   NcrActionDto,
   NcrDto,
+  RevertCapaBody,
   StartInspectionBody,
   TemplateDto,
   TransitionNcrBody,
+  UpdateCapaActionStatusBody,
   UpdateNcrActionStatusBody,
   VerifyNcrBody,
 } from "./dto.js";
 import { ErrorBody, PageQuery, page } from "./http.js";
-import { InspectionStatus, NcrPriority, NcrStatus, TemplateStatus } from "./enums.js";
+import { CapaPhase, CapaType, InspectionStatus, NcrPriority, NcrStatus, TemplateStatus } from "./enums.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -209,6 +216,75 @@ export const contract = c.router(
       body: UpdateNcrActionStatusBody,
       responses: { 200: NcrActionDto, ...commonErrors },
       summary: "Advance an action's status (pending → in_progress → done → verified)",
+    },
+
+    // --- CAPAs -------------------------------------------------------------
+    listCapas: {
+      method: "GET",
+      path: "/v1/capas",
+      query: PageQuery.extend({
+        status: CapaPhase.optional(),
+        type: CapaType.optional(),
+        priority: NcrPriority.optional(),
+      }),
+      responses: { 200: page(CapaDto), ...commonErrors },
+      summary: "List CAPAs (cursor-paginated)",
+    },
+    createCapa: {
+      method: "POST",
+      path: "/v1/capas",
+      body: CreateCapaBody,
+      responses: { 201: CapaDto, ...commonErrors },
+      summary: "Open a CAPA",
+    },
+    getCapa: {
+      method: "GET",
+      path: "/v1/capas/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: CapaDto, ...commonErrors },
+      summary: "Fetch one CAPA",
+    },
+    advanceCapa: {
+      method: "POST",
+      path: "/v1/capas/:id/advance",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: AdvanceCapaBody,
+      responses: { 200: CapaDto, ...commonErrors },
+      summary: "Advance a CAPA one phase forward",
+    },
+    revertCapa: {
+      method: "POST",
+      path: "/v1/capas/:id/revert",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: RevertCapaBody,
+      responses: { 200: CapaDto, ...commonErrors },
+      summary: "Revert a CAPA to an earlier phase (audited, reason required)",
+    },
+
+    // --- CAPA actions ------------------------------------------------------
+    listCapaActions: {
+      method: "GET",
+      path: "/v1/capas/:id/actions",
+      pathParams: z.object({ id: z.string().uuid() }),
+      query: PageQuery,
+      responses: { 200: page(CapaActionDto), ...commonErrors },
+      summary: "List a CAPA's actions",
+    },
+    createCapaAction: {
+      method: "POST",
+      path: "/v1/capas/:id/actions",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: CreateCapaActionBody,
+      responses: { 201: CapaActionDto, ...commonErrors },
+      summary: "Add an action to a CAPA",
+    },
+    updateCapaActionStatus: {
+      method: "POST",
+      path: "/v1/capa-actions/:id/status",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UpdateCapaActionStatusBody,
+      responses: { 200: CapaActionDto, ...commonErrors },
+      summary: "Advance a CAPA action's status (pending → in_progress → done → verified)",
     },
   },
   {

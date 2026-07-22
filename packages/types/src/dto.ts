@@ -1,5 +1,8 @@
 import { z } from "zod";
 import {
+  CapaActionStatus,
+  CapaPhase,
+  CapaType,
   FindingSeverity,
   InspectionStatus,
   NcrActionKind,
@@ -210,6 +213,97 @@ export const UpdateNcrActionStatusBody = z.object({
   version: z.number().int().nonnegative(),
 });
 export type UpdateNcrActionStatusBody = z.infer<typeof UpdateNcrActionStatusBody>;
+
+// --- CAPAs ------------------------------------------------------------------
+
+export const CapaDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  type: CapaType,
+  priority: NcrPriority, // capas.priority shares the minor|major|critical scale
+  risk: RiskLevel.nullable(),
+  status: CapaPhase, // the phase column; forward-only except an audited revert
+  ownerId: z.string().uuid().nullable(),
+  sponsorId: z.string().uuid().nullable(),
+  sourceKind: z.string().nullable(),
+  sourceId: z.string().uuid().nullable(),
+  dueAt: z.string().datetime().nullable(),
+  effectivenessCheckAt: z.string().datetime().nullable(),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type CapaDto = z.infer<typeof CapaDto>;
+
+export const CreateCapaBody = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().max(8000).nullable().optional(),
+  type: CapaType,
+  priority: NcrPriority,
+  risk: RiskLevel.nullable().optional(),
+  ownerId: z.string().uuid().nullable().optional(),
+  sponsorId: z.string().uuid().nullable().optional(),
+  /** Where the CAPA came from (e.g. `ncr`, `audit_finding`) + the row it links. */
+  sourceKind: z.string().min(1).max(64).nullable().optional(),
+  sourceId: z.string().uuid().nullable().optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  effectivenessCheckAt: z.string().datetime().nullable().optional(),
+});
+export type CreateCapaBody = z.infer<typeof CreateCapaBody>;
+
+/**
+ * Advancing a CAPA moves it one phase forward. `to` is the target phase — the
+ * machine only allows the immediate next, so this both documents intent and is
+ * validated server-side; `version` is the optimistic-concurrency token.
+ */
+export const AdvanceCapaBody = z.object({
+  to: CapaPhase,
+  version: z.number().int().nonnegative(),
+  reason: z.string().max(2000).optional(),
+});
+export type AdvanceCapaBody = z.infer<typeof AdvanceCapaBody>;
+
+/**
+ * Reverting a CAPA is the deliberate exception to forward-only motion (02 §4):
+ * it always requires a reason and always writes an audit event. `to` must be an
+ * earlier phase.
+ */
+export const RevertCapaBody = z.object({
+  to: CapaPhase,
+  version: z.number().int().nonnegative(),
+  reason: z.string().min(1).max(2000),
+});
+export type RevertCapaBody = z.infer<typeof RevertCapaBody>;
+
+// --- CAPA actions -----------------------------------------------------------
+
+export const CapaActionDto = z.object({
+  id: z.string().uuid(),
+  capaId: z.string().uuid(),
+  description: z.string(),
+  ownerId: z.string().uuid().nullable(),
+  dueAt: z.string().datetime().nullable(),
+  status: CapaActionStatus,
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type CapaActionDto = z.infer<typeof CapaActionDto>;
+
+export const CreateCapaActionBody = z.object({
+  description: z.string().min(1).max(4000),
+  ownerId: z.string().uuid().nullable().optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+});
+export type CreateCapaActionBody = z.infer<typeof CreateCapaActionBody>;
+
+export const UpdateCapaActionStatusBody = z.object({
+  status: CapaActionStatus,
+  version: z.number().int().nonnegative(),
+});
+export type UpdateCapaActionStatusBody = z.infer<typeof UpdateCapaActionStatusBody>;
 
 // --- Me (session identity) --------------------------------------------------
 

@@ -21,6 +21,7 @@ import { TemplatesService } from "../src/inspections/templates.service.js";
 import { InspectionsService } from "../src/inspections/inspections.service.js";
 import { FindingsService } from "../src/ncr/findings.service.js";
 import { NcrService } from "../src/ncr/ncr.service.js";
+import { CapaService } from "../src/capa/capa.service.js";
 
 const TENANT = "acme";
 const EMAIL = "demo@acme.test";
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
   const inspections = new InspectionsService();
   const findings = new FindingsService();
   const ncrs = new NcrService();
+  const capas = new CapaService();
   const admin = { role: "admin" as const, plantIds: [] };
 
   const { rows: tenantRows } = await control.query<{ id: string }>(
@@ -142,6 +144,23 @@ async function main(): Promise<void> {
       { to: "assigned", ownerId: userId, version: ncr.lockVersion },
       ctx,
     );
+
+    // A corrective CAPA, advanced one phase past initiation so the CAPA
+    // endpoints have a live, mid-programme case to show.
+    const capa = await capas.create(
+      tx,
+      tenantId,
+      userId,
+      {
+        title: "Interlock reliability programme",
+        type: "corrective",
+        priority: "major",
+        sourceKind: "ncr",
+        sourceId: ncr.id,
+      },
+      ctx,
+    );
+    await capas.advance(tx, tenantId, userId, capa.id, { to: "root_cause", version: capa.lockVersion }, ctx);
   });
 
   console.log(`Seeded. Sign in at /login as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);

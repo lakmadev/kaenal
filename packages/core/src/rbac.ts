@@ -22,6 +22,7 @@ export const CAPABILITIES = [
   "ncr:create",
   "ncr:manage",
   "ncr:verify",
+  "capa:view",
   "capa:manage",
   "audit:manage",
   "document:view",
@@ -50,6 +51,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ncr:create",
     "ncr:manage",
     "ncr:verify",
+    "capa:view",
     "capa:manage",
     "audit:manage",
     "document:view",
@@ -63,6 +65,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ncr:view",
     "ncr:create",
     "ncr:verify",
+    "capa:view",
     "audit:manage",
     "document:view",
   ],
@@ -72,10 +75,11 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "inspection:perform",
     "ncr:view",
     "ncr:create",
+    "capa:view",
     "document:view",
   ],
 
-  viewer: ["inspection:view", "ncr:view", "document:view"],
+  viewer: ["inspection:view", "ncr:view", "capa:view", "document:view"],
 };
 
 export function capabilitiesFor(role: Role): readonly Capability[] {

@@ -24,9 +24,12 @@ import { FindingsController } from "./ncr/findings.controller.js";
 import { FindingsService } from "./ncr/findings.service.js";
 import { NcrController } from "./ncr/ncr.controller.js";
 import { NcrService } from "./ncr/ncr.service.js";
+import { CapaController } from "./capa/capa.controller.js";
+import { CapaService } from "./capa/capa.service.js";
 import {
   AUTH_SERVICE,
   AUTHENTICATOR,
+  CAPA_SERVICE,
   CONTROL_POOL,
   ENV,
   FINDINGS_SERVICE,
@@ -49,6 +52,7 @@ import {
     InspectionsController,
     FindingsController,
     NcrController,
+    CapaController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -99,6 +103,7 @@ import {
     { provide: INSPECTIONS_SERVICE, useFactory: () => new InspectionsService() },
     { provide: FINDINGS_SERVICE, useFactory: () => new FindingsService() },
     { provide: NCR_SERVICE, useFactory: () => new NcrService() },
+    { provide: CAPA_SERVICE, useFactory: () => new CapaService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

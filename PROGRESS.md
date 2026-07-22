@@ -6,14 +6,25 @@
 ## Current status
 
 **Phase 0 done; Phase 1 core loop under way.** Data plane, business logic, audit plumbing, the
-request lifecycle, authentication, the contract layer AND the first two vertical slices
-(Inspections, then Findings → NCR) are done and proven, and CI runs them on every push/PR. 707
-tests pass (233 db integration, 380 core unit, 69 api integration, 25 types unit); all four packages
+request lifecycle, authentication, the contract layer AND the first three vertical slices
+(Inspections, Findings → NCR, then CAPA) are done and proven, and CI runs them on every push/PR. 721
+tests pass (233 db integration, 385 core unit, 78 api integration, 25 types unit); all four packages
 typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant tables. The
 isolation nets, DST math, dependency direction, request lifecycle, composite member FKs, lockout
-durability, CSRF, plant-scope 404 (rule 8, one level down) and NCR four-eyes were all
-mutation-tested — proven to fail when the guard is disabled. The rate limiter has behavioural tests
-(allow/deny + window slide), not a formal mutation.
+durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes and CAPA
+forward-only/revert directionality were all mutation-tested (the CAPA rules via the full
+(from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter has
+behavioural tests (allow/deny + window slide), not a formal mutation.
+
+**CAPA slice (02 §4, 03 §3):** corrective/preventive actions run as a phased programme
+(initiation → root_cause → action_plan → implementation → verification → effectiveness → closed).
+The one rule the spec singles out is directionality, and it is enforced as two separate endpoints:
+`POST /v1/capas/:id/advance` moves exactly one phase forward (`capaMachine`), and
+`POST /v1/capas/:id/revert` is the audited exception — earlier phase only, reason mandatory
+(`canRevertCapa` + the body schema + an audit event). CAPAs are not plant-scoped (no plant_id
+column), so every role holds a new `capa:view` (the "View all modules" row) while only `capa:manage`
+mutates. CAPA actions carry their own pending→in_progress→done→verified status flow. Optimistic
+concurrency via `lock_version` (migration 0006).
 
 **Findings → NCR slice (02 §4, 03 §3, §10):** findings recorded against an inspection; NCRs raised
 (optionally FROM a finding, which links it and defaults source/plant off the inspection). NCR
@@ -44,8 +55,9 @@ The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI
 web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** CAPA (phase advance with explicit audited revert), then Documents (+ versions,
-approval flow) — schema → contract → service → tests. 8D (step gating) is Phase 2.
+**Next task:** Documents (+ versions, approval flow — draft→pending→approved|rejected, approved→
+archived; a new version resets to draft as a new `document_versions` row) — schema → contract →
+service → tests. 8D (step gating) is Phase 2.
 
 ### How to get running from a cold clone
 
@@ -57,7 +69,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0003)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 670 tests
+pnpm test                     # full suite (serial: shares one DB) — 721 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -171,7 +183,8 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
       from a finding links it and defaults source/plant off the inspection
 - [x] NCR (state machine, four-eyes verify, SLA fields) (2026-07-22) — `apps/api/src/ncr/ncr.*`;
       transition + verify routes, corrective actions, SLA due dates, four-eyes mutation-tested
-- [ ] CAPA (phase advance, explicit audited revert)
+- [x] CAPA (phase advance, explicit audited revert) (2026-07-22) — `apps/api/src/capa/capa.*`;
+      forward-only `advance` + audited `revert` (reason required), CAPA actions, migration 0006
 - [ ] Documents (+ versions, approval flow)
 - [ ] Files (presign → upload → complete → AV scan gate) — 03 §7
 - [ ] Search / FTS + federated `/v1/search` for the command palette
@@ -209,6 +222,35 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — CAPA advance and revert are SEPARATE endpoints, not one transition route with a
+  direction flag.** 02 §4 says phases advance only forward *except* an explicit, reasoned, audited
+  revert. Modelling both on one control (or letting `advance` accept an earlier target) would make
+  the exception reachable by the everyday action — exactly what the rule forbids. So forward motion
+  is `POST /v1/capas/:id/advance` (one step, `capaMachine`) and backward is
+  `POST /v1/capas/:id/revert` (earlier phase only, reason mandatory in both `canRevertCapa` and the
+  `RevertCapaBody` schema, always writes a `status_changed` audit event with the reason). Both need
+  `capa:manage`. *Affects: 02 §4, 03 §3.*
+
+- **2026-07-22 — added a `capa:view` capability; CAPAs are not plant-scoped.** The 03 §3 matrix
+  grants "View all modules" to every role but the initial capability list only had `capa:manage`
+  (admin/manager), which would have hidden CAPAs from everyone else. Added `capa:view` (held by all
+  five roles, mirroring `ncr:view`/`document:view`) so list/get honour the matrix while mutation
+  stays `capa:manage`. Unlike NCRs, the `capas` table has no `plant_id`, so there is no plant-scope
+  404 to fold in — every member with `capa:view` sees every CAPA. The rbac "every cell" grid was
+  updated on both sides (impl + independent transcription). *Affects: 03 §3, rule 8.*
+
+- **2026-07-22 — a CAPA's due dates are explicit inputs, not SLA-computed.** Unlike an NCR (whose
+  `due_at` is computed from the tenant's SLA ladder + plant business hours on creation), a CAPA
+  takes `dueAt` and `effectivenessCheckAt` as optional body fields. There is no `sla_configs` row
+  for `entity_kind='capa'` and the spec does not define a CAPA SLA ladder; a programme's dates are
+  set by its owner. Revisit if a CAPA SLA ladder is specified. *Affects: 02 §4.*
+
+- **2026-07-22 — the generic request helpers (`AuditContext`, `membershipOf`/`actorIdOf`/
+  `auditCtxOf`) still live under `apps/api/src/ncr/`, and the CAPA controller imports them from
+  there.** They are not NCR-specific; they belong in a shared `http/` home. Left in place to keep
+  this slice focused — a follow-up should move `ncr/audit-context.ts` + `ncr/handler-ctx.ts` to
+  `http/` and repoint the ~5 importers. Tracked in Known issues. *Affects: 03 §1.*
 
 - **2026-07-22 — NCR `verify` is a separate route from `transition`, split on capability.** The 03
   §3 matrix gives auditors `ncr:verify` but NOT `ncr:manage`, and managers-without-manage do not
@@ -473,6 +515,11 @@ to build the frontend.)
   the email is unknown, but the locked / wrong-password / no-membership branches have their own
   (real) argon2 or query costs, which are close but not identical. Good enough against coarse
   timing; a determined side-channel attacker is out of scope for now.
+- **Generic request helpers are housed under `apps/api/src/ncr/`.** `ncr/audit-context.ts`
+  (`AuditContext`) and `ncr/handler-ctx.ts` (`membershipOf`/`actorIdOf`/`auditCtxOf`) are
+  feature-agnostic but the CAPA controller now imports them across the `capa/ → ncr/` boundary,
+  which reads oddly. Move both to `apps/api/src/http/` and repoint the importers (ncr + capa
+  controllers/services) in a small follow-up; no behaviour change.
 - **Per-package test isolation is by convention, not enforced.** All suites share one Postgres;
   `pnpm test` runs serially and each suite seeds/cleans its own fixtures, but nothing PREVENTS a
   new suite from truncating a table another depends on. The real fix is a database or schema per
