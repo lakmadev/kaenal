@@ -23,6 +23,7 @@ import { FindingsService } from "../src/ncr/findings.service.js";
 import { NcrService } from "../src/ncr/ncr.service.js";
 import { CapaService } from "../src/capa/capa.service.js";
 import { DocumentsService } from "../src/documents/documents.service.js";
+import { EightDService } from "../src/eight-d/eight-d.service.js";
 
 const TENANT = "acme";
 const EMAIL = "demo@acme.test";
@@ -55,6 +56,7 @@ async function main(): Promise<void> {
   const ncrs = new NcrService();
   const capas = new CapaService();
   const documents = new DocumentsService();
+  const eightDs = new EightDService();
   const admin = { role: "admin" as const, plantIds: [] };
 
   const { rows: tenantRows } = await control.query<{ id: string }>(
@@ -163,6 +165,17 @@ async function main(): Promise<void> {
       ctx,
     );
     await capas.advance(tx, tenantId, userId, capa.id, { to: "root_cause", version: capa.lockVersion }, ctx);
+
+    // An 8D opened from that NCR (blocks its close) with D1 complete, so the
+    // 8D endpoints show a live case mid-investigation.
+    const eightD = await eightDs.create(
+      tx,
+      tenantId,
+      userId,
+      { title: "8D — Guard interlock fault", ncrId: ncr.id },
+      ctx,
+    );
+    await eightDs.updateStep(tx, tenantId, userId, eightD.id, 1, { status: "complete", version: eightD.lockVersion }, ctx);
 
     // A controlled document, submitted and awaiting review — left at `pending`
     // because approval is four-eyes and this seed has only one user, so the

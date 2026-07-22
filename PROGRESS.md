@@ -5,19 +5,29 @@
 
 ## Current status
 
-**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 jobs runtime under way.** Data plane, business
-logic, audit plumbing, the request lifecycle, authentication, the contract layer, all five vertical
-slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search, Notifications, the
-typed `@kaenal/api-client` AND the BullMQ jobs runtime (SLA escalation, AV scan, notification
-delivery) are done and proven, and CI runs them on every push/PR. 780 tests pass (233 db integration,
-396 core unit, 115 api integration, 25 types unit, 11 api-client unit); all five workspaces typecheck
-under strict TS and lint clean. The RLS schema lint covers 32 tenant
+**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 under way (jobs runtime + 8D).** Data plane,
+business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all five
+Phase-1 vertical slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search,
+Notifications, the typed `@kaenal/api-client`, the BullMQ jobs runtime (SLA escalation, AV scan,
+notification delivery) AND the 8D workflow are done and proven, and CI runs them on every push/PR. 795
+tests pass (233 db integration, 405 core unit, 121 api integration, 25 types unit, 11 api-client
+unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant
 tables. The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**8D slice (02 §4, 03 §10):** the eight-discipline problem-solving workflow. The gating rule lives in
+`packages/core/eight-d.ts` — a step is completable only once its prerequisites are, strictly in order
+EXCEPT that D3 may run parallel to D2 (so D3's only prerequisite is D1); mutation-testable, 9 unit
+tests. The service (`apps/api/src/eight-d/*`) stores the disciplines as a `steps` jsonb, gates each
+completion, and mints `8D-YYYY-NNNN`. The headline seam is 8D↔NCR: an 8D opened from an NCR links it
+(`ncrs.eight_d_id`) and — while `active` — blocks that NCR from closing (the dormant `openEightDId`
+path in `ncrMachine`, now wired: `NcrService` resolves it to null once the 8D is completed/cancelled).
+Not plant-scoped; rides the NCR capabilities (`ncr:view`/`ncr:manage`) since the matrix has no 8D row.
+`lock_version` (migration 0009). 6 api tests incl. the full close-blocked → resolve → close flow.
 
 **BullMQ jobs runtime (06 §1):** a worker process (`pnpm --filter @kaenal/api worker`) separate from
 the API, with three queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
@@ -121,12 +131,12 @@ The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI
 web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** the jobs runtime's first three queues (sla/files/notify) are live; the remaining 06
-queues are `schedule` (materialize recurring inspections), `reports`/exports (async CSV/XLSX/PDF →
-S3), `docs` (expiry reminders), `housekeeping` (purge soft-deleted, partition roll), and the `ai`
-gateway. Real ClamAV + an email/push provider would replace the stub scanner/delivery ports. The other
-untouched modules with schema-but-no-API are **8D** (step gating), **Audits + audit findings**, and
-**Suppliers/PPAP/SCAR**. Alternatively the dedicated **FE** can now start against `@kaenal/api-client`.
+**Next task:** per the README build order (Phase 2 = 8D, audits, notifications, reports, SPC/FMEA,
+scheduling), 8D and notifications are done — **Audits + audit findings** is next (the `audits` /
+`audit_findings` tables exist; an audit finding can spawn an NCR or CAPA, mirroring the findings→NCR
+seam). Then **reports/exports** (async jobs → S3) and the remaining 06 queues (`schedule`, `docs`,
+`housekeeping`, `ai`). Real ClamAV + email/push providers would replace the stub scanner/delivery
+ports. Suppliers/PPAP/SCAR is Phase 4. The dedicated **FE** can also start against `@kaenal/api-client`.
 
 ### How to get running from a cold clone
 
@@ -134,11 +144,11 @@ untouched modules with schema-but-no-API are **8D** (step gating), **Audits + au
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0008)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0009)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 780 tests
+pnpm test                     # full suite (serial: shares one DB) — 795 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -280,7 +290,8 @@ to build the frontend.)
 - [ ] All six UI states on every list/detail (04 §6)
 
 ## Phase 2 — Depth
-- [ ] 8D workflow (step gating: N requires 1..N-1, D3 may parallel D2)
+- [x] 8D workflow (step gating: N requires 1..N-1, D3 may parallel D2) (2026-07-22) —
+      `packages/core/eight-d.ts` + `apps/api/src/eight-d/*`; gating, 8D↔NCR close-block, migration 0009
 - [ ] Audits + audit findings
 - [~] BullMQ jobs runtime (2026-07-22) — worker process + `sla` (escalation), `files` (AV scan),
       `notify` (delivery) queues DONE (`apps/api/src/jobs/*`); `schedule`/`reports`/`docs`/
@@ -302,6 +313,16 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — 8D rides the NCR capabilities, and the NCR-close block now checks 8D status.** The
+  03 §3 matrix has no row for 8D, and an 8D is the deep problem-solving ON an NCR (raised from it,
+  gates its close), so 8D uses `ncr:view` (read) / `ncr:manage` (run) rather than inventing an
+  `eightd:*` capability. The `openEightDId` guard in `ncrMachine` was wired long ago but always fed
+  `ncrs.eight_d_id` verbatim; `NcrService` now resolves it to null unless the linked 8D is still
+  `active`, so a completed/cancelled 8D correctly stops blocking the NCR. Consequence surfaced by the
+  test: linking an 8D `UPDATE`s the NCR (`eight_d_id`), bumping its `lock_version` — a client holding
+  the NCR must refetch before its next write. Step gating (D3∥D2) lives in `packages/core` as a pure
+  function, mutation-testable. *Affects: 02 §4, 03 §3, §10.*
 
 - **2026-07-22 — the jobs runtime is gated by `JOBS_ENABLED`, with a `NoopProducer` when off.** The
   API process only ENQUEUES; the worker (`pnpm --filter @kaenal/api worker`) consumes. Rather than

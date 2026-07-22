@@ -5,6 +5,8 @@ import {
   CapaType,
   DocumentCategory,
   DocumentStatus,
+  EightDStatus,
+  EightDStepStatus,
   FindingSeverity,
   InspectionStatus,
   NcrActionKind,
@@ -501,6 +503,61 @@ export const UpdateNotificationPrefsBody = z.object({
   matrix: z.record(z.string(), ChannelPrefs),
 });
 export type UpdateNotificationPrefsBody = z.infer<typeof UpdateNotificationPrefsBody>;
+
+// --- 8D ----------------------------------------------------------------------
+
+export const EightDStepDto = z.object({
+  status: EightDStepStatus,
+  completedAt: z.string().datetime().nullable().optional(),
+  completedBy: z.string().uuid().nullable().optional(),
+  /** Discipline-specific payload (D2 problem statement, D4 root cause, …). */
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+export type EightDStepDto = z.infer<typeof EightDStepDto>;
+
+export const EightDDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string(),
+  ncrId: z.string().uuid().nullable(),
+  status: EightDStatus,
+  teamLeadId: z.string().uuid().nullable(),
+  championId: z.string().uuid().nullable(),
+  memberIds: z.array(z.string().uuid()),
+  startedAt: z.string().datetime().nullable(),
+  targetAt: z.string().datetime().nullable(),
+  currentStep: z.number().int().min(1).max(8),
+  steps: z.record(z.string(), EightDStepDto),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type EightDDto = z.infer<typeof EightDDto>;
+
+export const CreateEightDBody = z.object({
+  title: z.string().min(1).max(200),
+  /** Raising an 8D from an NCR links it and blocks the NCR's close until done. */
+  ncrId: z.string().uuid().optional(),
+  teamLeadId: z.string().uuid().nullable().optional(),
+  championId: z.string().uuid().nullable().optional(),
+  memberIds: z.array(z.string().uuid()).max(50).optional(),
+  targetAt: z.string().datetime().nullable().optional(),
+});
+export type CreateEightDBody = z.infer<typeof CreateEightDBody>;
+
+export const UpdateEightDStepBody = z.object({
+  status: EightDStepStatus,
+  data: z.record(z.string(), z.unknown()).optional(),
+  version: z.number().int().nonnegative(),
+});
+export type UpdateEightDStepBody = z.infer<typeof UpdateEightDStepBody>;
+
+export const TransitionEightDBody = z.object({
+  to: z.enum(["completed", "cancelled"]),
+  version: z.number().int().nonnegative(),
+  reason: z.string().max(2000).optional(),
+});
+export type TransitionEightDBody = z.infer<typeof TransitionEightDBody>;
 
 // --- Me (session identity) --------------------------------------------------
 

@@ -10,3 +10,4 @@ export * from "./rbac.js";
 export * from "./auth-policy.js";
 export * from "./form-engine.js";
 export * from "./file-policy.js";
+export * from "./eight-d.js";

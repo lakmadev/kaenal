@@ -299,8 +299,9 @@ export class NcrService {
       actorId,
       actorRole: membership.role,
       resolvedBy: row.resolved_by,
-      // No 8D slice yet, so this is null in practice; passed through for when it lands.
-      openEightDId: row.eight_d_id,
+      // An 8D blocks close only while it is still active; a completed/cancelled
+      // one has been resolved and no longer holds the NCR open (03 §10).
+      openEightDId: await this.openEightDId(tx, row.eight_d_id),
       ...(body.force !== undefined ? { force: body.force } : {}),
     });
     if (!decision.ok) throw ApiError.from(decision);
@@ -503,6 +504,16 @@ export class NcrService {
       [id],
     );
     return rows[0] ?? null;
+  }
+
+  /** The linked 8D id, but only if that 8D is still active (else null). */
+  private async openEightDId(tx: Tx, eightDId: string | null): Promise<string | null> {
+    if (eightDId === null) return null;
+    const { rows } = await tx.query<{ status: string }>(
+      "SELECT status FROM eight_ds WHERE id = $1 AND deleted_at IS NULL",
+      [eightDId],
+    );
+    return rows[0]?.status === "active" ? eightDId : null;
   }
 
   private async actionsFor(tx: Tx, ncrId: string): Promise<NcrAction[]> {

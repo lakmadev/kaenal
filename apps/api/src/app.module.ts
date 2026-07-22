@@ -26,6 +26,8 @@ import { NcrController } from "./ncr/ncr.controller.js";
 import { NcrService } from "./ncr/ncr.service.js";
 import { CapaController } from "./capa/capa.controller.js";
 import { CapaService } from "./capa/capa.service.js";
+import { EightDController } from "./eight-d/eight-d.controller.js";
+import { EightDService } from "./eight-d/eight-d.service.js";
 import { DocumentsController } from "./documents/documents.controller.js";
 import { DocumentsService } from "./documents/documents.service.js";
 import { FilesController } from "./files/files.controller.js";
@@ -44,6 +46,7 @@ import {
   CAPA_SERVICE,
   CONTROL_POOL,
   DOCUMENTS_SERVICE,
+  EIGHT_D_SERVICE,
   ENV,
   FILES_SERVICE,
   FINDINGS_SERVICE,
@@ -71,6 +74,7 @@ import {
     FindingsController,
     NcrController,
     CapaController,
+    EightDController,
     DocumentsController,
     FilesController,
     SearchController,
@@ -126,6 +130,7 @@ import {
     { provide: FINDINGS_SERVICE, useFactory: () => new FindingsService() },
     { provide: NCR_SERVICE, useFactory: () => new NcrService() },
     { provide: CAPA_SERVICE, useFactory: () => new CapaService() },
+    { provide: EIGHT_D_SERVICE, useFactory: () => new EightDService() },
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
 
     // Object storage (03 §7). One S3 client for the process; MinIO locally.
