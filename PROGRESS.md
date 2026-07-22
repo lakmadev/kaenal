@@ -31,9 +31,11 @@ record → 404 not 403), RBAC per capability.
 auth) and 5/min per-IP on the credential endpoints (the credential-stuffing gap lockout could not
 close). Off by default only in `NODE_ENV=test`; `RATE_LIMIT_ENABLED` overrides.
 
+The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI doc — there is no
+web frontend in this repo (a dedicated FE is planned separately).
+
 **Next task:** Findings → NCR creation flow, then NCR (state machine + four-eyes verify + SLA
-fields) — schema → contract → service → tests. Web app shell (04) proves DB→API→UI; sign-in +
-inspections/templates screens exist (`apps/web`), full design system deferred.
+fields) — schema → contract → service → tests.
 
 ### How to get running from a cold clone
 
@@ -52,17 +54,23 @@ The api integration tests resolve real tenants and seed members, so `acme` and `
 provisioned first. `pnpm test` is `turbo run test --concurrency=1` — do not parallelise it; the
 suites share one Postgres.
 
-**To see the app (DB→API→UI):**
+**To browse the API (Swagger):**
 
 ```bash
 pnpm --filter @kaenal/api seed:demo    # loginable admin + a template + 3 inspections in acme
 pnpm --filter @kaenal/api dev          # API on :3001
-pnpm --filter @kaenal/web dev          # web on :3000
-# open http://localhost:3000 → sign in: workspace "acme", demo@acme.test / demo-password-1234
+# open http://localhost:3001/v1/docs   → Swagger UI over the generated OpenAPI doc
 ```
 
-The provisioned admin has no credential (Known issues), so `seed:demo` is what makes the workspace
-loginable; it is dev-only and sets a known password.
+Swagger UI (`/v1/docs`) renders the OpenAPI document (`/v1/openapi.json`) generated from the
+ts-rest contract, with the `X-Tenant-Id` header and a bearer scheme wired in so endpoints are
+exercisable. To try authenticated routes: POST `/v1/auth/sign-in` with `X-Tenant-Id: acme` and
+`demo@acme.test` / `demo-password-1234`, copy the `kaenal_session` cookie value, then **Authorize**
+with it as the bearer token. The provisioned admin has no credential (Known issues), so `seed:demo`
+is what makes the workspace loginable; it is dev-only and sets a known password.
+
+There is no web frontend in this repo yet — a dedicated FE implementation is planned separately.
+The typed client that FE will use is `initClient(contract)` from `@kaenal/types`.
 
 Ports are shifted off the defaults (5433/6380) so the stack can coexist with any Postgres or
 Redis already running locally.
@@ -158,19 +166,15 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
 - [ ] Notifications
 - [ ] `packages/api-client` — typed client + TanStack Query hooks
 
-Frontend (only after the backend slice for a module is green):
+Frontend — NOT in this repo. A dedicated FE implementation is planned separately; it will consume
+the ts-rest contract via `initClient(contract)`. Until then the API is browsable via Swagger UI at
+`/v1/docs`. (An earlier exploratory `apps/web` was removed — the ask was to visualise the API, not
+to build the frontend.)
 
-- [~] Next.js app shell — sidebar + topbar exist (`apps/web`), served by the typed
-      ts-rest client against the live API. Command palette + full 04 §3 shell deferred.
-- [ ] Design tokens from `implementation/reference/tokens.css` — currently hand-written
-      CSS in `globals.css`; swap for the token system with the real shell.
-- [~] Inspections screens: list, detail, schedule, run (dynamic form from the template
-      schema) + templates (create/publish). NCR → CAPA → Documents not yet.
-- [ ] All six UI states on every list/detail (04 §6) — only empty + populated so far.
-- [x] `apps/web` is a BFF: browser holds two httpOnly cookies, the Next server
-      exchanges them for a Bearer call to the API. Auth token never reaches browser JS,
-      and there is no cross-site cookie/CSRF path. Sign-in parses the API's Set-Cookie
-      and re-homes the token. (2026-07-21)
+- [ ] Next.js app shell — sidebar, topbar, command palette (04 §3)
+- [ ] Design tokens from `implementation/reference/tokens.css`
+- [ ] Dashboard → Inspections → NCR → CAPA → Documents
+- [ ] All six UI states on every list/detail (04 §6)
 
 ## Phase 2 — Depth
 - [ ] 8D workflow (step gating: N requires 1..N-1, D3 may parallel D2)
