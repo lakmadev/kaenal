@@ -7,15 +7,22 @@
 
 **Phase 0 done; Phase 1 core loop under way.** Data plane, business logic, audit plumbing, the
 request lifecycle, authentication, the contract layer AND the first five vertical slices
-(Inspections, Findings → NCR, CAPA, Documents, then Files) are done and proven, and CI runs them on
-every push/PR. 752 tests pass (233 db integration, 396 core unit, 98 api integration, 25 types unit);
-all four packages typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant
+(Inspections, Findings → NCR, CAPA, Documents, Files) plus federated Search are done and proven, and
+CI runs them on every push/PR. 757 tests pass (233 db integration, 396 core unit, 103 api
+integration, 25 types unit); all four packages typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant
 tables. The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Search slice (03 §1, 04 command palette):** one `GET /v1/search?q=` federates full-text search
+across inspections, NCRs, CAPAs and documents, ranked over each entity's generated `search_vector`
+(code A / title B / description C, migration 0008), top 6 per kind. Plant scoping mirrors the list
+endpoints (a plant-bound inspector/viewer sees only in-scope inspections/NCRs); RLS confines every
+query to the caller's tenant, so search is not a cross-tenant oracle (rule 8). Authenticated-only —
+every role holds the four `*:view` capabilities.
 
 **Files slice (03 §7, 07 §3):** the three-step upload — `POST /v1/files/presign` (mime allowlist +
 size cap in `packages/core/file-policy.ts`, a `pending` row, a short-TTL presigned PUT) → client
@@ -78,9 +85,10 @@ The API is browsable via **Swagger UI at `/v1/docs`** over the generated OpenAPI
 web frontend in this repo (a dedicated FE is planned separately). `seed:demo` now also creates a
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
-**Next task:** federated Search (FTS + `/v1/search` for the command palette — one endpoint fanning
-across inspections/NCRs/CAPAs/documents, tenant- and plant-scoped), then Notifications. The AV-scan
-job that flips a completed file to clean/infected is Phase 2 (06). 8D (step gating) is Phase 2.
+**Next task:** Notifications (the `notifications` / `notification_prefs` tables exist, no service yet
+— create/list/mark-read + the per-user channel preference matrix), then `packages/api-client` (typed
+client + TanStack Query hooks). The AV-scan job that flips a completed file to clean/infected is
+Phase 2 (06). 8D (step gating) is Phase 2.
 
 ### How to get running from a cold clone
 
@@ -88,11 +96,11 @@ job that flips a completed file to clean/infected is Phase 2 (06). 8D (step gati
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0003)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0008)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 752 tests
+pnpm test                     # full suite (serial: shares one DB) — 757 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -214,7 +222,9 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
 - [x] Files (presign → upload → complete → AV scan gate) (2026-07-22, 03 §7) —
       `apps/api/src/files/*` + `packages/core/file-policy.ts`; `Storage` port (real `S3Storage`/MinIO
       + `FakeStorage`), download gated on scan status, no migration (files table pre-existed)
-- [ ] Search / FTS + federated `/v1/search` for the command palette
+- [x] Search / FTS + federated `/v1/search` for the command palette (2026-07-22) —
+      `apps/api/src/search/*`; generated `search_vector` columns + GIN (migration 0008), top 6/kind,
+      plant-scoped
 - [ ] Notifications
 - [ ] `packages/api-client` — typed client + TanStack Query hooks
 
@@ -249,6 +259,27 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — search uses GENERATED `tsvector` columns, not a trigger.** 03 §1 says "tsvector
+  column, updated by trigger"; a `GENERATED ALWAYS AS (...) STORED` column is the stronger form —
+  Postgres recomputes it from the row on every write so it can never drift, needs no trigger to
+  remember, and back-fills existing rows on ALTER without an UPDATE (so it does not disturb
+  `lock_version`). Per-table expressions (only referencing columns that table has — documents and
+  inspections have no `description`), weighted code A / title B / description C. Migration 0008 on
+  inspections/ncrs/capas/documents + a GIN index each. One consequence rippled: the generic RLS
+  write-isolation test clones a row by enumerating catalog columns, which then tried to write the
+  generated column and threw a non-RLS error — fixed by excluding `is_generated <> 'NEVER'` columns
+  from the clone (the tenant_id override + WITH CHECK assertion are unchanged, so the isolation
+  mutation property still holds). *Affects: 03 §1, 08 §1.1.*
+
+- **2026-07-22 — federated search is one endpoint, plant-scoped, RLS-confined.** `GET /v1/search`
+  fans across the four searchable record kinds (a fixed table map, never user input, so the
+  interpolated table name is safe), returns the top 6 per kind ranked by `ts_rank`, and reuses the
+  list endpoints' plant-scope convention (inspections/NCRs filtered to `plant_ids` for scoped roles;
+  CAPAs/documents are not plant-scoped). It carries no capability — every role holds the four
+  `*:view` — and runs inside the request's tenant transaction, so RLS alone stops it being a
+  cross-tenant existence oracle (rule 8). `websearch_to_tsquery` parses user input without throwing
+  on stray punctuation. *Affects: 03 §1, 04, rule 8.*
 
 - **2026-07-22 — file routes carry NO capability; the controls are tenant RLS + the scan gate.** The
   03 §3 matrix defines no file capability, so presign/complete/get/download require only an

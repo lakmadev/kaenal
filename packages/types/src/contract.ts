@@ -27,6 +27,7 @@ import {
   PresignFileBody,
   PresignFileResult,
   ReviewDocumentBody,
+  SearchResults,
   RevertCapaBody,
   StartInspectionBody,
   TemplateDto,
@@ -76,6 +77,15 @@ export const contract = c.router(
       path: "/v1/me",
       responses: { 200: MeDto, 401: ErrorBody },
       summary: "The current session's identity and capabilities",
+    },
+
+    // --- Search ------------------------------------------------------------
+    search: {
+      method: "GET",
+      path: "/v1/search",
+      query: z.object({ q: z.string().min(1).max(200) }),
+      responses: { 200: SearchResults, ...commonErrors },
+      summary: "Federated full-text search across records (top 6 per kind), plant-scoped by role",
     },
 
     // --- Inspection templates ---------------------------------------------

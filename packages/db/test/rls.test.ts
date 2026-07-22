@@ -170,8 +170,12 @@ describe("RLS: write isolation (WITH CHECK)", () => {
       // rather than a hand-written stub that could drift from it.
       const columns = await withTenant(TENANT_A, null, async (tx) => {
         const { rows } = await tx.query<{ column_name: string }>(
+          // Skip generated columns (e.g. search_vector): they cannot be written
+          // explicitly, and cloning into them would throw a non-RLS error that
+          // masks whether the WITH CHECK policy actually fired.
           `SELECT column_name FROM information_schema.columns
            WHERE table_schema = 'public' AND table_name = $1 AND column_name <> 'id'
+             AND is_generated = 'NEVER'
            ORDER BY ordinal_position`,
           [table],
         );

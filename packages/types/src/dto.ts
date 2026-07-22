@@ -441,6 +441,27 @@ export const DownloadFileResult = z.object({
 });
 export type DownloadFileResult = z.infer<typeof DownloadFileResult>;
 
+// --- Search -----------------------------------------------------------------
+
+/** The entity kinds the command palette federates over (03 §1, 04). */
+export const SearchEntityKind = z.enum(["inspection", "ncr", "capa", "document"]);
+export type SearchEntityKind = z.infer<typeof SearchEntityKind>;
+
+export const SearchResultDto = z.object({
+  kind: SearchEntityKind,
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string(),
+  /** FTS relevance (ts_rank); higher is better. Only meaningful within a kind. */
+  rank: z.number(),
+});
+export type SearchResultDto = z.infer<typeof SearchResultDto>;
+
+export const SearchResults = z.object({
+  items: z.array(SearchResultDto),
+});
+export type SearchResults = z.infer<typeof SearchResults>;
+
 // --- Me (session identity) --------------------------------------------------
 
 export const MeDto = z.object({

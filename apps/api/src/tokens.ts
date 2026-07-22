@@ -20,4 +20,5 @@ export const CAPA_SERVICE = Symbol("CAPA_SERVICE");
 export const DOCUMENTS_SERVICE = Symbol("DOCUMENTS_SERVICE");
 export const FILES_SERVICE = Symbol("FILES_SERVICE");
 export const STORAGE = Symbol("STORAGE");
+export const SEARCH_SERVICE = Symbol("SEARCH_SERVICE");
 export const RATE_LIMITER = Symbol("RATE_LIMITER");

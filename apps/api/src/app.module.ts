@@ -33,6 +33,8 @@ import { FilesService } from "./files/files.service.js";
 import { S3Storage } from "./files/s3-storage.js";
 import { S3Client } from "@aws-sdk/client-s3";
 import type { Storage } from "./files/storage.js";
+import { SearchController } from "./search/search.controller.js";
+import { SearchService } from "./search/search.service.js";
 import {
   AUTH_SERVICE,
   AUTHENTICATOR,
@@ -47,6 +49,7 @@ import {
   NCR_SERVICE,
   RATE_LIMITER,
   REDIS,
+  SEARCH_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -65,6 +68,7 @@ import {
     CapaController,
     DocumentsController,
     FilesController,
+    SearchController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -139,6 +143,7 @@ import {
       useFactory: (storage: Storage, env: Env) => new FilesService(storage, env.S3_BUCKET, env.S3_URL_TTL_SECONDS),
       inject: [STORAGE, ENV],
     },
+    { provide: SEARCH_SERVICE, useFactory: () => new SearchService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),
