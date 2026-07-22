@@ -5,19 +5,29 @@
 
 ## Current status
 
-**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 under way (jobs runtime + 8D).** Data plane,
-business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all five
-Phase-1 vertical slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search,
+**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 under way (jobs runtime + 8D + Audits).** Data
+plane, business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all
+five Phase-1 vertical slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search,
 Notifications, the typed `@kaenal/api-client`, the BullMQ jobs runtime (SLA escalation, AV scan,
-notification delivery) AND the 8D workflow are done and proven, and CI runs them on every push/PR. 795
-tests pass (233 db integration, 405 core unit, 121 api integration, 25 types unit, 11 api-client
-unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant
+notification delivery), the 8D workflow AND the Audits module are done and proven, and CI runs them on
+every push/PR. 811 tests pass (233 db integration, 414 core unit, 128 api integration, 25 types unit,
+11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 32 tenant
 tables. The isolation nets, DST math, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Audits slice (02 §2, 03 §3, 07 module):** audits run through fixed phases
+(planned → preparation → fieldwork → reporting → closed, forward-only `auditMachine`), accumulate
+findings (`audit_findings`: clause/kind/description), and each finding can spawn an NCR or a CAPA —
+the same corrective seam as inspection findings, linking `audit_findings.ncr_id`/`capa_id` and
+delegating to `NcrService`/`CapaService` so codes, SLA and audit events stay consistent (NCR source =
+`audit`, CAPA sourceKind = `audit_finding`; double-raise → 409). Audits are plant-scoped (inspector/
+viewer see only their plants → 404); a new `audit:view` capability reads (everyone), `audit:manage`
+(admin/manager/auditor) schedules/advances/records/raises. `lock_version` (migration 0010). 7 api
+tests + 4 core (phase machine); `AUD-YYYY-NNNN`.
 
 **8D slice (02 §4, 03 §10):** the eight-discipline problem-solving workflow. The gating rule lives in
 `packages/core/eight-d.ts` — a step is completable only once its prerequisites are, strictly in order
@@ -132,11 +142,12 @@ web frontend in this repo (a dedicated FE is planned separately). `seed:demo` no
 finding + an NCR raised from it, so the findings/NCR endpoints have data to show.
 
 **Next task:** per the README build order (Phase 2 = 8D, audits, notifications, reports, SPC/FMEA,
-scheduling), 8D and notifications are done — **Audits + audit findings** is next (the `audits` /
-`audit_findings` tables exist; an audit finding can spawn an NCR or CAPA, mirroring the findings→NCR
-seam). Then **reports/exports** (async jobs → S3) and the remaining 06 queues (`schedule`, `docs`,
-`housekeeping`, `ai`). Real ClamAV + email/push providers would replace the stub scanner/delivery
-ports. Suppliers/PPAP/SCAR is Phase 4. The dedicated **FE** can also start against `@kaenal/api-client`.
+scheduling), 8D, audits and notifications are done — **reports / exports** is next (03 §8: async jobs,
+`POST /v1/exports` → 202 {jobId} → poll/notify → presigned S3 download; CSV/XLSX/PDF, 100k-row cap →
+chunked zip). That is the `reports` BullMQ queue, so it also grows the jobs runtime. Then **SPC/FMEA +
+scheduling/recurrence** and the remaining 06 queues (`schedule`, `docs`, `housekeeping`, `ai`). Real
+ClamAV + email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is
+Phase 4. The dedicated **FE** can also start against `@kaenal/api-client`.
 
 ### How to get running from a cold clone
 
@@ -144,11 +155,11 @@ ports. Suppliers/PPAP/SCAR is Phase 4. The dedicated **FE** can also start again
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0009)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0010)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 795 tests
+pnpm test                     # full suite (serial: shares one DB) — 811 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -292,7 +303,8 @@ to build the frontend.)
 ## Phase 2 — Depth
 - [x] 8D workflow (step gating: N requires 1..N-1, D3 may parallel D2) (2026-07-22) —
       `packages/core/eight-d.ts` + `apps/api/src/eight-d/*`; gating, 8D↔NCR close-block, migration 0009
-- [ ] Audits + audit findings
+- [x] Audits + audit findings (2026-07-22) — `packages/core/state-machines/audit.ts` +
+      `apps/api/src/audits/*`; phase machine, findings, raise-NCR/raise-CAPA seam, migration 0010
 - [~] BullMQ jobs runtime (2026-07-22) — worker process + `sla` (escalation), `files` (AV scan),
       `notify` (delivery) queues DONE (`apps/api/src/jobs/*`); `schedule`/`reports`/`docs`/
       `housekeeping`/`ai` queues still pending
@@ -313,6 +325,15 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-22 — audit findings reuse the corrective seam by delegating to `NcrService`/`CapaService`.**
+  Rather than reimplement NCR/CAPA creation (code minting, SLA, audit events) inside the audits
+  service, `AuditsService` is constructed with `NcrService` + `CapaService` and calls their `create`
+  from within the same request transaction, then links `audit_findings.ncr_id`/`capa_id` with a
+  `WHERE … IS NULL` compare-and-set (double-raise → 409) — the exact pattern inspection findings use.
+  The NCR gets `source = 'audit'`, the CAPA `sourceKind = 'audit_finding'`. Added an `audit:view`
+  capability (all roles, the "View all modules" row) alongside the existing `audit:manage`
+  (admin/manager/auditor); audits are plant-scoped like NCRs/inspections. *Affects: 02 §2, 03 §3.*
 
 - **2026-07-22 — 8D rides the NCR capabilities, and the NCR-close block now checks 8D status.** The
   03 §3 matrix has no row for 8D, and an 8D is the deep problem-solving ON an NCR (raised from it,

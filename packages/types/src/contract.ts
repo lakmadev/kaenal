@@ -1,9 +1,14 @@
 import { initContract } from "@ts-rest/core";
 import { z } from "zod";
 import {
+  AdvanceAuditBody,
   AdvanceCapaBody,
+  AuditDto,
+  AuditFindingDto,
   CapaActionDto,
   CapaDto,
+  CreateAuditBody,
+  CreateAuditFindingBody,
   CompleteFileBody,
   CompleteInspectionBody,
   CreateCapaActionBody,
@@ -31,6 +36,8 @@ import {
   NotificationPrefsDto,
   PresignFileBody,
   PresignFileResult,
+  RaiseCapaFromFindingBody,
+  RaiseNcrFromFindingBody,
   ReviewDocumentBody,
   SearchResults,
   UnreadCountDto,
@@ -48,6 +55,8 @@ import {
 } from "./dto.js";
 import { ErrorBody, PageQuery, page } from "./http.js";
 import {
+  AuditPhase,
+  AuditType,
   CapaPhase,
   CapaType,
   DocumentCategory,
@@ -298,6 +307,73 @@ export const contract = c.router(
       body: TransitionEightDBody,
       responses: { 200: EightDDto, ...commonErrors },
       summary: "Complete (all disciplines done) or cancel an 8D",
+    },
+
+    // --- Audits ------------------------------------------------------------
+    listAudits: {
+      method: "GET",
+      path: "/v1/audits",
+      query: PageQuery.extend({
+        status: AuditPhase.optional(),
+        type: AuditType.optional(),
+        plantId: z.string().uuid().optional(),
+      }),
+      responses: { 200: page(AuditDto), ...commonErrors },
+      summary: "List audits (cursor-paginated, plant-scoped by role)",
+    },
+    createAudit: {
+      method: "POST",
+      path: "/v1/audits",
+      body: CreateAuditBody,
+      responses: { 201: AuditDto, ...commonErrors },
+      summary: "Schedule an audit",
+    },
+    getAudit: {
+      method: "GET",
+      path: "/v1/audits/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: AuditDto, ...commonErrors },
+      summary: "Fetch one audit",
+    },
+    advanceAudit: {
+      method: "POST",
+      path: "/v1/audits/:id/advance",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: AdvanceAuditBody,
+      responses: { 200: AuditDto, ...commonErrors },
+      summary: "Advance an audit one phase forward",
+    },
+    listAuditFindings: {
+      method: "GET",
+      path: "/v1/audits/:id/findings",
+      pathParams: z.object({ id: z.string().uuid() }),
+      query: PageQuery,
+      responses: { 200: page(AuditFindingDto), ...commonErrors },
+      summary: "List an audit's findings",
+    },
+    createAuditFinding: {
+      method: "POST",
+      path: "/v1/audits/:id/findings",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: CreateAuditFindingBody,
+      responses: { 201: AuditFindingDto, ...commonErrors },
+      summary: "Record a finding against an audit",
+    },
+    raiseNcrFromAuditFinding: {
+      method: "POST",
+      path: "/v1/audit-findings/:id/raise-ncr",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: RaiseNcrFromFindingBody,
+      responses: { 201: NcrDto, ...commonErrors },
+      summary: "Raise an NCR from an audit finding (links the finding)",
+    },
+    raiseCapaFromAuditFinding: {
+      method: "POST",
+      path: "/v1/audit-findings/:id/raise-capa",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: RaiseCapaFromFindingBody,
+      responses: { 201: CapaDto, ...commonErrors },
+      summary: "Raise a CAPA from an audit finding (links the finding)",
     },
 
     // --- CAPAs -------------------------------------------------------------

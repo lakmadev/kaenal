@@ -28,6 +28,8 @@ import { CapaController } from "./capa/capa.controller.js";
 import { CapaService } from "./capa/capa.service.js";
 import { EightDController } from "./eight-d/eight-d.controller.js";
 import { EightDService } from "./eight-d/eight-d.service.js";
+import { AuditsController } from "./audits/audits.controller.js";
+import { AuditsService } from "./audits/audits.service.js";
 import { DocumentsController } from "./documents/documents.controller.js";
 import { DocumentsService } from "./documents/documents.service.js";
 import { FilesController } from "./files/files.controller.js";
@@ -41,6 +43,7 @@ import { NotificationsController } from "./notifications/notifications.controlle
 import { NotificationsService } from "./notifications/notifications.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
+  AUDITS_SERVICE,
   AUTH_SERVICE,
   AUTHENTICATOR,
   CAPA_SERVICE,
@@ -75,6 +78,7 @@ import {
     NcrController,
     CapaController,
     EightDController,
+    AuditsController,
     DocumentsController,
     FilesController,
     SearchController,
@@ -131,6 +135,11 @@ import {
     { provide: NCR_SERVICE, useFactory: () => new NcrService() },
     { provide: CAPA_SERVICE, useFactory: () => new CapaService() },
     { provide: EIGHT_D_SERVICE, useFactory: () => new EightDService() },
+    {
+      provide: AUDITS_SERVICE,
+      useFactory: (ncrs: NcrService, capas: CapaService) => new AuditsService(ncrs, capas),
+      inject: [NCR_SERVICE, CAPA_SERVICE],
+    },
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
 
     // Object storage (03 §7). One S3 client for the process; MinIO locally.

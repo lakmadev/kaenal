@@ -4,6 +4,7 @@ export * from "./state-machines/ncr.js";
 export * from "./state-machines/inspection.js";
 export * from "./state-machines/capa.js";
 export * from "./state-machines/document.js";
+export * from "./state-machines/audit.js";
 export * from "./sla.js";
 export * from "./codes.js";
 export * from "./rbac.js";

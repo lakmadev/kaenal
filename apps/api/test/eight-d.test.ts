@@ -74,6 +74,7 @@ interface EightD {
   status: string;
   lockVersion: number;
   currentStep: number;
+  steps: Record<string, { status: string }>;
 }
 
 async function createEightD(ncrId?: string): Promise<EightD> {
@@ -164,7 +165,7 @@ describe("step gating", () => {
     ed = d2.body as EightD;
     // …yet D3 may still be completed (the parallel exception).
     ed = await completeStep(ed, 3);
-    expect(ed.steps["d3"].status).toBe("complete");
+    expect(ed.steps["d3"]?.status).toBe("complete");
 
     // D4 still needs D2 done.
     const d4blocked = await authed("post", `/v1/eight-ds/${ed.id}/steps/4`, mgrTok).send({ status: "complete", version: ed.lockVersion });

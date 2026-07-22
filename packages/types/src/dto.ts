@@ -1,5 +1,8 @@
 import { z } from "zod";
 import {
+  AuditFindingKind,
+  AuditPhase,
+  AuditType,
   CapaActionStatus,
   CapaPhase,
   CapaType,
@@ -558,6 +561,82 @@ export const TransitionEightDBody = z.object({
   reason: z.string().max(2000).optional(),
 });
 export type TransitionEightDBody = z.infer<typeof TransitionEightDBody>;
+
+// --- Audits ------------------------------------------------------------------
+
+export const AuditDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string(),
+  standard: z.string().nullable(),
+  type: AuditType,
+  status: AuditPhase,
+  leadAuditorId: z.string().uuid().nullable(),
+  team: z.array(z.string().uuid()),
+  plantId: z.string().uuid().nullable(),
+  startAt: z.string().datetime().nullable(),
+  endAt: z.string().datetime().nullable(),
+  progress: z.number(),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AuditDto = z.infer<typeof AuditDto>;
+
+export const CreateAuditBody = z.object({
+  title: z.string().min(1).max(200),
+  type: AuditType,
+  standard: z.string().max(200).nullable().optional(),
+  leadAuditorId: z.string().uuid().nullable().optional(),
+  team: z.array(z.string().uuid()).max(50).optional(),
+  plantId: z.string().uuid().nullable().optional(),
+  startAt: z.string().datetime().nullable().optional(),
+  endAt: z.string().datetime().nullable().optional(),
+});
+export type CreateAuditBody = z.infer<typeof CreateAuditBody>;
+
+/** Advance an audit one phase forward (planned → … → closed). */
+export const AdvanceAuditBody = z.object({
+  to: AuditPhase,
+  version: z.number().int().nonnegative(),
+  reason: z.string().max(2000).optional(),
+});
+export type AdvanceAuditBody = z.infer<typeof AdvanceAuditBody>;
+
+export const AuditFindingDto = z.object({
+  id: z.string().uuid(),
+  auditId: z.string().uuid(),
+  clause: z.string().nullable(),
+  kind: AuditFindingKind,
+  description: z.string(),
+  ncrId: z.string().uuid().nullable(),
+  capaId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type AuditFindingDto = z.infer<typeof AuditFindingDto>;
+
+export const CreateAuditFindingBody = z.object({
+  kind: AuditFindingKind,
+  description: z.string().min(1).max(4000),
+  clause: z.string().max(200).nullable().optional(),
+});
+export type CreateAuditFindingBody = z.infer<typeof CreateAuditFindingBody>;
+
+/** Raise an NCR from an audit finding (links `audit_findings.ncr_id`). */
+export const RaiseNcrFromFindingBody = z.object({
+  priority: NcrPriority,
+  title: z.string().min(1).max(200).optional(),
+});
+export type RaiseNcrFromFindingBody = z.infer<typeof RaiseNcrFromFindingBody>;
+
+/** Raise a CAPA from an audit finding (links `audit_findings.capa_id`). */
+export const RaiseCapaFromFindingBody = z.object({
+  type: CapaType,
+  priority: NcrPriority,
+  title: z.string().min(1).max(200).optional(),
+});
+export type RaiseCapaFromFindingBody = z.infer<typeof RaiseCapaFromFindingBody>;
 
 // --- Me (session identity) --------------------------------------------------
 

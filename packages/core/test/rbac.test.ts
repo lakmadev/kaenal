@@ -33,6 +33,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ncr:verify",
     "capa:view",
     "capa:manage",
+    "audit:view",
     "audit:manage",
     "document:view",
     "document:manage",
@@ -51,6 +52,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ncr:verify",
     "capa:view",
     "capa:manage",
+    "audit:view",
     "audit:manage",
     "document:view",
     "document:manage",
@@ -64,11 +66,12 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ncr:create",
     "ncr:verify",
     "capa:view",
+    "audit:view",
     "audit:manage",
     "document:view",
   ],
-  inspector: ["inspection:view", "inspection:perform", "ncr:view", "ncr:create", "capa:view", "document:view"],
-  viewer: ["inspection:view", "ncr:view", "capa:view", "document:view"],
+  inspector: ["inspection:view", "inspection:perform", "ncr:view", "ncr:create", "capa:view", "audit:view", "document:view"],
+  viewer: ["inspection:view", "ncr:view", "capa:view", "audit:view", "document:view"],
 };
 
 describe("capability matrix — every cell", () => {

@@ -24,6 +24,7 @@ import { NcrService } from "../src/ncr/ncr.service.js";
 import { CapaService } from "../src/capa/capa.service.js";
 import { DocumentsService } from "../src/documents/documents.service.js";
 import { EightDService } from "../src/eight-d/eight-d.service.js";
+import { AuditsService } from "../src/audits/audits.service.js";
 
 const TENANT = "acme";
 const EMAIL = "demo@acme.test";
@@ -57,6 +58,7 @@ async function main(): Promise<void> {
   const capas = new CapaService();
   const documents = new DocumentsService();
   const eightDs = new EightDService();
+  const audits = new AuditsService(ncrs, capas);
   const admin = { role: "admin" as const, plantIds: [] };
 
   const { rows: tenantRows } = await control.query<{ id: string }>(
@@ -176,6 +178,36 @@ async function main(): Promise<void> {
       ctx,
     );
     await eightDs.updateStep(tx, tenantId, userId, eightD.id, 1, { status: "complete", version: eightD.lockVersion }, ctx);
+
+    // A certification audit in fieldwork with a finding that spawned a CAPA, so
+    // the audit + audit-findings endpoints show a live case with a linkage.
+    const audit = await audits.create(
+      tx,
+      tenantId,
+      admin,
+      userId,
+      { title: "IATF 16949 surveillance audit", type: "certification", standard: "IATF 16949:2016" },
+      ctx,
+    );
+    await audits.advance(tx, tenantId, admin, userId, audit.id, { to: "preparation", version: audit.lockVersion }, ctx);
+    const auditFinding = await audits.createFinding(
+      tx,
+      tenantId,
+      admin,
+      userId,
+      audit.id,
+      { kind: "minor_nc", clause: "7.1.5", description: "Calibration records incomplete for gauge G-14" },
+      ctx,
+    );
+    await audits.raiseCapa(
+      tx,
+      tenantId,
+      admin,
+      userId,
+      auditFinding.id,
+      { type: "corrective", priority: "minor" },
+      ctx,
+    );
 
     // A controlled document, submitted and awaiting review — left at `pending`
     // because approval is four-eyes and this seed has only one user, so the
