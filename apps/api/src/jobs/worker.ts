@@ -192,7 +192,7 @@ async function main(): Promise<void> {
         return;
       }
       if (job.name === JOBS.purgeSoftDeleted) {
-        await purgeSoftDeletedForTenant(job.data as PurgeSoftDeletedJob);
+        await purgeSoftDeletedForTenant(job.data as PurgeSoftDeletedJob, { storage });
       }
       if (job.name === JOBS.auditPartitionRoll) {
         await rollAuditPartitions();

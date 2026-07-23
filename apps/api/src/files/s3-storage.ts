@@ -1,4 +1,5 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -46,6 +47,11 @@ export class S3Storage implements Storage {
       new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }),
     );
     return { sizeBytes: body.byteLength };
+  }
+
+  async delete(key: string): Promise<void> {
+    // S3 DeleteObject is idempotent — deleting a missing key succeeds.
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 
   async stat(key: string): Promise<StatResult | null> {

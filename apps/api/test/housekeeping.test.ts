@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { withTenant } from "@kaenal/db";
+import { FakeStorage } from "../src/files/storage.js";
 import { purgeSoftDeletedForTenant } from "../src/jobs/processors/purge-soft-deleted.js";
+
+const storage = new FakeStorage();
 
 /**
  * Soft-delete purge (06 §1 `housekeeping`, 07 §5), driven directly against real
@@ -137,7 +140,7 @@ describe("soft-delete purge", () => {
     purgedParent = await seedInspection(oldTs); // old, with an old child
     purgedChild = await seedFinding(purgedParent, oldTs); // old too → child purges first, then parent
 
-    const { purged } = await purgeSoftDeletedForTenant({ tenantId: acmeId }, { now: NOW });
+    const { purged } = await purgeSoftDeletedForTenant({ tenantId: acmeId }, { storage, now: NOW });
     expect(purged).toBeGreaterThanOrEqual(3); // at least leaf + purgedChild + purgedParent
 
     // Erased, each with exactly one `purged` audit event.
@@ -159,7 +162,7 @@ describe("soft-delete purge", () => {
   it("is idempotent — a re-run purges nothing new", async () => {
     // leaf/purgedParent/purgedChild are gone; recent is inside the window; held
     // is under a hold; blockedParent still has its live child. Nothing eligible.
-    const { purged } = await purgeSoftDeletedForTenant({ tenantId: acmeId }, { now: NOW });
+    const { purged } = await purgeSoftDeletedForTenant({ tenantId: acmeId }, { storage, now: NOW });
     expect(purged).toBe(0);
     expect(await exists("inspections", blockedParent)).toBe(true);
   });
@@ -168,7 +171,7 @@ describe("soft-delete purge", () => {
     const wide = await seedInspection(oldTs); // eligible on its own
     await seedHold({}); // empty scope = tenant-wide
 
-    const { purged } = await purgeSoftDeletedForTenant({ tenantId: acmeId }, { now: NOW });
+    const { purged } = await purgeSoftDeletedForTenant({ tenantId: acmeId }, { storage, now: NOW });
     expect(purged).toBe(0);
     expect(await exists("inspections", wide)).toBe(true);
   });

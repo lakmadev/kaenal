@@ -16,7 +16,7 @@ module, async Reports/exports, scheduling/recurrence, document-expiry reminders,
 housekeeping purge, the governed AI gateway (doc-summary feature), audit-events partitioning +
 the nightly partition-roll/tamper-check AND tenant offboarding (export bundle + gated purge) are
 done and proven, and CI runs them on
-every push/PR. 925 tests pass (257 db integration, 478 core unit, 154 api integration, 25 types unit,
+every push/PR. 926 tests pass (257 db integration, 478 core unit, 155 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -103,11 +103,18 @@ violation (`23503`) and purges on a later run, children-before-parents ordering 
 few nights as possible. Each purge writes a distinct `purged` audit event (system actor; new
 `AuditAction` value + migration 0013 CHECK — `deleted` stays the soft delete, `purged` the erase). The
 purge covers the inspection/NCR/CAPA/audit/supplier record graphs + their soft-deletable children +
-templates/plants/areas; it deliberately excludes access/identity tables (`memberships`,
-`notification_prefs`, `sessions` — DSAR/offboarding lifecycle), `exports` (generated artifacts), and
-`documents`/`files` (their `document_versions`/`signatures`/S3-object dependents need a considered
-cascade design — see Known issues). 10 core unit tests (cutoff arithmetic + every hold-scope shape) +
-3 api tests (mixed purge/keep with hold + FK-RESTRICT skip, idempotent re-run, tenant-wide-hold
+templates/plants/areas + `documents` and `files`; it deliberately excludes access/identity tables
+(`memberships`, `notification_prefs`, `sessions` — DSAR/offboarding lifecycle) and `exports` (generated
+artifacts). **Documents/files (added later):** `document_versions` has no `deleted_at` of its own — it
+is collateral of its `documents` parent, so it is cascade-deleted in the SAME `SAVEPOINT` when the
+document purges (a small `DEPENDENT_CASCADES` map, each version also getting a `purged` event). `files`
+purge last (referenced by inspections/documents/versions/signatures, so RESTRICT skips them until those
+clear; a file still on a `signature` is retained evidence and never purges). A purged file's
+object-store object is deleted through a new `Storage.delete(key)` — but only AFTER the DB transaction
+commits, so a rolled-back purge never orphans a live row from its bytes, and a failed object delete is
+logged and left for the storage-cleanup job, never fatal. 10 core unit tests (cutoff arithmetic + every
+hold-scope shape) + 4 api tests (mixed purge/keep with hold + FK-RESTRICT skip, idempotent re-run,
+tenant-wide-hold block, and the documents→versions cascade + file object delete + referenced-file
 block). The `housekeeping` queue is the seventh in the jobs runtime.
 
 **Document-expiry slice (06 `docs`):** the daily `docs` BullMQ queue
@@ -305,15 +312,13 @@ FEATURES bullet + a visual-only prototype (`src/qms-risk-spc.jsx`), but `impleme
 `03-API` and `08-TESTING` define no tables, endpoints, or algorithms for it, so building it means
 inventing the whole module (control-chart limits/Western-Electric rules, FMEA RPN, risk register,
 MSA/Gauge R&R). Per the "no invented scope" rule that's a spec question, logged under Known issues,
-not a silent build. The `housekeeping` `purgeSoftDeleted` and the `ai` gateway chokepoint (with the
-`doc_summary` feature) now ship; the clear remaining backend work is the rest of the AI surface (the
-HTTP trigger endpoint + draft-acceptance flow with an `ai_draft_accepted` audit event, and the
-`root_cause`/`eightd_draft`/`compliance_qa` features — the last needing pgvector doc retrieval), the
-rest of the AI surface (HTTP trigger + draft-acceptance + the non-summary features), the
-`documents`/`files` soft-delete purge (deferred cascade design, see Known issues), and XLSX/PDF export
-renderers behind the existing `reports` pipeline. All three 06 `housekeeping` jobs now ship
-(`purgeSoftDeleted`, `auditEventPartitionRoll`, `offboardTenant`). A real Anthropic-backed
-`AiProvider` would replace the stub. Real ClamAV +
+not a silent build. All three 06 `housekeeping` jobs now ship (`purgeSoftDeleted` — including
+documents/files with the `document_versions` cascade + S3 object delete, `auditEventPartitionRoll`,
+`offboardTenant`), as does the `ai` gateway chokepoint (`doc_summary`). The clear remaining backend
+work is the rest of the AI surface (the HTTP trigger endpoint + draft-acceptance flow with an
+`ai_draft_accepted` audit event, and the `root_cause`/`eightd_draft`/`compliance_qa` features — the
+last needing pgvector doc retrieval) and XLSX/PDF export renderers behind the existing `reports`
+pipeline. A real Anthropic-backed `AiProvider` would replace the stub. Real ClamAV +
 email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4.
 The dedicated **FE** can also start against `@kaenal/api-client`.
 
@@ -327,7 +332,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0016)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 925 tests
+pnpm test                     # full suite (serial: shares one DB) — 926 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -491,8 +496,8 @@ to build the frontend.)
       `(document, threshold)`, no schema change
 - [x] Housekeeping / soft-delete purge (2026-07-23) — `packages/core/purge.ts` (retention + legal-hold
       scope) + `apps/api/src/jobs/processors/purge-soft-deleted.ts`; nightly `housekeeping` queue,
-      SAVEPOINT-per-row FK-RESTRICT skip, `purged` audit action (migration 0013); excludes
-      documents/files pending cascade design
+      SAVEPOINT-per-row FK-RESTRICT skip, `purged` audit action (migration 0013); now includes
+      documents/files (`document_versions` cascade + post-commit `Storage.delete` of the S3 object)
 - [x] Tenant offboarding (2026-07-23) — migration 0016 (lifecycle columns + `offboarded` status) +
       `offboard-tenant` CLI + `packages/core/offboarding.ts` (30-day grace) +
       `apps/api/src/jobs/processors/offboard-tenant.ts` (global `housekeeping` job: legal-hold gate →
@@ -526,6 +531,19 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-23 — documents/files added to the soft-delete purge: dependent cascade, files-last,
+  object-delete-after-commit.** `document_versions` has no `deleted_at` (it can't drive its own
+  purge), so it is treated as a **dependent cascade** of `documents`: a small `DEPENDENT_CASCADES` map
+  deletes a document's versions in the SAME `SAVEPOINT` as the document (each version still getting a
+  `purged` event), which also clears the versions' FK to `files`. `files` is ordered **last** in
+  `PURGE_ORDER` because it is referenced by inspections/documents/versions/signatures — RESTRICT skips
+  a file until those clear, and a file pinned by a `signature` (retained evidence) never purges, which
+  is correct. A purged file's object is removed via a new `Storage.delete(key)` **after the DB
+  transaction commits** — deleting bytes before commit could orphan a live row from its object on a
+  rollback, whereas the reverse only risks a harmless storage orphan (logged, left for the unbuilt
+  `cleanupOrphanedUploads`). This retired the earlier "excludes documents/files" carve-out. *Affects:
+  06 §1 `housekeeping`, 03 §7.*
 
 - **2026-07-23 — tenant offboarding: purge as the tenant's RLS scope, retain audit_events,
   export-before-delete, savepoint multi-pass, terminal status, global resumable job.** The purge runs
@@ -1026,14 +1044,12 @@ to build the frontend.)
   Anthropic-backed `AiProvider` with model routing + failover is unbuilt. PII redaction masks emails,
   phones, and caller-supplied terms; name-detection of non-team members (06 §3.2) relies on the caller
   passing `extraRedactionTerms` rather than an NER pass. *06 §3, FEATURES §16.1.*
-- **Soft-delete purge excludes `documents`/`files` pending a cascade + object-store design.** The
-  nightly `housekeeping` purge covers the inspection/NCR/CAPA/audit/supplier record graphs, but
-  documents and files are held back: `document_versions` has no independent `deleted_at` (it can't be
-  the purge's soft-delete trigger, yet FK-RESTRICT blocks the parent document while versions exist),
-  `signatures` reference files, and both own S3 objects that must be deleted with the row. The
-  considered fix is either explicit dependent-deletion inside `purgeRow` (versions/signatures of a
-  purging parent) or a narrow cascade, plus an object-store delete step (or handing orphaned objects
-  to the files-cleanup job). Until then those two graphs never purge. *06 §1 `housekeeping`, 07 §5.*
+- **`cleanupOrphanedUploads` (the files-queue nightly) is unbuilt.** The soft-delete purge now deletes
+  a purged file's object AFTER the DB commit, best-effort — a failed `Storage.delete` logs and leaves an
+  orphaned object. There is no job yet that reconciles object storage against the `files` table to
+  sweep those orphans (or uploads that were presigned but never completed). Note also that a `file`
+  still referenced by a `signature` never becomes purgeable (retained evidence, correct) — its object
+  is likewise retained. *06 §1 `files`.*
 - **Offboarding retains `audit_events` and does not archive physical file objects.** The offboarding
   purge empties every tenant table EXCEPT the append-only `audit_events` (the app role can't delete it,
   and erasing an immutable trail warrants its own step — disable the trigger under an ACCESS EXCLUSIVE

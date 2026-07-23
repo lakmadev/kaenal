@@ -22,6 +22,12 @@ export interface Storage {
    * upload). Returns the stored object's byte size.
    */
   put(key: string, body: Buffer, contentType: string): Promise<{ sizeBytes: number }>;
+  /**
+   * Permanently delete an object. Used when its owning `files` row is purged
+   * (06 §1 `housekeeping`). Idempotent — deleting a missing key is a no-op, so a
+   * retried purge never fails on an object already gone.
+   */
+  delete(key: string): Promise<void>;
 }
 
 /**
@@ -62,9 +68,20 @@ export class FakeStorage implements Storage {
     return Promise.resolve({ sizeBytes: body.byteLength });
   }
 
+  delete(key: string): Promise<void> {
+    this.objects.delete(key);
+    this.bodies.delete(key);
+    return Promise.resolve();
+  }
+
   /** Test hook: read back what `put` stored, to assert on rendered bytes. */
   read(key: string): Buffer | null {
     return this.bodies.get(key) ?? null;
+  }
+
+  /** Test hook: does the object still exist? */
+  has(key: string): boolean {
+    return this.objects.has(key);
   }
 
   /** Test hook: pretend the object was never uploaded. */
