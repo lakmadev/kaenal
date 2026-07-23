@@ -32,6 +32,9 @@ import { NotificationsService } from "../src/notifications/notifications.service
 import { S3Storage } from "../src/files/s3-storage.js";
 import { runExport } from "../src/jobs/processors/run-export.js";
 import { materializeScheduleForTenant } from "../src/jobs/processors/materialize-schedule.js";
+import { generateDocumentSummary } from "../src/jobs/processors/generate-summary.js";
+import { AiGatewayService } from "../src/ai/gateway.service.js";
+import { StubAiProvider } from "../src/ai/provider.js";
 
 const TENANT = "acme";
 const EMAIL = "demo@acme.test";
@@ -117,6 +120,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  let demoDocId = "";
   await withTenant(tenantId, userId, async (tx) => {
     const draft = await templates.create(tx, tenantId, userId, { name: TEMPLATE_NAME, schema: SCHEMA }, ctx);
     const template = await templates.publish(tx, tenantId, userId, draft.id, draft.lockVersion, ctx);
@@ -259,6 +263,26 @@ async function main(): Promise<void> {
       ctx,
     );
     await documents.transition(tx, tenantId, admin, userId, doc.id, { to: "pending", version: doc.lockVersion }, ctx);
+    demoDocId = doc.id;
+
+    // Turn on the intelligence pack + default AI data controls so the AI
+    // governance screens have a live tenant to render.
+    await tx.query(
+      `INSERT INTO entitlements (tenant_id, pack_id, active) VALUES ($1,'intelligence',true)
+       ON CONFLICT (tenant_id, pack_id) DO UPDATE SET active = true`,
+      [tenantId],
+    );
+    await tx.query(
+      `INSERT INTO ai_settings (tenant_id, allow_ai) VALUES ($1, true)
+       ON CONFLICT (tenant_id) DO NOTHING`,
+      [tenantId],
+    );
+    await tx.query(
+      `INSERT INTO ai_budgets (tenant_id, period, token_limit, tokens_used)
+       VALUES ($1, date_trunc('month', now())::date, 1000000, 0)
+       ON CONFLICT (tenant_id, period) DO NOTHING`,
+      [tenantId],
+    );
   });
 
   // A completed NCR export — rendered inline (the demo runs no worker) so the
@@ -276,6 +300,12 @@ async function main(): Promise<void> {
   // Materialise the recurring series' occurrences 14 days ahead (the `schedule`
   // job, run inline — the demo has no worker).
   await materializeScheduleForTenant({ tenantId }, { inspections });
+
+  // Draft an AI summary for the demo document through the gateway (the `ai` job,
+  // run inline with the stub provider) — populates `ai_summary` + an
+  // `ai_invocations` ledger row for the AI audit-trail / cost screens.
+  const aiGateway = new AiGatewayService(new StubAiProvider());
+  await generateDocumentSummary({ tenantId, userId, documentId: demoDocId }, { gateway: aiGateway });
 
   console.log(`Seeded. Sign in at /login as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
   await control.end();

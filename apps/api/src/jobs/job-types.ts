@@ -14,6 +14,7 @@ export const QUEUES = {
   schedule: "schedule",
   docs: "docs",
   housekeeping: "housekeeping",
+  ai: "ai",
 } as const;
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
@@ -40,6 +41,8 @@ export const JOBS = {
   housekeepingSweep: "housekeeping.sweep",
   /** Per-tenant: permanently purge rows soft-deleted past the retention window. */
   purgeSoftDeleted: "housekeeping.purge",
+  /** On demand: draft an AI summary for a controlled document, through the gateway. */
+  generateSummary: "ai.summary",
 } as const;
 
 export interface RecomputeSlaJob {
@@ -65,6 +68,11 @@ export interface DocumentExpiryJob {
 }
 export interface PurgeSoftDeletedJob {
   readonly tenantId: string;
+}
+export interface GenerateSummaryJob {
+  readonly tenantId: string;
+  readonly userId: string | null;
+  readonly documentId: string;
 }
 
 /**

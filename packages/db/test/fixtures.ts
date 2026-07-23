@@ -238,6 +238,24 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
   );
 
   await q(
+    `INSERT INTO ai_settings (tenant_id, allow_ai) VALUES ($1, true) RETURNING id`,
+    [t],
+  );
+
+  await q(
+    `INSERT INTO ai_budgets (tenant_id, period, token_limit, tokens_used)
+     VALUES ($1, date_trunc('month', now())::date, 1000000, 0) RETURNING id`,
+    [t],
+  );
+
+  await q(
+    `INSERT INTO ai_invocations (tenant_id, user_id, feature, model, status,
+                                 input_tokens, output_tokens, redactions_applied)
+     VALUES ($1, $2, 'doc_summary', 'fast', 'succeeded', 120, 80, 1) RETURNING id`,
+    [t, userId],
+  );
+
+  await q(
     `INSERT INTO audit_events (tenant_id, actor_id, actor_kind, entity_kind, entity_id,
                                action, after)
      VALUES ($1, $2, 'user', 'ncr', $3, 'created', '{"status":"open"}'::jsonb) RETURNING id`,

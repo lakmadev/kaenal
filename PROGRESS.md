@@ -10,19 +10,41 @@ plane, business logic, audit plumbing, the request lifecycle, authentication, th
 five Phase-1 vertical slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search,
 Notifications, the typed `@kaenal/api-client`, the BullMQ jobs runtime (SLA escalation, AV scan,
 notification delivery, async exports, recurring-inspection scheduling, document-expiry reminders,
-soft-delete purge), the
+soft-delete purge, the AI gateway), the
 8D workflow, the Audits
-module, async Reports/exports, scheduling/recurrence, document-expiry reminders AND the
-housekeeping purge are
+module, async Reports/exports, scheduling/recurrence, document-expiry reminders, the
+housekeeping purge AND the governed AI gateway (doc-summary feature) are
 done and proven, and CI runs them on
-every push/PR. 871 tests pass (239 db integration, 452 core unit, 144 api integration, 25 types unit,
-11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 33 tenant
+every push/PR. 909 tests pass (257 db integration, 465 core unit, 151 api integration, 25 types unit,
+11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**AI gateway slice (06 §3, FEATURES §16.1):** the single chokepoint every model call passes through —
+`AiGatewayService` (`apps/api/src/ai/gateway.service.ts`) wrapping a pluggable `AiProvider` port
+(`StubAiProvider` ships; NO other module imports a model SDK, the whole point of the chokepoint). The
+model-free governance decisions are pure + unit-tested in `packages/core/ai-gateway.ts`
+(`gateInvocation` fails closed in order — intelligence entitlement → `allow_ai` kill switch → residency
+lock → budget; `redactPii`/`rehydrate` reversible PII masking; `routeFeature` per-feature model; budget
+math — 13 unit tests). Per call the gateway: gates (a refusal records a `blocked` invocation and never
+reaches a model), redacts PII pre-flight, assembles a versioned feature prompt (`ai/prompts.ts`, each
+treating tenant text as untrusted DATA — prompt-injection defence, 06 §4), calls the provider OUTSIDE
+any DB transaction (a short read tx gates, the model runs with no connection held, a short write tx
+records), rehydrates redacted tokens in the output, and returns an `AiDraft {value, confidence,
+sources}` — AI never writes an entity directly. Migration 0014 adds `ai_settings` (data controls),
+`ai_budgets` (per-period token budget, charged on success; absent row = unmetered), and
+`ai_invocations` (the AI audit trail + cost ledger — telemetry, so written directly, not via
+`withAudit`, exactly like notifications). The `ai` queue's `generateSummary` job
+(`processors/generate-summary.ts`) drafts a `doc_summary` and persists it to the document's dedicated
+`ai_summary` sidecar as a `system` `updated` audit event (idempotent — an unchanged summary writes
+nothing). 13 core + 7 api tests (all three block reasons, success with budget charge + PII round-trip,
+graceful provider-failure, processor write + idempotent re-run + missing-doc skip). `seed:demo`
+activates the pack and drafts the demo document's summary inline. The `ai` queue is the eighth in the
+runtime; HTTP trigger + draft-acceptance UI + the other features are deferred (see Known issues).
 
 **Housekeeping / soft-delete purge slice (06 `housekeeping`, 07 §5):** the nightly `housekeeping`
 BullMQ queue (`purgeSoftDeletedForTenant`, fanned out one job per active tenant) permanently deletes
@@ -116,7 +138,7 @@ Not plant-scoped; rides the NCR capabilities (`ncr:view`/`ncr:manage`) since the
 `lock_version` (migration 0009). 6 api tests incl. the full close-blocked → resolve → close flow.
 
 **BullMQ jobs runtime (06 §1):** a worker process (`pnpm --filter @kaenal/api worker`) separate from
-the API, with seven queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
+the API, with eight queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
 job per active tenant → reclassifies open NCRs against their SLA window with the core business-time
 math, escalates breaches through `ncrMachine`, audits as a `system` actor, notifies the owner),
 `files` (`scanFile` → a pluggable `Scanner` port flips `scan_status`; infected notifies the uploader),
@@ -129,13 +151,16 @@ Scheduling slice), and `docs` (repeatable daily sweep → fans out one `document
 tenant → reminds owners of documents nearing expiry; see the Document-expiry slice), and
 `housekeeping` (repeatable nightly sweep → fans out one `purgeSoftDeleted` job per tenant →
 permanently deletes rows soft-deleted past the 90-day window, minus legal holds; see the Housekeeping
-slice). Scanner +
-delivery are stub ports (no ClamAV/Resend yet); the plumbing, DB
+slice), and `ai` (on-demand `generateSummary` → drafts a document summary through the AI gateway
+chokepoint; see the AI gateway slice). Scanner + delivery + the AI provider
+are stub ports (no ClamAV/Resend/Anthropic yet); the plumbing, DB
 effects and idempotency are real. The API only
 ENQUEUES, behind a `JOBS_ENABLED` gate — off in `test` (a `NoopProducer`, no queue connection), so the
 HTTP suites never touch BullMQ; `FilesService.complete` enqueues a scan, `NotificationsService.notify`
-enqueues a delivery, and `ExportsService.create` enqueues a render (the `sla`/`schedule` sweeps are
-worker-internal repeatables, not API-enqueued). Job rules per 06: 5× exponential
+enqueues a delivery, and `ExportsService.create` enqueues a render (the `sla`/`schedule`/`docs`/
+`housekeeping` sweeps are worker-internal repeatables, not API-enqueued; the `ai` queue has no HTTP
+enqueuer yet — its processor + gateway are wired and tested, awaiting the trigger endpoint). Job rules
+per 06: 5× exponential
 backoff, `jobId` dedupe, failed jobs retained as
 a dead-letter set. 6 tests — each processor against real Postgres (escalate/scan/deliver + idempotency)
 and a real BullMQ enqueue→process round-trip against the test Redis.
@@ -234,12 +259,15 @@ FEATURES bullet + a visual-only prototype (`src/qms-risk-spc.jsx`), but `impleme
 `03-API` and `08-TESTING` define no tables, endpoints, or algorithms for it, so building it means
 inventing the whole module (control-chart limits/Western-Electric rules, FMEA RPN, risk register,
 MSA/Gauge R&R). Per the "no invented scope" rule that's a spec question, logged under Known issues,
-not a silent build. The `housekeeping` queue's `purgeSoftDeleted` now ships; the clear remaining
-backend work is the `ai` queue + AI gateway chokepoint (06 §3), the two other 06 `housekeeping` jobs
-(`auditEventPartitionRoll` — needs `audit_events` converted to declarative time-partitioning first, a
-separate migration; `offboardTenant` — a large multi-step tenant-purge flow), the `documents`/`files`
-purge (deferred cascade design, see Known issues), and XLSX/PDF export renderers behind the existing
-`reports` pipeline. Real ClamAV +
+not a silent build. The `housekeeping` `purgeSoftDeleted` and the `ai` gateway chokepoint (with the
+`doc_summary` feature) now ship; the clear remaining backend work is the rest of the AI surface (the
+HTTP trigger endpoint + draft-acceptance flow with an `ai_draft_accepted` audit event, and the
+`root_cause`/`eightd_draft`/`compliance_qa` features — the last needing pgvector doc retrieval), the
+two other 06 `housekeeping` jobs (`auditEventPartitionRoll` — needs `audit_events` converted to
+declarative time-partitioning first, a separate migration; `offboardTenant` — a large multi-step
+tenant-purge flow), the `documents`/`files` purge (deferred cascade design, see Known issues), and
+XLSX/PDF export renderers behind the existing `reports` pipeline. A real Anthropic-backed `AiProvider`
+would replace the stub. Real ClamAV +
 email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4.
 The dedicated **FE** can also start against `@kaenal/api-client`.
 
@@ -249,11 +277,11 @@ The dedicated **FE** can also start against `@kaenal/api-client`.
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0013)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0014)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 871 tests
+pnpm test                     # full suite (serial: shares one DB) — 909 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -402,8 +430,8 @@ to build the frontend.)
 - [~] BullMQ jobs runtime (2026-07-22) — worker process + `sla` (escalation), `files` (AV scan),
       `notify` (delivery), `reports` (async export render), `schedule` (recurrence materialisation),
       `docs` (document-expiry reminders), `housekeeping` (soft-delete purge) queues DONE
-      (`apps/api/src/jobs/*`); `ai` queue + `housekeeping`'s `auditEventPartitionRoll`/`offboardTenant`
-      jobs still pending
+      (`apps/api/src/jobs/*`), `ai` queue (doc-summary via the gateway chokepoint) DONE;
+      `housekeeping`'s `auditEventPartitionRoll`/`offboardTenant` jobs still pending
 - [x] Reports / exports (2026-07-22) — `packages/core/exports.ts` + `apps/api/src/exports/*` +
       `apps/api/src/jobs/processors/run-export.ts`; 202 → `reports` render → presigned download,
       100k-row cap → chunked zip (`fflate`), plant-scoped + requester-scoped, migration 0011
@@ -417,6 +445,10 @@ to build the frontend.)
       scope) + `apps/api/src/jobs/processors/purge-soft-deleted.ts`; nightly `housekeeping` queue,
       SAVEPOINT-per-row FK-RESTRICT skip, `purged` audit action (migration 0013); excludes
       documents/files pending cascade design
+- [~] AI gateway chokepoint (2026-07-23) — `packages/core/ai-gateway.ts` (gate/redact/route/budget) +
+      `apps/api/src/ai/*` (gateway service + provider port + prompts) + `ai` queue's `generateSummary`
+      (`processors/generate-summary.ts`); migration 0014 (`ai_settings`/`ai_budgets`/`ai_invocations`).
+      `doc_summary` feature DONE; HTTP trigger + draft-acceptance + other features + real provider pending
 - [ ] SPC / FMEA — deferred pending spec (see Known issues): no backend schema/API/algorithm in
       `implementation/`, only a FEATURES bullet + visual prototype
 
@@ -425,7 +457,10 @@ to build the frontend.)
 - [ ] Offline SQLite + sync queue with conflict resolution (05)
 
 ## Phase 4 — Platform
-- [ ] AI gateway + copilots (+ governance, region lock, budget gates)
+- [~] AI gateway + copilots (+ governance, region lock, budget gates) — gateway chokepoint +
+      governance (entitlement/data-control/budget/region gate, PII redaction, invocation ledger) +
+      `doc_summary` DONE (2026-07-23); copilots (root-cause/8D drafting), draft-acceptance flow,
+      compliance-QA retrieval, and a real model provider pending
 - [ ] Supplier portal
 - [ ] Public API + webhooks (HMAC signing, retry ladder)
 - [ ] SSO/SCIM via WorkOS
@@ -434,6 +469,28 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-23 — AI gateway: schema shape, ledger-not-audited, doc-summary auto-persist, budget
+  opt-in, provider-outside-tx, no HTTP yet.** 06 §3 specifies the gateway's behaviour and enumerates
+  `ai_invocations`' columns but 02-DATABASE defines no AI tables, so migration 0014's shapes were
+  chosen and pinned: `ai_settings` (one row/tenant: `allow_ai`, `allow_cross_entity_context`,
+  `pii_redaction`, `region_lock`), `ai_budgets` (one row/tenant/month; **absent row = unmetered** —
+  budget governance is opt-in), `ai_invocations` (the AI audit trail + cost ledger). The ledger is
+  written **directly, not through `withAudit`** — these rows ARE the AI audit trail and are telemetry,
+  not entity mutations, exactly the notifications precedent; every gateway path still records exactly
+  one row (`blocked`/`failed`/`succeeded`). The `intelligence` entitlement gates access via the
+  existing `entitlements` table. `gateInvocation` **fails closed** in a fixed order (entitlement →
+  kill switch → residency → budget); an unset budget is unmetered and a residency lock the provider's
+  region can't satisfy refuses rather than routing cross-region. The provider is a pluggable port
+  (`StubAiProvider` until a real one), and it is the ONLY model seam — no other module may import a
+  model SDK (06 §3 chokepoint). The provider call runs **outside any DB transaction** (short read tx
+  gates, model runs connection-free, short write tx records + charges) so latency never pins a pool
+  connection. `doc_summary` — a bounded, low-risk AI-owned sidecar (`documents.ai_summary`), not a
+  quality field — is **persisted directly** by the processor as a `system` `updated` event; the
+  spec's "AI returns drafts a human accepts" applies to business-field drafting (root-cause/8D),
+  which is the deferred draft-acceptance slice. No HTTP trigger yet: the gateway + processor are wired
+  and tested, but the enqueue endpoint + provenance UI ship with the FE. *Affects: 06 §3, 07 §5,
+  FEATURES §16.1.*
 
 - **2026-07-23 — soft-delete purge: legal-hold `scope` shape, `purged` action, RESTRICT-skip, scope
   boundary.** `legal_holds.scope` is spec'd only as `jsonb` (07 §5), so the smallest useful shape was
@@ -863,6 +920,16 @@ to build the frontend.)
 
 ## Known issues / TODO
 
+- **AI gateway ships with the chokepoint + `doc_summary`; the rest of the surface is pending.** No HTTP
+  trigger yet — the `ai` queue's processor + gateway are wired and tested but nothing enqueues
+  `generateSummary`; the endpoint + streaming (SSE) + the draft-acceptance flow (accept = normal
+  mutation + `ai_draft_accepted` audit event) come with the FE. Only `doc_summary` is implemented; the
+  other features (`quicklog_structuring`, `root_cause`, `eightd_draft`, `report_narrative`, and
+  `compliance_qa` — which needs pgvector embeddings over document chunks for retrieval) have prompts
+  stubbed but no processors. The provider is `StubAiProvider` (deterministic echo) — a real
+  Anthropic-backed `AiProvider` with model routing + failover is unbuilt. PII redaction masks emails,
+  phones, and caller-supplied terms; name-detection of non-team members (06 §3.2) relies on the caller
+  passing `extraRedactionTerms` rather than an NER pass. *06 §3, FEATURES §16.1.*
 - **Soft-delete purge excludes `documents`/`files` pending a cascade + object-store design.** The
   nightly `housekeeping` purge covers the inspection/NCR/CAPA/audit/supplier record graphs, but
   documents and files are held back: `document_versions` has no independent `deleted_at` (it can't be

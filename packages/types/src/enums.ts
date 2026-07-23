@@ -290,6 +290,31 @@ export const AuditAction = defineEnum([
 ]);
 export type AuditAction = z.infer<typeof AuditAction>;
 
+// --- AI gateway (06 §3) ----------------------------------------------------
+
+/** The bounded set of AI features; every model call declares one (06 §3). */
+export const AiFeature = defineEnum([
+  "doc_summary",
+  "quicklog_structuring",
+  "root_cause",
+  "eightd_draft",
+  "compliance_qa",
+  "report_narrative",
+]);
+export type AiFeature = z.infer<typeof AiFeature>;
+
+/** Provenance confidence band on an AI-drafted value (06 §3.6). */
+export const AiConfidence = defineEnum(["high", "medium", "low"]);
+export type AiConfidence = z.infer<typeof AiConfidence>;
+
+/**
+ * Outcome of a gateway invocation, recorded on `ai_invocations`. `blocked` is a
+ * governance refusal (no pack, AI disabled, over budget, region-locked) — it
+ * never reached a model; `failed` reached the provider and errored.
+ */
+export const AiInvocationStatus = defineEnum(["succeeded", "failed", "blocked"]);
+export type AiInvocationStatus = z.infer<typeof AiInvocationStatus>;
+
 /** Signature meanings — 21 CFR Part 11 style (07 §2). */
 export const SignatureMeaning = defineEnum([
   "performed",

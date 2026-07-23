@@ -19,6 +19,7 @@ import {
   SCHEDULE_SWEEP_CRON,
   SLA_SWEEP_CRON,
   type DocumentExpiryJob,
+  type GenerateSummaryJob,
   type MaterializeScheduleJob,
   type PurgeSoftDeletedJob,
   type RecomputeSlaJob,
@@ -34,6 +35,9 @@ import { runExport } from "./processors/run-export.js";
 import { materializeScheduleForTenant } from "./processors/materialize-schedule.js";
 import { documentExpiryCheckForTenant } from "./processors/document-expiry.js";
 import { purgeSoftDeletedForTenant } from "./processors/purge-soft-deleted.js";
+import { generateDocumentSummary } from "./processors/generate-summary.js";
+import { AiGatewayService } from "../ai/gateway.service.js";
+import { StubAiProvider } from "../ai/provider.js";
 
 /**
  * The worker process (06 §1). Run separately from the API —
@@ -51,6 +55,9 @@ async function main(): Promise<void> {
   const inspections = new InspectionsService();
   const scanner = new StubScanner();
   const delivery = new StubDelivery();
+  // The AI gateway is the ONE model chokepoint (06 §3); the stub provider ships
+  // until a real one is wired.
+  const aiGateway = new AiGatewayService(new StubAiProvider());
   const storage: Storage = new S3Storage(
     new S3Client({
       endpoint: env.S3_ENDPOINT,
@@ -181,6 +188,18 @@ async function main(): Promise<void> {
     { connection, concurrency: 2 },
   );
 
+  const aiWorker = new Worker(
+    QUEUES.ai,
+    (job: Job) => {
+      if (job.name === JOBS.generateSummary) {
+        return generateDocumentSummary(job.data as GenerateSummaryJob, { gateway: aiGateway });
+      }
+      return Promise.resolve();
+    },
+    // Model calls are slow and rate-limited upstream; keep concurrency modest.
+    { connection, concurrency: 3 },
+  );
+
   // Register the repeatable sweeps once; BullMQ dedupes the schedule by name.
   await slaQueue.add(JOBS.slaSweep, {}, { repeat: { pattern: SLA_SWEEP_CRON }, jobId: "sla-sweep" });
   await scheduleQueue.add(JOBS.scheduleSweep, {}, { repeat: { pattern: SCHEDULE_SWEEP_CRON }, jobId: "schedule-sweep" });
@@ -196,6 +215,7 @@ async function main(): Promise<void> {
       scheduleWorker.close(),
       docsWorker.close(),
       housekeepingWorker.close(),
+      aiWorker.close(),
     ]);
     await slaQueue.close();
     await scheduleQueue.close();
@@ -208,7 +228,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
 
-  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule, docs, housekeeping");
+  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule, docs, housekeeping, ai");
 }
 
 /** 5-minute bucket so a retriggered sweep within one window dedupes per tenant. */

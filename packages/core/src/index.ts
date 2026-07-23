@@ -16,3 +16,4 @@ export * from "./exports.js";
 export * from "./recurrence.js";
 export * from "./document-expiry.js";
 export * from "./purge.js";
+export * from "./ai-gateway.js";
