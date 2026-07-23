@@ -16,7 +16,7 @@ module, async Reports/exports, scheduling/recurrence, document-expiry reminders,
 housekeeping purge, the governed AI gateway (doc-summary feature), audit-events partitioning +
 the nightly partition-roll/tamper-check AND tenant offboarding (export bundle + gated purge) are
 done and proven, and CI runs them on
-every push/PR. 928 tests pass (257 db integration, 478 core unit, 157 api integration, 25 types unit,
+every push/PR. 936 tests pass (257 db integration, 484 core unit, 159 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -172,8 +172,14 @@ from a fixed `EXPORTABLES` map (ncrs/inspections/capas/audits), never request in
 scoped to their requester (a foreign export is a 404 — rule 8), because the snapshot was plant-scoped
 to whoever asked. You can only export a resource you may VIEW (the `<resource>:view` capability, checked
 in the service since it depends on the body). Creation is audited (`created`); each presigned URL mint
-is the data egress, audited `exported` like a file download. CSV is the built renderer; XLSX/PDF are
-future renderers behind the same pipeline (the `ExportFormat` enum is the slot). `run-export` is
+is the data egress, audited `exported` like a file download. **Three renderers** now sit behind the
+one pipeline, dispatched on `format` (all pure + unit-tested in `packages/core/exports.ts`): CSV
+(RFC-4180, chunked-zip past the cap), XLSX (a minimal hand-rolled OOXML workbook — inline strings, no
+deps beyond `fflate`), and a simple tabular PDF (hand-rolled, Courier/monospaced columns, paginated,
+correct xref — validated independently). XLSX/PDF are single documents (they page internally), so only
+CSV takes the chunk-to-zip path; migration 0017 widened the `format` CHECK. A richer branded PDF
+(headless Chromium + print routes + PDF Template Designer, 06/09) supersedes the tabular one later.
+`run-export` is
 idempotent (claims the `queued` row → `processing`; a retry finds it non-queued and skips); failures
 land as `status='failed'` with the message. Storage grew a server-side `put`; migration 0011 (the
 first brand-new tenant table after 0003 → explicit composite member FK). 6 api tests (202→render→poll,
@@ -328,11 +334,12 @@ inventing the whole module (control-chart limits/Western-Electric rules, FMEA RP
 MSA/Gauge R&R). Per the "no invented scope" rule that's a spec question, logged under Known issues,
 not a silent build. All three 06 `housekeeping` jobs now ship (`purgeSoftDeleted` — including
 documents/files with the `document_versions` cascade + S3 object delete, `auditEventPartitionRoll`,
-`offboardTenant`), as does the `ai` gateway chokepoint (`doc_summary`). The clear remaining backend
-work is the rest of the AI surface (the HTTP trigger endpoint + draft-acceptance flow with an
-`ai_draft_accepted` audit event, and the `root_cause`/`eightd_draft`/`compliance_qa` features — the
-last needing pgvector doc retrieval) and XLSX/PDF export renderers behind the existing `reports`
-pipeline. A real Anthropic-backed `AiProvider` would replace the stub. Real ClamAV +
+`offboardTenant`), as does the `ai` gateway chokepoint (`doc_summary`) and all three export renderers
+(CSV/XLSX/PDF). The clear remaining backend work is the rest of the AI surface (the HTTP trigger
+endpoint + draft-acceptance flow with an `ai_draft_accepted` audit event, and the
+`root_cause`/`eightd_draft`/`compliance_qa` features — the last needing pgvector doc retrieval); the
+richer branded PDF (Chromium + print routes, 09) waits on the FE. A real Anthropic-backed `AiProvider`
+would replace the stub. Real ClamAV +
 email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4.
 The dedicated **FE** can also start against `@kaenal/api-client`.
 
@@ -342,11 +349,11 @@ The dedicated **FE** can also start against `@kaenal/api-client`.
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0016)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0017)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 928 tests
+pnpm test                     # full suite (serial: shares one DB) — 936 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -501,7 +508,8 @@ to build the frontend.)
       jobs shipped
 - [x] Reports / exports (2026-07-22) — `packages/core/exports.ts` + `apps/api/src/exports/*` +
       `apps/api/src/jobs/processors/run-export.ts`; 202 → `reports` render → presigned download,
-      100k-row cap → chunked zip (`fflate`), plant-scoped + requester-scoped, migration 0011
+      100k-row cap → chunked zip (`fflate`), plant-scoped + requester-scoped, migration 0011.
+      CSV + XLSX (OOXML) + tabular PDF renderers, dispatched on `format`, migration 0017 (2026-07-23)
 - [x] Scheduling & recurrence (2026-07-22) — `packages/core/recurrence.ts` (expand incl. Feb 29 /
       month-end) + `inspections` service/controller + `apps/api/src/jobs/processors/materialize-schedule.ts`;
       hourly `schedule` queue, idempotent on `(series_id, date)`, migration 0012
@@ -548,6 +556,19 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-23 — XLSX/PDF export renderers are hand-rolled + dependency-light; the branded PDF is
+  deferred.** Both new renderers live in `packages/core/exports.ts` beside `toCsv`, pure and
+  unit-tested. **XLSX** is a minimal OOXML workbook (inline strings, no styles/sharedStrings) zipped
+  with the `fflate` already in the repo — no `exceljs`-class dependency, matching the codebase's
+  hand-rolled-CSV style. **PDF** is a minimal tabular document using the standard Courier font (metrics
+  built into every reader, so no font embedding) with space-padded monospaced columns and pagination;
+  the xref offsets are computed exactly (validated independently — every offset lands on its object).
+  The spec's rich PDF path (headless Chromium against the web app's print routes + the PDF Template
+  Designer, 06/09) was NOT built: it needs the Next.js print routes and a Chromium runtime, neither
+  present in this backend repo, and a hand-rolled divergent-but-branded PDF would be invented scope —
+  so the tabular PDF is the honest interim, logged in Known issues. Dispatch is on `exports.format`;
+  XLSX/PDF are single documents (only CSV keeps the chunk-to-zip path). *Affects: 03 §8, 06 `reports`.*
 
 - **2026-07-23 — orphaned-upload cleanup: `sha256 IS NULL` marks never-completed, FOR UPDATE guards
   the race, `purged` audit, object-after-commit.** An orphan is a `pending` `files` row with
@@ -1109,12 +1130,13 @@ to build the frontend.)
   occurrences make this harmless for now (a "date" is a date), but a plant far from UTC could see an
   occurrence land a day early/late relative to local intent. Localising the expansion window to the
   plant tz is a follow-up. *02 §2.*
-- **Exports are CSV only; XLSX and PDF are not yet rendered.** The async pipeline (202 → `reports`
-  render → presigned download) and the 100k-row cap → zip are format-agnostic and done, but only the
-  CSV renderer is built. `ExportFormat` is `['csv']`; XLSX (a sheet writer) and PDF (headless
-  Chromium against print routes, 06 `reports`) slot in as additional renderers + enum values behind
-  the same `run-export` processor. Also, export filters are minimal (an optional `status`) — richer
-  per-resource filters would mirror each list endpoint's query. *06 `reports`, 03 §8.*
+- **The PDF export is a simple tabular renderer, not the branded/Chromium one.** CSV, XLSX and a
+  hand-rolled tabular PDF (Courier columns, paginated) all render behind the pipeline. The spec's rich
+  PDF path — headless Chromium against the web app's print routes, driven by the PDF Template Designer
+  (06 `reports` / 09) — is not built: it needs the Next.js print routes and a Chromium runtime, neither
+  present in this backend repo. The tabular PDF is the interim; the branded one supersedes it when the
+  FE + a render worker land. Also, export filters remain minimal (an optional `status`) — richer
+  per-resource filters would mirror each list endpoint's query. *06 `reports`, 03 §8, 09.*
 - **Model B (dedicated instance) provisioning is unimplemented.** `provision-tenant --model
   dedicated` exits with a clear error. Needs per-tenant DB creation + the migration fan-out with
   per-tenant locking (01 §3.4, 02 §5).

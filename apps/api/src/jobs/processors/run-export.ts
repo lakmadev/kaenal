@@ -1,6 +1,14 @@
 import { zipSync } from "fflate";
 import { withTenant } from "@kaenal/db";
-import { chunkRows, EXPORT_ROW_CAP, isPlantScoped, toCsv, type Membership } from "@kaenal/core";
+import {
+  chunkRows,
+  EXPORT_ROW_CAP,
+  isPlantScoped,
+  toCsv,
+  toPdf,
+  toXlsx,
+  type Membership,
+} from "@kaenal/core";
 import type { NotificationsService } from "../../notifications/notifications.service.js";
 import type { Storage } from "../../files/storage.js";
 import type { RunExportJob } from "../job-types.js";
@@ -61,9 +69,18 @@ const EXPORTABLES: Readonly<Record<string, Exportable>> = {
 
 interface ExportRow {
   resource: string;
+  format: string;
   filters: { status?: string };
   requested_by: string | null;
 }
+
+/** MIME type for a rendered export, by format. */
+const CONTENT_TYPE: Readonly<Record<string, string>> = {
+  csv: "text/csv; charset=utf-8",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pdf: "application/pdf",
+  zip: "application/zip",
+};
 
 /** How a DB value becomes a CSV cell — dates as ISO, nulls as empty. The
  *  exported columns are scalar (text/enum/timestamptz), so this covers them
@@ -96,7 +113,7 @@ export async function runExport(
     const claim = await tx.query<ExportRow>(
       `UPDATE exports SET status = 'processing', updated_at = now()
         WHERE id = $1 AND status = 'queued' AND deleted_at IS NULL
-        RETURNING resource, filters, requested_by`,
+        RETURNING resource, format, filters, requested_by`,
       [payload.exportId],
     );
     const job = claim.rows[0];
@@ -110,29 +127,37 @@ export async function runExport(
       if (membership === null) throw new Error("Requester is no longer an active member");
 
       const rows = await fetchRows(tx, spec, job.filters, membership);
+      const stringRows = rows.map((r) => r.map(cell));
 
-      // Serialise. One file at/under the cap; a zip of chunked CSVs past it.
-      const chunks = chunkRows(rows, cap);
+      // Serialise per format. XLSX/PDF are single documents (they page/scroll
+      // internally); CSV stays one file at/under the cap, a zip of chunked CSVs
+      // past it.
       let body: Buffer;
       let ext: string;
-      let contentType: string;
-      if (chunks.length === 1) {
-        body = Buffer.from(toCsv(spec.headers, chunks[0]!.map((r) => r.map(cell))), "utf8");
-        ext = "csv";
-        contentType = "text/csv; charset=utf-8";
+      if (job.format === "xlsx") {
+        body = Buffer.from(toXlsx(spec.headers, stringRows));
+        ext = "xlsx";
+      } else if (job.format === "pdf") {
+        body = Buffer.from(toPdf(`${job.resource} export`, spec.headers, stringRows));
+        ext = "pdf";
       } else {
-        const files: Record<string, Uint8Array> = {};
-        chunks.forEach((chunk, i) => {
-          const name = `${job.resource}-part-${String(i + 1).padStart(2, "0")}.csv`;
-          files[name] = new Uint8Array(Buffer.from(toCsv(spec.headers, chunk.map((r) => r.map(cell))), "utf8"));
-        });
-        body = Buffer.from(zipSync(files));
-        ext = "zip";
-        contentType = "application/zip";
+        const chunks = chunkRows(stringRows, cap);
+        if (chunks.length === 1) {
+          body = Buffer.from(toCsv(spec.headers, chunks[0]!), "utf8");
+          ext = "csv";
+        } else {
+          const files: Record<string, Uint8Array> = {};
+          chunks.forEach((chunk, i) => {
+            const name = `${job.resource}-part-${String(i + 1).padStart(2, "0")}.csv`;
+            files[name] = new Uint8Array(Buffer.from(toCsv(spec.headers, chunk), "utf8"));
+          });
+          body = Buffer.from(zipSync(files));
+          ext = "zip";
+        }
       }
 
       const objectKey = `${payload.tenantId}/exports/${payload.exportId}.${ext}`;
-      const { sizeBytes } = await deps.storage.put(objectKey, body, contentType);
+      const { sizeBytes } = await deps.storage.put(objectKey, body, CONTENT_TYPE[ext] ?? "application/octet-stream");
 
       await tx.query(
         `UPDATE exports

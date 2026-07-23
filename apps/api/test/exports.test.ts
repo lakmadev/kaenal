@@ -225,6 +225,39 @@ describe("export lifecycle", () => {
       expect(lines).toHaveLength(2);
     }
   });
+
+  it("renders an XLSX workbook when requested", async () => {
+    const create = await authed("post", "/v1/exports", inspectorTok).send({ resource: "ncrs", format: "xlsx" });
+    expect(create.status).toBe(202);
+    await render(create.body.id);
+
+    const done = (await authed("get", `/v1/exports/${create.body.id}`, inspectorTok)).body as Export;
+    expect(done.status).toBe("completed");
+    expect(done.downloadUrl).toMatch(/\.xlsx\?|\.xlsx$/);
+
+    const bytes = storage.read(`${acmeId}/exports/${create.body.id}.xlsx`);
+    expect(bytes).not.toBeNull();
+    const files = unzipSync(new Uint8Array(bytes!));
+    expect(files["xl/worksheets/sheet1.xml"]).toBeDefined();
+    const sheet = strFromU8(files["xl/worksheets/sheet1.xml"]!);
+    expect(sheet).toContain("Code"); // header cell
+    expect(sheet.match(/<row /g)?.length).toBe(3); // header + plantA's 2 NCRs
+  });
+
+  it("renders a PDF when requested", async () => {
+    const create = await authed("post", "/v1/exports", inspectorTok).send({ resource: "ncrs", format: "pdf" });
+    expect(create.status).toBe(202);
+    await render(create.body.id);
+
+    const done = (await authed("get", `/v1/exports/${create.body.id}`, inspectorTok)).body as Export;
+    expect(done.status).toBe("completed");
+    expect(done.downloadUrl).toMatch(/\.pdf\?|\.pdf$/);
+
+    const pdf = storage.read(`${acmeId}/exports/${create.body.id}.pdf`)!.toString("latin1");
+    expect(pdf.startsWith("%PDF-1.")).toBe(true);
+    expect(pdf).toContain("(ncrs export)");
+    expect(pdf.trimEnd().endsWith("%%EOF")).toBe(true);
+  });
 });
 
 describe("authorization + scoping", () => {

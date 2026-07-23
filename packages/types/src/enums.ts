@@ -252,11 +252,12 @@ export const ExportResource = defineEnum(["ncrs", "inspections", "capas", "audit
 export type ExportResource = z.infer<typeof ExportResource>;
 
 /**
- * Output formats. CSV is the built renderer; XLSX and PDF (headless Chromium
- * against print routes, 06 `reports`) are additional renderers to add behind
- * the same async pipeline — the contract advertises only what is implemented.
+ * Output formats, all behind the same async `reports` pipeline. CSV and XLSX
+ * (a minimal OOXML sheet) and a simple tabular PDF are rendered server-side. A
+ * richer branded PDF (headless Chromium against print routes + the PDF Template
+ * Designer, 06 `reports` / 09) supersedes the tabular PDF later.
  */
-export const ExportFormat = defineEnum(["csv"]);
+export const ExportFormat = defineEnum(["csv", "xlsx", "pdf"]);
 export type ExportFormat = z.infer<typeof ExportFormat>;
 
 export const ExportStatus = defineEnum(["queued", "processing", "completed", "failed"]);

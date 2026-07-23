@@ -15,7 +15,8 @@
   "dependencies": {
     "@date-fns/tz": "^1.2.0",
     "@kaenal/types": "workspace:*",
-    "date-fns": "^4.1.0"
+    "date-fns": "^4.1.0",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "@kaenal/config": "workspace:*",

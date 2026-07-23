@@ -182,7 +182,10 @@ export class ExportsService {
   }
 
   private downloadName(row: ExportRow): string {
-    const ext = row.object_key?.endsWith(".zip") === true ? "zip" : "csv";
+    // The artifact's real extension (csv/xlsx/pdf, or zip when CSV was chunked)
+    // is on the object key the renderer wrote; fall back to the requested format.
+    const keyExt = row.object_key?.match(/\.([a-z0-9]+)$/i)?.[1];
+    const ext = keyExt ?? row.format;
     return `${row.resource}-export-${row.id}.${ext}`;
   }
 
