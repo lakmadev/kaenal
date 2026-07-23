@@ -17,6 +17,7 @@
     "db:check": "pnpm --filter @kaenal/db check-rls",
     "db:reset": "pnpm --filter @kaenal/db reset",
     "provision-tenant": "pnpm --filter @kaenal/db provision-tenant",
+    "offboard-tenant": "pnpm --filter @kaenal/db offboard-tenant",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\" --ignore-path .gitignore"
   },
   "devDependencies": {

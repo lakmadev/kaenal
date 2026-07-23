@@ -43,6 +43,8 @@ export const JOBS = {
   purgeSoftDeleted: "housekeeping.purge",
   /** Global (not per-tenant): provision upcoming audit partitions + tamper-check counts. */
   auditPartitionRoll: "housekeeping.partition-roll",
+  /** Global (not per-tenant): export + purge tenants past their offboarding grace. */
+  offboardTenant: "housekeeping.offboard-tenant",
   /** On demand: draft an AI summary for a controlled document, through the gateway. */
   generateSummary: "ai.summary",
 } as const;

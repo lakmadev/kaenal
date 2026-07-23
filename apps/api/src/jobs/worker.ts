@@ -36,6 +36,7 @@ import { materializeScheduleForTenant } from "./processors/materialize-schedule.
 import { documentExpiryCheckForTenant } from "./processors/document-expiry.js";
 import { purgeSoftDeletedForTenant } from "./processors/purge-soft-deleted.js";
 import { rollAuditPartitions } from "./processors/audit-partition-roll.js";
+import { offboardTenants } from "./processors/offboard-tenant.js";
 import { generateDocumentSummary } from "./processors/generate-summary.js";
 import { AiGatewayService } from "../ai/gateway.service.js";
 import { StubAiProvider } from "../ai/provider.js";
@@ -178,11 +179,15 @@ async function main(): Promise<void> {
             jobId: `housekeeping:${t.id}:${housekeepingBucket()}`,
           });
         }
-        // The partition roll is global (partitions span all tenants), so it is
-        // enqueued once per sweep, not per tenant.
+        // The partition roll and tenant offboarding are global (they span all
+        // tenants / the control plane), so each is enqueued once per sweep.
         await housekeepingQueue.add(JOBS.auditPartitionRoll, {}, {
           ...DEFAULT_JOB_OPTS,
           jobId: `audit-partition-roll:${housekeepingBucket()}`,
+        });
+        await housekeepingQueue.add(JOBS.offboardTenant, {}, {
+          ...DEFAULT_JOB_OPTS,
+          jobId: `offboard-tenant:${housekeepingBucket()}`,
         });
         return;
       }
@@ -191,6 +196,9 @@ async function main(): Promise<void> {
       }
       if (job.name === JOBS.auditPartitionRoll) {
         await rollAuditPartitions();
+      }
+      if (job.name === JOBS.offboardTenant) {
+        await offboardTenants({ storage, bucket: env.S3_BUCKET });
       }
     },
     // Purge is delete-heavy; keep concurrency low so it never contends with

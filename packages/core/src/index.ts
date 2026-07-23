@@ -18,3 +18,4 @@ export * from "./document-expiry.js";
 export * from "./purge.js";
 export * from "./ai-gateway.js";
 export * from "./audit-partitions.js";
+export * from "./offboarding.js";

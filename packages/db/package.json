@@ -14,6 +14,7 @@
     "reset": "tsx scripts/reset.ts",
     "check-rls": "tsx scripts/check-rls.ts",
     "provision-tenant": "tsx scripts/provision-tenant.ts",
+    "offboard-tenant": "tsx scripts/offboard-tenant.ts",
     "test": "vitest run",
     "test:rls": "vitest run test/rls.test.ts"
   },

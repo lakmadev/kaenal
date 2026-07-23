@@ -25,6 +25,7 @@ export const TenantStatus = defineEnum([
   "active",
   "suspended",
   "offboarding",
+  "offboarded",
   "provisioning_failed",
 ]);
 export type TenantStatus = z.infer<typeof TenantStatus>;

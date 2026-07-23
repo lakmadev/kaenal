@@ -13,10 +13,10 @@ notification delivery, async exports, recurring-inspection scheduling, document-
 soft-delete purge, the AI gateway), the
 8D workflow, the Audits
 module, async Reports/exports, scheduling/recurrence, document-expiry reminders, the
-housekeeping purge, the governed AI gateway (doc-summary feature) AND audit-events partitioning +
-the nightly partition-roll/tamper-check are
+housekeeping purge, the governed AI gateway (doc-summary feature), audit-events partitioning +
+the nightly partition-roll/tamper-check AND tenant offboarding (export bundle + gated purge) are
 done and proven, and CI runs them on
-every push/PR. 918 tests pass (257 db integration, 472 core unit, 153 api integration, 25 types unit,
+every push/PR. 925 tests pass (257 db integration, 478 core unit, 154 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -24,6 +24,26 @@ forward-only/revert directionality and the document rules (approver-role, self-a
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
+teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
+registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already
+resolves only `active` tenants (≤60s cache lag) — and starts a 30-day grace clock (`offboarding_at`).
+The nightly GLOBAL `offboardTenant` job (enqueued once per housekeeping sweep, like the partition roll)
+then, for each tenant past its grace: (1) skips it if ANY legal hold is active (07 §5 — the hold blocks
+the whole purge); (2) produces the mandated **export bundle** first — one JSON document per tenant
+table (incl. the audit trail), zipped via `fflate` and uploaded through the `Storage` port, its key
+recorded on `control.tenants.offboarding_export_key` so a resumed run never re-exports; (3) **purges**
+every tenant table run as the tenant's own RLS scope (so a `DELETE` can only ever reach that tenant's
+rows), FK-safe via a savepoint-per-table multi-pass (02 §7 RESTRICT), batched 10k — deliberately
+RETAINING `audit_events` (append-only by construction; the app role cannot delete it, and erasing the
+immutable trail is its own careful step, see Known issues; the bundle already captured it); (4) marks
+the tenant terminal `offboarded` (`offboarded_at`). Idempotent + resumable: a crash mid-purge leaves
+the tenant `offboarding` with its export key set, and the next run skips the export and re-runs the
+idempotent deletes. Migration 0016 adds the lifecycle columns + the `offboarded` status
+(`TenantStatus` enum). Grace math is pure + unit-tested in `packages/core/offboarding.ts`
+(`isOffboardPurgeEligible`, 30-day boundary — 6 tests); 1 api test drives all three paths in one run
+(export+purge, hold-blocked, grace-skipped). This completes the `housekeeping` queue's three jobs.
 
 **Audit-events partitioning + partition roll (07 §1, 06 §1 `housekeeping`):** `audit_events` is now
 declaratively range-partitioned by UTC month, unlocking the nightly tamper check the spec requires
@@ -174,9 +194,10 @@ Reports/exports slice), `schedule` (repeatable hourly sweep → fans out one
 Scheduling slice), and `docs` (repeatable daily sweep → fans out one `documentExpiryCheck` job per
 tenant → reminds owners of documents nearing expiry; see the Document-expiry slice), and
 `housekeeping` (repeatable nightly sweep → fans out one `purgeSoftDeleted` job per tenant →
-permanently deletes rows soft-deleted past the 90-day window, minus legal holds; PLUS one global
-`auditPartitionRoll` per sweep → provisions upcoming audit partitions + tamper-checks counts; see the
-Housekeeping and Audit-partitioning slices), and `ai` (on-demand `generateSummary` → drafts a document summary through the AI gateway
+permanently deletes rows soft-deleted past the 90-day window, minus legal holds; PLUS two global jobs
+per sweep — `auditPartitionRoll` → provisions upcoming audit partitions + tamper-checks counts, and
+`offboardTenant` → exports + purges tenants past their offboarding grace; see the Housekeeping,
+Audit-partitioning and Offboarding slices), and `ai` (on-demand `generateSummary` → drafts a document summary through the AI gateway
 chokepoint; see the AI gateway slice). Scanner + delivery + the AI provider
 are stub ports (no ClamAV/Resend/Anthropic yet); the plumbing, DB
 effects and idempotency are real. The API only
@@ -288,9 +309,10 @@ not a silent build. The `housekeeping` `purgeSoftDeleted` and the `ai` gateway c
 `doc_summary` feature) now ship; the clear remaining backend work is the rest of the AI surface (the
 HTTP trigger endpoint + draft-acceptance flow with an `ai_draft_accepted` audit event, and the
 `root_cause`/`eightd_draft`/`compliance_qa` features — the last needing pgvector doc retrieval), the
-last 06 `housekeeping` job (`offboardTenant` — a large multi-step tenant-purge flow; the sibling
-`auditEventPartitionRoll` now ships), the `documents`/`files` purge (deferred cascade design, see Known
-issues), and XLSX/PDF export renderers behind the existing `reports` pipeline. A real Anthropic-backed
+rest of the AI surface (HTTP trigger + draft-acceptance + the non-summary features), the
+`documents`/`files` soft-delete purge (deferred cascade design, see Known issues), and XLSX/PDF export
+renderers behind the existing `reports` pipeline. All three 06 `housekeeping` jobs now ship
+(`purgeSoftDeleted`, `auditEventPartitionRoll`, `offboardTenant`). A real Anthropic-backed
 `AiProvider` would replace the stub. Real ClamAV +
 email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4.
 The dedicated **FE** can also start against `@kaenal/api-client`.
@@ -301,11 +323,11 @@ The dedicated **FE** can also start against `@kaenal/api-client`.
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0015)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0016)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 918 tests
+pnpm test                     # full suite (serial: shares one DB) — 925 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -455,8 +477,9 @@ to build the frontend.)
       `notify` (delivery), `reports` (async export render), `schedule` (recurrence materialisation),
       `docs` (document-expiry reminders), `housekeeping` (soft-delete purge) queues DONE
       (`apps/api/src/jobs/*`), `ai` queue (doc-summary via the gateway chokepoint),
-      `housekeeping`'s `auditEventPartitionRoll` (partition provisioning + tamper check) DONE;
-      `housekeeping`'s `offboardTenant` job still pending
+      `housekeeping`'s `auditEventPartitionRoll` (partition provisioning + tamper check) and
+      `offboardTenant` (export bundle + gated purge) DONE — all six queues + all three housekeeping
+      jobs shipped
 - [x] Reports / exports (2026-07-22) — `packages/core/exports.ts` + `apps/api/src/exports/*` +
       `apps/api/src/jobs/processors/run-export.ts`; 202 → `reports` render → presigned download,
       100k-row cap → chunked zip (`fflate`), plant-scoped + requester-scoped, migration 0011
@@ -470,6 +493,10 @@ to build the frontend.)
       scope) + `apps/api/src/jobs/processors/purge-soft-deleted.ts`; nightly `housekeeping` queue,
       SAVEPOINT-per-row FK-RESTRICT skip, `purged` audit action (migration 0013); excludes
       documents/files pending cascade design
+- [x] Tenant offboarding (2026-07-23) — migration 0016 (lifecycle columns + `offboarded` status) +
+      `offboard-tenant` CLI + `packages/core/offboarding.ts` (30-day grace) +
+      `apps/api/src/jobs/processors/offboard-tenant.ts` (global `housekeeping` job: legal-hold gate →
+      JSON-per-table export bundle → FK-safe batched purge, audit trail retained → `offboarded`)
 - [x] Audit-events partitioning + roll (2026-07-23) — migration 0015 (monthly RANGE partitions,
       composite PK, default partition, re-applied RLS/append-only) + `packages/core/audit-partitions.ts`
       + `apps/api/src/jobs/processors/audit-partition-roll.ts` (global `housekeeping` job: provision
@@ -499,6 +526,24 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-23 — tenant offboarding: purge as the tenant's RLS scope, retain audit_events,
+  export-before-delete, savepoint multi-pass, terminal status, global resumable job.** The purge runs
+  through `withTenant(tenantId)` as the APP role, NOT as the owner: RLS then scopes every `DELETE` to
+  the tenant automatically (a `WHERE tenant_id` that can't be forgotten), and the app already holds
+  DELETE on every tenant table — except `audit_events`, which it deliberately cannot delete. So the
+  purge **retains `audit_events`** (the append-only trail; the export bundle captured it, and its
+  destruction — which would require disabling immutability under an exclusive lock, or a Model-B
+  database drop — is a separate careful step, logged in Known issues). This also sidesteps FORCE RLS
+  blocking an owner `DELETE` with `app.tenant_id` unset. The mandated **export bundle is produced
+  before any delete** (07 §5) — one `json_agg` document per tenant table, zipped, uploaded via the
+  Storage port, key recorded so a resumed run skips it. FK RESTRICT (02 §7) is handled by a
+  **savepoint-per-table multi-pass** (same shape as the soft-delete purge) rather than a hand-kept
+  delete order. Any **active legal hold blocks the whole purge** (07 §5). The tenant ends at a terminal
+  **`offboarded`** status (registry row kept, slug reserved, Model A). The job is **global** (enqueued
+  once per housekeeping sweep, not per tenant) and **idempotent/resumable** (crash mid-purge → stays
+  `offboarding` with export key set → next run resumes). Login-blocking needed no new code: the
+  registry already resolves only `active` tenants. *Affects: 01 §3.4, 06 §1 `housekeeping`, 07 §5.*
 
 - **2026-07-23 — audit_events partitioning: composite PK, default-partition + provision-ahead,
   copy-before-RLS, enumeration filter, global roll job, high-water tamper ledger.** `auditEventPartition
@@ -989,9 +1034,15 @@ to build the frontend.)
   considered fix is either explicit dependent-deletion inside `purgeRow` (versions/signatures of a
   purging parent) or a narrow cascade, plus an object-store delete step (or handing orphaned objects
   to the files-cleanup job). Until then those two graphs never purge. *06 §1 `housekeeping`, 07 §5.*
-- **`housekeeping`'s `offboardTenant` job is unbuilt.** A large multi-step flow (export bundle → purge
-  minus legal holds → registry teardown) tied to the offboarding lifecycle; deferred as its own slice.
-  (`auditEventPartitionRoll`, its former sibling here, now ships.) *06 §1 `housekeeping`, 07 §5.*
+- **Offboarding retains `audit_events` and does not archive physical file objects.** The offboarding
+  purge empties every tenant table EXCEPT the append-only `audit_events` (the app role can't delete it,
+  and erasing an immutable trail warrants its own step — disable the trigger under an ACCESS EXCLUSIVE
+  lock and batch-delete, or the Model-B database drop). The export bundle dumps every table to JSON
+  (including `files` metadata) but does NOT copy the binary file objects from S3 ("+ all files" in
+  01 §3.4) — the Storage port has no server-side copy and doing it well is an S3-to-S3 archival step;
+  a follow-up. Also the purge runs in ONE transaction per tenant (atomic, but a very large tenant would
+  want cross-transaction batching). Model B (`dedicated`) offboarding is just a database drop, unbuilt
+  alongside Model B provisioning. *01 §3.4, 07 §5.*
 - **Audit partition provisioning must stay ahead of the calendar.** The nightly roll provisions the
   current + next month; a default partition catches anything else so writes never fail. But if the job
   lapses for more than a month, rows for the un-provisioned month land in the default partition, and
