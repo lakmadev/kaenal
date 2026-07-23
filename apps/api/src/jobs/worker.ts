@@ -13,12 +13,14 @@ import type { Storage } from "../files/storage.js";
 import {
   DEFAULT_JOB_OPTS,
   DOCS_SWEEP_CRON,
+  HOUSEKEEPING_SWEEP_CRON,
   JOBS,
   QUEUES,
   SCHEDULE_SWEEP_CRON,
   SLA_SWEEP_CRON,
   type DocumentExpiryJob,
   type MaterializeScheduleJob,
+  type PurgeSoftDeletedJob,
   type RecomputeSlaJob,
   type RunExportJob,
   type ScanFileJob,
@@ -31,6 +33,7 @@ import { deliverNotification } from "./processors/deliver-notification.js";
 import { runExport } from "./processors/run-export.js";
 import { materializeScheduleForTenant } from "./processors/materialize-schedule.js";
 import { documentExpiryCheckForTenant } from "./processors/document-expiry.js";
+import { purgeSoftDeletedForTenant } from "./processors/purge-soft-deleted.js";
 
 /**
  * The worker process (06 §1). Run separately from the API —
@@ -152,10 +155,37 @@ async function main(): Promise<void> {
     { connection, concurrency: 4 },
   );
 
+  const housekeepingQueue = new Queue(QUEUES.housekeeping, { connection });
+
+  const housekeepingWorker = new Worker(
+    QUEUES.housekeeping,
+    async (job: Job) => {
+      if (job.name === JOBS.housekeepingSweep) {
+        const { rows } = await control.query<{ id: string }>(
+          "SELECT id FROM control.tenants WHERE status = 'active'",
+        );
+        for (const t of rows) {
+          await housekeepingQueue.add(JOBS.purgeSoftDeleted, { tenantId: t.id } satisfies PurgeSoftDeletedJob, {
+            ...DEFAULT_JOB_OPTS,
+            jobId: `housekeeping:${t.id}:${housekeepingBucket()}`,
+          });
+        }
+        return;
+      }
+      if (job.name === JOBS.purgeSoftDeleted) {
+        await purgeSoftDeletedForTenant(job.data as PurgeSoftDeletedJob);
+      }
+    },
+    // Purge is delete-heavy; keep concurrency low so it never contends with
+    // request-serving Postgres.
+    { connection, concurrency: 2 },
+  );
+
   // Register the repeatable sweeps once; BullMQ dedupes the schedule by name.
   await slaQueue.add(JOBS.slaSweep, {}, { repeat: { pattern: SLA_SWEEP_CRON }, jobId: "sla-sweep" });
   await scheduleQueue.add(JOBS.scheduleSweep, {}, { repeat: { pattern: SCHEDULE_SWEEP_CRON }, jobId: "schedule-sweep" });
   await docsQueue.add(JOBS.docsSweep, {}, { repeat: { pattern: DOCS_SWEEP_CRON }, jobId: "docs-sweep" });
+  await housekeepingQueue.add(JOBS.housekeepingSweep, {}, { repeat: { pattern: HOUSEKEEPING_SWEEP_CRON }, jobId: "housekeeping-sweep" });
 
   const shutdown = async (): Promise<void> => {
     await Promise.allSettled([
@@ -165,10 +195,12 @@ async function main(): Promise<void> {
       reportsWorker.close(),
       scheduleWorker.close(),
       docsWorker.close(),
+      housekeepingWorker.close(),
     ]);
     await slaQueue.close();
     await scheduleQueue.close();
     await docsQueue.close();
+    await housekeepingQueue.close();
     await connection.quit();
     await control.end();
     process.exit(0);
@@ -176,7 +208,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
 
-  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule, docs");
+  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule, docs, housekeeping");
 }
 
 /** 5-minute bucket so a retriggered sweep within one window dedupes per tenant. */
@@ -191,6 +223,11 @@ function scheduleBucket(): number {
 
 /** 1-day bucket so a retriggered docs sweep within the day dedupes per tenant. */
 function docsBucket(): number {
+  return Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+}
+
+/** 1-day bucket so a retriggered housekeeping sweep within the day dedupes per tenant. */
+function housekeepingBucket(): number {
   return Math.floor(Date.now() / (24 * 60 * 60 * 1000));
 }
 

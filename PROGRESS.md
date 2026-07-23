@@ -9,11 +9,13 @@
 plane, business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all
 five Phase-1 vertical slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search,
 Notifications, the typed `@kaenal/api-client`, the BullMQ jobs runtime (SLA escalation, AV scan,
-notification delivery, async exports, recurring-inspection scheduling, document-expiry reminders), the
+notification delivery, async exports, recurring-inspection scheduling, document-expiry reminders,
+soft-delete purge), the
 8D workflow, the Audits
-module, async Reports/exports, scheduling/recurrence AND document-expiry reminders are
+module, async Reports/exports, scheduling/recurrence, document-expiry reminders AND the
+housekeeping purge are
 done and proven, and CI runs them on
-every push/PR. 858 tests pass (239 db integration, 442 core unit, 141 api integration, 25 types unit,
+every push/PR. 871 tests pass (239 db integration, 452 core unit, 144 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 33 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -21,6 +23,26 @@ forward-only/revert directionality and the document rules (approver-role, self-a
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Housekeeping / soft-delete purge slice (06 `housekeeping`, 07 §5):** the nightly `housekeeping`
+BullMQ queue (`purgeSoftDeletedForTenant`, fanned out one job per active tenant) permanently deletes
+rows soft-deleted longer ago than the 90-day retention window — the irreversible half of the delete
+that `deleted_at` only defers. Two invariants keep it safe. **Legal holds win:** the processor reads
+active `legal_holds` (07 §5) and, per the pure `packages/core/purge.ts` scope logic, a tenant-wide
+hold (`scope {}`) aborts the whole run while a scoped hold (`{entityKind[, entityId]}` or
+`{entityKinds:[…]}`) protects the rows it covers — any ambiguity keeps the data. **FK integrity is
+never violated:** every intra-tenant FK is `ON DELETE RESTRICT` (02 §7), so each row is deleted inside
+its own `SAVEPOINT`; a still-referenced parent (live or not-yet-purged child) skips on the FK
+violation (`23503`) and purges on a later run, children-before-parents ordering draining a graph in as
+few nights as possible. Each purge writes a distinct `purged` audit event (system actor; new
+`AuditAction` value + migration 0013 CHECK — `deleted` stays the soft delete, `purged` the erase). The
+purge covers the inspection/NCR/CAPA/audit/supplier record graphs + their soft-deletable children +
+templates/plants/areas; it deliberately excludes access/identity tables (`memberships`,
+`notification_prefs`, `sessions` — DSAR/offboarding lifecycle), `exports` (generated artifacts), and
+`documents`/`files` (their `document_versions`/`signatures`/S3-object dependents need a considered
+cascade design — see Known issues). 10 core unit tests (cutoff arithmetic + every hold-scope shape) +
+3 api tests (mixed purge/keep with hold + FK-RESTRICT skip, idempotent re-run, tenant-wide-hold
+block). The `housekeeping` queue is the seventh in the jobs runtime.
 
 **Document-expiry slice (06 `docs`):** the daily `docs` BullMQ queue
 (`documentExpiryCheckForTenant`, fanned out per active tenant) reminds a controlled document's owner
@@ -94,7 +116,7 @@ Not plant-scoped; rides the NCR capabilities (`ncr:view`/`ncr:manage`) since the
 `lock_version` (migration 0009). 6 api tests incl. the full close-blocked → resolve → close flow.
 
 **BullMQ jobs runtime (06 §1):** a worker process (`pnpm --filter @kaenal/api worker`) separate from
-the API, with six queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
+the API, with seven queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
 job per active tenant → reclassifies open NCRs against their SLA window with the core business-time
 math, escalates breaches through `ncrMachine`, audits as a `system` actor, notifies the owner),
 `files` (`scanFile` → a pluggable `Scanner` port flips `scan_status`; infected notifies the uploader),
@@ -104,7 +126,10 @@ email/push/SMS per the user's `notification_prefs`, recording `channels_sent`), 
 Reports/exports slice), `schedule` (repeatable hourly sweep → fans out one
 `materializeSchedule` job per tenant → expands recurring inspection series into occurrences; see the
 Scheduling slice), and `docs` (repeatable daily sweep → fans out one `documentExpiryCheck` job per
-tenant → reminds owners of documents nearing expiry; see the Document-expiry slice). Scanner +
+tenant → reminds owners of documents nearing expiry; see the Document-expiry slice), and
+`housekeeping` (repeatable nightly sweep → fans out one `purgeSoftDeleted` job per tenant →
+permanently deletes rows soft-deleted past the 90-day window, minus legal holds; see the Housekeeping
+slice). Scanner +
 delivery are stub ports (no ClamAV/Resend yet); the plumbing, DB
 effects and idempotency are real. The API only
 ENQUEUES, behind a `JOBS_ENABLED` gate — off in `test` (a `NoopProducer`, no queue connection), so the
@@ -209,9 +234,12 @@ FEATURES bullet + a visual-only prototype (`src/qms-risk-spc.jsx`), but `impleme
 `03-API` and `08-TESTING` define no tables, endpoints, or algorithms for it, so building it means
 inventing the whole module (control-chart limits/Western-Electric rules, FMEA RPN, risk register,
 MSA/Gauge R&R). Per the "no invented scope" rule that's a spec question, logged under Known issues,
-not a silent build. The clear remaining backend work is the last two 06 queues (`housekeeping` — purge
-soft-deleted > 90 days minus legal holds, audit-event partition roll; `ai` — the AI gateway chokepoint,
-06 §3) and XLSX/PDF export renderers behind the existing `reports` pipeline. Real ClamAV +
+not a silent build. The `housekeeping` queue's `purgeSoftDeleted` now ships; the clear remaining
+backend work is the `ai` queue + AI gateway chokepoint (06 §3), the two other 06 `housekeeping` jobs
+(`auditEventPartitionRoll` — needs `audit_events` converted to declarative time-partitioning first, a
+separate migration; `offboardTenant` — a large multi-step tenant-purge flow), the `documents`/`files`
+purge (deferred cascade design, see Known issues), and XLSX/PDF export renderers behind the existing
+`reports` pipeline. Real ClamAV +
 email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4.
 The dedicated **FE** can also start against `@kaenal/api-client`.
 
@@ -221,11 +249,11 @@ The dedicated **FE** can also start against `@kaenal/api-client`.
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0012)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0013)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 858 tests
+pnpm test                     # full suite (serial: shares one DB) — 871 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -373,8 +401,9 @@ to build the frontend.)
       `apps/api/src/audits/*`; phase machine, findings, raise-NCR/raise-CAPA seam, migration 0010
 - [~] BullMQ jobs runtime (2026-07-22) — worker process + `sla` (escalation), `files` (AV scan),
       `notify` (delivery), `reports` (async export render), `schedule` (recurrence materialisation),
-      `docs` (document-expiry reminders) queues DONE (`apps/api/src/jobs/*`); `housekeeping`/`ai`
-      queues still pending
+      `docs` (document-expiry reminders), `housekeeping` (soft-delete purge) queues DONE
+      (`apps/api/src/jobs/*`); `ai` queue + `housekeeping`'s `auditEventPartitionRoll`/`offboardTenant`
+      jobs still pending
 - [x] Reports / exports (2026-07-22) — `packages/core/exports.ts` + `apps/api/src/exports/*` +
       `apps/api/src/jobs/processors/run-export.ts`; 202 → `reports` render → presigned download,
       100k-row cap → chunked zip (`fflate`), plant-scoped + requester-scoped, migration 0011
@@ -384,6 +413,10 @@ to build the frontend.)
 - [x] Document-expiry reminders (2026-07-22) — `packages/core/document-expiry.ts` (90/30/7 threshold
       cascade) + `apps/api/src/jobs/processors/document-expiry.ts`; daily `docs` queue, dedupe on
       `(document, threshold)`, no schema change
+- [x] Housekeeping / soft-delete purge (2026-07-23) — `packages/core/purge.ts` (retention + legal-hold
+      scope) + `apps/api/src/jobs/processors/purge-soft-deleted.ts`; nightly `housekeeping` queue,
+      SAVEPOINT-per-row FK-RESTRICT skip, `purged` audit action (migration 0013); excludes
+      documents/files pending cascade design
 - [ ] SPC / FMEA — deferred pending spec (see Known issues): no backend schema/API/algorithm in
       `implementation/`, only a FEATURES bullet + visual prototype
 
@@ -401,6 +434,24 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-23 — soft-delete purge: legal-hold `scope` shape, `purged` action, RESTRICT-skip, scope
+  boundary.** `legal_holds.scope` is spec'd only as `jsonb` (07 §5), so the smallest useful shape was
+  chosen and pinned in `packages/core/purge.ts`: `{}` = tenant-wide (aborts the whole run),
+  `{entityKinds:[…]}` = whole kinds, `{entityKind[, entityId]}` = a kind or one row — using the
+  singular audit entity-kinds (`ncr`, `inspection`, …), and any empty/unrecognised scope defaults to
+  tenant-wide because the safe failure is to keep data. The permanent purge writes a NEW `purged`
+  audit action (migration 0013 + `AuditAction`), distinct from `deleted` (the soft delete), so the
+  trail separates "trashed" from "erased". Because every intra-tenant FK is `ON DELETE RESTRICT`
+  (02 §7), each delete runs in its own SAVEPOINT and a still-referenced row skips on `23503` and
+  purges on a later nightly run (children-before-parents ordering minimises the number of nights);
+  this needs no cascade and can't orphan. Scope was bounded to the inspection/NCR/CAPA/audit/supplier
+  record graphs + soft-deletable children + templates/plants/areas; `memberships`/`notification_prefs`/
+  `sessions` (DSAR/offboarding lifecycle), `exports` (generated artifacts), and `documents`/`files`
+  (dependents without an independent `deleted_at` — `document_versions`, `signatures` — plus the S3
+  object) are excluded, the last as a tracked follow-up. `auditEventPartitionRoll` and `offboardTenant`
+  (the other two `housekeeping` jobs) are deferred: the former needs `audit_events` converted to
+  declarative time-partitioning first. *Affects: 06 §1 `housekeeping`, 07 §5.*
 
 - **2026-07-22 — document-expiry reminders reuse the notification dedupe key, no new schema.** The
   `docs` job notifies at the *smallest* crossed threshold (90 → 30 → 7), so a document created already
@@ -812,6 +863,21 @@ to build the frontend.)
 
 ## Known issues / TODO
 
+- **Soft-delete purge excludes `documents`/`files` pending a cascade + object-store design.** The
+  nightly `housekeeping` purge covers the inspection/NCR/CAPA/audit/supplier record graphs, but
+  documents and files are held back: `document_versions` has no independent `deleted_at` (it can't be
+  the purge's soft-delete trigger, yet FK-RESTRICT blocks the parent document while versions exist),
+  `signatures` reference files, and both own S3 objects that must be deleted with the row. The
+  considered fix is either explicit dependent-deletion inside `purgeRow` (versions/signatures of a
+  purging parent) or a narrow cascade, plus an object-store delete step (or handing orphaned objects
+  to the files-cleanup job). Until then those two graphs never purge. *06 §1 `housekeeping`, 07 §5.*
+- **`housekeeping`'s other two jobs are unbuilt: `auditEventPartitionRoll`, `offboardTenant`.** The
+  partition roll presupposes `audit_events` is declaratively time-partitioned (07 §1: "row count only
+  ever grows per partition"); it is currently a single plain table, so partitioning is a prerequisite
+  migration (recreate as `PARTITION BY RANGE (created_at)` + a monthly-partition-provisioning job +
+  the shrink-detection tamper check). `offboardTenant` is a large multi-step flow (export bundle →
+  purge minus legal holds → registry teardown) tied to the offboarding lifecycle. Both deferred as
+  their own slices. *06 §1 `housekeeping`, 07 §1/§5.*
 - **SPC / FMEA has no backend spec — needs one before it can be built.** It is listed in FEATURES.md
   (SPC charts, FMEA workbench, risk register, MSA/Gauge R&R) and has a visual prototype
   (`project_brain/project/src/qms-risk-spc.jsx`), but `implementation/02-DATABASE`, `03-API` and

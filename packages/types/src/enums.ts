@@ -278,6 +278,7 @@ export const AuditAction = defineEnum([
   "exported",
   "deleted",
   "restored",
+  "purged",
   "signed_in",
   "sign_in_failed",
   "signed_out",

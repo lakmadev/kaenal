@@ -13,6 +13,7 @@ export const QUEUES = {
   reports: "reports",
   schedule: "schedule",
   docs: "docs",
+  housekeeping: "housekeeping",
 } as const;
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
@@ -35,6 +36,10 @@ export const JOBS = {
   docsSweep: "docs.sweep",
   /** Per-tenant: remind owners of documents nearing their expiry. */
   documentExpiryCheck: "docs.expiry",
+  /** Repeatable fan-out trigger: enqueues one purge job per active tenant. */
+  housekeepingSweep: "housekeeping.sweep",
+  /** Per-tenant: permanently purge rows soft-deleted past the retention window. */
+  purgeSoftDeleted: "housekeeping.purge",
 } as const;
 
 export interface RecomputeSlaJob {
@@ -58,6 +63,9 @@ export interface MaterializeScheduleJob {
 export interface DocumentExpiryJob {
   readonly tenantId: string;
 }
+export interface PurgeSoftDeletedJob {
+  readonly tenantId: string;
+}
 
 /**
  * Job rules (06 §1): 5 attempts, exponential backoff. `removeOnFail: false`
@@ -79,3 +87,6 @@ export const SCHEDULE_SWEEP_CRON = "0 * * * *";
 
 /** How often the document-expiry sweep runs (06 §1: daily, early morning). */
 export const DOCS_SWEEP_CRON = "0 6 * * *";
+
+/** How often the housekeeping (purge) sweep runs (06 §1: nightly). */
+export const HOUSEKEEPING_SWEEP_CRON = "0 3 * * *";
