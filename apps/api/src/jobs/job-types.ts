@@ -41,6 +41,8 @@ export const JOBS = {
   housekeepingSweep: "housekeeping.sweep",
   /** Per-tenant: permanently purge rows soft-deleted past the retention window. */
   purgeSoftDeleted: "housekeeping.purge",
+  /** Global (not per-tenant): provision upcoming audit partitions + tamper-check counts. */
+  auditPartitionRoll: "housekeeping.partition-roll",
   /** On demand: draft an AI summary for a controlled document, through the gateway. */
   generateSummary: "ai.summary",
 } as const;

@@ -38,7 +38,9 @@ async function listTenantTables(tx: Tx): Promise<string[]> {
     SELECT n.nspname AS schemaname, c.relname AS tablename
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE c.relkind = 'r' AND n.nspname = 'public'
+    WHERE c.relkind IN ('r','p')      -- ordinary tables + partitioned parents
+      AND NOT c.relispartition         -- exclude partition children (parent carries the policy)
+      AND n.nspname = 'public'
     ORDER BY c.relname
   `);
   return rows.filter((r) => isTenantTable(r.schemaname, r.tablename)).map((r) => r.tablename);

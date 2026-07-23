@@ -31,7 +31,8 @@ async function main(): Promise<void> {
              c.relforcerowsecurity AS forcerowsecurity
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE c.relkind = 'r'
+      WHERE c.relkind IN ('r','p')       -- ordinary tables + partitioned parents
+        AND NOT c.relispartition          -- but not partition children: the parent carries the policy
         AND n.nspname NOT IN ('pg_catalog','information_schema')
       ORDER BY n.nspname, c.relname
     `);

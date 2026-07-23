@@ -13,9 +13,10 @@ notification delivery, async exports, recurring-inspection scheduling, document-
 soft-delete purge, the AI gateway), the
 8D workflow, the Audits
 module, async Reports/exports, scheduling/recurrence, document-expiry reminders, the
-housekeeping purge AND the governed AI gateway (doc-summary feature) are
+housekeeping purge, the governed AI gateway (doc-summary feature) AND audit-events partitioning +
+the nightly partition-roll/tamper-check are
 done and proven, and CI runs them on
-every push/PR. 909 tests pass (257 db integration, 465 core unit, 151 api integration, 25 types unit,
+every push/PR. 918 tests pass (257 db integration, 472 core unit, 153 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -23,6 +24,29 @@ forward-only/revert directionality and the document rules (approver-role, self-a
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Audit-events partitioning + partition roll (07 §1, 06 §1 `housekeeping`):** `audit_events` is now
+declaratively range-partitioned by UTC month, unlocking the nightly tamper check the spec requires
+("per-partition row count only ever grows; a shrink = tampering"). Migration 0015 recreates the table
+as a partitioned parent — the partition key `created_at` must be in every unique key, so the PK is now
+composite `(id, created_at)` (nothing FKs to audit_events, so widening it is safe) — with a default
+partition (an audit write must never fail for want of a partition) plus explicit monthly partitions.
+Ordering is load-bearing: existing rows are copied BEFORE `apply_tenant_rls`, because FORCE RLS binds
+even the table owner. Append-only immutability is re-applied on the parent (REVOKE UPDATE/DELETE +
+`reject_mutation` trigger — a BEFORE ROW trigger on a partitioned parent cascades to every partition,
+present and future), and the two RLS enumerations (`check-rls.ts` lint + `rls.test.ts` suite) now match
+`relkind IN ('r','p') AND NOT relispartition` so the partitioned PARENT is verified and the monthly
+CHILDREN (which carry no RLS of their own — the parent's policy governs the app path) are skipped;
+mutation-checked that breaking FORCE RLS on the parent still fails the lint. The roll job is GLOBAL
+(partitions span all tenants), so the housekeeping sweep enqueues it once, not per tenant; it runs on
+the owner connection (DDL + counting children directly, which the app can't reach). `packages/core/
+audit-partitions.ts` holds the pure calendar/shrink logic (`upcomingPartitionMonths`,
+`auditPartitionName/Range`, `isTampered`, `highWater` — 7 unit tests); the processor
+(`processors/audit-partition-roll.ts`) provisions the current + next month ahead (keeping the default
+empty) and records each partition's high-water count in a control-plane ledger
+(`control.audit_partition_stats`), flagging + loudly logging any shrink and never lowering the stored
+mark so the signal persists. 7 core + 2 api tests (provision + idempotent re-run; baseline count then
+shrink detection). The `housekeeping` queue now carries two jobs (purge + partition roll).
 
 **AI gateway slice (06 §3, FEATURES §16.1):** the single chokepoint every model call passes through —
 `AiGatewayService` (`apps/api/src/ai/gateway.service.ts`) wrapping a pluggable `AiProvider` port
@@ -150,8 +174,9 @@ Reports/exports slice), `schedule` (repeatable hourly sweep → fans out one
 Scheduling slice), and `docs` (repeatable daily sweep → fans out one `documentExpiryCheck` job per
 tenant → reminds owners of documents nearing expiry; see the Document-expiry slice), and
 `housekeeping` (repeatable nightly sweep → fans out one `purgeSoftDeleted` job per tenant →
-permanently deletes rows soft-deleted past the 90-day window, minus legal holds; see the Housekeeping
-slice), and `ai` (on-demand `generateSummary` → drafts a document summary through the AI gateway
+permanently deletes rows soft-deleted past the 90-day window, minus legal holds; PLUS one global
+`auditPartitionRoll` per sweep → provisions upcoming audit partitions + tamper-checks counts; see the
+Housekeeping and Audit-partitioning slices), and `ai` (on-demand `generateSummary` → drafts a document summary through the AI gateway
 chokepoint; see the AI gateway slice). Scanner + delivery + the AI provider
 are stub ports (no ClamAV/Resend/Anthropic yet); the plumbing, DB
 effects and idempotency are real. The API only
@@ -263,11 +288,10 @@ not a silent build. The `housekeeping` `purgeSoftDeleted` and the `ai` gateway c
 `doc_summary` feature) now ship; the clear remaining backend work is the rest of the AI surface (the
 HTTP trigger endpoint + draft-acceptance flow with an `ai_draft_accepted` audit event, and the
 `root_cause`/`eightd_draft`/`compliance_qa` features — the last needing pgvector doc retrieval), the
-two other 06 `housekeeping` jobs (`auditEventPartitionRoll` — needs `audit_events` converted to
-declarative time-partitioning first, a separate migration; `offboardTenant` — a large multi-step
-tenant-purge flow), the `documents`/`files` purge (deferred cascade design, see Known issues), and
-XLSX/PDF export renderers behind the existing `reports` pipeline. A real Anthropic-backed `AiProvider`
-would replace the stub. Real ClamAV +
+last 06 `housekeeping` job (`offboardTenant` — a large multi-step tenant-purge flow; the sibling
+`auditEventPartitionRoll` now ships), the `documents`/`files` purge (deferred cascade design, see Known
+issues), and XLSX/PDF export renderers behind the existing `reports` pipeline. A real Anthropic-backed
+`AiProvider` would replace the stub. Real ClamAV +
 email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4.
 The dedicated **FE** can also start against `@kaenal/api-client`.
 
@@ -277,11 +301,11 @@ The dedicated **FE** can also start against `@kaenal/api-client`.
 corepack enable && pnpm install
 cp .env.example .env          # then set AUTH_SECRET: openssl rand -base64 32
 docker compose up -d          # postgres:16 (5433), redis:7 (6380), minio (9000/9001)
-pnpm db:migrate               # apply migrations/*.sql in order (through 0014)
+pnpm db:migrate               # apply migrations/*.sql in order (through 0015)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 909 tests
+pnpm test                     # full suite (serial: shares one DB) — 918 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -430,8 +454,9 @@ to build the frontend.)
 - [~] BullMQ jobs runtime (2026-07-22) — worker process + `sla` (escalation), `files` (AV scan),
       `notify` (delivery), `reports` (async export render), `schedule` (recurrence materialisation),
       `docs` (document-expiry reminders), `housekeeping` (soft-delete purge) queues DONE
-      (`apps/api/src/jobs/*`), `ai` queue (doc-summary via the gateway chokepoint) DONE;
-      `housekeeping`'s `auditEventPartitionRoll`/`offboardTenant` jobs still pending
+      (`apps/api/src/jobs/*`), `ai` queue (doc-summary via the gateway chokepoint),
+      `housekeeping`'s `auditEventPartitionRoll` (partition provisioning + tamper check) DONE;
+      `housekeeping`'s `offboardTenant` job still pending
 - [x] Reports / exports (2026-07-22) — `packages/core/exports.ts` + `apps/api/src/exports/*` +
       `apps/api/src/jobs/processors/run-export.ts`; 202 → `reports` render → presigned download,
       100k-row cap → chunked zip (`fflate`), plant-scoped + requester-scoped, migration 0011
@@ -445,6 +470,11 @@ to build the frontend.)
       scope) + `apps/api/src/jobs/processors/purge-soft-deleted.ts`; nightly `housekeeping` queue,
       SAVEPOINT-per-row FK-RESTRICT skip, `purged` audit action (migration 0013); excludes
       documents/files pending cascade design
+- [x] Audit-events partitioning + roll (2026-07-23) — migration 0015 (monthly RANGE partitions,
+      composite PK, default partition, re-applied RLS/append-only) + `packages/core/audit-partitions.ts`
+      + `apps/api/src/jobs/processors/audit-partition-roll.ts` (global `housekeeping` job: provision
+      ahead + per-partition shrink/tamper check via `control.audit_partition_stats`); RLS enumerations
+      updated for partitioned parents/children (mutation-checked)
 - [~] AI gateway chokepoint (2026-07-23) — `packages/core/ai-gateway.ts` (gate/redact/route/budget) +
       `apps/api/src/ai/*` (gateway service + provider port + prompts) + `ai` queue's `generateSummary`
       (`processors/generate-summary.ts`); migration 0014 (`ai_settings`/`ai_budgets`/`ai_invocations`).
@@ -469,6 +499,27 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-23 — audit_events partitioning: composite PK, default-partition + provision-ahead,
+  copy-before-RLS, enumeration filter, global roll job, high-water tamper ledger.** `auditEventPartition
+  Roll` (07 §1) presupposes partitioning, so migration 0015 recreates `audit_events` as monthly RANGE
+  partitions. The partition key must be in every unique key → **PK widened to `(id, created_at)`**
+  (safe: nothing FKs to audit_events). A **default partition** guarantees an audit write never fails
+  for want of a partition (a QMS must never drop the trail), and the nightly job **provisions the
+  current + next month ahead** so the default stays empty in practice (adding a partition that would
+  overlap default rows raises — staying ahead avoids it; a job outage > 1 month needs manual catch-up,
+  logged in Known issues). Rows are **copied before `apply_tenant_rls`** because FORCE RLS binds the
+  owner too. Append-only is re-applied on the parent; a BEFORE-ROW trigger on a partitioned parent
+  cascades to all partitions. The two RLS enumerations (lint + suite) switched to
+  `relkind IN ('r','p') AND NOT relispartition` so the **parent is verified and children skipped** —
+  children carry no RLS because the parent's policy governs the only path the app can take (it has no
+  grant on children); mutation-checked that breaking FORCE RLS on the parent still fails the lint. The
+  roll job is **global, not per-tenant** (partitions span tenants) and runs on the **owner** connection
+  (DDL + counting children directly, which the app cannot reach because the parent's FORCE RLS would
+  block an owner `count(*)` through it). Tamper detection stores a **high-water count** per partition in
+  the control-plane `control.audit_partition_stats`; a current count below it is the signal, and the
+  stored mark is never lowered so the signal persists across runs. *Affects: 07 §1, 06 §1
+  `housekeeping`, 02 §3.*
 
 - **2026-07-23 — AI gateway: schema shape, ledger-not-audited, doc-summary auto-persist, budget
   opt-in, provider-outside-tx, no HTTP yet.** 06 §3 specifies the gateway's behaviour and enumerates
@@ -938,13 +989,18 @@ to build the frontend.)
   considered fix is either explicit dependent-deletion inside `purgeRow` (versions/signatures of a
   purging parent) or a narrow cascade, plus an object-store delete step (or handing orphaned objects
   to the files-cleanup job). Until then those two graphs never purge. *06 §1 `housekeeping`, 07 §5.*
-- **`housekeeping`'s other two jobs are unbuilt: `auditEventPartitionRoll`, `offboardTenant`.** The
-  partition roll presupposes `audit_events` is declaratively time-partitioned (07 §1: "row count only
-  ever grows per partition"); it is currently a single plain table, so partitioning is a prerequisite
-  migration (recreate as `PARTITION BY RANGE (created_at)` + a monthly-partition-provisioning job +
-  the shrink-detection tamper check). `offboardTenant` is a large multi-step flow (export bundle →
-  purge minus legal holds → registry teardown) tied to the offboarding lifecycle. Both deferred as
-  their own slices. *06 §1 `housekeeping`, 07 §1/§5.*
+- **`housekeeping`'s `offboardTenant` job is unbuilt.** A large multi-step flow (export bundle → purge
+  minus legal holds → registry teardown) tied to the offboarding lifecycle; deferred as its own slice.
+  (`auditEventPartitionRoll`, its former sibling here, now ships.) *06 §1 `housekeeping`, 07 §5.*
+- **Audit partition provisioning must stay ahead of the calendar.** The nightly roll provisions the
+  current + next month; a default partition catches anything else so writes never fail. But if the job
+  lapses for more than a month, rows for the un-provisioned month land in the default partition, and
+  the roll then CANNOT create that month's explicit partition (Postgres refuses a new partition whose
+  range overlaps existing default rows) — it needs a manual detach/migrate of the default's rows. The
+  job logs and BullMQ dead-letters on that failure; a fully self-healing roll (split the default) is a
+  follow-up. Also the per-partition tamper check does an exact `count(*)` per partition each night —
+  fine at current scale; very large closed partitions may later warrant only re-counting recent ones.
+  *07 §1.*
 - **SPC / FMEA has no backend spec — needs one before it can be built.** It is listed in FEATURES.md
   (SPC charts, FMEA workbench, risk register, MSA/Gauge R&R) and has a visual prototype
   (`project_brain/project/src/qms-risk-spc.jsx`), but `implementation/02-DATABASE`, `03-API` and
