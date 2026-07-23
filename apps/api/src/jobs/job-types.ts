@@ -25,6 +25,10 @@ export const JOBS = {
   recomputeSla: "sla.recompute",
   /** AV-scan a completed upload, flip scan_status. */
   scanFile: "files.scan",
+  /** Repeatable fan-out trigger: enqueues one orphan-cleanup job per active tenant. */
+  filesSweep: "files.sweep",
+  /** Per-tenant: garbage-collect never-completed pending uploads (>24h) + their objects. */
+  cleanupOrphanedUploads: "files.cleanup",
   /** Deliver an in-app notification's out-of-band channels (email/push/sms). */
   deliverNotification: "notify.deliver",
   /** Render a requested export server-side and upload it to object storage. */
@@ -55,6 +59,9 @@ export interface RecomputeSlaJob {
 export interface ScanFileJob {
   readonly tenantId: string;
   readonly fileId: string;
+}
+export interface CleanupOrphanedUploadsJob {
+  readonly tenantId: string;
 }
 export interface DeliverNotificationJob {
   readonly tenantId: string;
@@ -102,3 +109,6 @@ export const DOCS_SWEEP_CRON = "0 6 * * *";
 
 /** How often the housekeeping (purge) sweep runs (06 §1: nightly). */
 export const HOUSEKEEPING_SWEEP_CRON = "0 3 * * *";
+
+/** How often the files (orphan-cleanup) sweep runs (06 §1: nightly). */
+export const FILES_SWEEP_CRON = "30 2 * * *";

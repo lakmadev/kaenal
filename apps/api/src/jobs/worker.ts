@@ -13,11 +13,13 @@ import type { Storage } from "../files/storage.js";
 import {
   DEFAULT_JOB_OPTS,
   DOCS_SWEEP_CRON,
+  FILES_SWEEP_CRON,
   HOUSEKEEPING_SWEEP_CRON,
   JOBS,
   QUEUES,
   SCHEDULE_SWEEP_CRON,
   SLA_SWEEP_CRON,
+  type CleanupOrphanedUploadsJob,
   type DocumentExpiryJob,
   type GenerateSummaryJob,
   type MaterializeScheduleJob,
@@ -30,6 +32,7 @@ import {
 import { StubDelivery, StubScanner } from "./ports.js";
 import { recomputeSlaStatesForTenant } from "./processors/sla.js";
 import { scanFile } from "./processors/scan-file.js";
+import { cleanupOrphanedUploadsForTenant } from "./processors/cleanup-orphaned-uploads.js";
 import { deliverNotification } from "./processors/deliver-notification.js";
 import { runExport } from "./processors/run-export.js";
 import { materializeScheduleForTenant } from "./processors/materialize-schedule.js";
@@ -97,9 +100,32 @@ async function main(): Promise<void> {
     { connection, concurrency: 4 },
   );
 
+  const filesQueue = new Queue(QUEUES.files, { connection });
+
   const filesWorker = new Worker(
     QUEUES.files,
-    (job: Job) => scanFile(job.data as ScanFileJob, { scanner, notifications }),
+    async (job: Job) => {
+      if (job.name === JOBS.scanFile) {
+        await scanFile(job.data as ScanFileJob, { scanner, notifications });
+        return;
+      }
+      if (job.name === JOBS.filesSweep) {
+        // Fan out one orphan-cleanup job per active tenant.
+        const { rows } = await control.query<{ id: string }>(
+          "SELECT id FROM control.tenants WHERE status = 'active'",
+        );
+        for (const t of rows) {
+          await filesQueue.add(JOBS.cleanupOrphanedUploads, { tenantId: t.id } satisfies CleanupOrphanedUploadsJob, {
+            ...DEFAULT_JOB_OPTS,
+            jobId: `files-cleanup:${t.id}:${filesBucket()}`,
+          });
+        }
+        return;
+      }
+      if (job.name === JOBS.cleanupOrphanedUploads) {
+        await cleanupOrphanedUploadsForTenant(job.data as CleanupOrphanedUploadsJob, { storage });
+      }
+    },
     { connection, concurrency: 5 },
   );
 
@@ -220,6 +246,7 @@ async function main(): Promise<void> {
 
   // Register the repeatable sweeps once; BullMQ dedupes the schedule by name.
   await slaQueue.add(JOBS.slaSweep, {}, { repeat: { pattern: SLA_SWEEP_CRON }, jobId: "sla-sweep" });
+  await filesQueue.add(JOBS.filesSweep, {}, { repeat: { pattern: FILES_SWEEP_CRON }, jobId: "files-sweep" });
   await scheduleQueue.add(JOBS.scheduleSweep, {}, { repeat: { pattern: SCHEDULE_SWEEP_CRON }, jobId: "schedule-sweep" });
   await docsQueue.add(JOBS.docsSweep, {}, { repeat: { pattern: DOCS_SWEEP_CRON }, jobId: "docs-sweep" });
   await housekeepingQueue.add(JOBS.housekeepingSweep, {}, { repeat: { pattern: HOUSEKEEPING_SWEEP_CRON }, jobId: "housekeeping-sweep" });
@@ -236,6 +263,7 @@ async function main(): Promise<void> {
       aiWorker.close(),
     ]);
     await slaQueue.close();
+    await filesQueue.close();
     await scheduleQueue.close();
     await docsQueue.close();
     await housekeepingQueue.close();
@@ -252,6 +280,11 @@ async function main(): Promise<void> {
 /** 5-minute bucket so a retriggered sweep within one window dedupes per tenant. */
 function slaBucket(): number {
   return Math.floor(Date.now() / (5 * 60 * 1000));
+}
+
+/** 1-day bucket so a retriggered files sweep within the day dedupes per tenant. */
+function filesBucket(): number {
+  return Math.floor(Date.now() / (24 * 60 * 60 * 1000));
 }
 
 /** 1-hour bucket so a retriggered schedule sweep within the hour dedupes per tenant. */

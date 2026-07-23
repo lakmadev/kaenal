@@ -16,7 +16,7 @@ module, async Reports/exports, scheduling/recurrence, document-expiry reminders,
 housekeeping purge, the governed AI gateway (doc-summary feature), audit-events partitioning +
 the nightly partition-roll/tamper-check AND tenant offboarding (export bundle + gated purge) are
 done and proven, and CI runs them on
-every push/PR. 926 tests pass (257 db integration, 478 core unit, 155 api integration, 25 types unit,
+every push/PR. 928 tests pass (257 db integration, 478 core unit, 157 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -89,6 +89,18 @@ nothing). 13 core + 7 api tests (all three block reasons, success with budget ch
 graceful provider-failure, processor write + idempotent re-run + missing-doc skip). `seed:demo`
 activates the pack and drafts the demo document's summary inline. The `ai` queue is the eighth in the
 runtime; HTTP trigger + draft-acceptance UI + the other features are deferred (see Known issues).
+
+**Orphaned-upload cleanup slice (06 `files`, 03 §7):** the second `files`-queue job. A presign creates
+a `pending` row + a short-TTL PUT URL; if the client never calls `complete`, that row (and, if it
+uploaded but didn't complete, its object) lingers. A nightly `filesSweep` fans out
+`cleanupOrphanedUploadsForTenant` per active tenant, which GC's never-completed uploads — `pending`
+rows with `sha256 IS NULL` older than the 24h grace (03 §7). A completed-but-unscanned file keeps its
+`sha256`, so it is never mistaken for an orphan. Safety mirrors the purge: candidates are locked
+`FOR UPDATE` (a `complete` racing the grace boundary blocks, then fails cleanly on the vanished row);
+each deletion writes a `purged` audit event (system actor, closing the `created` event `presign`
+opened); and the object is deleted via `Storage.delete` only AFTER the DB commit, best-effort. 2 api
+tests (stale orphan collected + object gone + kept recent/completed; idempotent re-run). This retires
+the last files-queue TODO.
 
 **Housekeeping / soft-delete purge slice (06 `housekeeping`, 07 §5):** the nightly `housekeeping`
 BullMQ queue (`purgeSoftDeletedForTenant`, fanned out one job per active tenant) permanently deletes
@@ -192,7 +204,9 @@ Not plant-scoped; rides the NCR capabilities (`ncr:view`/`ncr:manage`) since the
 the API, with eight queues wired: `sla` (repeatable every-5-min sweep → fans out one `recomputeSla`
 job per active tenant → reclassifies open NCRs against their SLA window with the core business-time
 math, escalates breaches through `ncrMachine`, audits as a `system` actor, notifies the owner),
-`files` (`scanFile` → a pluggable `Scanner` port flips `scan_status`; infected notifies the uploader),
+`files` (`scanFile` → a pluggable `Scanner` port flips `scan_status`, infected notifies the uploader;
+plus a nightly `filesSweep` → fans out `cleanupOrphanedUploads` per tenant → garbage-collects
+never-completed pending uploads > 24h + their objects, see the Orphaned-upload cleanup slice),
 `notify` (`deliverNotification` → a `DeliveryChannels` port fans an in-app row to
 email/push/SMS per the user's `notification_prefs`, recording `channels_sent`), and `reports`
 (`runExport` → renders a requested export server-side and uploads it via the `Storage` port; see the
@@ -332,7 +346,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0016)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 926 tests
+pnpm test                     # full suite (serial: shares one DB) — 928 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -498,6 +512,9 @@ to build the frontend.)
       scope) + `apps/api/src/jobs/processors/purge-soft-deleted.ts`; nightly `housekeeping` queue,
       SAVEPOINT-per-row FK-RESTRICT skip, `purged` audit action (migration 0013); now includes
       documents/files (`document_versions` cascade + post-commit `Storage.delete` of the S3 object)
+- [x] Orphaned-upload cleanup (2026-07-23) — `apps/api/src/jobs/processors/cleanup-orphaned-uploads.ts`;
+      nightly `filesSweep` fan-out → GCs never-completed `pending` uploads > 24h (FOR UPDATE lock,
+      `purged` audit, post-commit object delete) — retires the last `files`-queue TODO
 - [x] Tenant offboarding (2026-07-23) — migration 0016 (lifecycle columns + `offboarded` status) +
       `offboard-tenant` CLI + `packages/core/offboarding.ts` (30-day grace) +
       `apps/api/src/jobs/processors/offboard-tenant.ts` (global `housekeeping` job: legal-hold gate →
@@ -531,6 +548,17 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-23 — orphaned-upload cleanup: `sha256 IS NULL` marks never-completed, FOR UPDATE guards
+  the race, `purged` audit, object-after-commit.** An orphan is a `pending` `files` row with
+  `sha256 IS NULL` older than 24h (03 §7): `presign` inserts pending, `complete` sets `sha256` (scan
+  keeps `pending` until it runs), so a null `sha256` unambiguously means "never completed" — a
+  completed-but-unscanned file is never collected. Candidates are locked `FOR UPDATE` so a `complete`
+  racing the 24h boundary blocks and then fails on the vanished row rather than resurrecting it. Since
+  `presign` writes a `created` event, the GC writes a `purged` event (system actor) to close the trail,
+  not a silent delete. Object deletion happens AFTER the DB commit (same rule as the purge — never
+  orphan a live row from its bytes on rollback). The job lives on the `files` queue (per the 06 table),
+  fanned out per tenant by a nightly `filesSweep`. *Affects: 06 §1 `files`, 03 §7.*
 
 - **2026-07-23 — documents/files added to the soft-delete purge: dependent cascade, files-last,
   object-delete-after-commit.** `document_versions` has no `deleted_at` (it can't drive its own
@@ -1044,12 +1072,13 @@ to build the frontend.)
   Anthropic-backed `AiProvider` with model routing + failover is unbuilt. PII redaction masks emails,
   phones, and caller-supplied terms; name-detection of non-team members (06 §3.2) relies on the caller
   passing `extraRedactionTerms` rather than an NER pass. *06 §3, FEATURES §16.1.*
-- **`cleanupOrphanedUploads` (the files-queue nightly) is unbuilt.** The soft-delete purge now deletes
-  a purged file's object AFTER the DB commit, best-effort — a failed `Storage.delete` logs and leaves an
-  orphaned object. There is no job yet that reconciles object storage against the `files` table to
-  sweep those orphans (or uploads that were presigned but never completed). Note also that a `file`
-  still referenced by a `signature` never becomes purgeable (retained evidence, correct) — its object
-  is likewise retained. *06 §1 `files`.*
+- **Orphan cleanup handles never-completed uploads, not bucket→DB reconciliation.**
+  `cleanupOrphanedUploads` now GCs `pending` `files` rows never completed (>24h) plus their objects.
+  What it does NOT do is scan the bucket for objects with no `files` row at all — e.g. an object left by
+  a soft-delete purge whose post-commit `Storage.delete` failed, or by any path that wrote bytes without
+  a row. Full bucket-vs-DB reconciliation needs an object-list API on the `Storage` port (not yet
+  present) and is a follow-up. Note a `file` pinned by a `signature` never becomes purgeable (retained
+  evidence, correct) — its object is likewise retained. *06 §1 `files`.*
 - **Offboarding retains `audit_events` and does not archive physical file objects.** The offboarding
   purge empties every tenant table EXCEPT the append-only `audit_events` (the app role can't delete it,
   and erasing an immutable trail warrants its own step — disable the trigger under an ACCESS EXCLUSIVE
