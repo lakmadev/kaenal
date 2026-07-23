@@ -36,6 +36,8 @@ const STATUS_BY_CODE: Readonly<Record<ErrorCode, number>> = {
   STALE_WRITE: 409,
   RATE_LIMITED: 429,
   IDEMPOTENCY_REPLAY: 200,
+  ENTITLEMENT_REQUIRED: 402, // AI pack inactive / budget exhausted (06 §3.1)
+  AI_UNAVAILABLE: 503, // model provider failed (06 §4 — never blocks manual work)
   INTERNAL: 500,
   USER_INACTIVE: 422,
 };

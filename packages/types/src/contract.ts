@@ -1,8 +1,12 @@
 import { initContract } from "@ts-rest/core";
 import { z } from "zod";
 import {
+  AcceptAiSummaryBody,
   AdvanceAuditBody,
   AdvanceCapaBody,
+  AiDraftDto,
+  AiDraftRequest,
+  AiSummaryDto,
   AuditDto,
   AuditFindingDto,
   CapaActionDto,
@@ -422,6 +426,23 @@ export const contract = c.router(
       pathParams: z.object({ id: z.string().uuid() }),
       responses: { 200: ExportDto, ...commonErrors },
       summary: "Fetch an export's status (with a presigned URL once completed)",
+    },
+
+    // --- AI gateway (06 §3) ------------------------------------------------
+    requestAiDraft: {
+      method: "POST",
+      path: "/v1/ai/drafts",
+      body: AiDraftRequest,
+      // 402: pack inactive or budget exhausted; 503: model provider unavailable.
+      responses: { 200: AiDraftDto, 402: ErrorBody, 503: ErrorBody, ...commonErrors },
+      summary: "Request an AI draft through the governed gateway (never writes an entity)",
+    },
+    acceptAiSummary: {
+      method: "POST",
+      path: "/v1/ai/summaries/accept",
+      body: AcceptAiSummaryBody,
+      responses: { 200: AiSummaryDto, ...commonErrors },
+      summary: "Accept an AI-drafted summary onto a document (records ai_draft_accepted)",
     },
 
     // --- CAPAs -------------------------------------------------------------

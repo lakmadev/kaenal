@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  AiConfidence,
+  AiFeature,
   AuditFindingKind,
   AuditPhase,
   AuditType,
@@ -717,3 +719,57 @@ export const MeDto = z.object({
   capabilities: z.array(z.string()),
 });
 export type MeDto = z.infer<typeof MeDto>;
+
+// --- AI gateway (06 §3) -----------------------------------------------------
+
+/** A reference to an entity the draft is about, echoed back as a source. */
+export const AiEntityRef = z.object({
+  kind: z.string().min(1).max(40),
+  id: z.string().min(1).max(64),
+});
+export type AiEntityRef = z.infer<typeof AiEntityRef>;
+
+/** A cited source behind a drafted value (06 §3.6). */
+export const AiSource = z.object({
+  kind: z.string(),
+  id: z.string(),
+  quote: z.string().optional(),
+});
+export type AiSource = z.infer<typeof AiSource>;
+
+/** Request an AI draft for a feature. The input is treated as untrusted data. */
+export const AiDraftRequest = z.object({
+  feature: AiFeature,
+  input: z.string().min(1).max(20_000),
+  entityRefs: z.array(AiEntityRef).max(20).optional(),
+  maxTokens: z.number().int().positive().max(4096).optional(),
+});
+export type AiDraftRequest = z.infer<typeof AiDraftRequest>;
+
+/** A returned draft: the value plus its provenance. AI never writes an entity. */
+export const AiDraftDto = z.object({
+  invocationId: z.string().uuid(),
+  value: z.string(),
+  confidence: AiConfidence,
+  sources: z.array(AiSource),
+});
+export type AiDraftDto = z.infer<typeof AiDraftDto>;
+
+/** Accept a drafted summary onto a document (06 §3 — acceptance is a mutation). */
+export const AcceptAiSummaryBody = z.object({
+  documentId: z.string().uuid(),
+  /** The (possibly user-edited) summary text being accepted. */
+  value: z.string().min(1).max(20_000),
+  /** The invocation the value came from — must be a real succeeded call. */
+  invocationId: z.string().uuid(),
+  /** Optimistic-concurrency token: the document's current lock version. */
+  version: z.number().int().nonnegative(),
+});
+export type AcceptAiSummaryBody = z.infer<typeof AcceptAiSummaryBody>;
+
+export const AiSummaryDto = z.object({
+  documentId: z.string().uuid(),
+  aiSummary: z.string(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type AiSummaryDto = z.infer<typeof AiSummaryDto>;

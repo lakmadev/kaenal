@@ -36,6 +36,10 @@ import { FilesController } from "./files/files.controller.js";
 import { FilesService } from "./files/files.service.js";
 import { ExportsController } from "./exports/exports.controller.js";
 import { ExportsService } from "./exports/exports.service.js";
+import { AiController } from "./ai/ai.controller.js";
+import { AiService } from "./ai/ai.service.js";
+import { AiGatewayService } from "./ai/gateway.service.js";
+import { StubAiProvider } from "./ai/provider.js";
 import { S3Storage } from "./files/s3-storage.js";
 import { S3Client } from "@aws-sdk/client-s3";
 import type { Storage } from "./files/storage.js";
@@ -45,6 +49,8 @@ import { NotificationsController } from "./notifications/notifications.controlle
 import { NotificationsService } from "./notifications/notifications.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
+  AI_GATEWAY,
+  AI_SERVICE,
   AUDITS_SERVICE,
   AUTH_SERVICE,
   AUTHENTICATOR,
@@ -85,6 +91,7 @@ import {
     DocumentsController,
     FilesController,
     ExportsController,
+    AiController,
     SearchController,
     NotificationsController,
   ],
@@ -172,6 +179,14 @@ import {
       provide: EXPORTS_SERVICE,
       useFactory: (storage: Storage, jobs: JobProducer) => new ExportsService(storage, jobs),
       inject: [STORAGE, JOB_PRODUCER],
+    },
+    // The AI gateway is the one model chokepoint (06 §3); the stub provider ships
+    // until a real one is wired.
+    { provide: AI_GATEWAY, useFactory: () => new AiGatewayService(new StubAiProvider()) },
+    {
+      provide: AI_SERVICE,
+      useFactory: (gateway: AiGatewayService) => new AiService(gateway),
+      inject: [AI_GATEWAY],
     },
     { provide: SEARCH_SERVICE, useFactory: () => new SearchService() },
 

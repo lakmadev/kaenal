@@ -339,6 +339,8 @@ export const ErrorCode = defineEnum([
   "USER_INACTIVE",
   "RATE_LIMITED",
   "IDEMPOTENCY_REPLAY",
+  "ENTITLEMENT_REQUIRED",
+  "AI_UNAVAILABLE",
   "INTERNAL",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;

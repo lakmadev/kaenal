@@ -1,4 +1,13 @@
 {
   "extends": "@kaenal/config/tsconfig.lib.json",
+  "compilerOptions": {
+    // The ts-rest `contract` router infers a type too large for TS to serialize
+    // into a .d.ts (TS7056). This package is consumed from source (package.json
+    // `main`/`types` → src/index.ts), so no one reads emitted declarations —
+    // turning them off resolves the limit without any loss of type-safety for
+    // consumers, who typecheck against the source directly.
+    "declaration": false,
+    "declarationMap": false
+  },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

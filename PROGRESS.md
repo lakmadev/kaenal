@@ -16,7 +16,7 @@ module, async Reports/exports, scheduling/recurrence, document-expiry reminders,
 housekeeping purge, the governed AI gateway (doc-summary feature), audit-events partitioning +
 the nightly partition-roll/tamper-check AND tenant offboarding (export bundle + gated purge) are
 done and proven, and CI runs them on
-every push/PR. 936 tests pass (257 db integration, 484 core unit, 159 api integration, 25 types unit,
+every push/PR. 943 tests pass (257 db integration, 484 core unit, 166 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -88,7 +88,23 @@ sources}` — AI never writes an entity directly. Migration 0014 adds `ai_settin
 nothing). 13 core + 7 api tests (all three block reasons, success with budget charge + PII round-trip,
 graceful provider-failure, processor write + idempotent re-run + missing-doc skip). `seed:demo`
 activates the pack and drafts the demo document's summary inline. The `ai` queue is the eighth in the
-runtime; HTTP trigger + draft-acceptance UI + the other features are deferred (see Known issues).
+runtime.
+
+**AI HTTP surface slice (06 §3):** the gateway is now reachable over HTTP. `POST /v1/ai/drafts`
+(`AiService.draft`, `apps/api/src/ai/*`) runs the governed gateway for ANY feature and returns an
+`AiDraftDto {invocationId, value, confidence, sources}`, or maps a refusal to the right status —
+entitlement/budget → **402 `ENTITLEMENT_REQUIRED`** ("AI credits exhausted"), `allow_ai`/region → 403,
+a provider failure → **503 `AI_UNAVAILABLE`** (06 §4 — never blocks the manual workflow). It writes no
+entity: AI only returns a draft. `POST /v1/ai/summaries/accept` is the acceptance half (06 §3.6): a
+normal, audited mutation writing the user-reviewed summary onto a document's AI-owned `ai_summary` with
+an **`ai_draft_accepted`** event (actorKind user) under optimistic concurrency — and it verifies the
+`invocationId` traces to a real succeeded call in-tenant, so a fabricated draft id can't be accepted.
+The gateway manages its own short transactions (a model call must not pin the request connection), so
+`draft` takes no request tx; `accept` runs in it. Two new `ErrorCode`s (402/503) + DTOs + contract
+entries; the gateway is DI-provided (`AI_GATEWAY`/`AI_SERVICE`, stub provider). 7 api tests (draft
+success + all three refusal statuses + bad-feature 422; accept writes summary + event + optimistic-
+concurrency 409 + unknown-invocation 404). Deferred (FE-coupled): SSE streaming, acceptance on business
+fields (root-cause/8D), the `compliance_qa` pgvector retrieval, and a real model provider.
 
 **Orphaned-upload cleanup slice (06 `files`, 03 §7):** the second `files`-queue job. A presign creates
 a `pending` row + a short-TTL PUT URL; if the client never calls `complete`, that row (and, if it
@@ -334,14 +350,13 @@ inventing the whole module (control-chart limits/Western-Electric rules, FMEA RP
 MSA/Gauge R&R). Per the "no invented scope" rule that's a spec question, logged under Known issues,
 not a silent build. All three 06 `housekeeping` jobs now ship (`purgeSoftDeleted` — including
 documents/files with the `document_versions` cascade + S3 object delete, `auditEventPartitionRoll`,
-`offboardTenant`), as does the `ai` gateway chokepoint (`doc_summary`) and all three export renderers
-(CSV/XLSX/PDF). The clear remaining backend work is the rest of the AI surface (the HTTP trigger
-endpoint + draft-acceptance flow with an `ai_draft_accepted` audit event, and the
-`root_cause`/`eightd_draft`/`compliance_qa` features — the last needing pgvector doc retrieval); the
-richer branded PDF (Chromium + print routes, 09) waits on the FE. A real Anthropic-backed `AiProvider`
-would replace the stub. Real ClamAV +
-email/push providers would replace the stub scanner/delivery ports. Suppliers/PPAP/SCAR is Phase 4.
-The dedicated **FE** can also start against `@kaenal/api-client`.
+`offboardTenant`), the `ai` gateway + its HTTP surface (`POST /v1/ai/drafts` + summary acceptance),
+and all three export renderers (CSV/XLSX/PDF). **The specified backend is now essentially complete.**
+What remains is largely FE-coupled or needs new infrastructure: SSE streaming for AI, acceptance on
+business fields (root-cause/8D) + the `compliance_qa` pgvector retrieval, the richer branded PDF
+(Chromium + print routes, 09), a real Anthropic-backed `AiProvider` (replacing the stub), and real
+ClamAV + email/push providers (replacing the stub scanner/delivery ports). SPC/FMEA still needs a spec.
+Suppliers/PPAP/SCAR is Phase 4. The dedicated **FE** should now start against `@kaenal/api-client`.
 
 ### How to get running from a cold clone
 
@@ -353,7 +368,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0017)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 936 tests
+pnpm test                     # full suite (serial: shares one DB) — 943 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -533,9 +548,14 @@ to build the frontend.)
       ahead + per-partition shrink/tamper check via `control.audit_partition_stats`); RLS enumerations
       updated for partitioned parents/children (mutation-checked)
 - [~] AI gateway chokepoint (2026-07-23) — `packages/core/ai-gateway.ts` (gate/redact/route/budget) +
-      `apps/api/src/ai/*` (gateway service + provider port + prompts) + `ai` queue's `generateSummary`
-      (`processors/generate-summary.ts`); migration 0014 (`ai_settings`/`ai_budgets`/`ai_invocations`).
-      `doc_summary` feature DONE; HTTP trigger + draft-acceptance + other features + real provider pending
+      `apps/api/src/ai/*` (gateway service + provider port + prompts + HTTP controller/service) + `ai`
+      queue's `generateSummary`; migration 0014 (`ai_settings`/`ai_budgets`/`ai_invocations`).
+      `doc_summary`, `POST /v1/ai/drafts` (all features) + `POST /v1/ai/summaries/accept`
+      (`ai_draft_accepted`) DONE; SSE + business-field acceptance + `compliance_qa` retrieval + real
+      provider pending
+- [x] AI HTTP surface (2026-07-23) — `apps/api/src/ai/{ai.controller,ai.service}.ts`; draft endpoint
+      (gateway over HTTP, refusals → 402/403/503) + summary-acceptance (audited, optimistic concurrency);
+      `ENTITLEMENT_REQUIRED`/`AI_UNAVAILABLE` error codes; DTOs + contract entries
 - [ ] SPC / FMEA — deferred pending spec (see Known issues): no backend schema/API/algorithm in
       `implementation/`, only a FEATURES bullet + visual prototype
 
@@ -556,6 +576,21 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-23 — AI HTTP surface: draft endpoint is the gateway over HTTP (self-managed txs),
+  acceptance is a normal audited mutation, refusals map to 402/503, types emit no `.d.ts`.** `POST
+  /v1/ai/drafts` calls `AiGatewayService.run` directly and does NOT use the request's `currentTx()` —
+  the gateway opens its own short transactions around the (out-of-tx) provider call, so a slow model
+  can't pin the request connection. Governance refusals surface as HTTP: entitlement/budget → **402
+  `ENTITLEMENT_REQUIRED`** (the spec's "AI credits exhausted"), `allow_ai`/region → 403, provider
+  failure → **503 `AI_UNAVAILABLE`** (06 §4, soft-fail). Acceptance (06 §3.6 "AI never writes, the user
+  accepts") is `POST /v1/ai/summaries/accept` — a normal document mutation with an `ai_draft_accepted`
+  event under optimistic concurrency, which also verifies the `invocationId` is a real succeeded call
+  in-tenant so a fabricated draft can't be accepted. It lives in the `ai` module because `ai_summary`
+  is an AI-owned sidecar; business-field acceptance (root-cause/8D) will go through those entities'
+  own services. Adding the two routes pushed the ts-rest `contract` inferred type past TS's `.d.ts`
+  serialization limit (TS7056); since the types package is consumed from source (`main` → `src`),
+  `declaration:false` there resolves it with no loss of consumer type-safety. *Affects: 06 §3, 03 §4.*
 
 - **2026-07-23 — XLSX/PDF export renderers are hand-rolled + dependency-light; the branded PDF is
   deferred.** Both new renderers live in `packages/core/exports.ts` beside `toCsv`, pure and
@@ -1083,16 +1118,18 @@ to build the frontend.)
 
 ## Known issues / TODO
 
-- **AI gateway ships with the chokepoint + `doc_summary`; the rest of the surface is pending.** No HTTP
-  trigger yet — the `ai` queue's processor + gateway are wired and tested but nothing enqueues
-  `generateSummary`; the endpoint + streaming (SSE) + the draft-acceptance flow (accept = normal
-  mutation + `ai_draft_accepted` audit event) come with the FE. Only `doc_summary` is implemented; the
-  other features (`quicklog_structuring`, `root_cause`, `eightd_draft`, `report_narrative`, and
-  `compliance_qa` — which needs pgvector embeddings over document chunks for retrieval) have prompts
-  stubbed but no processors. The provider is `StubAiProvider` (deterministic echo) — a real
-  Anthropic-backed `AiProvider` with model routing + failover is unbuilt. PII redaction masks emails,
-  phones, and caller-supplied terms; name-detection of non-team members (06 §3.2) relies on the caller
-  passing `extraRedactionTerms` rather than an NER pass. *06 §3, FEATURES §16.1.*
+- **AI: chokepoint + HTTP surface + `doc_summary` ship; streaming, more features + a real provider are
+  pending.** `POST /v1/ai/drafts` (all features) and `POST /v1/ai/summaries/accept` (`ai_draft_accepted`)
+  now exist, and the `ai` queue's `generateSummary` runs. What remains: **SSE streaming** (the draft
+  endpoint is synchronous — fine for the fast stub, but a real slow provider wants streaming, 06 §4);
+  **acceptance on business fields** — only the document `ai_summary` sidecar has an accept path, while
+  root-cause/8D-discipline drafting would accept into those entities through their own services;
+  **feature processors** — `root_cause`/`eightd_draft`/`report_narrative`/`quicklog_structuring` are
+  routable via the gateway (prompts exist) but have no dedicated processors, and `compliance_qa` needs
+  pgvector embeddings over document chunks for retrieval; and the provider is still `StubAiProvider`
+  (deterministic echo) — a real Anthropic-backed `AiProvider` with routing + failover is unbuilt. PII
+  redaction masks emails/phones/caller-supplied terms; NER-based name detection of non-team members
+  (06 §3.2) is not done — the caller passes `extraRedactionTerms`. *06 §3, FEATURES §16.1.*
 - **Orphan cleanup handles never-completed uploads, not bucket→DB reconciliation.**
   `cleanupOrphanedUploads` now GCs `pending` `files` rows never completed (>24h) plus their objects.
   What it does NOT do is scan the bucket for objects with no `files` row at all — e.g. an object left by
