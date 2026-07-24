@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Kaenal (local)",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "kaenal",
+      "Username": "kaenal_migrator",
+      "SSLMode": "prefer"
+    }
+  }
+}
