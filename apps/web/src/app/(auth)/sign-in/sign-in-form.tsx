@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, ArrowLeft, TriangleAlert, Eye, EyeOff, Lock, Check } from "lucide-react";
+import { ArrowRight, ArrowLeft, TriangleAlert, Eye, EyeOff, Lock, KeyRound, Mail, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@kaenal/api-client";
 import { signIn, forgotPassword, AuthError } from "@/lib/auth";
@@ -253,40 +253,74 @@ export function SignInForm(): React.ReactElement {
             >
               <ArrowLeft size={12} /> Back to sign in
             </button>
-            <h1 className="mb-1.5 text-[28px] font-bold">Reset your password</h1>
-            <p className="mb-6 text-[13px] text-muted">
-              Enter your work email and we&rsquo;ll send you a link to reset your password.
-            </p>
 
             {notice !== "" ? (
-              <div
-                className="flex items-center gap-2 rounded-md px-3 py-3 text-[13px]"
-                style={{ background: "var(--success-50)", color: "var(--success-700)" }}
-              >
-                <Check size={15} /> {notice}
-              </div>
-            ) : (
-              <form onSubmit={(e) => void submitForgot(e)}>
-                <label className="k-overline mb-1.5 block">Work email</label>
-                <input
-                  className="k-input"
-                  autoFocus
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@company.com"
-                  style={{ height: 42 }}
-                />
-                {err !== "" && <InlineError message={err} />}
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="k-btn k-btn-primary mt-5 w-full"
-                  style={{ height: 44, fontSize: 14 }}
+              <>
+                <div
+                  className="mb-5 inline-flex self-start rounded-full p-3.5"
+                  style={{ background: "var(--success-50)", color: "var(--success-600)" }}
                 >
-                  {busy ? "Sending…" : "Send reset link"}
-                </button>
-              </form>
+                  <Mail size={28} />
+                </div>
+                <h1 className="mb-2 text-[28px] font-bold" style={{ letterSpacing: "-0.01em" }}>
+                  Check your inbox
+                </h1>
+                <p className="mb-6 text-[14px] leading-relaxed text-muted">
+                  If <strong className="text-text">{email}</strong> matches an account, a password reset link is on
+                  its way. The link expires in <strong className="text-text">30 minutes</strong>.
+                </p>
+                <div className="k-surface p-3.5" style={{ background: "var(--bg-subtle)" }}>
+                  <div className="mb-1.5 text-[12px] font-semibold">Didn&rsquo;t get it?</div>
+                  <ul className="m-0 list-disc pl-[18px] text-[12px] leading-relaxed text-muted">
+                    <li>Check your spam folder</li>
+                    <li>Make sure it&rsquo;s the email you use for this workspace</li>
+                    <li>Give it a few minutes and try again</li>
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => setNotice("")}
+                    className="k-btn k-btn-ghost k-btn-sm mt-3"
+                  >
+                    <RefreshCw size={12} /> Resend reset link
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  className="mb-4 inline-flex self-start rounded-md p-3.5"
+                  style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+                >
+                  <KeyRound size={26} />
+                </div>
+                <h1 className="mb-2 text-[28px] font-bold" style={{ letterSpacing: "-0.01em" }}>
+                  Forgot your password?
+                </h1>
+                <p className="mb-5 text-[13.5px] leading-relaxed text-muted">
+                  Enter your work email and we&rsquo;ll send a secure reset link.
+                </p>
+                <form onSubmit={(e) => void submitForgot(e)}>
+                  <label className="k-overline mb-1.5 block">Work email</label>
+                  <input
+                    className="k-input"
+                    autoFocus
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@company.com"
+                    style={{ height: 42 }}
+                  />
+                  {err !== "" && <InlineError message={err} />}
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="k-btn k-btn-primary mt-5 w-full"
+                    style={{ height: 44, fontSize: 14 }}
+                  >
+                    {busy ? "Sending…" : "Send reset link"}
+                  </button>
+                </form>
+              </>
             )}
           </>
         )}

@@ -523,7 +523,12 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       bridges them so utilities + `.k-*` classes are theme-aware; light/dark via `data-theme` (04 §2)
 - [x] Unified design-system primitives in `src/components/ui` (Button, Card, Chip, Status/Priority/Risk
       badges, Input, Field, Skeleton, Spinner, EmptyState, Toast), one barrel; `cn` (clsx+tailwind-merge)
-- [x] Auth: sign-in (RHF + Zod) wired to the cookie/CSRF auth surface; session guard + sign-out
+- [x] Auth surface: sign-in (workspace→credential two-stage, matches auth.jsx) + forgot-password +
+      **reset-password** (`/reset-password`, real `checkPasswordPolicy`) + **accept-invite**
+      (`/invite/[token]`) wired to the cookie/CSRF auth surface; session guard + sign-out. Account-locked
+      screen deliberately omitted (the API returns the wrong-password envelope for a lock — 07 §2 anti-
+      enumeration — so a real locked-detection UI would leak account state); request-workspace omitted (no
+      self-serve provisioning endpoint). Prototype fixture data (mock tenants/SSO/inviter) not fabricated.
 - [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation DONE (KPI tiles + recent
       NCRs over real endpoints, loading/empty/error states); other modules are placeholders in the shell
 - [~] All six UI states on every list/detail (04 §6) — loading/empty/error demonstrated on the dashboard;

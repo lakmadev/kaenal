@@ -81,3 +81,26 @@ export function signOut(): Promise<{ ok: true }> {
 export function forgotPassword(email: string): Promise<{ ok: true; token?: string }> {
   return authPost<{ ok: true; token?: string }>("/v1/auth/forgot-password", { email });
 }
+
+/** Complete a password reset (07 §2). `@Public` — no tenant needed. */
+export function resetPassword(input: { token: string; password: string }): Promise<{ ok: true }> {
+  return authPost<{ ok: true }>("/v1/auth/reset-password", input);
+}
+
+/**
+ * Accept a tenant invitation: set the person's name + password and activate the
+ * membership. Tenant-scoped (`@AllowAnonymous`) — the invite belongs to one
+ * workspace, sent as `X-Tenant-Id`.
+ */
+export function acceptInvite(input: {
+  tenant: string;
+  token: string;
+  name: string;
+  password: string;
+}): Promise<{ ok: true }> {
+  return authPost<{ ok: true }>(
+    "/v1/auth/accept-invite",
+    { token: input.token, name: input.name, password: input.password },
+    { tenant: input.tenant },
+  );
+}
