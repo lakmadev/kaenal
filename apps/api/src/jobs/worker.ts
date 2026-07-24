@@ -41,7 +41,7 @@ import { runExport } from "./processors/run-export.js";
 import { materializeScheduleForTenant } from "./processors/materialize-schedule.js";
 import { documentExpiryCheckForTenant } from "./processors/document-expiry.js";
 import { purgeSoftDeletedForTenant } from "./processors/purge-soft-deleted.js";
-import { rollAuditPartitions } from "./processors/audit-partition-roll.js";
+import { fanOutAuditPartitionRoll, rollAuditPartitions } from "./processors/audit-partition-roll.js";
 import { offboardTenants } from "./processors/offboard-tenant.js";
 import { generateDocumentSummary } from "./processors/generate-summary.js";
 import { AiGatewayService } from "../ai/gateway.service.js";
@@ -251,10 +251,19 @@ async function main(): Promise<void> {
         await purgeSoftDeletedForTenant(data, { storage, pool: await poolFor(data.tenantId) });
       }
       if (job.name === JOBS.auditPartitionRoll) {
+        // The primary run covers the shared/Model A tenants; each dedicated
+        // database has its own audit partitions and must be rolled separately.
         await rollAuditPartitions();
+        const fan = await fanOutAuditPartitionRoll(control, env.DATABASE_URL);
+        if (fan.failures.length > 0) {
+          console.error(
+            `audit partition roll: ${fan.failures.length} dedicated DB(s) failed: ` +
+              fan.failures.map((f) => f.slug).join(", "),
+          );
+        }
       }
       if (job.name === JOBS.offboardTenant) {
-        await offboardTenants({ storage, bucket: env.S3_BUCKET });
+        await offboardTenants({ storage, bucket: env.S3_BUCKET, baseAppUrl: env.DATABASE_APP_URL });
       }
     },
     // Purge is delete-heavy; keep concurrency low so it never contends with

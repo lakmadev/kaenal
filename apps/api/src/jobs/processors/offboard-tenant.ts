@@ -1,7 +1,9 @@
+import pg from "pg";
 import { zipSync } from "fflate";
-import { withTenant, withoutTenant, type Tx } from "@kaenal/db";
+import { migratorPool, withTenant, withoutTenant, type Tx } from "@kaenal/db";
 import { isOffboardPurgeEligible } from "@kaenal/core";
 import type { Storage } from "../../files/storage.js";
+import { localDbName, withDatabaseName } from "../../tenant/secret-resolver.js";
 
 /**
  * Tenant offboarding purge (06 §1 `housekeeping`, 01 §3.4, 07 §5). A GLOBAL
@@ -24,10 +26,17 @@ import type { Storage } from "../../files/storage.js";
  * Idempotent + resumable: a crash mid-purge leaves the tenant `offboarding` with
  * its export key set, and the next run skips the export and re-runs the (already
  * idempotent) deletes before flipping to `offboarded`.
+ *
+ * A dedicated (Model B) tenant is torn down differently: its data lives in its
+ * OWN database, so after the same hold-gate + export bundle (taken from that
+ * database) the terminal step is to DROP the whole database, not to row-purge —
+ * see {@link offboardDedicated}.
  */
 
 const DELETE_BATCH = 10_000;
 const FK_VIOLATION = "23503";
+/** Dedicated database names are `[a-z0-9_]` by construction (dedicatedDbName). */
+const DB_NAME_RE = /^[a-z0-9_]+$/;
 
 export interface OffboardResult {
   /** Slugs fully purged and marked `offboarded` this run. */
@@ -40,6 +49,7 @@ interface Candidate {
   id: string;
   slug: string;
   model: string;
+  database_url_secret_ref: string | null;
   offboarding_at: Date | null;
   offboarding_export_key: string | null;
 }
@@ -48,14 +58,29 @@ export async function offboardTenants(deps: {
   storage: Storage;
   bucket: string;
   now?: Date;
+  /**
+   * Base app-role connection URL. A dedicated tenant's own database is reached
+   * by swapping the database name into this URL (Model B export + hold check).
+   * Defaults to `DATABASE_APP_URL`; a dedicated candidate is left `offboarding`
+   * if neither is available.
+   */
+  baseAppUrl?: string | undefined;
+  /**
+   * Owner pool used to `DROP DATABASE` a dedicated tenant. Defaults to the shared
+   * migrator pool; injected in tests so the drop is observable without actually
+   * destroying a database.
+   */
+  primaryPool?: pg.Pool | undefined;
 }): Promise<OffboardResult> {
   const now = deps.now ?? new Date();
+  const baseAppUrl = deps.baseAppUrl ?? process.env["DATABASE_APP_URL"];
+  const primaryPool = deps.primaryPool ?? migratorPool;
   const offboarded: string[] = [];
   const blocked: string[] = [];
 
   const candidates = await withoutTenant(async (tx) => {
     const { rows } = await tx.query<Candidate>(
-      `SELECT id, slug, model, offboarding_at, offboarding_export_key
+      `SELECT id, slug, model, database_url_secret_ref, offboarding_at, offboarding_export_key
          FROM control.tenants WHERE status = 'offboarding'`,
     );
     return rows;
@@ -66,11 +91,16 @@ export async function offboardTenants(deps: {
       continue; // grace not yet elapsed
     }
 
-    // Dedicated (Model B) teardown is a database drop, not a row-purge — and it
-    // is not built yet. Skip these so this shared-DB row-purge never runs with a
-    // dedicated tenant's id (which would touch the wrong database / nothing).
+    // Dedicated (Model B) teardown drops the tenant's whole database instead of
+    // the shared-DB row-purge below — its data lives elsewhere.
     if (c.model === "dedicated") {
-      blocked.push(c.slug);
+      const outcome = await offboardDedicated(c, {
+        storage: deps.storage,
+        bucket: deps.bucket,
+        baseAppUrl,
+        primaryPool,
+      });
+      (outcome === "offboarded" ? offboarded : blocked).push(c.slug);
       continue;
     }
 
@@ -130,11 +160,16 @@ async function tenantTableNames(tx: Tx, opts: { includeAuditEvents: boolean }): 
   return opts.includeAuditEvents ? names : names.filter((n) => n !== "audit_events");
 }
 
-/** Full data export: one JSON document per tenant table, zipped and uploaded. */
+/**
+ * Full data export: one JSON document per tenant table, zipped and uploaded.
+ * `pool` scopes the reads to a dedicated tenant's own database (Model B); left
+ * default (undefined → shared appPool) for a Model A tenant.
+ */
 async function produceExportBundle(
   tenantId: string,
   slug: string,
   deps: { storage: Storage; bucket: string },
+  pool?: pg.Pool,
 ): Promise<string> {
   const files: Record<string, Uint8Array> = {};
   await withTenant(tenantId, null, async (tx) => {
@@ -146,11 +181,106 @@ async function produceExportBundle(
       );
       files[`${table}.json`] = new Uint8Array(Buffer.from(JSON.stringify(rows[0]!.data), "utf8"));
     }
-  });
+  }, pool);
   const body = Buffer.from(zipSync(files));
   const key = `offboarding/${slug}/${Date.now()}-export.zip`;
   await deps.storage.put(key, body, "application/zip");
   return key;
+}
+
+/**
+ * Dedicated (Model B) teardown (01 §3.4). Same gate + export as the shared purge,
+ * but read from — and terminated by dropping — the tenant's OWN database:
+ *
+ *  1. **Legal hold wins**, checked in the tenant's database (blocks the drop).
+ *  2. **Export before drop**, taken from that database and recorded on the
+ *     primary registry so a resumed run never re-exports.
+ *  3. **`DROP DATABASE`** — the whole database, replacing the row-purge. `IF
+ *     EXISTS` makes a crash between the drop and the status flip resumable.
+ *
+ * Only the local same-cluster (`localdb:`) convention is torn down here: the
+ * database name comes straight from the secret ref, and the app URL is the base
+ * app URL with that name swapped in. A cloud (`env:`) tenant, or a run with no
+ * base app URL, is left `offboarding` for a capable run (returned as blocked).
+ */
+async function offboardDedicated(
+  c: Candidate,
+  deps: { storage: Storage; bucket: string; baseAppUrl: string | undefined; primaryPool: pg.Pool },
+): Promise<"offboarded" | "blocked"> {
+  const dbName = localDbName(c.database_url_secret_ref);
+  if (dbName === null || deps.baseAppUrl === undefined) {
+    console.error(
+      `offboarding: cannot tear down dedicated tenant '${c.slug}' — ${
+        deps.baseAppUrl === undefined
+          ? "no base app URL configured"
+          : `unsupported database_url_secret_ref '${c.database_url_secret_ref ?? "null"}'`
+      }; left offboarding.`,
+    );
+    return "blocked";
+  }
+
+  const dedicated = new pg.Pool({ connectionString: withDatabaseName(deps.baseAppUrl, dbName) });
+  try {
+    // 1. An active legal hold in the tenant's own database blocks the drop.
+    const held = await withTenant(
+      c.id,
+      null,
+      async (tx) => {
+        const { rows } = await tx.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM legal_holds WHERE released_at IS NULL",
+        );
+        return rows[0]!.n > 0;
+      },
+      dedicated,
+    );
+    if (held) return "blocked";
+
+    // 2. Export bundle, once, before the drop — read from the dedicated database.
+    if (c.offboarding_export_key === null) {
+      const key = await produceExportBundle(c.id, c.slug, deps, dedicated);
+      await withoutTenant((tx) =>
+        tx.query(
+          "UPDATE control.tenants SET offboarding_export_key = $2, updated_at = now() WHERE id = $1",
+          [c.id, key],
+        ),
+      );
+    }
+  } finally {
+    // Release our own connections before the drop (WITH (FORCE) would evict them).
+    await dedicated.end();
+  }
+
+  // 3. Terminal teardown: drop the whole database.
+  await dropDatabase(deps.primaryPool, dbName);
+
+  // 4. Registry → offboarded (the row is kept; the database is gone).
+  await withoutTenant((tx) =>
+    tx.query(
+      "UPDATE control.tenants SET status = 'offboarded', offboarded_at = now(), updated_at = now() WHERE id = $1",
+      [c.id],
+    ),
+  );
+  return "offboarded";
+}
+
+/**
+ * `DROP DATABASE` on the primary cluster. Runs on a raw owner connection with NO
+ * transaction wrapper — `DROP DATABASE` is forbidden inside a transaction block,
+ * so `withoutTenant` (which BEGINs) cannot be used. `WITH (FORCE)` terminates any
+ * straggler backends (PG13+); `IF EXISTS` makes a resumed run idempotent.
+ */
+async function dropDatabase(pool: pg.Pool, dbName: string): Promise<void> {
+  if (!DB_NAME_RE.test(dbName)) {
+    // The name is interpolated (DROP DATABASE has no parameter form); it must be
+    // provably identifier-safe. dedicatedDbName guarantees this on the write side.
+    throw new Error(`refusing to DROP DATABASE with unsafe name '${dbName}'`);
+  }
+  const client = await pool.connect();
+  try {
+    await client.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+  } finally {
+    client.release();
+  }
 }
 
 /**

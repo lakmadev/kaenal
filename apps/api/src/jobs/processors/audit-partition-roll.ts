@@ -1,3 +1,4 @@
+import pg from "pg";
 import { withoutTenant } from "@kaenal/db";
 import {
   auditPartitionName,
@@ -6,6 +7,7 @@ import {
   isTampered,
   highWater,
 } from "@kaenal/core";
+import { localDbName, withDatabaseName } from "../../tenant/secret-resolver.js";
 
 /**
  * Audit-events partition roll (06 §1 `housekeeping`, 07 §1). A GLOBAL nightly
@@ -21,6 +23,12 @@ import {
  * Runs on the owner connection (`withoutTenant`), because it does DDL and counts
  * rows across every tenant: the partition children carry no RLS of their own (the
  * parent's policy governs the app path), so the owner can count them directly.
+ *
+ * Model B (01 §3.1): each dedicated tenant has its OWN database with its own
+ * `audit_events` partitions and its own high-water table, so this global job runs
+ * once on the primary AND once per dedicated database — see
+ * {@link fanOutAuditPartitionRoll}. A dedicated run passes that database's owner
+ * pool; `undefined` keeps the default (primary) owner pool.
  */
 export interface AuditPartitionRollResult {
   /** Partitions created this run (empty once provisioning has caught up). */
@@ -36,9 +44,10 @@ export interface AuditPartitionRollResult {
 const PARTITION_NAME_RE = /^audit_events_\d{4}_\d{2}$/;
 
 export async function rollAuditPartitions(
-  deps: { now?: Date } = {},
+  deps: { now?: Date | undefined; pool?: pg.Pool | undefined } = {},
 ): Promise<AuditPartitionRollResult> {
   const now = deps.now ?? new Date();
+  const owner = deps.pool; // undefined → withoutTenant's default (primary migrator)
   const created: string[] = [];
 
   // 1. Provision the current + next month partitions.
@@ -54,7 +63,7 @@ export async function rollAuditPartitions(
         `CREATE TABLE ${name} PARTITION OF audit_events FOR VALUES FROM ('${from}') TO ('${to}')`,
       );
       return true;
-    });
+    }, owner);
     if (wasCreated) created.push(name);
   }
 
@@ -94,7 +103,7 @@ export async function rollAuditPartitions(
       );
     }
     return parts.length;
-  });
+  }, owner);
 
   if (tampered.length > 0) {
     // A shrink on an append-only table must be loud — production wires this to
@@ -104,4 +113,62 @@ export async function rollAuditPartitions(
   }
 
   return { created, checked, tampered };
+}
+
+export interface AuditRollFanOutReport {
+  readonly results: { slug: string; result: AuditPartitionRollResult }[];
+  readonly failures: { slug: string; error: unknown }[];
+}
+
+/**
+ * Fan the partition roll out to every dedicated (Model B) database. Each one has
+ * its own `audit_events` partitions and high-water table, so the primary run
+ * (which only sees the shared/Model A tenants) leaves them unrolled and
+ * unchecked. Mirrors the migration fan-out: one owner connection per dedicated
+ * database, `offboarded` tenants skipped (their database may already be gone),
+ * and a per-tenant failure collected — never thrown — so one broken database
+ * cannot stop the roll on the rest.
+ *
+ * Only `localdb:` (same-cluster) dedicated tenants are reachable here: DDL needs
+ * the OWNER role, and the owner URL is the primary migrator URL with the database
+ * name swapped in. A cloud (`env:`) tenant stores only an app URL, with no owner
+ * URL to derive — those surface as a failure until a cloud owner-secret scheme
+ * exists (same limitation as the migration fan-out).
+ */
+export async function fanOutAuditPartitionRoll(
+  primary: pg.Pool,
+  baseMigratorUrl: string,
+  opts: { now?: Date; openPool?: (connectionString: string) => pg.Pool } = {},
+): Promise<AuditRollFanOutReport> {
+  const open = opts.openPool ?? ((cs): pg.Pool => new pg.Pool({ connectionString: cs }));
+  const { rows } = await primary.query<{ slug: string; database_url_secret_ref: string | null }>(
+    `SELECT slug, database_url_secret_ref FROM control.tenants
+      WHERE model = 'dedicated' AND status <> 'offboarded'
+      ORDER BY slug`,
+  );
+
+  const results: AuditRollFanOutReport["results"] = [];
+  const failures: AuditRollFanOutReport["failures"] = [];
+
+  for (const t of rows) {
+    try {
+      const dbName = localDbName(t.database_url_secret_ref);
+      if (dbName === null) {
+        throw new Error(
+          `partition-roll fan-out supports only localdb: dedicated tenants; got '${t.database_url_secret_ref}'`,
+        );
+      }
+      const pool = open(withDatabaseName(baseMigratorUrl, dbName));
+      try {
+        const result = await rollAuditPartitions({ now: opts.now, pool });
+        results.push({ slug: t.slug, result });
+      } finally {
+        await pool.end();
+      }
+    } catch (error) {
+      failures.push({ slug: t.slug, error });
+    }
+  }
+
+  return { results, failures };
 }

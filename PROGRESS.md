@@ -16,7 +16,7 @@ module, async Reports/exports, scheduling/recurrence, document-expiry reminders,
 housekeeping purge, the governed AI gateway (doc-summary feature), audit-events partitioning +
 the nightly partition-roll/tamper-check AND tenant offboarding (export bundle + gated purge) are
 done and proven, and CI runs them on
-every push/PR. 963 tests pass (259 db integration, 484 core unit, 184 api integration, 25 types unit,
+every push/PR. 968 tests pass (259 db integration, 484 core unit, 189 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -368,7 +368,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0017)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 963 tests
+pnpm test                     # full suite (serial: shares one DB) — 968 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -568,12 +568,15 @@ to build the frontend.)
       governance (entitlement/data-control/budget/region gate, PII redaction, invocation ledger) +
       `doc_summary` DONE (2026-07-23); copilots (root-cause/8D drafting), draft-acceptance flow,
       compliance-QA retrieval, and a real model provider pending
-- [~] Model B (dedicated Postgres per tenant, 01 §3.1) — request + job routing, provisioning, fan-out
-      DONE (2026-07-24): secret resolver (`env:`/`localdb:`) + LRU `TenantPoolManager`; the interceptor
-      routes requests and a `RegistryDbRouter` routes the worker's per-tenant jobs + the AI gateway to
-      each tenant's pool (RLS still applies), fail-loud on unresolvable secret; `provision-tenant
-      --model dedicated` creates+migrates+seeds the DB, `db:migrate:tenants` fans migrations out per-tenant
-      under a lock. Drop-DB offboarding + rolling dedicated DBs' audit partitions pending — see Known issues
+- [~] Model B (dedicated Postgres per tenant, 01 §3.1) — request + job routing, provisioning, fan-out,
+      drop-DB offboarding, and audit-partition-roll fan-out all DONE (2026-07-24): secret resolver
+      (`env:`/`localdb:`) + LRU `TenantPoolManager`; the interceptor routes requests and a
+      `RegistryDbRouter` routes the worker's per-tenant jobs + the AI gateway to each tenant's pool (RLS
+      still applies), fail-loud on unresolvable secret; `provision-tenant --model dedicated`
+      creates+migrates+seeds the DB, `db:migrate:tenants` fans migrations out per-tenant under a lock;
+      offboarding drops a dedicated tenant's whole database (after the same hold-gate + export), and the
+      nightly partition roll fans out to each dedicated DB's own audit partitions. Remaining: only the
+      cloud secret-manager resolver (`awssm:`/`gcpsm:`) for off-cluster dedicated DBs — see Known issues
 - [ ] Supplier portal
 - [ ] Public API + webhooks (HMAC signing, retry ladder)
 - [ ] SSO/SCIM via WorkOS
@@ -582,6 +585,26 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-24 — Model B teardown + partition-roll fan-out: reuse the secret ref as the source of truth,
+    fake only the irreversible drop in tests.** Offboarding a dedicated tenant drops its whole database
+    instead of the shared-DB row-purge. Same gate + export as shared, but read from the tenant's OWN
+    database (hold check + export bundle route `withTenant(..., dedicatedPool)`); the terminal step is
+    `DROP DATABASE IF EXISTS "<db>" WITH (FORCE)` on a RAW owner connection — no `withoutTenant` wrapper,
+    because `DROP DATABASE` is forbidden inside a transaction block. The db name comes straight from the
+    `localdb:<db>` secret ref (new shared `localDbName()` helper), not re-derived from the slug, so
+    teardown targets exactly the database provisioning created; `IF EXISTS` makes a crash between the drop
+    and the status flip resumable. The audit-partition roll now takes an optional owner `pool` (threaded
+    into every `withoutTenant`), and `fanOutAuditPartitionRoll` mirrors the migration fan-out — one owner
+    pool per dedicated DB (migrator URL = base migrator URL with the db name swapped in), `offboarded`
+    tenants skipped, per-tenant failures collected not thrown. Both paths are **localdb-only**: DDL/DROP
+    need an owner connection whose URL is derived from the primary's, which only the same-cluster
+    convention exposes — a cloud (`env:`) tenant is left `offboarding` / collected as a failure until an
+    owner-secret scheme exists. Tests fake the DROP owner pool (recording the SQL, destroying nothing) and
+    point the "dedicated" DB at the primary via `localdb:kaenal`, so real RLS reads run while nothing is
+    actually dropped — and assert the dedicated path does NOT row-purge (rows survive the faked drop).
+    This closes Model B for local/self-hosted; only the cloud secret-manager resolver remains.
+    *Affects: 06 §1 `housekeeping`, 01 §3.1/§3.4, 07 §5.*
 
 - **2026-07-24 — Model B job-path routing: one router at the worker + gateway, `pool?` threaded as a dep.**
   The request path resolves the tenant by slug and hands the pool to `withTenant`; jobs and the AI gateway
@@ -1198,10 +1221,10 @@ to build the frontend.)
   (including `files` metadata) but does NOT copy the binary file objects from S3 ("+ all files" in
   01 §3.4) — the Storage port has no server-side copy and doing it well is an S3-to-S3 archival step;
   a follow-up. Also the purge runs in ONE transaction per tenant (atomic, but a very large tenant would
-  want cross-transaction batching). Model B (`dedicated`) offboarding is just a database drop — see the
-  Model B entry below (offboarding drop-DB is one of its remaining pieces). *01 §3.4, 07 §5.*
-- **Model B (dedicated Postgres per tenant): routing + provisioning + fan-out BUILT; job-path routing
-  and drop-DB offboarding remain.** 01 §3.1/§3.3 defines two isolation models on one codebase. Model A
+  want cross-transaction batching). Model B (`dedicated`) offboarding is a database drop instead — BUILT;
+  see the Model B entry below. *01 §3.4, 07 §5.*
+- **Model B (dedicated Postgres per tenant): local/self-hosted path COMPLETE; only the cloud
+  secret-manager resolver remains.** 01 §3.1/§3.3 defines two isolation models on one codebase. Model A
   (shared Postgres + RLS) has always been the built path; Model B gives an Enterprise tenant its own
   database, same schema/migrations, different connection string. **Built so far:**
   (1) **request-path routing** — the lifecycle routes a `dedicated` tenant to a per-tenant pool
@@ -1219,17 +1242,21 @@ to build the frontend.)
   (4) **job-path routing** — the worker resolves each per-tenant job's pool through a `RegistryDbRouter`
   (tenantId → model/secret, briefly cached) and every per-tenant processor forwards it to `withTenant`;
   the AI gateway takes an optional `pool` too (its self-managed txs), threaded from the worker and, on the
-  request path, from the request context (`currentPool()`). `offboardTenants` now skips dedicated tenants
-  (their teardown is drop-DB, below) so the shared-DB row-purge never runs with a dedicated id. Proven by
-  `apps/api/test/{tenant-pools,dedicated-routing,job-routing}.test.ts` and
-  `packages/db/test/dedicated-provision.test.ts`. **Remaining:** (a) **offboarding drop-DB** — the
-  terminal step for a dedicated tenant is dropping its database, not the row-purge (offboarding currently
-  skips them); (b) **global-job fan-out** — the nightly `auditPartitionRoll` runs `withoutTenant` on the
-  PRIMARY only, but each dedicated DB has its OWN `audit_events` partitions that also need rolling, so the
-  roll must fan out to dedicated DBs the way `db:migrate:tenants` does. A cloud `awssm:`/`gcpsm:`
-  `SecretResolver` also drops in behind the interface. Provisioning assumes dedicated DBs share the
-  primary cluster (the `localdb:`/derive-URL convention); a separate-host deployment would store `env:`
-  refs + per-tenant migrator URLs. *01 §3.1, §3.3, §3.4, §3.5.*
+  request path, from the request context (`currentPool()`).
+  (5) **drop-DB offboarding** — `offboardTenants` tears a dedicated tenant down by dropping its whole
+  database (`DROP DATABASE IF EXISTS … WITH (FORCE)` on a raw owner connection, no tx wrapper) after the
+  same hold-gate + export bundle, both read from the tenant's OWN database; the db name comes from the
+  `localdb:` ref, `IF EXISTS` makes it resumable.
+  (6) **audit-partition-roll fan-out** — the nightly roll now takes an optional owner pool and
+  `fanOutAuditPartitionRoll` runs it once per dedicated DB (owner URL = primary migrator URL with the db
+  name swapped), mirroring `db:migrate:tenants`; each dedicated DB tracks its own high-water marks.
+  Proven by `apps/api/test/{tenant-pools,dedicated-routing,job-routing,audit-partition-fanout,offboard-dedicated}.test.ts`
+  and `packages/db/test/dedicated-provision.test.ts`. **Remaining:** only the **cloud secret-manager
+  resolver** — DDL/DROP and the owner-URL derivation are `localdb:` (same-cluster) only, so a cloud
+  (`env:`) dedicated tenant can be routed for requests/jobs but not yet migrated, offboarded, or
+  partition-rolled; an `awssm:`/`gcpsm:` `SecretResolver` plus a stored per-tenant owner URL drops in
+  behind the same interfaces (a cloud `env:` tenant is left `offboarding` / collected as a fan-out
+  failure until then, never silently mis-targeted). *01 §3.1, §3.3, §3.4, §3.5.*
 - **Audit partition provisioning must stay ahead of the calendar.** The nightly roll provisions the
   current + next month; a default partition catches anything else so writes never fail. But if the job
   lapses for more than a month, rows for the un-provisioned month land in the default partition, and

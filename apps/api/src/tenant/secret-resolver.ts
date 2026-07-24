@@ -37,6 +37,19 @@ export function withDatabaseName(url: string, dbName: string): string {
   return u.toString();
 }
 
+/**
+ * The bare database name of a `localdb:<name>` ref, or null for any other scheme
+ * (`env:`, a future `awssm:`, …). Model B teardown (`DROP DATABASE`) and the
+ * audit-partition-roll fan-out both need the raw database name on the primary
+ * cluster, and only the local same-cluster convention exposes it in the ref —
+ * a cloud ref points at a full URL elsewhere, with no owner/db name to derive.
+ */
+export function localDbName(ref: string | null): string | null {
+  if (ref === null) return null;
+  const m = LOCALDB_REF.exec(ref);
+  return m === null || m[1] === undefined ? null : m[1];
+}
+
 export class EnvSecretResolver implements SecretResolver {
   constructor(private readonly source: NodeJS.ProcessEnv = process.env) {}
 
