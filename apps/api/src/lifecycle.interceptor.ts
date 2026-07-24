@@ -8,13 +8,15 @@ import {
 import { Reflector } from "@nestjs/core";
 import { firstValueFrom, from, type Observable } from "rxjs";
 import type { Request } from "express";
+import type pg from "pg";
 import { withTenant } from "@kaenal/db";
 import { authorize, type Capability } from "@kaenal/core";
 import { ApiError, tenantNotFound } from "./errors.js";
 import { runWithContext } from "./context.js";
 import { slugFromHost, TenantRegistry } from "./tenant/registry.js";
+import type { TenantPoolManager } from "./tenant/pool-manager.js";
 import { IS_ANONYMOUS, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
-import { AUTHENTICATOR, ENV, RATE_LIMITER, TENANT_REGISTRY } from "./tokens.js";
+import { AUTHENTICATOR, ENV, RATE_LIMITER, TENANT_POOLS, TENANT_REGISTRY } from "./tokens.js";
 import type { Authenticator } from "./auth/authenticator.js";
 import { USER_LIMIT, type RateLimiter } from "./http/rate-limit.js";
 import type { Env } from "./env.js";
@@ -46,6 +48,7 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     @Inject(ENV) private readonly env: Env,
     @Inject(AUTHENTICATOR) private readonly authenticator: Authenticator,
     @Inject(RATE_LIMITER) private readonly rateLimiter: RateLimiter,
+    @Inject(TENANT_POOLS) private readonly pools: TenantPoolManager,
     @Inject(Reflector) private readonly reflector: Reflector,
   ) {}
 
@@ -85,18 +88,27 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     const tenant = await this.registry.resolveBySlug(slug);
     if (tenant === null) throw tenantNotFound();
 
+    // --- 3a. Route to the tenant's database (01 §3.1 / §3.3 step 3) -------
+    // Model A tenants share `@kaenal/db`'s appPool (withTenant's default);
+    // Model B tenants each get their own pool, keyed on the registry's secret
+    // ref. A dedicated tenant with no secret ref is a corrupt registry row and
+    // must fail loudly — never fall through to the shared pool, which would put
+    // its data in the wrong database. (The schema CHECK makes this unreachable,
+    // but the guard keeps the invariant local to where it matters.)
+    let pool: pg.Pool | undefined;
     if (tenant.model === "dedicated") {
-      // Model B routes to a per-tenant pool (01 §3.1). Not implemented, and it
-      // must fail loudly rather than fall through to the shared pool, which
-      // would put a dedicated tenant's data in the shared database.
-      throw new ApiError("INTERNAL", "Dedicated-instance routing is not implemented");
+      if (tenant.databaseUrlSecretRef === null) {
+        throw new ApiError("INTERNAL", "Dedicated tenant is missing its connection secret");
+      }
+      pool = await this.pools.poolFor(tenant.id, tenant.databaseUrlSecretRef);
     }
 
     req.tenant = { id: tenant.id, slug: tenant.slug };
 
-    // --- 3. Scoped transaction --------------------------------------------
+    // --- 3b. Scoped transaction -------------------------------------------
     // Opened before authentication so that step 2's membership query is itself
     // tenant-scoped. userId is null at this point and set inside, once known.
+    // RLS applies on the dedicated pool exactly as on the shared one.
     return withTenant(tenant.id, null, async (tx) => {
       // --- 2. Authenticate ------------------------------------------------
       const session = await this.authenticator.authenticate(req, tx);
@@ -149,6 +161,6 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
         },
         () => firstValueFrom(next.handle()),
       );
-    });
+    }, pool);
   }
 }

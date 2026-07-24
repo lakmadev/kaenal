@@ -35,6 +35,14 @@ const EnvSchema = z.object({
   TENANT_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60),
 
   /**
+   * Model B (dedicated Postgres per tenant, 01 §3.3): the LRU cap on how many
+   * per-tenant connection pools the API holds at once. Spec suggests ~20; the
+   * least-recently-used tenant's pool is closed past this. Only relevant to
+   * deployments that host dedicated tenants.
+   */
+  TENANT_MAX_DEDICATED_POOLS: z.coerce.number().int().positive().default(20),
+
+  /**
    * Object storage (03 §7). MinIO locally, S3/R2 in cloud. Defaults target the
    * docker-compose MinIO so uploads work out of the box; production overrides
    * every value. `S3_FORCE_PATH_STYLE` is required for MinIO (no vhost buckets).

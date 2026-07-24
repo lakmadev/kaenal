@@ -8,6 +8,8 @@ import { HealthController } from "./health.controller.js";
 import { RequestLifecycleInterceptor } from "./lifecycle.interceptor.js";
 import { RequestIdMiddleware } from "./request-id.middleware.js";
 import { TenantRegistry } from "./tenant/registry.js";
+import { TenantPoolManager } from "./tenant/pool-manager.js";
+import { EnvSecretResolver, type SecretResolver } from "./tenant/secret-resolver.js";
 import { ShutdownService } from "./shutdown.service.js";
 import { AuthService } from "./auth/auth.service.js";
 import { SessionAuthenticator } from "./auth/session.authenticator.js";
@@ -51,6 +53,8 @@ import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.
 import {
   AI_GATEWAY,
   AI_SERVICE,
+  SECRET_RESOLVER,
+  TENANT_POOLS,
   AUDITS_SERVICE,
   AUTH_SERVICE,
   AUTHENTICATOR,
@@ -119,6 +123,18 @@ import {
       useFactory: (pool: pg.Pool, redis: Redis, env: Env) =>
         new TenantRegistry(pool, redis, env.TENANT_CACHE_TTL_SECONDS),
       inject: [CONTROL_POOL, REDIS, ENV],
+    },
+
+    // Model B routing (01 §3.1): resolves a dedicated tenant's connection
+    // secret and holds an LRU-capped pool per tenant. The resolver reads the
+    // ref's target (env var locally); a cloud secrets-manager resolver drops in
+    // behind the same interface. Model A never touches either.
+    { provide: SECRET_RESOLVER, useFactory: (): SecretResolver => new EnvSecretResolver() },
+    {
+      provide: TENANT_POOLS,
+      useFactory: (secrets: SecretResolver, env: Env) =>
+        new TenantPoolManager(secrets, env.TENANT_MAX_DEDICATED_POOLS),
+      inject: [SECRET_RESOLVER, ENV],
     },
 
     {
