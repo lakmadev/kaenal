@@ -529,8 +529,14 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       screen deliberately omitted (the API returns the wrong-password envelope for a lock — 07 §2 anti-
       enumeration — so a real locked-detection UI would leak account state); request-workspace omitted (no
       self-serve provisioning endpoint). Prototype fixture data (mock tenants/SSO/inviter) not fabricated.
-- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation + **NCRs DONE**; others are
-      placeholders. **NCRs** (`feat/web-ncrs`): list (table + kanban) with search/status/priority filters,
+- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation + **NCRs + Inspections DONE**;
+      CAPA/Documents are placeholders. **Inspections** (`feat/web-inspections`): list/grid with status filter +
+      search + CSV export; create dialog (schedule from a published template); detail with the **dynamic form
+      renderer** (one control per FormItemType, `isVisible` conditional gating) + **live scoring** (the shared
+      `scoreInspection` from `@kaenal/core`, recomputed as you fill); start → fill → complete flow with
+      client-side `validateResponses` gating before submit and the server-authoritative score on completion;
+      Findings tab (record finding + raise-NCR via `findingId`, wiring Inspection→NCR). Verified end-to-end vs.
+      the seeded API (filled the Line Safety Walk template, live score 95→server 100 on complete). **NCRs** (`feat/web-ncrs`): list (table + kanban) with search/status/priority filters,
       create dialog (RHF+Zod), detail (contextual transitions, four-eyes verify, Details/Actions/History
       tabs, meta sidebar), Actions CRUD (containment/corrective/preventive add + toggle). Kanban drag →
       transition with optimistic move + 409/illegal-move revert + toast. Verified end-to-end vs. the real
