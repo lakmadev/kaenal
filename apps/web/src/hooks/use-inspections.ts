@@ -38,6 +38,15 @@ export function useTemplate(id: string | undefined) {
   });
 }
 
+/** All inspection templates (draft + published) for the Templates screen. */
+export function useTemplates() {
+  const client = getApiClient();
+  return useQuery({
+    queryKey: ["templates", "list", "all"],
+    queryFn: () => client.listTemplates({}).then((r) => unwrap<Page<TemplateDto>>(r)),
+  });
+}
+
 /** Published templates only — the pool an inspection can be scheduled from. */
 export function usePublishedTemplates() {
   const client = getApiClient();

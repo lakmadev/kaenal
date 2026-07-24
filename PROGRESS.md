@@ -517,8 +517,11 @@ Frontend — STARTED 2026-07-24. `apps/web` (Next.js 15 App Router, React 19, TS
 consumes the ts-rest contract via `@kaenal/api-client`. The foundation slice is up and building; the
 per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/docs/{rules,best-practices}.md`.
 
-- [~] Next.js app shell — sidebar (collapse + mobile drawer, capability-gated nav) + topbar
-      (breadcrumbs, theme toggle, profile/sign-out) DONE; command palette (⌘K) pending (04 §3)
+- [~] Next.js app shell — sidebar (collapse + mobile drawer, capability-gated nav, **expandable sub-navs**
+      matching shell.jsx with accent left-border on the active item) + topbar (breadcrumbs, theme toggle,
+      profile/sign-out) DONE; command palette (⌘K) pending (04 §3). Sub-navs are only listed when their
+      target route exists (a dead nav link is worse than none): Inspections → All/Templates/Schedule, NCRs →
+      All/My Assignments (`?view=mine`)/Overdue (`?view=overdue`).
 - [x] Design tokens ported → `apps/web/src/styles/{tokens.css,globals.css}`; Tailwind v4 `@theme inline`
       bridges them so utilities + `.k-*` classes are theme-aware; light/dark via `data-theme` (04 §2)
 - [x] Unified design-system primitives in `src/components/ui` (Button, Card, Chip, Status/Priority/Risk

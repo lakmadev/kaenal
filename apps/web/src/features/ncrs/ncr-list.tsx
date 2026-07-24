@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { List, LayoutGrid, Plus, Download, Search, Filter, TriangleAlert } from "lucide-react";
 import type { NcrDto, NcrStatus, NcrPriority } from "@kaenal/types";
 import { shortDate, titleCase } from "@/lib/format";
@@ -24,9 +24,18 @@ const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: "closed", label: "Closed" },
 ];
 
+/** The sidebar sub-navs (`?view=`) — a saved-view slice over the same list. */
+const VIEWS = {
+  mine: { title: "My Assignments", description: "Non-conformities assigned to you" },
+  overdue: { title: "NCRs — At Risk", description: "SLA breached or at risk" },
+} as const;
+
 export function NcrList(): React.ReactElement {
   const router = useRouter();
   const { data: me } = useMe();
+  const searchParams = useSearchParams();
+  const view_ = searchParams.get("view");
+  const savedView = view_ === "mine" || view_ === "overdue" ? view_ : null;
 
   const [view, setView] = useState<View>("list");
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -45,15 +54,17 @@ export function NcrList(): React.ReactElement {
     return items.filter(
       (n) =>
         (priority === "any" || n.priority === priority) &&
+        (savedView !== "mine" || (me !== undefined && n.ownerId === me.userId)) &&
+        (savedView !== "overdue" || n.slaState !== "on_track") &&
         (q === "" || n.title.toLowerCase().includes(q) || n.code.toLowerCase().includes(q)),
     );
-  }, [query.data, search, priority]);
+  }, [query.data, search, priority, savedView, me]);
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 p-6">
       <PageHeader
-        title="Non-Conformities"
-        description="Track, investigate, and close quality & safety issues"
+        title={savedView !== null ? VIEWS[savedView].title : "Non-Conformities"}
+        description={savedView !== null ? VIEWS[savedView].description : "Track, investigate, and close quality & safety issues"}
         actions={
           <>
             <Button onClick={() => exportCsv(rows)}>

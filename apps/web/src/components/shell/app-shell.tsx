@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ApiRequestError } from "@kaenal/api-client";
 import { useMe } from "@/hooks/use-me";
@@ -28,7 +28,9 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
 
   return (
     <div className="flex h-dvh overflow-hidden">
-      <Sidebar me={me} />
+      <Suspense fallback={<div className="w-[260px] shrink-0 bg-sidebar-bg max-lg:hidden" />}>
+        <Sidebar me={me} />
+      </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar me={me} />
         <main className="flex-1 overflow-y-auto">
