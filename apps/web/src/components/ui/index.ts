@@ -11,6 +11,8 @@ export { Chip, type ChipProps } from "./chip";
 export { StatusBadge, PriorityBadge, RiskBadge } from "./badge";
 export { Input, type InputProps } from "./input";
 export { Field, type FieldProps } from "./field";
+export { Segmented, type SegmentedOption } from "./segmented";
+export { Dialog, DialogTrigger, DialogClose, DialogContent } from "./dialog";
 export { Skeleton } from "./skeleton";
 export { Spinner } from "./spinner";
 export { EmptyState, type EmptyStateProps } from "./empty-state";

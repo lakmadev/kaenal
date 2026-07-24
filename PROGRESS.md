@@ -529,8 +529,13 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       screen deliberately omitted (the API returns the wrong-password envelope for a lock — 07 §2 anti-
       enumeration — so a real locked-detection UI would leak account state); request-workspace omitted (no
       self-serve provisioning endpoint). Prototype fixture data (mock tenants/SSO/inviter) not fabricated.
-- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation DONE (KPI tiles + recent
-      NCRs over real endpoints, loading/empty/error states); other modules are placeholders in the shell
+- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation + **NCRs DONE**; others are
+      placeholders. **NCRs** (`feat/web-ncrs`): list (table + kanban) with search/status/priority filters,
+      create dialog (RHF+Zod), detail (contextual transitions, four-eyes verify, Details/Actions/History
+      tabs, meta sidebar), Actions CRUD (containment/corrective/preventive add + toggle). Kanban drag →
+      transition with optimistic move + 409/illegal-move revert + toast. Verified end-to-end vs. the real
+      API (transition Assigned→In Progress, action-add). Shared primitives added: `PageHeader`, Radix
+      `Dialog`, `Segmented`, `api-error` helpers, `format` utils.
 - [~] All six UI states on every list/detail (04 §6) — loading/empty/error demonstrated on the dashboard;
       stale-write (409), offline, and per-capability hiding land with the first CRUD module
 
