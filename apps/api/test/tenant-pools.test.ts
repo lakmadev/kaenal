@@ -35,6 +35,20 @@ describe("EnvSecretResolver", () => {
     const resolver = new EnvSecretResolver({});
     await expect(resolver.resolve("env:MISSING")).rejects.toThrow(/not set/);
   });
+
+  it("resolves a localdb: ref by swapping the database name in DATABASE_APP_URL", async () => {
+    const resolver = new EnvSecretResolver({
+      DATABASE_APP_URL: "postgres://kaenal_app:pw@localhost:5433/kaenal",
+    });
+    await expect(resolver.resolve("localdb:kaenal_ded_bosch")).resolves.toBe(
+      "postgres://kaenal_app:pw@localhost:5433/kaenal_ded_bosch",
+    );
+  });
+
+  it("rejects a localdb: ref when DATABASE_APP_URL is absent", async () => {
+    const resolver = new EnvSecretResolver({});
+    await expect(resolver.resolve("localdb:kaenal_ded_bosch")).rejects.toThrow(/DATABASE_APP_URL/);
+  });
 });
 
 describe("TenantPoolManager", () => {

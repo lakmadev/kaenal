@@ -11,6 +11,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "migrate": "tsx scripts/migrate.ts",
+    "migrate-tenants": "tsx scripts/migrate-tenants.ts",
     "reset": "tsx scripts/reset.ts",
     "check-rls": "tsx scripts/check-rls.ts",
     "provision-tenant": "tsx scripts/provision-tenant.ts",

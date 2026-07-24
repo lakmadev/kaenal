@@ -16,7 +16,7 @@ module, async Reports/exports, scheduling/recurrence, document-expiry reminders,
 housekeeping purge, the governed AI gateway (doc-summary feature), audit-events partitioning +
 the nightly partition-roll/tamper-check AND tenant offboarding (export bundle + gated purge) are
 done and proven, and CI runs them on
-every push/PR. 952 tests pass (257 db integration, 484 core unit, 175 api integration, 25 types unit,
+every push/PR. 956 tests pass (259 db integration, 484 core unit, 177 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -368,7 +368,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0017)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 952 tests
+pnpm test                     # full suite (serial: shares one DB) — 956 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -568,10 +568,12 @@ to build the frontend.)
       governance (entitlement/data-control/budget/region gate, PII redaction, invocation ledger) +
       `doc_summary` DONE (2026-07-23); copilots (root-cause/8D drafting), draft-acceptance flow,
       compliance-QA retrieval, and a real model provider pending
-- [~] Model B (dedicated Postgres per tenant, 01 §3.1) — request-path routing DONE (2026-07-24):
-      secret resolver + LRU `TenantPoolManager` + interceptor routes `dedicated` tenants to their own
-      pool (RLS still applies), fail-loud on unresolvable secret. Provisioning (`--model dedicated`),
-      migration fan-out, job-path routing, and drop-DB offboarding pending — see Known issues
+- [~] Model B (dedicated Postgres per tenant, 01 §3.1) — routing + provisioning + fan-out DONE
+      (2026-07-24): secret resolver (`env:`/`localdb:`) + LRU `TenantPoolManager` + interceptor routes
+      `dedicated` tenants to their own pool (RLS still applies), fail-loud on unresolvable secret;
+      `provision-tenant --model dedicated` creates+migrates+seeds the DB and registers it; `db:migrate:tenants`
+      fans migrations out per-tenant under a lock. Job-path routing and drop-DB offboarding pending —
+      see Known issues
 - [ ] Supplier portal
 - [ ] Public API + webhooks (HMAC signing, retry ladder)
 - [ ] SSO/SCIM via WorkOS
@@ -580,6 +582,22 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-24 — Model B provisioning/fan-out: slug is the single source of truth, `localdb:` keeps it
+  self-consistent.** A dedicated tenant's whole world is derived from its slug: database name
+  (`kaenal_ded_<slug>`, `-`→`_` so it's injective and identifier-safe), migrator URL and app URL (swap the
+  db name in the primary's `DATABASE_URL`/`DATABASE_APP_URL`), and the registry secret ref
+  (`localdb:<dbname>`). This means provisioning and fan-out never disagree about where a tenant lives, and
+  the API resolves the same `localdb:` ref back to the same URL — no per-tenant env var to wire up locally.
+  (`env:` stays for cloud, where dedicated DBs sit on other hosts.) The registry row is parked
+  `provisioning_failed` and only flipped `active` once CREATE DATABASE + migrate + seed + smoke-test all
+  pass, so `resolveBySlug` (active-only) can never route to a half-built database — better than the shared
+  path's insert-active-then-park because there's no window where a broken dedicated tenant is live. The
+  migration runner was extracted (`scripts/lib/migrate-runner.ts`) so the primary `migrate`, provisioning,
+  and the fan-out apply migrations identically; fan-out isolates per-tenant failures (one bad DB doesn't
+  block the rest) and takes a per-DB advisory lock so a concurrent run/provision can't double-migrate.
+  Convention assumes dedicated DBs share the primary cluster; a separate-host deployment swaps the URL
+  derivation for stored per-tenant URLs. *Affects: 01 §3.4, 02 §migrations.*
 
 - **2026-07-24 — Model B routing is a connection-swap at one seam, not a code fork.** The two
   isolation models (01 §3.1) meet in exactly one place: which pool `withTenant` runs on. Shared tenants
@@ -1166,28 +1184,32 @@ to build the frontend.)
   a follow-up. Also the purge runs in ONE transaction per tenant (atomic, but a very large tenant would
   want cross-transaction batching). Model B (`dedicated`) offboarding is just a database drop — see the
   Model B entry below (offboarding drop-DB is one of its remaining pieces). *01 §3.4, 07 §5.*
-- **Model B (dedicated Postgres per tenant): request-path routing is BUILT; provisioning, job-path
-  routing, and drop-DB offboarding remain.** 01 §3.1/§3.3 defines two isolation models on one codebase.
-  Model A (shared Postgres + RLS) has always been the built path; Model B gives an Enterprise tenant its
-  own database, same schema/migrations, different connection string. **Done this slice:** the request
-  lifecycle now routes a `dedicated` tenant to a per-tenant pool instead of throwing "not implemented" —
-  `EnvSecretResolver` turns `control.tenants.database_url_secret_ref` (an `env:VAR` pointer, never the
-  credential) into a connection string, `TenantPoolManager` holds an LRU-capped (~20, `TENANT_MAX_DEDICATED_POOLS`)
-  pool per tenant, and `withTenant(…, pool)` runs the same tenant-scoped transaction (RLS still applies,
-  defence in depth). The interceptor fails loud if the secret is unresolvable rather than falling
-  through to the shared DB. Registry now surfaces `databaseUrlSecretRef`; `ShutdownService` closes the
-  dedicated pools. Proven by `apps/api/test/tenant-pools.test.ts` (LRU/eviction/resolver units) and
-  `apps/api/test/dedicated-routing.test.ts` (a dedicated tenant serves an authed request end-to-end;
-  a missing-secret dedicated tenant 500s instead of leaking to shared). **Remaining:** (1) **provisioning**
-  — `provision-tenant --model dedicated` must `CREATE DATABASE` + run migrations + write the secret ref
-  (today it only supports `shared`); (2) **migration fan-out** — `db:migrate` iterates only the primary
-  DB; Model B needs the registry-driven per-tenant fan-out with per-tenant locking (02 §migrations,
-  "Model B instances"); (3) **job-path routing** — worker processors call `withTenant(payload.tenantId,…)`
-  on the shared `appPool`, so a dedicated tenant's background jobs would hit the WRONG database; the
-  worker needs the same registry + TenantPoolManager wiring the interceptor now has (**correctness gap
-  until dedicated tenants exist in a deployment**); (4) **offboarding drop-DB** — the terminal step for a
-  dedicated tenant is dropping its database, not the row-purge. A cloud `SecretResolver` (AWS/GCP secrets
-  manager) also drops in behind the interface. *01 §3.1, §3.3, §3.4, §3.5.*
+- **Model B (dedicated Postgres per tenant): routing + provisioning + fan-out BUILT; job-path routing
+  and drop-DB offboarding remain.** 01 §3.1/§3.3 defines two isolation models on one codebase. Model A
+  (shared Postgres + RLS) has always been the built path; Model B gives an Enterprise tenant its own
+  database, same schema/migrations, different connection string. **Built so far:**
+  (1) **request-path routing** — the lifecycle routes a `dedicated` tenant to a per-tenant pool
+  (`TenantPoolManager`, LRU-capped ~20 via `TENANT_MAX_DEDICATED_POOLS`); `SecretResolver` turns
+  `control.tenants.database_url_secret_ref` (a pointer, never the credential) into a connection string —
+  `env:VAR` for cloud, `localdb:DB_NAME` (derive from `DATABASE_APP_URL`) for same-cluster; `withTenant(…, pool)`
+  runs the same tenant-scoped tx (RLS still applies, defence in depth); a missing/unresolvable secret
+  fails loud rather than leaking to the shared DB. (2) **provisioning** — `provision-tenant --model dedicated`
+  now `CREATE DATABASE`s the tenant's DB, runs the full migration set against it (shared runner in
+  `scripts/lib/migrate-runner.ts`), seeds defaults + smoke-tests isolation inside it, and registers it
+  with a `localdb:` ref; the registry row is parked `provisioning_failed` until every step succeeds, then
+  flipped `active` (so `resolveBySlug` never routes to a half-ready DB). (3) **migration fan-out** —
+  `pnpm db:migrate:tenants` (`scripts/lib/fan-out.ts`) applies pending migrations to every dedicated DB
+  under a per-DB advisory lock; a failed tenant halts its own rollout only and the CLI exits non-zero.
+  Proven by `apps/api/test/{tenant-pools,dedicated-routing}.test.ts` and
+  `packages/db/test/dedicated-provision.test.ts` (provision → migrate → seed; fan-out skips up-to-date,
+  catches up an empty DB, isolates a no-DB failure). **Remaining:** (a) **job-path routing** — worker
+  processors call `withTenant(payload.tenantId,…)` on the shared `appPool`, so a dedicated tenant's
+  background jobs would hit the WRONG database; the worker needs the same registry + TenantPoolManager
+  wiring the interceptor has (**correctness gap until dedicated tenants run jobs in a deployment**);
+  (b) **offboarding drop-DB** — the terminal step for a dedicated tenant is dropping its database, not
+  the row-purge. A cloud `awssm:`/`gcpsm:` `SecretResolver` also drops in behind the interface. Provisioning
+  assumes dedicated DBs share the primary cluster (the `localdb:`/derive-URL convention); a separate-host
+  deployment would store `env:` refs + per-tenant migrator URLs. *01 §3.1, §3.3, §3.4, §3.5.*
 - **Audit partition provisioning must stay ahead of the calendar.** The nightly roll provisions the
   current + next month; a default partition catches anything else so writes never fail. But if the job
   lapses for more than a month, rows for the un-provisioned month land in the default partition, and
