@@ -42,9 +42,7 @@ export function DashboardView(): React.ReactElement {
               <span className="mono">{me.tenantSlug}</span>
             </>
           ) : (
-            <span className="inline-block h-4 w-40 align-middle">
-              <Skeleton className="h-4 w-40" />
-            </span>
+            <span className="skeleton inline-block h-4 w-40 align-middle" />
           )}
         </p>
       </header>

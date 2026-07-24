@@ -2,120 +2,304 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { ArrowRight, ArrowLeft, TriangleAlert, Eye, EyeOff, Lock, Check } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@kaenal/api-client";
-import { signIn, AuthError } from "@/lib/auth";
+import { signIn, forgotPassword, AuthError } from "@/lib/auth";
 import { setActiveTenant } from "@/lib/tenant";
-import { Button, Card, CardContent, Field, Input } from "@/components/ui";
-
-/** Validated client-side; the API re-validates against the same rules (04 §1). */
-const SignInSchema = z.object({
-  workspace: z.string().min(1, "Workspace is required"),
-  email: z.string().min(1, "Email is required").email("Enter a valid email"),
-  password: z.string().min(1, "Password is required"),
-});
-type SignInValues = z.infer<typeof SignInSchema>;
+import { AuthShell } from "@/components/auth/auth-shell";
 
 /**
- * Sign-in (04 §4). Cookie-session auth: on success the API sets the httpOnly
- * session + CSRF cookies; we persist the chosen workspace slug (sent as
- * `X-Tenant-Id` thereafter) and navigate into the app. A failed sign-in surfaces
- * inline — never revealing whether the email exists (the API returns a generic
- * error, 07 §2).
+ * Sign-in (04 §4), recreating the visual spec's `auth.jsx` flow: a workspace
+ * picker first (each company has its own `slug.kaenal.app` tenant, resolved into
+ * `X-Tenant-Id`), then the credential form. Cookie-session auth — the API sets
+ * the httpOnly session + CSRF cookies; we persist the workspace slug and navigate
+ * in. Errors surface inline and never reveal whether an email exists (07 §2).
+ *
+ * The prototype's fake demo tenants / SSO / plan chips are omitted — they are
+ * prototype fixtures with no backend, not product data to fabricate.
  */
+type Stage = "workspace" | "login" | "forgot";
+
+function slugToName(slug: string): string {
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 export function SignInForm(): React.ReactElement {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [formError, setFormError] = useState<string | null>(null);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<SignInValues>({ resolver: zodResolver(SignInSchema) });
+  const [stage, setStage] = useState<Stage>("workspace");
+  const [workspace, setWorkspace] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [notice, setNotice] = useState("");
 
-  const onSubmit = handleSubmit(async (values) => {
-    setFormError(null);
+  const submitWorkspace = (e: React.FormEvent): void => {
+    e.preventDefault();
+    if (workspace.trim() === "") {
+      setErr("Enter your workspace name");
+      return;
+    }
+    setErr("");
+    setStage("login");
+  };
+
+  const submitLogin = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (!email.includes("@")) {
+      setErr("Enter a valid email");
+      return;
+    }
+    if (password.length < 1) {
+      setErr("Enter your password");
+      return;
+    }
+    setErr("");
+    setBusy(true);
     try {
-      await signIn({ tenant: values.workspace, email: values.email, password: values.password });
-      setActiveTenant(values.workspace);
-      // Drop any stale identity cached under a previous session.
+      await signIn({ tenant: workspace, email, password });
+      setActiveTenant(workspace);
       await queryClient.invalidateQueries({ queryKey: queryKeys.me() });
       router.replace("/dashboard");
-    } catch (err) {
-      setFormError(
-        err instanceof AuthError && err.status === 429
+    } catch (error) {
+      setBusy(false);
+      setErr(
+        error instanceof AuthError && error.status === 429
           ? "Too many attempts. Please wait a moment and try again."
           : "Sign-in failed. Check your workspace, email, and password.",
       );
     }
-  });
+  };
+
+  const submitForgot = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (!email.includes("@")) {
+      setErr("Enter a valid email");
+      return;
+    }
+    setErr("");
+    setBusy(true);
+    try {
+      await forgotPassword(email);
+    } catch {
+      /* forgot-password always succeeds to avoid account enumeration (07 §2) */
+    }
+    setBusy(false);
+    setNotice("If that email has an account, a reset link is on its way.");
+  };
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="text-center">
-        <div className="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-lg bg-accent text-accent-fg">
-          <Logo />
-        </div>
-        <h1 className="text-[22px] font-bold tracking-tight text-text">Sign in to Kaenal</h1>
-        <p className="mt-1 text-[13px] text-muted">Quality &amp; Safety Management</p>
-      </div>
+    <AuthShell>
+      <div className="fade-in" key={stage}>
+        {stage === "workspace" && (
+          <>
+            <h1 className="mb-2 text-[32px] font-bold" style={{ letterSpacing: "-0.02em" }}>
+              Sign in to Kaenal
+            </h1>
+            <p className="mb-8 text-[14px] text-muted">
+              Each company has its own private workspace. Enter yours to continue.
+            </p>
 
-      <Card>
-        <CardContent className="pt-5">
-          <form onSubmit={(e) => void onSubmit(e)} className="flex flex-col gap-4" noValidate>
-            {formError !== null && (
+            <form onSubmit={submitWorkspace}>
+              <label className="k-overline mb-2 block">Workspace</label>
               <div
-                role="alert"
-                className="rounded-md border px-3 py-2 text-[13px]"
-                style={{ borderColor: "var(--danger-600)", background: "var(--danger-50)", color: "var(--danger-700)" }}
+                className="flex items-stretch overflow-hidden"
+                style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", background: "var(--surface)" }}
               >
-                {formError}
+                <input
+                  autoFocus
+                  value={workspace}
+                  onChange={(e) => setWorkspace(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                  placeholder="your-company"
+                  aria-label="Workspace"
+                  className="flex-1 bg-transparent px-3 text-[14px] outline-none"
+                  style={{ height: 44, border: "none" }}
+                />
+                <div
+                  className="flex items-center px-3.5 text-[13px] text-muted"
+                  style={{ background: "var(--bg-subtle)", borderLeft: "1px solid var(--border)" }}
+                >
+                  .kaenal.app
+                </div>
               </div>
+              {err !== "" && <InlineError message={err} />}
+
+              <button
+                type="submit"
+                className="k-btn k-btn-primary mt-5 w-full"
+                style={{ height: 44, fontSize: 14 }}
+              >
+                Continue <ArrowRight size={14} />
+              </button>
+            </form>
+          </>
+        )}
+
+        {stage === "login" && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setStage("workspace");
+                setErr("");
+              }}
+              className="k-btn k-btn-plain k-btn-sm mb-3.5 self-start"
+            >
+              <ArrowLeft size={12} /> Switch workspace
+            </button>
+
+            <div
+              className="mb-6 flex items-center gap-2.5 p-3"
+              style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", background: "var(--surface)" }}
+            >
+              <div
+                className="flex items-center justify-center text-[15px] font-bold text-white"
+                style={{ width: 36, height: 36, borderRadius: "var(--r-sm)", background: "var(--accent)" }}
+              >
+                {(workspace[0] ?? "K").toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-semibold">{slugToName(workspace)}</div>
+                <div className="mono text-[11px] text-muted">{workspace}.kaenal.app</div>
+              </div>
+            </div>
+
+            <h1 className="mb-1.5 text-[28px] font-bold">Welcome back</h1>
+            <p className="mb-6 text-[13px] text-muted">Sign in to continue to your workspace.</p>
+
+            <form onSubmit={(e) => void submitLogin(e)}>
+              <label className="k-overline mb-1.5 block">Work email</label>
+              <input
+                className="k-input mb-3.5"
+                autoFocus
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                autoComplete="username"
+                style={{ height: 42 }}
+              />
+
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="k-overline">Password</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStage("forgot");
+                    setErr("");
+                  }}
+                  className="k-link text-[11px]"
+                >
+                  Forgot?
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  className="k-input"
+                  type={showPw ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  style={{ height: 42, paddingRight: 42 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((s) => !s)}
+                  aria-label={showPw ? "Hide password" : "Show password"}
+                  className="absolute flex items-center justify-center text-muted"
+                  style={{ right: 6, top: 6, width: 30, height: 30 }}
+                >
+                  {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+
+              {err !== "" && <InlineError message={err} />}
+
+              <button
+                type="submit"
+                disabled={busy}
+                className="k-btn k-btn-primary mt-5 w-full"
+                style={{ height: 44, fontSize: 14 }}
+              >
+                {busy ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
+
+            <div className="mt-8 flex items-center gap-1.5 text-[11px]" style={{ color: "var(--text-subtle)" }}>
+              <Lock size={11} /> SOC 2 Type II · ISO 27001 · GDPR · Data hosted in EU-West
+            </div>
+          </>
+        )}
+
+        {stage === "forgot" && (
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setStage("login");
+                setErr("");
+                setNotice("");
+              }}
+              className="k-btn k-btn-plain k-btn-sm mb-3.5 self-start"
+            >
+              <ArrowLeft size={12} /> Back to sign in
+            </button>
+            <h1 className="mb-1.5 text-[28px] font-bold">Reset your password</h1>
+            <p className="mb-6 text-[13px] text-muted">
+              Enter your work email and we&rsquo;ll send you a link to reset your password.
+            </p>
+
+            {notice !== "" ? (
+              <div
+                className="flex items-center gap-2 rounded-md px-3 py-3 text-[13px]"
+                style={{ background: "var(--success-50)", color: "var(--success-700)" }}
+              >
+                <Check size={15} /> {notice}
+              </div>
+            ) : (
+              <form onSubmit={(e) => void submitForgot(e)}>
+                <label className="k-overline mb-1.5 block">Work email</label>
+                <input
+                  className="k-input"
+                  autoFocus
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  style={{ height: 42 }}
+                />
+                {err !== "" && <InlineError message={err} />}
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="k-btn k-btn-primary mt-5 w-full"
+                  style={{ height: 44, fontSize: 14 }}
+                >
+                  {busy ? "Sending…" : "Send reset link"}
+                </button>
+              </form>
             )}
-
-            <Field label="Workspace" error={errors.workspace?.message} required>
-              {(a) => <Input {...a} {...register("workspace")} placeholder="acme" autoComplete="organization" />}
-            </Field>
-
-            <Field label="Email" error={errors.email?.message} required>
-              {(a) => (
-                <Input {...a} {...register("email")} type="email" placeholder="you@company.com" autoComplete="username" />
-              )}
-            </Field>
-
-            <Field label="Password" error={errors.password?.message} required>
-              {(a) => (
-                <Input {...a} {...register("password")} type="password" autoComplete="current-password" />
-              )}
-            </Field>
-
-            <Button type="submit" variant="primary" loading={isSubmitting} className="mt-1 w-full">
-              Sign in
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <p className="text-center text-[12px] text-muted">
-        Forgot your password?{" "}
-        <a href="/forgot-password" className="k-link">
-          Reset it
-        </a>
-      </p>
-    </div>
+          </>
+        )}
+      </div>
+    </AuthShell>
   );
 }
 
-function Logo(): React.ReactElement {
+function InlineError({ message }: { message: string }): React.ReactElement {
   return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M3 12 L12 3 L21 12 L12 21 Z" fill="currentColor" fillOpacity="0.2" />
-      <path d="M3 12 L12 3 L21 12 L12 21 Z" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" />
-      <path d="M8 12 L12 8 L16 12 L12 16 Z" fill="currentColor" />
-    </svg>
+    <div className="mt-2 flex items-center gap-1.5 text-[12px]" role="alert" style={{ color: "var(--danger-600)" }}>
+      <TriangleAlert size={12} />
+      {message}
+    </div>
   );
 }
