@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import { ClipboardCheck } from "lucide-react";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { InspectionList } from "@/features/inspections/inspection-list";
 
 export const metadata: Metadata = { title: "Inspections" };
 
-export default function Page(): React.ReactElement {
-  return <ModulePlaceholder title="Inspections" icon={ClipboardCheck} />;
+export default function InspectionsPage(): React.ReactElement {
+  return <InspectionList />;
 }
