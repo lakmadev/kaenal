@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withTenant } from "@kaenal/db";
 import type { InspectionsService } from "../../inspections/inspections.service.js";
 import type { MaterializeScheduleJob } from "../job-types.js";
@@ -11,10 +12,13 @@ import type { MaterializeScheduleJob } from "../job-types.js";
  */
 export async function materializeScheduleForTenant(
   payload: MaterializeScheduleJob,
-  deps: { inspections: InspectionsService; now?: Date },
+  deps: { inspections: InspectionsService; now?: Date; pool?: pg.Pool | undefined },
 ): Promise<{ created: number }> {
   const now = deps.now ?? new Date();
-  return withTenant(payload.tenantId, null, (tx) =>
-    deps.inspections.materializeDueOccurrences(tx, payload.tenantId, now),
+  return withTenant(
+    payload.tenantId,
+    null,
+    (tx) => deps.inspections.materializeDueOccurrences(tx, payload.tenantId, now),
+    deps.pool,
   );
 }

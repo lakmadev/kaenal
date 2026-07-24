@@ -5,7 +5,7 @@ import {
   type AiDraftDto,
   type AiSummaryDto,
 } from "@kaenal/types";
-import { currentContext, currentTx } from "../context.js";
+import { currentContext, currentPool, currentTx } from "../context.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
 import { AI_SERVICE } from "../tokens.js";
@@ -25,7 +25,7 @@ export class AiController {
   @HttpCode(200)
   async draft(@Body() body: unknown): Promise<AiDraftDto> {
     const input = parse(AiDraftRequest, body);
-    return this.ai.draft(currentContext().tenantId, actorIdOf(), input);
+    return this.ai.draft(currentContext().tenantId, actorIdOf(), input, currentPool());
   }
 
   @Post("v1/ai/summaries/accept")

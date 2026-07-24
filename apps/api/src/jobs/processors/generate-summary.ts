@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withTenant, withAudit } from "@kaenal/db";
 import type { AiGatewayService } from "../../ai/gateway.service.js";
 import type { GenerateSummaryJob } from "../job-types.js";
@@ -17,7 +18,7 @@ import type { GenerateSummaryJob } from "../job-types.js";
  */
 export async function generateDocumentSummary(
   payload: GenerateSummaryJob,
-  deps: { gateway: AiGatewayService },
+  deps: { gateway: AiGatewayService; pool?: pg.Pool | undefined },
 ): Promise<{ status: "succeeded" | "blocked" | "failed" | "skipped"; invocationId?: string }> {
   const doc = await withTenant(payload.tenantId, payload.userId, async (tx) => {
     const { rows } = await tx.query<{ title: string; category: string; ai_summary: string | null }>(
@@ -26,7 +27,7 @@ export async function generateDocumentSummary(
       [payload.documentId],
     );
     return rows[0] ?? null;
-  });
+  }, deps.pool);
   // Missing / foreign-tenant / deleted → nothing to summarise (rule 8: invisible).
   if (doc === null) return { status: "skipped" };
 
@@ -36,6 +37,7 @@ export async function generateDocumentSummary(
     feature: "doc_summary",
     input: `${doc.title}\n(category: ${doc.category})`,
     entityRefs: [{ kind: "document", id: payload.documentId }],
+    pool: deps.pool,
   });
 
   if (result.status !== "succeeded") {
@@ -63,6 +65,7 @@ export async function generateDocumentSummary(
       },
       (t) => t.query("UPDATE documents SET ai_summary = $2, updated_at = now() WHERE id = $1", [payload.documentId, summary]),
     ),
+    deps.pool,
   );
 
   return { status: "succeeded", invocationId: result.invocationId };

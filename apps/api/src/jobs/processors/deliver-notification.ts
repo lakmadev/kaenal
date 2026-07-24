@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withTenant } from "@kaenal/db";
 import type { DeliverNotificationJob } from "../job-types.js";
 import type { DeliveryChannel, DeliveryChannels } from "../ports.js";
@@ -15,7 +16,7 @@ const CHANNELS: readonly DeliveryChannel[] = ["email", "push", "sms"];
  */
 export async function deliverNotification(
   payload: DeliverNotificationJob,
-  deps: { delivery: DeliveryChannels },
+  deps: { delivery: DeliveryChannels; pool?: pg.Pool | undefined },
 ): Promise<{ channels: DeliveryChannel[] }> {
   return withTenant(payload.tenantId, null, async (tx) => {
     const { rows } = await tx.query<{
@@ -55,5 +56,5 @@ export async function deliverNotification(
       ]);
     }
     return { channels: sent };
-  });
+  }, deps.pool);
 }

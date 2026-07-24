@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withTenant, withAudit, type Tx } from "@kaenal/db";
 import {
   purgeCutoff,
@@ -86,7 +87,7 @@ const DEPENDENT_CASCADES: Record<
 
 export async function purgeSoftDeletedForTenant(
   payload: PurgeSoftDeletedJob,
-  deps: { storage: Storage; now?: Date; retentionDays?: number },
+  deps: { storage: Storage; now?: Date; retentionDays?: number; pool?: pg.Pool | undefined },
 ): Promise<{ purged: number }> {
   const now = deps.now ?? new Date();
   const cutoff = purgeCutoff(now, deps.retentionDays);
@@ -126,7 +127,7 @@ export async function purgeSoftDeletedForTenant(
     }
 
     return { purged, purgedObjectKeys };
-  });
+  }, deps.pool);
 
   // Objects are deleted only after the DB commit — a rolled-back purge must
   // never leave a live row pointing at deleted bytes. A failed object delete is

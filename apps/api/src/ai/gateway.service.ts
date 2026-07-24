@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withTenant, type Tx } from "@kaenal/db";
 import {
   gateInvocation,
@@ -47,6 +48,12 @@ export interface AiRunParams {
   readonly maxTokens?: number;
   /** Extra literals to mask pre-flight (e.g. names of non-team members). */
   readonly extraRedactionTerms?: readonly string[];
+  /**
+   * The tenant's database pool (Model B). Undefined = shared default pool. The
+   * gateway opens its own short transactions (outside any request tx), so it
+   * must route them to the same database a dedicated tenant's data lives in.
+   */
+  readonly pool?: pg.Pool | undefined;
 }
 
 export type AiRunResult =
@@ -110,7 +117,7 @@ export class AiGatewayService {
         return { kind: "blocked" as const, reason: decision.reason, invocationId };
       }
       return { kind: "ok" as const, settings };
-    });
+    }, params.pool);
 
     if (gated.kind === "blocked") {
       return { status: "blocked", reason: gated.reason, invocationId: gated.invocationId };
@@ -136,13 +143,17 @@ export class AiGatewayService {
       // surface a soft failure the caller can retry or degrade around.
       const latencyMs = Date.now() - startedAt;
       const error = err instanceof Error ? err.message : "provider error";
-      const invocationId = await withTenant(params.tenantId, params.userId, (tx) =>
-        this.record(tx, params, route.model, {
-          status: "failed",
-          latencyMs,
-          error,
-          redactions: redactionCount(redaction.map),
-        }),
+      const invocationId = await withTenant(
+        params.tenantId,
+        params.userId,
+        (tx) =>
+          this.record(tx, params, route.model, {
+            status: "failed",
+            latencyMs,
+            error,
+            redactions: redactionCount(redaction.map),
+          }),
+        params.pool,
       );
       return { status: "failed", error, invocationId };
     }
@@ -161,7 +172,7 @@ export class AiGatewayService {
       });
       await this.chargeBudget(tx, params.tenantId, completion.inputTokens + completion.outputTokens);
       return id;
-    });
+    }, params.pool);
 
     const draft: AiDraft = {
       value,

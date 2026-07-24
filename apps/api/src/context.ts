@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type pg from "pg";
 import type { Tx } from "@kaenal/db";
 import type { Membership } from "@kaenal/core";
 
@@ -20,6 +21,12 @@ export interface RequestContext {
   readonly userId: string | null;
   readonly membership: Membership | null;
   readonly tx: Tx;
+  /**
+   * The tenant's database pool (Model B) — undefined for shared tenants. Present
+   * so out-of-request-tx work (the AI gateway opens its own short transactions)
+   * can route to the same database this request's tx runs on.
+   */
+  readonly pool: pg.Pool | undefined;
   readonly ip: string | null;
   readonly userAgent: string | null;
 }
@@ -44,6 +51,11 @@ export function currentContext(): RequestContext {
 
 export function currentTx(): Tx {
   return currentContext().tx;
+}
+
+/** The tenant's pool (Model B), or undefined for a shared tenant (default pool). */
+export function currentPool(): pg.Pool | undefined {
+  return currentContext().pool;
 }
 
 /**

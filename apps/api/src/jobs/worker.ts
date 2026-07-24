@@ -30,6 +30,9 @@ import {
   type DeliverNotificationJob,
 } from "./job-types.js";
 import { StubDelivery, StubScanner } from "./ports.js";
+import { EnvSecretResolver } from "../tenant/secret-resolver.js";
+import { TenantPoolManager } from "../tenant/pool-manager.js";
+import { RegistryDbRouter } from "../tenant/db-router.js";
 import { recomputeSlaStatesForTenant } from "./processors/sla.js";
 import { scanFile } from "./processors/scan-file.js";
 import { cleanupOrphanedUploadsForTenant } from "./processors/cleanup-orphaned-uploads.js";
@@ -55,6 +58,13 @@ async function main(): Promise<void> {
   // BullMQ needs maxRetriesPerRequest: null; one shared connection for all workers.
   const connection = new IORedis(env.REDIS_URL, { maxRetriesPerRequest: null });
   const control = new pg.Pool({ connectionString: env.DATABASE_URL, max: 4 });
+
+  // Model B routing (01 §3.1): every per-tenant processor opens its transaction
+  // on the pool this router returns for the job's tenantId — the shared appPool
+  // for Model A (undefined → withTenant's default), a dedicated pool for Model B.
+  const tenantPools = new TenantPoolManager(new EnvSecretResolver(), env.TENANT_MAX_DEDICATED_POOLS);
+  const router = new RegistryDbRouter(control, tenantPools);
+  const poolFor = (tenantId: string): Promise<pg.Pool | undefined> => router.poolFor(tenantId);
 
   const notifications = new NotificationsService();
   const inspections = new InspectionsService();
@@ -94,7 +104,11 @@ async function main(): Promise<void> {
         return;
       }
       if (job.name === JOBS.recomputeSla) {
-        await recomputeSlaStatesForTenant((job.data as RecomputeSlaJob).tenantId, new Date(), { notifications });
+        const tenantId = (job.data as RecomputeSlaJob).tenantId;
+        await recomputeSlaStatesForTenant(tenantId, new Date(), {
+          notifications,
+          pool: await poolFor(tenantId),
+        });
       }
     },
     { connection, concurrency: 4 },
@@ -106,7 +120,8 @@ async function main(): Promise<void> {
     QUEUES.files,
     async (job: Job) => {
       if (job.name === JOBS.scanFile) {
-        await scanFile(job.data as ScanFileJob, { scanner, notifications });
+        const data = job.data as ScanFileJob;
+        await scanFile(data, { scanner, notifications, pool: await poolFor(data.tenantId) });
         return;
       }
       if (job.name === JOBS.filesSweep) {
@@ -123,7 +138,8 @@ async function main(): Promise<void> {
         return;
       }
       if (job.name === JOBS.cleanupOrphanedUploads) {
-        await cleanupOrphanedUploadsForTenant(job.data as CleanupOrphanedUploadsJob, { storage });
+        const data = job.data as CleanupOrphanedUploadsJob;
+        await cleanupOrphanedUploadsForTenant(data, { storage, pool: await poolFor(data.tenantId) });
       }
     },
     { connection, concurrency: 5 },
@@ -131,13 +147,24 @@ async function main(): Promise<void> {
 
   const notifyWorker = new Worker(
     QUEUES.notify,
-    (job: Job) => deliverNotification(job.data as DeliverNotificationJob, { delivery }),
+    async (job: Job) => {
+      const data = job.data as DeliverNotificationJob;
+      await deliverNotification(data, { delivery, pool: await poolFor(data.tenantId) });
+    },
     { connection, concurrency: 10 },
   );
 
   const reportsWorker = new Worker(
     QUEUES.reports,
-    (job: Job) => runExport(job.data as RunExportJob, { storage, bucket: env.S3_BUCKET, notifications }),
+    async (job: Job) => {
+      const data = job.data as RunExportJob;
+      await runExport(data, {
+        storage,
+        bucket: env.S3_BUCKET,
+        notifications,
+        pool: await poolFor(data.tenantId),
+      });
+    },
     { connection, concurrency: 3 },
   );
 
@@ -160,7 +187,8 @@ async function main(): Promise<void> {
         return;
       }
       if (job.name === JOBS.materializeSchedule) {
-        await materializeScheduleForTenant(job.data as MaterializeScheduleJob, { inspections });
+        const data = job.data as MaterializeScheduleJob;
+        await materializeScheduleForTenant(data, { inspections, pool: await poolFor(data.tenantId) });
       }
     },
     { connection, concurrency: 4 },
@@ -184,7 +212,8 @@ async function main(): Promise<void> {
         return;
       }
       if (job.name === JOBS.documentExpiryCheck) {
-        await documentExpiryCheckForTenant(job.data as DocumentExpiryJob, { notifications });
+        const data = job.data as DocumentExpiryJob;
+        await documentExpiryCheckForTenant(data, { notifications, pool: await poolFor(data.tenantId) });
       }
     },
     { connection, concurrency: 4 },
@@ -218,7 +247,8 @@ async function main(): Promise<void> {
         return;
       }
       if (job.name === JOBS.purgeSoftDeleted) {
-        await purgeSoftDeletedForTenant(job.data as PurgeSoftDeletedJob, { storage });
+        const data = job.data as PurgeSoftDeletedJob;
+        await purgeSoftDeletedForTenant(data, { storage, pool: await poolFor(data.tenantId) });
       }
       if (job.name === JOBS.auditPartitionRoll) {
         await rollAuditPartitions();
@@ -236,7 +266,10 @@ async function main(): Promise<void> {
     QUEUES.ai,
     (job: Job) => {
       if (job.name === JOBS.generateSummary) {
-        return generateDocumentSummary(job.data as GenerateSummaryJob, { gateway: aiGateway });
+        const data = job.data as GenerateSummaryJob;
+        return poolFor(data.tenantId).then((pool) =>
+          generateDocumentSummary(data, { gateway: aiGateway, pool }),
+        );
       }
       return Promise.resolve();
     },
@@ -268,6 +301,7 @@ async function main(): Promise<void> {
     await docsQueue.close();
     await housekeepingQueue.close();
     await connection.quit();
+    await tenantPools.closeAll();
     await control.end();
     process.exit(0);
   };

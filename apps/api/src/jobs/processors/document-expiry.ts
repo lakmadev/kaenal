@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withTenant } from "@kaenal/db";
 import { activeExpiryThreshold } from "@kaenal/core";
 import type { NotificationsService } from "../../notifications/notifications.service.js";
@@ -14,7 +15,7 @@ import type { DocumentExpiryJob } from "../job-types.js";
  */
 export async function documentExpiryCheckForTenant(
   payload: DocumentExpiryJob,
-  deps: { notifications: NotificationsService; now?: Date },
+  deps: { notifications: NotificationsService; now?: Date; pool?: pg.Pool | undefined },
 ): Promise<{ notified: number }> {
   const now = deps.now ?? new Date();
   const horizon = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
@@ -52,5 +53,5 @@ export async function documentExpiryCheckForTenant(
       if (created !== null) notified += 1;
     }
     return { notified };
-  });
+  }, deps.pool);
 }

@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withAudit, withTenant } from "@kaenal/db";
 import type { ScanStatus } from "@kaenal/types";
 import type { NotificationsService } from "../../notifications/notifications.service.js";
@@ -13,7 +14,7 @@ import type { Scanner } from "../ports.js";
  */
 export async function scanFile(
   payload: ScanFileJob,
-  deps: { scanner: Scanner; notifications: NotificationsService },
+  deps: { scanner: Scanner; notifications: NotificationsService; pool?: pg.Pool | undefined },
 ): Promise<{ status: ScanStatus }> {
   return withTenant(payload.tenantId, null, async (tx) => {
     const { rows } = await tx.query<{
@@ -59,5 +60,5 @@ export async function scanFile(
     }
 
     return { status: verdict };
-  });
+  }, deps.pool);
 }

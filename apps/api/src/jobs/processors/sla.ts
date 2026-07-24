@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withAudit, withTenant } from "@kaenal/db";
 import { computeSlaState, ncrMachine, type BusinessHours } from "@kaenal/core";
 import type { NcrPriority, NcrStatus, SlaState } from "@kaenal/types";
@@ -36,7 +37,7 @@ export interface SlaSweepResult {
 export async function recomputeSlaStatesForTenant(
   tenantId: string,
   now: Date,
-  deps: { notifications: NotificationsService },
+  deps: { notifications: NotificationsService; pool?: pg.Pool | undefined },
 ): Promise<SlaSweepResult> {
   return withTenant(tenantId, null, async (tx) => {
     const businessHours = await loadBusinessHours(tx);
@@ -110,7 +111,7 @@ export async function recomputeSlaStatesForTenant(
     }
 
     return { recomputed, escalated };
-  });
+  }, deps.pool);
 }
 
 /** Escalation has no state-machine guard, so the ctx is a formality. */

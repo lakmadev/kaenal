@@ -16,7 +16,7 @@ module, async Reports/exports, scheduling/recurrence, document-expiry reminders,
 housekeeping purge, the governed AI gateway (doc-summary feature), audit-events partitioning +
 the nightly partition-roll/tamper-check AND tenant offboarding (export bundle + gated purge) are
 done and proven, and CI runs them on
-every push/PR. 956 tests pass (259 db integration, 484 core unit, 177 api integration, 25 types unit,
+every push/PR. 963 tests pass (259 db integration, 484 core unit, 184 api integration, 25 types unit,
 11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
@@ -368,7 +368,7 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0017)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 956 tests
+pnpm test                     # full suite (serial: shares one DB) — 963 tests
 ```
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
@@ -568,12 +568,12 @@ to build the frontend.)
       governance (entitlement/data-control/budget/region gate, PII redaction, invocation ledger) +
       `doc_summary` DONE (2026-07-23); copilots (root-cause/8D drafting), draft-acceptance flow,
       compliance-QA retrieval, and a real model provider pending
-- [~] Model B (dedicated Postgres per tenant, 01 §3.1) — routing + provisioning + fan-out DONE
-      (2026-07-24): secret resolver (`env:`/`localdb:`) + LRU `TenantPoolManager` + interceptor routes
-      `dedicated` tenants to their own pool (RLS still applies), fail-loud on unresolvable secret;
-      `provision-tenant --model dedicated` creates+migrates+seeds the DB and registers it; `db:migrate:tenants`
-      fans migrations out per-tenant under a lock. Job-path routing and drop-DB offboarding pending —
-      see Known issues
+- [~] Model B (dedicated Postgres per tenant, 01 §3.1) — request + job routing, provisioning, fan-out
+      DONE (2026-07-24): secret resolver (`env:`/`localdb:`) + LRU `TenantPoolManager`; the interceptor
+      routes requests and a `RegistryDbRouter` routes the worker's per-tenant jobs + the AI gateway to
+      each tenant's pool (RLS still applies), fail-loud on unresolvable secret; `provision-tenant
+      --model dedicated` creates+migrates+seeds the DB, `db:migrate:tenants` fans migrations out per-tenant
+      under a lock. Drop-DB offboarding + rolling dedicated DBs' audit partitions pending — see Known issues
 - [ ] Supplier portal
 - [ ] Public API + webhooks (HMAC signing, retry ladder)
 - [ ] SSO/SCIM via WorkOS
@@ -582,6 +582,22 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-24 — Model B job-path routing: one router at the worker + gateway, `pool?` threaded as a dep.**
+  The request path resolves the tenant by slug and hands the pool to `withTenant`; jobs and the AI gateway
+  only have a tenant id, so they route through a new `RegistryDbRouter` (tenantId → model/secret, briefly
+  cached; delegates the pool to `TenantPoolManager`). Rather than teach every processor about the registry,
+  the WORKER resolves the pool once per job and passes it as an optional `deps.pool`, which each processor
+  forwards to `withTenant` — a uniform, mechanical change, and the processors stay ignorant of routing.
+  The AI gateway opens its own short txs (outside any request tx), so it takes an optional `pool` on
+  `AiRunParams`, threaded from the worker (generate-summary) and — on the request path — from the request
+  context via a new `currentPool()` (the interceptor now stashes the resolved pool in context). Under
+  `exactOptionalPropertyTypes`, an explicitly-passed `undefined` needs `pool?: pg.Pool | undefined` on the
+  dep objects (a bare `pool?: pg.Pool` rejects it). `offboardTenants` now **skips** dedicated tenants:
+  their teardown is a database drop, not the shared-DB row-purge, so running the purge with a dedicated id
+  would be wrong — better to skip until drop-DB lands. Left for follow-up: the global `auditPartitionRoll`
+  still rolls only the primary's partitions; dedicated DBs need the same roll fanned out. *Affects: 06 §1,
+  §3, 01 §3.1.*
 
 - **2026-07-24 — Model B provisioning/fan-out: slug is the single source of truth, `localdb:` keeps it
   self-consistent.** A dedicated tenant's whole world is derived from its slug: database name
@@ -1200,16 +1216,20 @@ to build the frontend.)
   flipped `active` (so `resolveBySlug` never routes to a half-ready DB). (3) **migration fan-out** —
   `pnpm db:migrate:tenants` (`scripts/lib/fan-out.ts`) applies pending migrations to every dedicated DB
   under a per-DB advisory lock; a failed tenant halts its own rollout only and the CLI exits non-zero.
-  Proven by `apps/api/test/{tenant-pools,dedicated-routing}.test.ts` and
-  `packages/db/test/dedicated-provision.test.ts` (provision → migrate → seed; fan-out skips up-to-date,
-  catches up an empty DB, isolates a no-DB failure). **Remaining:** (a) **job-path routing** — worker
-  processors call `withTenant(payload.tenantId,…)` on the shared `appPool`, so a dedicated tenant's
-  background jobs would hit the WRONG database; the worker needs the same registry + TenantPoolManager
-  wiring the interceptor has (**correctness gap until dedicated tenants run jobs in a deployment**);
-  (b) **offboarding drop-DB** — the terminal step for a dedicated tenant is dropping its database, not
-  the row-purge. A cloud `awssm:`/`gcpsm:` `SecretResolver` also drops in behind the interface. Provisioning
-  assumes dedicated DBs share the primary cluster (the `localdb:`/derive-URL convention); a separate-host
-  deployment would store `env:` refs + per-tenant migrator URLs. *01 §3.1, §3.3, §3.4, §3.5.*
+  (4) **job-path routing** — the worker resolves each per-tenant job's pool through a `RegistryDbRouter`
+  (tenantId → model/secret, briefly cached) and every per-tenant processor forwards it to `withTenant`;
+  the AI gateway takes an optional `pool` too (its self-managed txs), threaded from the worker and, on the
+  request path, from the request context (`currentPool()`). `offboardTenants` now skips dedicated tenants
+  (their teardown is drop-DB, below) so the shared-DB row-purge never runs with a dedicated id. Proven by
+  `apps/api/test/{tenant-pools,dedicated-routing,job-routing}.test.ts` and
+  `packages/db/test/dedicated-provision.test.ts`. **Remaining:** (a) **offboarding drop-DB** — the
+  terminal step for a dedicated tenant is dropping its database, not the row-purge (offboarding currently
+  skips them); (b) **global-job fan-out** — the nightly `auditPartitionRoll` runs `withoutTenant` on the
+  PRIMARY only, but each dedicated DB has its OWN `audit_events` partitions that also need rolling, so the
+  roll must fan out to dedicated DBs the way `db:migrate:tenants` does. A cloud `awssm:`/`gcpsm:`
+  `SecretResolver` also drops in behind the interface. Provisioning assumes dedicated DBs share the
+  primary cluster (the `localdb:`/derive-URL convention); a separate-host deployment would store `env:`
+  refs + per-tenant migrator URLs. *01 §3.1, §3.3, §3.4, §3.5.*
 - **Audit partition provisioning must stay ahead of the calendar.** The nightly roll provisions the
   current + next month; a default partition catches anything else so writes never fail. But if the job
   lapses for more than a month, rows for the un-provisioned month land in the default partition, and

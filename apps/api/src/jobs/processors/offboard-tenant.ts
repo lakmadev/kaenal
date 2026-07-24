@@ -39,6 +39,7 @@ export interface OffboardResult {
 interface Candidate {
   id: string;
   slug: string;
+  model: string;
   offboarding_at: Date | null;
   offboarding_export_key: string | null;
 }
@@ -54,7 +55,7 @@ export async function offboardTenants(deps: {
 
   const candidates = await withoutTenant(async (tx) => {
     const { rows } = await tx.query<Candidate>(
-      `SELECT id, slug, offboarding_at, offboarding_export_key
+      `SELECT id, slug, model, offboarding_at, offboarding_export_key
          FROM control.tenants WHERE status = 'offboarding'`,
     );
     return rows;
@@ -63,6 +64,14 @@ export async function offboardTenants(deps: {
   for (const c of candidates) {
     if (!isOffboardPurgeEligible({ status: "offboarding", offboardingAt: c.offboarding_at }, now)) {
       continue; // grace not yet elapsed
+    }
+
+    // Dedicated (Model B) teardown is a database drop, not a row-purge — and it
+    // is not built yet. Skip these so this shared-DB row-purge never runs with a
+    // dedicated tenant's id (which would touch the wrong database / nothing).
+    if (c.model === "dedicated") {
+      blocked.push(c.slug);
+      continue;
     }
 
     // 1. An active legal hold blocks the whole purge (07 §5).

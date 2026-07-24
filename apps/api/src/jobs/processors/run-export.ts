@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { zipSync } from "fflate";
 import { withTenant } from "@kaenal/db";
 import {
@@ -103,6 +104,7 @@ export async function runExport(
     notifications: NotificationsService;
     /** Rows per file before splitting into a zip. Overridable in tests. */
     rowCap?: number;
+    pool?: pg.Pool | undefined;
   },
 ): Promise<{ status: "completed" | "failed" | "skipped"; rowCount?: number; objectKey?: string }> {
   const cap = deps.rowCap ?? EXPORT_ROW_CAP;
@@ -187,7 +189,7 @@ export async function runExport(
       ]);
       return { status: "failed" };
     }
-  });
+  }, deps.pool);
 }
 
 async function loadMembership(

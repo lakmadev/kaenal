@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withTenant, withAudit } from "@kaenal/db";
 import type { Storage } from "../../files/storage.js";
 import type { CleanupOrphanedUploadsJob } from "../job-types.js";
@@ -27,7 +28,7 @@ const ORPHAN_GRACE_HOURS = 24;
 
 export async function cleanupOrphanedUploadsForTenant(
   payload: CleanupOrphanedUploadsJob,
-  deps: { storage: Storage; now?: Date; graceHours?: number },
+  deps: { storage: Storage; now?: Date; graceHours?: number; pool?: pg.Pool | undefined },
 ): Promise<{ cleaned: number }> {
   const now = deps.now ?? new Date();
   const graceHours = deps.graceHours ?? ORPHAN_GRACE_HOURS;
@@ -58,7 +59,7 @@ export async function cleanupOrphanedUploadsForTenant(
       deletedKeys.push(row.key);
     }
     return deletedKeys;
-  });
+  }, deps.pool);
 
   // Delete the abandoned objects after commit (idempotent; a missing key is a
   // no-op). A failure just leaves an orphan object for the next run.

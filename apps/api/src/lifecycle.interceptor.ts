@@ -156,6 +156,7 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
           userId: session?.userId ?? null,
           membership: session?.membership ?? null,
           tx,
+          pool,
           ip: req.ip ?? null,
           userAgent: req.header("user-agent") ?? null,
         },

@@ -1,3 +1,4 @@
+import type pg from "pg";
 import { withAudit, type Tx } from "@kaenal/db";
 import type {
   AcceptAiSummaryBody,
@@ -28,7 +29,12 @@ import type { AiGatewayService } from "./gateway.service.js";
 export class AiService {
   constructor(private readonly gateway: AiGatewayService) {}
 
-  async draft(tenantId: string, userId: string, body: AiDraftRequest): Promise<AiDraftDto> {
+  async draft(
+    tenantId: string,
+    userId: string,
+    body: AiDraftRequest,
+    pool?: pg.Pool,
+  ): Promise<AiDraftDto> {
     const result = await this.gateway.run({
       tenantId,
       userId,
@@ -36,6 +42,8 @@ export class AiService {
       input: body.input,
       ...(body.entityRefs !== undefined ? { entityRefs: body.entityRefs } : {}),
       ...(body.maxTokens !== undefined ? { maxTokens: body.maxTokens } : {}),
+      // Route the gateway's own transactions to this tenant's DB (Model B).
+      ...(pool !== undefined ? { pool } : {}),
     });
 
     if (result.status === "succeeded") {
