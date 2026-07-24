@@ -521,7 +521,13 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       matching shell.jsx with accent left-border on the active item) + topbar (breadcrumbs, theme toggle,
       profile/sign-out) DONE; command palette (⌘K) pending (04 §3). Sub-navs are only listed when their
       target route exists (a dead nav link is worse than none): Inspections → All/Templates/Schedule, NCRs →
-      All/My Assignments (`?view=mine`)/Overdue (`?view=overdue`).
+      All/My Assignments (`?view=mine`)/Overdue (`?view=overdue`). Inspections → **Schedule is a real
+      calendar** (`schedule-view.tsx`, matching schedule.jsx): month grid (default, today highlighted,
+      color-coded event pills), week grid (7 day-columns, timed events), and list/agenda — with
+      prev/today/next navigation and a status legend (scheduled=blue / completed=green / overdue=red).
+      Inspections-only (audits module renders here in the prototype but shares no data source yet); the
+      fabricated iCal-sync feed is omitted. Templates page previews the form schema read-only. Deferred:
+      drag-drop template editor (create/edit → publish immutable version).
 - [x] Design tokens ported → `apps/web/src/styles/{tokens.css,globals.css}`; Tailwind v4 `@theme inline`
       bridges them so utilities + `.k-*` classes are theme-aware; light/dark via `data-theme` (04 §2)
 - [x] Unified design-system primitives in `src/components/ui` (Button, Card, Chip, Status/Priority/Risk
