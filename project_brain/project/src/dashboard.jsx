@@ -27,25 +27,26 @@ const LineChart = ({ data, series, height = 220 }) => {
   const max = Math.ceil(Math.max(...allVals) / 5) * 5;
   const x = (i) => padL + (i / (data.length - 1)) * (width - padL - padR);
   const y = (v) => padT + (1 - (v) / (max)) * (height - padT - padB);
-  const yTicks = [0, max * 0.25, max * 0.5, max * 0.75, max];
+  const yTicks = [0, max * 0.5, max];
   return (
     <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', display: 'block' }}>
       {yTicks.map((t, i) => (
         <g key={i}>
-          <line x1={padL} x2={width - padR} y1={y(t)} y2={y(t)} stroke="var(--border)" strokeDasharray="2 3"/>
-          <text x={padL - 8} y={y(t) + 4} fontSize="10" fill="var(--text-muted)" textAnchor="end">{Math.round(t)}</text>
+          <line x1={padL} x2={width - padR} y1={y(t)} y2={y(t)} stroke="var(--border)"/>
+          <text x={padL - 8} y={y(t) + 4} fontSize="10" fill="var(--text-subtle)" textAnchor="end">{Math.round(t)}</text>
         </g>
       ))}
       {data.map((d, i) => (
-        <text key={i} x={x(i)} y={height - 8} fontSize="10" fill="var(--text-muted)" textAnchor="middle">{d.month}</text>
+        <text key={i} x={x(i)} y={height - 8} fontSize="10" fill="var(--text-subtle)" textAnchor="middle">{d.month}</text>
       ))}
       {series.map(s => {
         const pts = data.map((d, i) => [x(i), y(d[s.key])]);
         const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ');
+        const last = pts[pts.length - 1];
         return (
           <g key={s.key}>
-            <path d={path} fill="none" stroke={s.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r="3" fill="var(--surface)" stroke={s.color} strokeWidth="1.75"/>)}
+            <path d={path} fill="none" stroke={s.color} strokeWidth={s.emphasis ? 2 : 1.5} strokeLinecap="round" strokeLinejoin="round"/>
+            <circle cx={last[0]} cy={last[1]} r="2.5" fill={s.color}/>
           </g>
         );
       })}
@@ -77,7 +78,7 @@ const DonutChart = ({ data, size = 180 }) => {
   );
 };
 
-const BarChart = ({ data, color = '#2563eb' }) => {
+const BarChart = ({ data, color = 'var(--accent)' }) => {
   const max = Math.max(...data.map(d => d.value));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -276,58 +277,57 @@ const PRESETS = {
 
 // ——— Individual widget components ———
 const KPIWidget = ({ icon, label, value, trend, trendDir, spark, accent }) => (
-  <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <div style={{
-        width: 32, height: 32, borderRadius: 'var(--r-md)',
-        background: accent + '18', color: accent,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <Icon name={icon} size={16} stroke={1.75}/>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
-        color: trendDir === 'up' ? 'var(--danger-600)' : trendDir === 'down' ? 'var(--success-600)' : 'var(--text-muted)' }}>
-        <Icon name={trendDir === 'up' ? 'arrowUp' : 'arrowDown'} size={11} stroke={2.5}/>
-        <span>{trend}</span>
-      </div>
+  <div style={{ padding: '18px 16px 16px', display: 'flex', flexDirection: 'column', gap: 10, height: '100%', justifyContent: 'space-between' }}>
+    <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: 'var(--text)' }}>{value}</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text)' }}>{trendDir === 'up' ? '↑' : '↓'} {trend}</span>
+      <span style={{ color: 'var(--text-subtle)' }}>vs prior 30d</span>
     </div>
-    <div>
-      <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, fontWeight: 500 }}>{label}</div>
-    </div>
-    <Sparkline data={spark} color={accent} width={240} height={32}/>
   </div>
 );
 
 const NCRTrendWidget = () => (
   <div style={{ padding: 16 }}>
-    <div style={{ display: 'flex', gap: 14, fontSize: 11, fontWeight: 500, marginBottom: 6 }}>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 3, background: '#3b82f6', borderRadius: 2 }}/>Created</span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 3, background: '#22c55e', borderRadius: 2 }}/>Resolved</span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 10, height: 3, background: '#f59e0b', borderRadius: 2 }}/>Open</span>
+    <div style={{ display: 'flex', gap: 16, fontSize: 11, fontWeight: 500, marginBottom: 6, color: 'var(--text-muted)' }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 2, background: 'var(--text)', borderRadius: 2 }}/>Created</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 2, background: 'var(--text-subtle)', borderRadius: 2 }}/>Resolved</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 12, height: 2, background: '#d97706', borderRadius: 2 }}/>Open</span>
     </div>
     <LineChart data={NCR_TREND} series={[
-      { key: 'created', color: '#3b82f6' },
-      { key: 'resolved', color: '#22c55e' },
-      { key: 'open', color: '#f59e0b' },
+      { key: 'created', color: 'var(--text)' },
+      { key: 'resolved', color: 'var(--text-subtle)' },
+      { key: 'open', color: '#d97706', emphasis: true },
     ]} height={200}/>
   </div>
 );
 
-const RiskDistWidget = () => (
-  <div style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
-    <DonutChart data={RISK_DIST} size={140}/>
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-      {RISK_DIST.map(r => (
-        <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-          <span style={{ width: 10, height: 10, borderRadius: 2, background: r.color }}/>
-          <span style={{ flex: 1 }}>{r.label}</span>
-          <span className="mono" style={{ fontWeight: 600 }}>{r.value}</span>
-        </div>
-      ))}
+const SEVERITY_INK = { Critical: '#b91c1c', High: '#c2410c', Medium: '#b45309', Low: '#3f6212' };
+const RiskDistWidget = () => {
+  const total = RISK_DIST.reduce((s, r) => s + r.value, 0);
+  return (
+    <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>{total}</span>
+        <span className="k-overline">Open NCRs by severity</span>
+      </div>
+      <div style={{ display: 'flex', height: 8, borderRadius: 'var(--r-sm)', overflow: 'hidden', gap: 1.5 }}>
+        {RISK_DIST.map(r => (
+          <div key={r.label} title={`${r.label}: ${r.value}`} style={{ flex: r.value, background: SEVERITY_INK[r.label] || r.color }}/>
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+        {RISK_DIST.map(r => (
+          <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: SEVERITY_INK[r.label] || r.color, flexShrink: 0 }}/>
+            <span style={{ flex: 1, color: 'var(--text-muted)' }}>{r.label}</span>
+            <span className="mono" style={{ fontWeight: 600, color: 'var(--text)' }}>{r.value}</span>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--text-subtle)', width: 34, textAlign: 'right' }}>{Math.round((r.value / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const ActivityWidget = ({ ctx }) => (
   <div style={{ padding: '4px 0', maxHeight: 320, overflowY: 'auto' }}>
@@ -694,7 +694,7 @@ const Dashboard = ({ setRoute, setNcr, set8d, setInspection, openCreate }) => {
   const sizeToCols = { small: 3, half: 6, wide: 8, full: 12 };
 
   return (
-    <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }} className="fade-in">
+    <div className="fade-in">
       <PageHeader
         title="Dashboard"
         description={editing ? 'Edit mode — drag widgets to rearrange, click + to add' : `${PRESETS[preset]?.label || 'Custom'} layout · ${layout.length} widgets`}
@@ -722,6 +722,7 @@ const Dashboard = ({ setRoute, setNcr, set8d, setInspection, openCreate }) => {
         }
       />
 
+      <div style={{ padding: '20px 28px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       {editing && (
         <div style={{
           padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12,
@@ -786,6 +787,7 @@ const Dashboard = ({ setRoute, setNcr, set8d, setInspection, openCreate }) => {
             <span>Add widget</span>
           </button>
         )}
+      </div>
       </div>
 
       {showCatalog && <WidgetCatalog onAdd={addWidget} onClose={() => setShowCatalog(false)} currentLayout={layout}/>}

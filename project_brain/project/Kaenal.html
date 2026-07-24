@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Dancing+Script:wght@500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Dancing+Script:wght@500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/tokens.css">
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
@@ -498,7 +498,7 @@ function App() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
       {isMobile && drawerOpen &&
         <div onClick={() => setDrawerOpen(false)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.55)', zIndex: 65, backdropFilter: 'blur(1px)' }} />
@@ -523,7 +523,7 @@ function App() {
           onSignOut={signOut}
           setRoute={setRoute}
         />
-        <main style={{ flex: 1, minHeight: 0 }}>
+        <main style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {renderPage()}
         </main>
       </div>

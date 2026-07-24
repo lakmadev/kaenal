@@ -5,7 +5,8 @@
 
 ## Current status
 
-**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 nearly done (jobs + 8D + Audits + Exports + Scheduling).** Data
+**Phase 0 done; Phase 1 backend COMPLETE; Phase 2 nearly done; FRONTEND STARTED — `apps/web` foundation
+is up (Next.js App Router + Tailwind v4 on the ported design tokens, shell, sign-in, dashboard).** Data
 plane, business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all
 five Phase-1 vertical slices (Inspections, Findings → NCR, CAPA, Documents, Files), federated Search,
 Notifications, the typed `@kaenal/api-client`, the BullMQ jobs runtime (SLA escalation, AV scan,
@@ -16,8 +17,9 @@ module, async Reports/exports, scheduling/recurrence, document-expiry reminders,
 housekeeping purge, the governed AI gateway (doc-summary feature), audit-events partitioning +
 the nightly partition-roll/tamper-check AND tenant offboarding (export bundle + gated purge) are
 done and proven, and CI runs them on
-every push/PR. 968 tests pass (259 db integration, 484 core unit, 189 api integration, 25 types unit,
-11 api-client unit); all five workspaces typecheck under strict TS and lint clean. The RLS schema lint covers 36 tenant
+every push/PR. 971 tests pass (259 db integration, 484 core unit, 189 api integration, 25 types unit,
+11 api-client unit, 3 web unit); all six workspaces typecheck under strict TS and lint clean, and the web app
+builds (`next build`, 17 routes). The RLS schema lint covers 36 tenant
 tables. The isolation nets, DST math, recurrence expansion, dependency direction, request lifecycle, composite member FKs,
 lockout durability, CSRF, plant-scope 404 (rule 8, one level down), NCR four-eyes, CAPA
 forward-only/revert directionality and the document rules (approver-role, self-approval four-eyes,
@@ -356,7 +358,8 @@ What remains is largely FE-coupled or needs new infrastructure: SSE streaming fo
 business fields (root-cause/8D) + the `compliance_qa` pgvector retrieval, the richer branded PDF
 (Chromium + print routes, 09), a real Anthropic-backed `AiProvider` (replacing the stub), and real
 ClamAV + email/push providers (replacing the stub scanner/delivery ports). SPC/FMEA still needs a spec.
-Suppliers/PPAP/SCAR is Phase 4. The dedicated **FE** should now start against `@kaenal/api-client`.
+Suppliers/PPAP/SCAR is Phase 4. The **FE** (`apps/web`) is now under way against `@kaenal/api-client` —
+foundation shipped (shell, tokens, design system, sign-in, dashboard); module screens next.
 
 ### How to get running from a cold clone
 
@@ -368,8 +371,19 @@ pnpm db:migrate               # apply migrations/*.sql in order (through 0017)
 pnpm db:check                 # RLS schema lint — must pass
 pnpm provision-tenant --slug acme --name "Acme Manufacturing" --model shared
 pnpm provision-tenant --slug globex --name "Globex" --model shared   # api tests need both
-pnpm test                     # full suite (serial: shares one DB) — 968 tests
+pnpm test                     # full suite (serial: shares one DB) — 971 tests
 ```
+
+**To run the web app:**
+
+```bash
+pnpm --filter @kaenal/api dev          # API on :3001
+pnpm --filter @kaenal/web dev          # web on :3000 → http://localhost:3000
+```
+
+The browser talks to the API through a same-origin proxy (`/api/*` → the API, `next.config.mjs`), so
+the session cookie + CSRF stay same-origin (no CORS). Sign in with a provisioned workspace slug, a
+member email, and password. Engineering docs live in `apps/web/README.md` + `apps/web/docs/`.
 
 The api integration tests resolve real tenants and seed members, so `acme` and `globex` must be
 provisioned first. `pnpm test` is `turbo run test --concurrency=1` — do not parallelise it; the
@@ -499,15 +513,21 @@ Backend, in vertical slices (schema → contract → service → tests) one enti
 - [x] `packages/api-client` — typed client + TanStack Query option factories (2026-07-22) —
       `createApiClient` (tenant/cookie-bearer/CSRF), `apiQueries` + `queryKeys`, framework-agnostic
 
-Frontend — NOT in this repo. A dedicated FE implementation is planned separately; it will consume
-the ts-rest contract via `initClient(contract)`. Until then the API is browsable via Swagger UI at
-`/v1/docs`. (An earlier exploratory `apps/web` was removed — the ask was to visualise the API, not
-to build the frontend.)
+Frontend — STARTED 2026-07-24. `apps/web` (Next.js 15 App Router, React 19, TS strict, Tailwind v4)
+consumes the ts-rest contract via `@kaenal/api-client`. The foundation slice is up and building; the
+per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/docs/{rules,best-practices}.md`.
 
-- [ ] Next.js app shell — sidebar, topbar, command palette (04 §3)
-- [ ] Design tokens from `implementation/reference/tokens.css`
-- [ ] Dashboard → Inspections → NCR → CAPA → Documents
-- [ ] All six UI states on every list/detail (04 §6)
+- [~] Next.js app shell — sidebar (collapse + mobile drawer, capability-gated nav) + topbar
+      (breadcrumbs, theme toggle, profile/sign-out) DONE; command palette (⌘K) pending (04 §3)
+- [x] Design tokens ported → `apps/web/src/styles/{tokens.css,globals.css}`; Tailwind v4 `@theme inline`
+      bridges them so utilities + `.k-*` classes are theme-aware; light/dark via `data-theme` (04 §2)
+- [x] Unified design-system primitives in `src/components/ui` (Button, Card, Chip, Status/Priority/Risk
+      badges, Input, Field, Skeleton, Spinner, EmptyState, Toast), one barrel; `cn` (clsx+tailwind-merge)
+- [x] Auth: sign-in (RHF + Zod) wired to the cookie/CSRF auth surface; session guard + sign-out
+- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation DONE (KPI tiles + recent
+      NCRs over real endpoints, loading/empty/error states); other modules are placeholders in the shell
+- [~] All six UI states on every list/detail (04 §6) — loading/empty/error demonstrated on the dashboard;
+      stale-write (409), offline, and per-capability hiding land with the first CRUD module
 
 ## Phase 2 — Depth
 - [x] 8D workflow (step gating: N requires 1..N-1, D3 may parallel D2) (2026-07-22) —
@@ -585,6 +605,30 @@ to build the frontend.)
 ---
 
 ## Decisions log
+
+- **2026-07-24 — Web foundation: tokens as the one styling source, Tailwind v4 bridges to them, primitives
+    hand-built, Radix reserved for the hard a11y widgets.** `apps/web` is Next.js 15 (App Router, React 19,
+    TS strict). Styling is the token system, not per-component CSS: `src/styles/tokens.css` holds every
+    value (a verbatim port of the updated visual spec — near-monochrome ink accent, Archivo, tight radii),
+    and `globals.css` bridges it into Tailwind v4 via `@theme inline` so utilities AND the `.k-*` classes
+    resolve to the same themed variables — a restyle is one file, light/dark is a `[data-theme]` remap.
+    Chose to **hand-build the simple primitives** (Button/Card/Chip/Input/Table) on those token classes so
+    they match the prototype 1:1, and to **reserve Radix** (the market-standard accessible headless layer,
+    the way shadcn/ui uses it) for the interactive widgets that actually need it (command palette, menus,
+    dialogs, tooltips) as those modules land — rather than pulling in all of shadcn and reskinning it now.
+    Data flows ONLY through `@kaenal/api-client`'s query factories + `unwrap` (no `fetch` in components);
+    auth (sign-in/sign-out — outside the ts-rest contract) is the one exception, in `lib/auth.ts`. The
+    browser reaches the API via a same-origin Next rewrite proxy (`/api/*`), so the httpOnly session cookie
+    + CSRF double-submit need no CORS. `allowUmdGlobalAccess` lets components use the `React.*` type
+    namespace without a per-file import (automatic JSX runtime never imports React); `next.config` adds a
+    webpack `extensionAlias` so the TS-ESM `.js` specifiers in the shared packages resolve without a build
+    step. i18n (`next-intl`), real-time, the ⌘K palette, and Sentry are deliberately deferred (04, tracked
+    in Known issues). *Affects: 04 §1–3, §6; TECH_STACK §2.1.*
+
+  - **Design conflict logged (per CLAUDE.md "on conflict, log it"):** 04-WEB-APP.md §2 describes a
+    blue-accent / Inter palette; the user's updated `styles/tokens.css` (the visual source of truth per
+    CLAUDE.md) is a near-monochrome **ink** accent with **Archivo**. tokens.css WINS; §2's literal hex/font
+    list is stale prose. The web app ports tokens.css, not §2.
 
 - **2026-07-24 — Model B teardown + partition-roll fan-out: reuse the secret ref as the source of truth,
     fake only the irreversible drop in tests.** Offboarding a dedicated tenant drops its whole database
@@ -1194,6 +1238,20 @@ to build the frontend.)
 ---
 
 ## Known issues / TODO
+
+- **Web app (`apps/web`): foundation only; module screens + several cross-cutting systems pending.** The
+  shell, design system, sign-in, and a dashboard slice are up and building, but most nav destinations are
+  in-shell placeholders. Deliberately deferred from the foundation (all specified in 04, each lands with
+  its module): (1) **i18n** — `next-intl` per 04 §8; strings are inline `en` for now. (2) **Real-time** —
+  the WS connection + targeted TanStack Query invalidation + live-mode (04 §7). (3) **Command palette**
+  (⌘K over `/v1/search`, 04 §3) — the top-bar search is a non-functional placeholder. (4) **Radix-based**
+  dialogs/menus/tooltips (the profile menu is a lightweight custom popover for now; a real accessible menu
+  wants Radix). (5) **Stale-write (409) reconcile, offline banner, and per-capability action hiding** — the
+  loading/empty/error states exist on the dashboard; the other three UI states (04 §6) arrive with the
+  first CRUD module. (6) **Sentry/OpenTelemetry** — the segment error boundary has the hook point.
+  (7) **Playwright e2e** — none yet; `pnpm e2e` still unwired. (8) `allowUmdGlobalAccess` is on so
+  components use the `React.*` type namespace without importing React — a DX choice, revisit if it ever
+  masks a real missing import. *04 all sections.*
 
 - **AI: chokepoint + HTTP surface + `doc_summary` ship; streaming, more features + a real provider are
   pending.** `POST /v1/ai/drafts` (all features) and `POST /v1/ai/summaries/accept` (`ai_draft_accepted`)

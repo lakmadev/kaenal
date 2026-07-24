@@ -42,7 +42,7 @@ const EightDList = ({ setRoute, set8d, openCreate }) => {
     <PageHeader title="8D Reports" description="Guided D1–D8 problem solving — Kaenal's quality differentiator"
   actions={<>
         <div style={{ position: 'relative' }}>
-          <button className="k-btn k-btn-ghost" data-comment-anchor="40101118e0-button-17-18" onClick={() => setFiltersOpen((v) => !v)}>
+          <button className="k-btn k-btn-ghost" onClick={() => setFiltersOpen((v) => !v)}>
             <Icon name="filter" size={14} />Filters
             {activeFilterCount > 0 && <span style={{ background: 'var(--accent)', color: 'white', fontSize: 10, fontWeight: 700, padding: '0 6px', borderRadius: 'var(--r-full)', minWidth: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{activeFilterCount}</span>}
           </button>

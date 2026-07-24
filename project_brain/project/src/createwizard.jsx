@@ -305,7 +305,7 @@ const CreateWizard = ({ initialType, onClose, onComplete }) => {
         )}
         </div>
       </div>
-      <div data-comment-anchor="f2b913ef3d-div-308-7">
+      <div>
         <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0, marginBottom: 4 }}>Details</h2>
         <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>The basics. You can refine later.</p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

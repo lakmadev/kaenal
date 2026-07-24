@@ -274,7 +274,7 @@ const NCRDetail = ({ id, setRoute, setNcr, set8d, setInspection }) => {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, position: 'relative' }} ref={updateRef}>
-            <button className="k-btn k-btn-ghost" data-comment-anchor="0771420c49-button-240-13" onClick={() => { setCommentOpen((v) => !v); setUpdateOpen(false); }}>
+            <button className="k-btn k-btn-ghost" onClick={() => { setCommentOpen((v) => !v); setUpdateOpen(false); }}>
               <Icon name="chat" size={14} />Comment
               <span style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)', fontSize: 11, fontWeight: 600, padding: '0 6px', borderRadius: 'var(--r-full)', minWidth: 18, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{comments.length}</span>
             </button>

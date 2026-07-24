@@ -105,7 +105,7 @@ const Sidebar = ({ collapsed: collapsedProp, onToggle, route, setRoute, mobile, 
     display: 'flex', flexDirection: 'column',
     transition: 'width 200ms ease-in-out', flexShrink: 0,
     borderRight: '1px solid rgba(255,255,255,0.04)',
-    height: '100vh', position: 'sticky', top: 0, alignSelf: 'flex-start', zIndex: 20,
+    height: '100vh', alignSelf: 'flex-start', zIndex: 20, overflowY: 'auto',
   };
 
   return (
@@ -163,8 +163,8 @@ const Sidebar = ({ collapsed: collapsedProp, onToggle, route, setRoute, mobile, 
                 {!collapsed && <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>}
                 {!collapsed && item.badge &&
                 <span style={{
-                  background: item.badgeAccent === 'danger' ? '#dc2626' : 'var(--sidebar-accent)',
-                  color: 'white', fontSize: 10, fontWeight: 700,
+                  background: item.badgeAccent === 'danger' ? '#dc2626' : 'rgba(255,255,255,0.14)',
+                  color: item.badgeAccent === 'danger' ? 'white' : 'var(--sidebar-fg-active)', fontSize: 10, fontWeight: 700,
                   padding: '1px 6px', borderRadius: 'var(--r-full)', minWidth: 18, textAlign: 'center'
                 }}>{item.badge}</span>
                 }
@@ -279,7 +279,7 @@ const TopBar = ({ onToggleSidebar, breadcrumbs, onToggleTheme, theme, onOpenAI, 
         fontSize: 13, width: 400, maxWidth: '40vw'
       }}>
         <Icon name="search" size={16} stroke={1.75} />
-        <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} data-comment-anchor="13e6cc719d-span-224-9">Search inspections, NCRs, 8Ds…</span>
+        <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Search inspections, NCRs, 8Ds…</span>
         <kbd style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', padding: '3px 7px', border: '1px solid var(--border)', borderRadius: 4, background: 'var(--surface)', color: 'var(--text-muted)', flexShrink: 0 }}>⌘K</kbd>
       </button>
 
@@ -291,8 +291,8 @@ const TopBar = ({ onToggleSidebar, breadcrumbs, onToggleTheme, theme, onOpenAI, 
       <button onClick={onOpenAI} title="AI Assistant"
       style={{
         height: 34, padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: 6,
-        background: aiOpen ? 'var(--accent)' : 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(219,39,119,0.12))',
-        color: aiOpen ? 'white' : 'var(--text)',
+        background: aiOpen ? 'var(--accent)' : 'var(--accent-soft)',
+        color: aiOpen ? 'var(--surface)' : 'var(--text)',
         border: `1px solid ${aiOpen ? 'var(--accent)' : 'var(--border)'}`,
         borderRadius: 'var(--r-md)', fontSize: 13, fontWeight: 500
       }}>

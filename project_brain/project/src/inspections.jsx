@@ -102,7 +102,7 @@ const InspectionsList = ({ setRoute, setInspection, openCreate }) => {
             </button>
             {filtersOpen &&
             <div ref={filterRef} className="k-surface" style={{ position: 'absolute', top: '100%', right: 0, marginTop: 8, padding: 16, minWidth: 280, zIndex: 30, boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column', gap: 14, textAlign: 'left' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} data-comment-anchor="dc7ab5e4c1-div-126-13">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>Filters</div>
                   <button className="k-btn-plain" style={{ fontSize: 11, color: 'var(--text-muted)' }} onClick={() => setExtraFilters({ risk: 'any', template: 'any', inspector: 'any' })}>Reset</button>
                 </div>

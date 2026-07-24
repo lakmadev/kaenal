@@ -59,6 +59,11 @@ Turborepo + pnpm · NestJS + ts-rest (contract-first OpenAPI) · Postgres 16 + R
 - `pnpm db:check` — RLS schema lint (02 §6); `pnpm db:reset` — drop schema, local only
 - `pnpm provision-tenant --slug acme --name "Acme" --model shared`
 - `pnpm test` (unit) / `pnpm test:rls` (tenancy suite) / `pnpm e2e` (not yet wired)
+- `pnpm --filter @kaenal/api dev` (API :3001) · `pnpm --filter @kaenal/web dev` (web :3000)
+  — the web app proxies `/api/*` to the API (same-origin cookies). Web engineering docs:
+  `apps/web/README.md`, `apps/web/docs/rules.md`, `apps/web/docs/best-practices.md`.
+  Visual truth is `styles/tokens.css` + `Kaenal.html` + `src/*.jsx`; 04 §2's literal palette
+  (blue accent, Inter) is SUPERSEDED by tokens.css (ink accent, Archivo) — see PROGRESS.md.
 
 Both isolation nets are mutation-tested — if you change RLS, prove the suite still fails when
 isolation is broken, not just that it passes.

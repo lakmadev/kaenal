@@ -1,0 +1,58 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { ApiRequestError } from "@kaenal/api-client";
+import { useMe } from "@/hooks/use-me";
+import { Sidebar } from "./sidebar";
+import { Topbar } from "./topbar";
+import { Skeleton } from "@/components/ui";
+
+/**
+ * The authenticated shell (04 §3). It owns the client-side session guard: a 401
+ * from `GET /v1/me` means no valid session, so it bounces to sign-in. While the
+ * identity loads it shows a shell-shaped skeleton, never a spinner (04 §6.1).
+ * Once loaded, the sidebar uses `me.capabilities` to gate nav.
+ */
+export function AppShell({ children }: { children: React.ReactNode }): React.ReactElement {
+  const router = useRouter();
+  const { data: me, error, isLoading } = useMe();
+
+  const unauthenticated = error instanceof ApiRequestError && error.status === 401;
+
+  useEffect(() => {
+    if (unauthenticated) router.replace("/sign-in");
+  }, [unauthenticated, router]);
+
+  if (unauthenticated) return <FullBleed />;
+
+  return (
+    <div className="flex h-dvh overflow-hidden">
+      <Sidebar me={me} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Topbar me={me} />
+        <main className="flex-1 overflow-y-auto">
+          {isLoading ? <ShellSkeleton /> : children}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function FullBleed(): React.ReactElement {
+  return <div className="h-dvh bg-bg" />;
+}
+
+function ShellSkeleton(): React.ReactElement {
+  return (
+    <div className="mx-auto max-w-7xl space-y-4 p-6">
+      <Skeleton className="h-8 w-64" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-28 rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-80 rounded-xl" />
+    </div>
+  );
+}

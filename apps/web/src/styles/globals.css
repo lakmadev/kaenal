@@ -1,0 +1,381 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/**
+ * Bind the token font families to the self-hosted `next/font` faces (root layout
+ * injects `--font-archivo` / `--font-jetbrains`). Kept unlayered so it wins over
+ * the literal `'Archivo'` fallback in tokens.css. This is the only place the two
+ * worlds meet — no component references a font family directly.
+ */
+:root {
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/**
+ * Bridge the design tokens into Tailwind v4's theme so utilities
+ * (`bg-surface`, `text-muted`, `border-border`, `rounded-lg`, `font-mono`, …)
+ * resolve to the SAME CSS variables the `.k-*` component classes use. `inline`
+ * emits `var(--surface)` into each utility, so light/dark theming — a remap of
+ * those variables under `[data-theme]` — flows through utilities for free.
+ *
+ * Dark mode is attribute-driven (`<html data-theme="dark">`, persisted per user),
+ * not media-query-driven, so `dark:` variants key off the attribute.
+ */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+
+  --color-success: var(--success-600);
+  --color-warning: var(--warning-600);
+  --color-danger: var(--danger-600);
+  --color-info: var(--info-600);
+
+  --color-risk-critical: var(--risk-critical);
+  --color-risk-high: var(--risk-high);
+  --color-risk-medium: var(--risk-medium);
+  --color-risk-low: var(--risk-low);
+  --color-risk-info: var(--risk-info);
+
+  --color-sidebar-bg: var(--sidebar-bg);
+  --color-sidebar-fg: var(--sidebar-fg);
+  --color-sidebar-fg-active: var(--sidebar-fg-active);
+  --color-sidebar-accent: var(--sidebar-accent);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
+  --radius-full: var(--r-full);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+}
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@layer base {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 10px;
+    border: 2px solid var(--bg);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--border-strong);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--r-sm);
+  }
+}
+
+/**
+ * Component classes ported from the visual spec. These live here (not scattered
+ * in components) so a restyle is one edit. React components in `components/ui`
+ * compose these; ad-hoc screens may use them directly.
+ */
+@layer components {
+  .mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum", "zero";
+  }
+
+  .k-surface {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-xl);
+  }
+
+  .k-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: var(--r-full);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    height: 22px;
+    white-space: nowrap;
+  }
+
+  .k-overline {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .k-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: var(--r-md);
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 120ms ease;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    height: 34px;
+    cursor: pointer;
+  }
+  .k-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .k-btn-primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    box-shadow: var(--shadow-xs);
+  }
+  .k-btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    box-shadow: var(--shadow-sm);
+  }
+  .k-btn-ghost {
+    color: var(--text);
+    border-color: var(--border);
+    background: var(--surface);
+  }
+  .k-btn-ghost:hover:not(:disabled) {
+    background: var(--bg-subtle);
+    border-color: var(--border-strong);
+  }
+  .k-btn-plain {
+    color: var(--text-muted);
+  }
+  .k-btn-plain:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--bg-subtle);
+  }
+  .k-btn-danger {
+    background: var(--danger-600);
+    color: #fff;
+  }
+  .k-btn-danger:hover:not(:disabled) {
+    background: var(--danger-700);
+  }
+  .k-btn-sm {
+    height: 28px;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .k-btn-icon {
+    height: 34px;
+    width: 34px;
+    padding: 0;
+  }
+
+  .k-input {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: all 120ms;
+    width: 100%;
+  }
+  .k-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--ring);
+  }
+  .k-input::placeholder {
+    color: var(--text-subtle);
+  }
+  .k-input[aria-invalid="true"] {
+    border-color: var(--danger-600);
+  }
+
+  .k-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    padding: 0 4px;
+  }
+  .k-tab {
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 120ms;
+    cursor: pointer;
+  }
+  .k-tab:hover {
+    color: var(--text);
+  }
+  .k-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  .k-link {
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .k-link:hover {
+    text-decoration: underline;
+  }
+
+  table.k-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .k-table th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-subtle);
+    position: sticky;
+    top: 0;
+  }
+  .k-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .k-table tr:hover td {
+    background: var(--bg-subtle);
+  }
+  .k-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 6px;
+    height: 18px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-subtle);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    line-height: 1;
+    box-shadow: 0 1px 0 var(--border);
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg-subtle) 0%, var(--border) 50%, var(--bg-subtle) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: var(--r-sm);
+  }
+
+  .pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success-500);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+    animation: pulseDot 2s infinite;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes pulseDot {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fade-in {
+  animation: fadeIn 200ms ease-out;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}
