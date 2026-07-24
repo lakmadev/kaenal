@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import { TriangleAlert } from "lucide-react";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { NcrList } from "@/features/ncrs/ncr-list";
 
 export const metadata: Metadata = { title: "NCRs" };
 
-export default function Page(): React.ReactElement {
-  return <ModulePlaceholder title="NCRs" icon={TriangleAlert} />;
+export default function NcrsPage(): React.ReactElement {
+  return <NcrList />;
 }
