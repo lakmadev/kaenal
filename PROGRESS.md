@@ -361,6 +361,45 @@ ClamAV + email/push providers (replacing the stub scanner/delivery ports). SPC/F
 Suppliers/PPAP/SCAR is Phase 4. The **FE** (`apps/web`) is now under way against `@kaenal/api-client` —
 foundation shipped (shell, tokens, design system, sign-in, dashboard); module screens next.
 
+### Frontend fidelity audit (2026-07-25)
+
+Ran the 00-FRONTEND-FIDELITY §7 remediation + §8 self-review over everything already
+built. **Finding: the token remediation the kickoff assumed was missing had already been
+done by a prior session** — `apps/web/src/styles/tokens.css` is a verbatim port of the
+visual spec (ink `--accent:#18181b`, Archivo + JetBrains Mono, tight 3–9px radii, flat
+hairline shadows; `diff` vs the source shows only the header comment differs), and
+`globals.css` already ports every `.k-*` class into `@layer components` with the Tailwind v4
+`@theme inline` bridge mapping `accent → var(--accent)` (ink, no blue primary). So step 1
+was NOT redone; the audit verified the built screens against their `src/*.jsx` instead.
+
+- [x] **Tokens + `.k-*` layer** — confirmed faithful; no change.
+- [x] **Sidebar** (`sidebar.tsx` vs `shell.jsx`) — dark `bg-sidebar-bg`, white active text,
+      3px left accent bar, expandable sub-navs, "All systems operational" pulse-dot footer,
+      260/72 collapse + mobile drawer. Faithful; no change.
+- [x] **Status/priority/risk badges** (`badge.tsx` vs `primitives.jsx` `STATUS_STYLES`) —
+      colour maps match exactly (the "blue" grep hits are the prototype's own semantic
+      `scheduled`/`open` = `rgba(59,130,246,.12)`/`#1d4ed8`/`#3b82f6`, not hallucination).
+- [x] **Auth** (`auth-shell.tsx` vs `auth.jsx`) — the blue/indigo marketing-panel gradient
+      (`linear-gradient(135deg,#0f1d35,#1e3a8a,#312e81)`, `#93c5fd`) is the prototype's ONE
+      decorative-blue spot and is reproduced faithfully; per-tenant logo colours are mock data.
+- [x] **Topbar** (`topbar.tsx` vs `shell.jsx`) — **fixed**: search placeholder copy
+      `"Search…"` → `"Search inspections, NCRs, 8Ds…"` (verbatim, §4.4). The richer topbar
+      affordances (quick-create, live-mode, AI button, and the profile menu's quick-facts
+      grid + workspace switcher) remain deferred — they are either later slices or backed by
+      fabricated mock data (open-item counts, plants, MFA state) the API does not serve.
+- [x] **Inspections / NCRs list headers** — `PageHeader` title/description/actions copy
+      matches the prototype verbatim; `rounded-xl` = `--r-xl` = 7px (within the tight scale,
+      not a defect); EmptyState/Skeleton states present.
+- [~] **Dashboard** (`dashboard-view.tsx` vs `dashboard.jsx`) — the prototype is a
+      customizable drag-drop widget grid whose data (COPQ, ISO compliance scores, supplier
+      scorecards, heatmaps, AI insights) is ~90% fabricated. The built real-data foundation
+      (KPI tiles + recent NCRs) is the correct subset under the "no invented scope" rule; the
+      full widget grid stays deferred pending backing data. Logged, not silently built.
+
+**Net:** one verbatim-copy fix (topbar search); everything else confirmed already faithful
+or an already-tracked deferral (command palette, stale-write/offline/permission states —
+Phase-1 frontend checklist). The "everything is blue/Inter" premise was stale.
+
 ### How to get running from a cold clone
 
 ```bash
@@ -548,8 +587,8 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       screen deliberately omitted (the API returns the wrong-password envelope for a lock — 07 §2 anti-
       enumeration — so a real locked-detection UI would leak account state); request-workspace omitted (no
       self-serve provisioning endpoint). Prototype fixture data (mock tenants/SSO/inviter) not fabricated.
-- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation + **NCRs + Inspections DONE**;
-      CAPA/Documents are placeholders. **Inspections** (`feat/web-inspections`): list/grid with status filter +
+- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation + **NCRs + Inspections + CAPA DONE**;
+      Documents is a placeholder. **Inspections** (`feat/web-inspections`): list/grid with status filter +
       search + CSV export; create dialog (schedule from a published template); detail with the **dynamic form
       renderer** (one control per FormItemType, `isVisible` conditional gating) + **live scoring** (the shared
       `scoreInspection` from `@kaenal/core`, recomputed as you fill); start → fill → complete flow with
@@ -560,7 +599,28 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       tabs, meta sidebar), Actions CRUD (containment/corrective/preventive add + toggle). Kanban drag →
       transition with optimistic move + 409/illegal-move revert + toast. Verified end-to-end vs. the real
       API (transition Assigned→In Progress, action-add). Shared primitives added: `PageHeader`, Radix
-      `Dialog`, `Segmented`, `api-error` helpers, `format` utils.
+      `Dialog`, `Segmented`, `api-error` helpers, `format` utils. **CAPA** (`feat/web-capa`, 2026-07-25):
+      ported from `src/capa.jsx` against the real API. List (`capa-list.tsx`): PageHeader + filter bar
+      (Segmented All/Open/Closed/My CAPAs + type select + search + CSV export) + table (ID/Type with the
+      corrective=red / preventive=blue type chip, Title, **Phase** with the per-row progress bar keyed on
+      the real `CapaPhase` enum, Owner via the shared "You/Unassigned/short-id" `OwnerCell`, Source, Due,
+      Risk). Detail (`capa-detail.tsx`): header (type chip + code + status/priority badges), the **7-phase
+      stepper** (`capa-bits.tsx` `PhaseTracker`, `initiation → root_cause → … → closed`), the four faithful
+      tabs (Action plan real; Root cause / Effectiveness / Activity honest empty-state placeholders), and a
+      real Details sidebar (owner, sponsor, type, priority, risk, opened, due, eff-check) + Linked-items
+      card (links `sourceKind==='ncr'` to the NCR). **Advance** (one phase forward) and the **audited
+      Revert** (reason-required dialog → earlier phase) both send `lockVersion` (optimistic concurrency);
+      Action-plan tab (`capa-actions.tsx`) lists/creates actions and advances their status
+      (pending→in_progress→done→verified). Manage controls (New CAPA / Advance / Revert / Add action) are
+      `capa:manage`-gated (permission-hidden, 04 §6.6). **Verified end-to-end** against the seeded API
+      (advanced CAPA-2026-0041 Root Cause→Action Plan, then reverted with a reason — both with success
+      toasts, no console errors). **Faithful-fidelity deviations (logged, not silent):** the prototype's
+      opened-vs-closed **trend chart** and two of the four **stat cards** (at-risk/overdue, avg-closure) are
+      omitted — they need SLA/aggregate data the `CapaDto` doesn't carry; the "At risk" tab is dropped for
+      the same reason; the Sponsor/Team detail uses real ids only (no fabricated names); Root-cause &
+      Effectiveness tab bodies are honest placeholders (no `rootCause`/`effectivenessChecks` in the API).
+      Revert is an intentional **addition** vs the static prototype — it is the module's defining backed
+      capability (audited forward-only exception, 02 §4).
 - [~] All six UI states on every list/detail (04 §6) — loading/empty/error demonstrated on the dashboard;
       stale-write (409), offline, and per-capability hiding land with the first CRUD module
 

@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import { ShieldCheck } from "lucide-react";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { CapaList } from "@/features/capa/capa-list";
 
 export const metadata: Metadata = { title: "CAPA" };
 
-export default function Page(): React.ReactElement {
-  return <ModulePlaceholder title="CAPA" icon={ShieldCheck} />;
+export default function CapaPage(): React.ReactElement {
+  return <CapaList />;
 }
