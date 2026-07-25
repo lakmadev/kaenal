@@ -526,8 +526,18 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       color-coded event pills), week grid (7 day-columns, timed events), and list/agenda — with
       prev/today/next navigation and a status legend (scheduled=blue / completed=green / overdue=red).
       Inspections-only (audits module renders here in the prototype but shares no data source yet); the
-      fabricated iCal-sync feed is omitted. Templates page previews the form schema read-only. Deferred:
-      drag-drop template editor (create/edit → publish immutable version).
+      fabricated iCal-sync feed is omitted. Inspections → **Templates is the card-grid design**
+      (`templates-view.tsx`): stat cards (active count, Σ usage, inspection completion rate — all real,
+      no fabricated figures) + a card grid, each opening the **drag-drop template editor**
+      (`template-editor.tsx`, `/inspections/templates/{new,[id]}`). The editor is a faithful port of
+      template-editor.jsx (palette of the 14 real FormItemTypes, section/field add·reorder·delete, a
+      Properties panel, Edit/Preview toggle reusing the real renderer, Export JSON) but its **model IS the
+      real `FormSchema`** — so a published template is exactly what the inspector runs and the server
+      scores. Save & Publish = createTemplate → publishTemplate (schema immutable, 02 §2); Import JSON
+      seeds a draft from a schema file. The prototype's auto-finding toggle, weighted-method selector,
+      multi-action When/Then rules and linked master-data are intentionally NOT built — the API/core don't
+      model them, so faking them would promise behaviour the system can't deliver; `visibleWhen` equality
+      is the real conditional primitive and is fully wired.
 - [x] Design tokens ported → `apps/web/src/styles/{tokens.css,globals.css}`; Tailwind v4 `@theme inline`
       bridges them so utilities + `.k-*` classes are theme-aware; light/dark via `data-theme` (04 §2)
 - [x] Unified design-system primitives in `src/components/ui` (Button, Card, Chip, Status/Priority/Risk

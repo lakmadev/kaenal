@@ -6,6 +6,7 @@ import type {
   CompleteInspectionBody,
   CreateFindingBody,
   CreateInspectionBody,
+  CreateTemplateBody,
   FindingDto,
   InspectionDto,
   Page,
@@ -54,6 +55,23 @@ export function usePublishedTemplates() {
     queryKey: ["templates", "list", "published"],
     queryFn: () =>
       client.listTemplates({ query: { status: "published" } }).then((r) => unwrap<Page<TemplateDto>>(r)),
+  });
+}
+
+/** Create a draft template, then publish it (its schema becomes immutable). */
+export function usePublishTemplate() {
+  const client = getApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateTemplateBody): Promise<TemplateDto> => {
+      const draft = await client.createTemplate({ body }).then((r) => unwrap<TemplateDto>(r));
+      return client
+        .publishTemplate({ params: { id: draft.id }, body: { version: draft.lockVersion } })
+        .then((r) => unwrap<TemplateDto>(r));
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["templates"] });
+    },
   });
 }
 
