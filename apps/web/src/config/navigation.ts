@@ -15,17 +15,24 @@ import {
 } from "lucide-react";
 
 /**
- * The sidebar/route map (04 §3–4). Grouped exactly as the visual spec's shell.
- * `capability` gates visibility: an item whose capability the user lacks is not
- * rendered (04 §6.6 — never show a control that will 403). Items with no
- * capability are visible to every member.
+ * The sidebar/route map (04 §3–4), matching `shell.jsx`: grouped items, some with
+ * expandable sub-navigation. Sub-items are only listed when their target route
+ * actually exists — a nav link that leads nowhere is worse than no link. As each
+ * module is built, its sub-nav fills in.
+ *
+ * `capability` gates visibility (04 §6.6 — never show a control that will 403).
  */
+export interface NavChild {
+  label: string;
+  href: string;
+}
+
 export interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
-  /** Capability required to see this item (from `GET /v1/me`). */
   capability?: string;
+  children?: NavChild[];
 }
 
 export interface NavGroup {
@@ -38,8 +45,26 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Core",
     items: [
       { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-      { label: "Inspections", href: "/inspections", icon: ClipboardCheck },
-      { label: "NCRs", href: "/ncrs", icon: TriangleAlert },
+      {
+        label: "Inspections",
+        href: "/inspections",
+        icon: ClipboardCheck,
+        children: [
+          { label: "All Inspections", href: "/inspections" },
+          { label: "Templates", href: "/inspections/templates" },
+          { label: "Schedule", href: "/inspections/schedule" },
+        ],
+      },
+      {
+        label: "Non-Conformities",
+        href: "/ncrs",
+        icon: TriangleAlert,
+        children: [
+          { label: "All NCRs", href: "/ncrs" },
+          { label: "My Assignments", href: "/ncrs?view=mine" },
+          { label: "Overdue", href: "/ncrs?view=overdue" },
+        ],
+      },
       { label: "8D", href: "/8d", icon: GitBranch },
       { label: "CAPA", href: "/capa", icon: ShieldCheck },
     ],
@@ -59,8 +84,8 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Platform",
     items: [
-      { label: "Graph", href: "/graph", icon: Network, capability: "graph:read" },
-      { label: "Predictive", href: "/predictive", icon: LineChart, capability: "analytics:read" },
+      { label: "Knowledge graph", href: "/graph", icon: Network, capability: "graph:read" },
+      { label: "Predictive risk", href: "/predictive", icon: LineChart, capability: "analytics:read" },
       { label: "Notifications", href: "/notifications", icon: Bell },
       { label: "Settings", href: "/settings/personal", icon: Settings },
     ],

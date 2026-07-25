@@ -1,34 +1,42 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { PanelLeft, X } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { PanelLeft, X, ChevronDown } from "lucide-react";
 import type { MeDto } from "@kaenal/types";
 import { cn } from "@/lib/cn";
 import { useUiStore } from "@/lib/stores/ui";
 import { hasCapability } from "@/hooks/use-me";
-import { NAV_GROUPS } from "@/config/navigation";
+import { NAV_GROUPS, type NavItem } from "@/config/navigation";
 
-/** Is `href` the active route (exact, or a parent of the current detail route)? */
-function isActive(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`);
+/** A parent item is active when the current path is it or a child route of it. */
+function isParentActive(pathname: string, href: string): boolean {
+  const base = href.split("?")[0] ?? href;
+  return pathname === base || pathname.startsWith(`${base}/`);
 }
 
 /**
- * The always-dark sidebar (04 §3): 260px, collapses to 72px (persisted), and
- * below 860px becomes an off-canvas drawer with a scrim. Nav items the user
+ * The always-dark sidebar (04 §3), matching `shell.jsx`: grouped items, some with
+ * expandable sub-navigation (chevron), an accent left-border on the active item,
+ * 260px collapsing to 72px, and an off-canvas drawer below 860px. Items the user
  * lacks the capability for are omitted, not disabled (04 §6.6).
  */
 export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentUrl = searchParams.toString() === "" ? pathname : `${pathname}?${searchParams.toString()}`;
+
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const toggle = useUiStore((s) => s.toggleSidebar);
   const mobileOpen = useUiStore((s) => s.mobileNavOpen);
   const setMobileOpen = useUiStore((s) => s.setMobileNavOpen);
 
+  // Manual expand overrides; a section defaults to open when its route is active.
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+
   return (
     <>
-      {/* Scrim behind the mobile drawer */}
       {mobileOpen && (
         <button
           type="button"
@@ -47,10 +55,9 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
           collapsed ? "lg:w-[72px]" : "lg:w-[260px]",
         )}
       >
-        {/* Brand + collapse toggle */}
         <div className="flex h-14 items-center gap-2.5 px-4">
           <Logo />
-          {!collapsed && <span className="text-[15px] font-bold tracking-tight text-sidebar-fg-active">Kaenal</span>}
+          {!collapsed && <span className="text-[15px] font-bold tracking-[0.08em] text-sidebar-fg-active">KAENAL</span>}
           <button
             type="button"
             onClick={toggle}
@@ -71,47 +78,32 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
 
         <nav className="flex-1 overflow-y-auto px-3 py-2">
           {NAV_GROUPS.map((group) => {
-            const items = group.items.filter(
-              (i) => i.capability === undefined || hasCapability(me, i.capability),
-            );
+            const items = group.items.filter((i) => i.capability === undefined || hasCapability(me, i.capability));
             if (items.length === 0) return null;
             return (
               <div key={group.label} className="mb-4">
-                {!collapsed && (
-                  <div className="k-overline px-2 py-1.5 !text-[10px] text-sidebar-fg/60">{group.label}</div>
-                )}
+                {!collapsed && <div className="k-overline px-2 py-1.5 !text-[10px] text-sidebar-fg/60">{group.label}</div>}
                 <ul className="flex flex-col gap-0.5">
-                  {items.map((item) => {
-                    const active = isActive(pathname, item.href);
-                    const Icon = item.icon;
-                    return (
-                      <li key={item.href}>
-                        <Link
-                          href={item.href}
-                          onClick={() => setMobileOpen(false)}
-                          title={collapsed ? item.label : undefined}
-                          aria-current={active ? "page" : undefined}
-                          className={cn(
-                            "flex items-center gap-3 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
-                            active
-                              ? "bg-white/[0.08] text-sidebar-fg-active"
-                              : "text-sidebar-fg hover:bg-white/[0.05] hover:text-sidebar-fg-active",
-                            collapsed && "justify-center px-0",
-                          )}
-                        >
-                          <Icon size={17} strokeWidth={active ? 2.2 : 1.8} className="shrink-0" />
-                          {!collapsed && <span className="truncate">{item.label}</span>}
-                        </Link>
-                      </li>
-                    );
-                  })}
+                  {items.map((item) => (
+                    <NavRow
+                      key={item.href}
+                      item={item}
+                      collapsed={collapsed}
+                      active={isParentActive(pathname, item.href)}
+                      currentUrl={currentUrl}
+                      open={overrides[item.href] ?? isParentActive(pathname, item.href)}
+                      onToggle={() =>
+                        setOverrides((o) => ({ ...o, [item.href]: !(o[item.href] ?? isParentActive(pathname, item.href)) }))
+                      }
+                      onNavigate={() => setMobileOpen(false)}
+                    />
+                  ))}
                 </ul>
               </div>
             );
           })}
         </nav>
 
-        {/* Status footer */}
         <div className={cn("border-t border-white/10 px-4 py-3", collapsed && "px-0 text-center")}>
           <div className="flex items-center gap-2 text-[12px] text-sidebar-fg">
             <span className="pulse-dot shrink-0" />
@@ -120,6 +112,86 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
         </div>
       </aside>
     </>
+  );
+}
+
+function NavRow({
+  item,
+  collapsed,
+  active,
+  currentUrl,
+  open,
+  onToggle,
+  onNavigate,
+}: {
+  item: NavItem;
+  collapsed: boolean;
+  active: boolean;
+  currentUrl: string;
+  open: boolean;
+  onToggle: () => void;
+  onNavigate: () => void;
+}): React.ReactElement {
+  const Icon = item.icon;
+  const hasChildren = item.children !== undefined && item.children.length > 0 && !collapsed;
+
+  return (
+    <li>
+      <div
+        className={cn(
+          "group flex items-center rounded-md text-[13px] font-medium transition-colors",
+          active ? "bg-white/[0.08] text-sidebar-fg-active" : "text-sidebar-fg hover:bg-white/[0.05]",
+        )}
+        style={active && !collapsed ? { borderLeft: "3px solid var(--sidebar-accent)" } : { borderLeft: "3px solid transparent" }}
+      >
+        <Link
+          href={item.href}
+          onClick={onNavigate}
+          title={collapsed ? item.label : undefined}
+          aria-current={active ? "page" : undefined}
+          className={cn("flex flex-1 items-center gap-3 px-2.5 py-2", collapsed && "justify-center px-0")}
+        >
+          <Icon size={17} strokeWidth={active ? 2.2 : 1.8} className="shrink-0" />
+          {!collapsed && <span className="truncate">{item.label}</span>}
+        </Link>
+        {hasChildren && (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={open ? `Collapse ${item.label}` : `Expand ${item.label}`}
+            aria-expanded={open}
+            className="px-2 py-2 text-sidebar-fg/70 hover:text-sidebar-fg-active"
+          >
+            <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
+          </button>
+        )}
+      </div>
+
+      {hasChildren && open && (
+        <ul className="mt-0.5 flex flex-col gap-0.5">
+          {item.children!.map((child) => {
+            const childActive = currentUrl === child.href;
+            return (
+              <li key={child.href}>
+                <Link
+                  href={child.href}
+                  onClick={onNavigate}
+                  aria-current={childActive ? "page" : undefined}
+                  className={cn(
+                    "block rounded-md py-1.5 pl-[42px] pr-3 text-[12.5px] transition-colors",
+                    childActive
+                      ? "bg-white/[0.05] text-sidebar-fg-active"
+                      : "text-sidebar-fg/75 hover:text-sidebar-fg-active",
+                  )}
+                >
+                  {child.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </li>
   );
 }
 
