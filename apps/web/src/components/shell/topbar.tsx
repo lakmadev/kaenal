@@ -55,7 +55,7 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
           aria-label="Search"
         >
           <Search size={15} />
-          <span className="text-[13px]">Search…</span>
+          <span className="text-[13px]">Search inspections, NCRs, 8Ds…</span>
           <span className="kbd ml-auto">⌘K</span>
         </button>
       </div>
