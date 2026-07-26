@@ -587,8 +587,8 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       screen deliberately omitted (the API returns the wrong-password envelope for a lock — 07 §2 anti-
       enumeration — so a real locked-detection UI would leak account state); request-workspace omitted (no
       self-serve provisioning endpoint). Prototype fixture data (mock tenants/SSO/inviter) not fabricated.
-- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation + **NCRs + Inspections + CAPA DONE**;
-      Documents is a placeholder. **Inspections** (`feat/web-inspections`): list/grid with status filter +
+- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation + **NCRs + Inspections + CAPA +
+      Documents DONE** (Phase-1 web core loop complete). **Inspections** (`feat/web-inspections`): list/grid with status filter +
       search + CSV export; create dialog (schedule from a published template); detail with the **dynamic form
       renderer** (one control per FormItemType, `isVisible` conditional gating) + **live scoring** (the shared
       `scoreInspection` from `@kaenal/core`, recomputed as you fill); start → fill → complete flow with
@@ -620,7 +620,28 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       the same reason; the Sponsor/Team detail uses real ids only (no fabricated names); Root-cause &
       Effectiveness tab bodies are honest placeholders (no `rootCause`/`effectivenessChecks` in the API).
       Revert is an intentional **addition** vs the static prototype — it is the module's defining backed
-      capability (audited forward-only exception, 02 §4).
+      capability (audited forward-only exception, 02 §4). **Documents** (`feat/web-documents`, 2026-07-26):
+      ported from `src/documents.jsx` against the real controlled-document API (03 §3, 02 §4). Replaces the
+      placeholder /documents route + adds /documents/[id]. List (`document-list.tsx`): the faithful
+      full-height **library rail** (the 8 real `DocumentCategory` folders with page-derived counts + "All
+      Documents" + Smart views Expiring-soon / Pending-review) + toolbar (search + status Segmented +
+      list/grid view toggle) + table (Name/code/category, Version, `DocStatus` badge, Owner, Approver,
+      Updated, Expires with expiry warn, Frameworks chips) and a grid view. Detail
+      (`document-detail.tsx`): header with **status-driven lifecycle actions** — Submit-for-review
+      (draft→pending), Approve/Reject (pending, four-eyes: hidden for the author, reason dialog on reject),
+      Revise (rejected→draft), New-version (approved, dialog) + Archive — all sending `lockVersion`
+      (optimistic concurrency); Versions tab (real `listDocumentVersions` history with changelog/approvedBy/
+      Current marker), Approvals tab (honest Author→Reviewer state), and a sidebar with Properties,
+      Compliance (frameworks), and the real **AI summary** (`aiSummary`). Author/approver capabilities gated
+      (`document:manage` / `document:approve`). **Verified end-to-end** against the seeded API: the library
+      rail + 3 docs render, the pending seed doc correctly **hides Approve/Reject for its author and shows
+      "Awaiting review"** (four-eyes) with its AI summary, and Submit-for-review flipped a draft →pending
+      with a success toast (no console errors). **Faithful-fidelity deviations (logged):** the compliance-
+      matrix view, bulk-select toolbar, file-type icons/sizes, starred/recent smart views, the rendered
+      document Preview, and the fabricated 4-stage approval chain + Linked-records tab are omitted — they
+      need a files/preview pipeline or data the API doesn't serve. `UserCell` (You/short-id, no fabricated
+      names) is duplicated across the ncr/capa/documents modules — a candidate to promote to
+      `components/ui` later.
 - [~] All six UI states on every list/detail (04 §6) — loading/empty/error demonstrated on the dashboard;
       stale-write (409), offline, and per-capability hiding land with the first CRUD module
 

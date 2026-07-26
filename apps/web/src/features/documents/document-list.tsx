@@ -1,0 +1,363 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Plus, Search, FileText, Folder, Clock, Eye, List, LayoutGrid } from "lucide-react";
+import type { DocumentDto, DocumentCategory, DocumentStatus } from "@kaenal/types";
+import { shortDate } from "@/lib/format";
+import { useMe, hasCapability } from "@/hooks/use-me";
+import { useDocuments } from "@/hooks/use-documents";
+import { PageHeader } from "@/components/page-header";
+import { Button, Segmented, Chip, EmptyState, Skeleton } from "@/components/ui";
+import { CATEGORIES, categoryLabel, DocStatus, UserCell } from "./document-bits";
+import { DocumentCreateDialog } from "./document-create-dialog";
+
+type CategoryFilter = "all" | DocumentCategory;
+type StatusFilter = "all" | DocumentStatus;
+type Smart = "expiring" | "review" | null;
+type View = "list" | "grid";
+
+const STATUS_TABS: { value: StatusFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "draft", label: "Draft" },
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "archived", label: "Archived" },
+];
+
+/** Days between now and an ISO date (negative = past). */
+function daysUntil(iso: string): number {
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+}
+function isExpiringSoon(iso: string | null): boolean {
+  if (iso === null) return false;
+  const d = daysUntil(iso);
+  return d <= 90;
+}
+
+export function DocumentList(): React.ReactElement {
+  const router = useRouter();
+  const { data: me } = useMe();
+  const canManage = hasCapability(me, "document:manage");
+
+  const [category, setCategory] = useState<CategoryFilter>("all");
+  const [smart, setSmart] = useState<Smart>(null);
+  const [status, setStatus] = useState<StatusFilter>("all");
+  const [search, setSearch] = useState("");
+  const [view, setView] = useState<View>("list");
+  const [createOpen, setCreateOpen] = useState(false);
+
+  // The library spans every category/status, so we load one page and narrow it
+  // client-side (mirrors the NCR/CAPA modules until virtualized paging).
+  const query = useDocuments();
+  const items = useMemo(() => query.data?.items ?? [], [query.data]);
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return items.filter(
+      (d) =>
+        (smart !== "expiring" || (d.status === "approved" && isExpiringSoon(d.expiresAt))) &&
+        (smart !== "review" || d.status === "pending") &&
+        (category === "all" || d.category === category) &&
+        (status === "all" || d.status === status) &&
+        (q === "" || d.title.toLowerCase().includes(q) || d.code.toLowerCase().includes(q)),
+    );
+  }, [items, search, smart, category, status]);
+
+  const countFor = (id: CategoryFilter): number =>
+    id === "all" ? items.length : items.filter((d) => d.category === id).length;
+
+  const headerTitle =
+    smart === "expiring"
+      ? "Expiring soon"
+      : smart === "review"
+        ? "Pending review"
+        : category === "all"
+          ? "All Documents"
+          : categoryLabel(category);
+
+  const pickCategory = (id: CategoryFilter): void => {
+    setCategory(id);
+    setSmart(null);
+  };
+  const pickSmart = (s: Exclude<Smart, null>): void => {
+    setSmart((v) => (v === s ? null : s));
+    setCategory("all");
+  };
+
+  return (
+    <div className="fade-in flex h-[calc(100vh-56px)]">
+      {/* Library rail */}
+      <div className="w-[240px] shrink-0 overflow-y-auto border-r border-border bg-surface px-3 py-4">
+        <div className="k-overline px-2 pb-2">Library</div>
+        <RailItem icon={Folder} label="All Documents" count={countFor("all")} active={category === "all" && smart === null} onClick={() => pickCategory("all")} />
+        {CATEGORIES.map((c) => (
+          <RailItem key={c.id} icon={c.icon} label={c.label} count={countFor(c.id)} active={category === c.id && smart === null} onClick={() => pickCategory(c.id)} />
+        ))}
+
+        <div className="k-overline px-2 pb-2 pt-5">Smart views</div>
+        <RailItem icon={Clock} label="Expiring soon" active={smart === "expiring"} onClick={() => pickSmart("expiring")} />
+        <RailItem icon={Eye} label="Pending review" active={smart === "review"} onClick={() => pickSmart("review")} />
+      </div>
+
+      {/* Main */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="px-6 pt-6">
+          <PageHeader
+            title={headerTitle}
+            description={`${rows.length} of ${items.length} documents`}
+            actions={
+              canManage ? (
+                <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                  <Plus size={14} /> New document
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
+
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-2.5 px-6 py-3">
+          <div className="relative max-w-[320px] flex-1">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
+            <input
+              className="k-input"
+              placeholder="Search documents…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ paddingLeft: 34 }}
+            />
+          </div>
+          <Segmented options={STATUS_TABS} value={status} onChange={setStatus} ariaLabel="Filter by status" />
+          <div className="ml-auto">
+            <Segmented
+              size="sm"
+              ariaLabel="View"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "list", icon: List, label: "" },
+                { value: "grid", icon: LayoutGrid, label: "" },
+              ]}
+            />
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+          {query.isLoading ? (
+            <ListSkeleton />
+          ) : query.isError ? (
+            <ErrorCard onRetry={() => void query.refetch()} />
+          ) : rows.length === 0 ? (
+            <div className="k-surface">
+              <EmptyState
+                icon={FileText}
+                title={search !== "" || status !== "all" || category !== "all" || smart !== null ? "No matching documents" : "No documents yet"}
+                body="Create a controlled document to start managing it."
+                action={
+                  canManage ? (
+                    <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                      <Plus size={14} /> New document
+                    </Button>
+                  ) : undefined
+                }
+              />
+            </div>
+          ) : view === "list" ? (
+            <DocTable rows={rows} meId={me?.userId} onOpen={(id) => router.push(`/documents/${id}`)} />
+          ) : (
+            <DocGrid rows={rows} onOpen={(id) => router.push(`/documents/${id}`)} />
+          )}
+
+          {query.data?.nextCursor != null && rows.length > 0 && (
+            <p className="mt-4 text-center text-[12px] text-subtle">
+              Showing the first {rows.length}. Pagination & virtualization land with the shared table.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <DocumentCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+    </div>
+  );
+}
+
+function RailItem({
+  icon: Icon,
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  icon: typeof Folder;
+  label: string;
+  count?: number;
+  active: boolean;
+  onClick: () => void;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mb-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium"
+      style={{
+        background: active ? "var(--accent-soft)" : "transparent",
+        color: active ? "var(--accent)" : "var(--text)",
+      }}
+    >
+      <Icon size={15} className="shrink-0" />
+      <span className="flex-1 truncate text-left">{label}</span>
+      {count !== undefined && <span className="text-[11px] font-semibold text-subtle">{count}</span>}
+    </button>
+  );
+}
+
+function FrameworkChips({ frameworks }: { frameworks: string[] }): React.ReactElement {
+  if (frameworks.length === 0) return <span className="text-subtle">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {frameworks.slice(0, 2).map((f) => (
+        <Chip key={f} bg="var(--bg-subtle)" fg="var(--text-muted)" style={{ fontSize: 10, height: 18, padding: "2px 6px" }}>
+          {f}
+        </Chip>
+      ))}
+      {frameworks.length > 2 && <span className="self-center text-[10px] text-subtle">+{frameworks.length - 2}</span>}
+    </div>
+  );
+}
+
+function DocTable({
+  rows,
+  meId,
+  onOpen,
+}: {
+  rows: DocumentDto[];
+  meId: string | undefined;
+  onOpen: (id: string) => void;
+}): React.ReactElement {
+  return (
+    <div className="k-surface overflow-x-auto p-0">
+      <table className="k-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th style={{ width: 70 }}>Ver.</th>
+            <th style={{ width: 110 }}>Status</th>
+            <th style={{ width: 120 }}>Owner</th>
+            <th style={{ width: 120 }}>Approver</th>
+            <th style={{ width: 100 }}>Updated</th>
+            <th style={{ width: 100 }}>Expires</th>
+            <th style={{ width: 140 }}>Frameworks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((d) => {
+            const expiring = d.status === "approved" && isExpiringSoon(d.expiresAt);
+            return (
+              <tr key={d.id} className="cursor-pointer" onClick={() => onOpen(d.id)}>
+                <td>
+                  <div className="flex items-center gap-2.5">
+                    <span style={{ color: "var(--text-muted)" }}>
+                      <FileText size={18} strokeWidth={1.5} />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13px] font-semibold" title={d.title}>
+                        {d.title}
+                      </div>
+                      <div className="text-[11px] text-muted">
+                        <span className="mono">{d.code}</span> · {categoryLabel(d.category)}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td className="mono text-[12px] text-muted">v{d.version}</td>
+                <td>
+                  <DocStatus status={d.status} />
+                </td>
+                <td>
+                  <UserCell userId={d.ownerId} meId={meId} />
+                </td>
+                <td>
+                  <UserCell userId={d.approverId} meId={meId} />
+                </td>
+                <td className="whitespace-nowrap text-[12px] text-muted">{shortDate(d.updatedAt)}</td>
+                <td
+                  className="whitespace-nowrap text-[12px]"
+                  style={{ color: expiring ? "var(--warning-700)" : "var(--text-muted)", fontWeight: expiring ? 600 : 400 }}
+                >
+                  {shortDate(d.expiresAt)}
+                </td>
+                <td>
+                  <FrameworkChips frameworks={d.frameworks} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DocGrid({ rows, onOpen }: { rows: DocumentDto[]; onOpen: (id: string) => void }): React.ReactElement {
+  return (
+    <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+      {rows.map((d) => (
+        <button
+          key={d.id}
+          type="button"
+          onClick={() => onOpen(d.id)}
+          className="k-surface flex flex-col gap-3 p-4 text-left transition-shadow hover:shadow-md"
+        >
+          <div
+            className="flex h-[100px] items-center justify-center rounded-md"
+            style={{ background: "var(--bg-subtle)", color: "var(--text-muted)" }}
+          >
+            <FileText size={40} strokeWidth={1.5} />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold" title={d.title}>
+              {d.title}
+            </div>
+            <div className="text-[11px] text-muted">
+              v{d.version} · {shortDate(d.updatedAt)}
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <DocStatus status={d.status} />
+            <span className="text-[11px] text-subtle">{categoryLabel(d.category)}</span>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ListSkeleton(): React.ReactElement {
+  return (
+    <div className="k-surface flex flex-col gap-2 p-4">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <Skeleton key={i} className="h-11" />
+      ))}
+    </div>
+  );
+}
+
+function ErrorCard({ onRetry }: { onRetry: () => void }): React.ReactElement {
+  return (
+    <div className="k-surface">
+      <EmptyState
+        icon={FileText}
+        title="Couldn't load documents"
+        body="Something went wrong fetching the library."
+        action={
+          <Button variant="primary" onClick={onRetry}>
+            Retry
+          </Button>
+        }
+      />
+    </div>
+  );
+}
