@@ -632,14 +632,22 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       Revise (rejected→draft), New-version (approved, dialog) + Archive — all sending `lockVersion`
       (optimistic concurrency); Versions tab (real `listDocumentVersions` history with changelog/approvedBy/
       Current marker), Approvals tab (honest Author→Reviewer state), and a sidebar with Properties,
-      Compliance (frameworks), and the real **AI summary** (`aiSummary`). Author/approver capabilities gated
+      Compliance (frameworks), and the real **AI summary** (`aiSummary`). **Compliance-matrix view** added
+      (2026-07-26, the list/grid/**matrix** toggle now matches the prototype): a categories × frameworks
+      coverage grid — the framework columns are derived from the frameworks actually present on the loaded
+      docs, each cell the count of in-category docs tagged with that framework, plus a per-category coverage
+      bar — computed entirely from the real `category`/`frameworks` fields (no fabrication), verified live.
+      Author/approver capabilities gated
       (`document:manage` / `document:approve`). **Verified end-to-end** against the seeded API: the library
       rail + 3 docs render, the pending seed doc correctly **hides Approve/Reject for its author and shows
       "Awaiting review"** (four-eyes) with its AI summary, and Submit-for-review flipped a draft →pending
-      with a success toast (no console errors). **Faithful-fidelity deviations (logged):** the compliance-
-      matrix view, bulk-select toolbar, file-type icons/sizes, starred/recent smart views, the rendered
-      document Preview, and the fabricated 4-stage approval chain + Linked-records tab are omitted — they
-      need a files/preview pipeline or data the API doesn't serve. `UserCell` (You/short-id, no fabricated
+      with a success toast (no console errors). **Remaining deviations, now tiered (logged):** (Tier 2 —
+      needs a Files web slice; backend exists per 03 §7) file-type icons/sizes (`getFile` mime/size),
+      scan-gated Download, and a real document Preview all depend on the not-yet-built upload/attach flow;
+      (Tier 3 — needs NEW backend + a spec decision, so NOT built) starred/recent smart views (favorites +
+      view-tracking), the Linked-records tab (document↔record links), the multi-stage approval chain (the
+      API models one reviewer + four-eyes, not an N-stage workflow), and bulk Share/Move (no share-link /
+      category-change endpoints). The compliance-matrix view is now BUILT (see above). `UserCell` (You/short-id, no fabricated
       names) is duplicated across the ncr/capa/documents modules — a candidate to promote to
       `components/ui` later.
 - [~] All six UI states on every list/detail (04 §6) — loading/empty/error demonstrated on the dashboard;

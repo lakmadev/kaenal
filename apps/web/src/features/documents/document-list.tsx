@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, FileText, Folder, Clock, Eye, List, LayoutGrid } from "lucide-react";
+import { Plus, Search, FileText, Folder, Clock, Eye, List, LayoutGrid, Table, Check, ShieldCheck } from "lucide-react";
 import type { DocumentDto, DocumentCategory, DocumentStatus } from "@kaenal/types";
 import { shortDate } from "@/lib/format";
 import { useMe, hasCapability } from "@/hooks/use-me";
@@ -15,7 +15,7 @@ import { DocumentCreateDialog } from "./document-create-dialog";
 type CategoryFilter = "all" | DocumentCategory;
 type StatusFilter = "all" | DocumentStatus;
 type Smart = "expiring" | "review" | null;
-type View = "list" | "grid";
+type View = "list" | "grid" | "matrix";
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "All" },
@@ -64,6 +64,19 @@ export function DocumentList(): React.ReactElement {
         (q === "" || d.title.toLowerCase().includes(q) || d.code.toLowerCase().includes(q)),
     );
   }, [items, search, smart, category, status]);
+
+  // The compliance matrix is a cross-category lens, so it ignores the folder
+  // (category) selection — category is its row axis — but honours search/status/smart.
+  const matrixDocs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return items.filter(
+      (d) =>
+        (smart !== "expiring" || (d.status === "approved" && isExpiringSoon(d.expiresAt))) &&
+        (smart !== "review" || d.status === "pending") &&
+        (status === "all" || d.status === status) &&
+        (q === "" || d.title.toLowerCase().includes(q) || d.code.toLowerCase().includes(q)),
+    );
+  }, [items, search, smart, status]);
 
   const countFor = (id: CategoryFilter): number =>
     id === "all" ? items.length : items.filter((d) => d.category === id).length;
@@ -139,6 +152,7 @@ export function DocumentList(): React.ReactElement {
               options={[
                 { value: "list", icon: List, label: "" },
                 { value: "grid", icon: LayoutGrid, label: "" },
+                { value: "matrix", icon: Table, label: "" },
               ]}
             />
           </div>
@@ -150,6 +164,8 @@ export function DocumentList(): React.ReactElement {
             <ListSkeleton />
           ) : query.isError ? (
             <ErrorCard onRetry={() => void query.refetch()} />
+          ) : view === "matrix" ? (
+            <ComplianceMatrix docs={matrixDocs} />
           ) : rows.length === 0 ? (
             <div className="k-surface">
               <EmptyState
@@ -331,6 +347,105 @@ function DocGrid({ rows, onOpen }: { rows: DocumentDto[]; onOpen: (id: string) =
           </div>
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Compliance coverage matrix (the prototype's third view) — categories × the
+ * frameworks actually present on the loaded documents, each cell the count of
+ * docs in that category tagged with that framework, plus a per-category coverage
+ * bar. Computed entirely from real `category`/`frameworks` data (no fabrication).
+ */
+function ComplianceMatrix({ docs }: { docs: DocumentDto[] }): React.ReactElement {
+  const frameworks = useMemo(
+    () => [...new Set(docs.flatMap((d) => d.frameworks))].sort((a, b) => a.localeCompare(b)),
+    [docs],
+  );
+
+  if (frameworks.length === 0) {
+    return (
+      <div className="k-surface">
+        <EmptyState
+          icon={ShieldCheck}
+          title="No compliance data yet"
+          body="Tag documents with frameworks (e.g. IATF 16949, ISO 9001) to see coverage by category."
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="k-surface overflow-x-auto p-0">
+      <table className="k-table" style={{ minWidth: 640 }}>
+        <thead>
+          <tr>
+            <th>Document category</th>
+            {frameworks.map((f) => (
+              <th key={f} style={{ textAlign: "center", width: 130 }}>
+                {f}
+              </th>
+            ))}
+            <th style={{ textAlign: "center", width: 120 }}>Coverage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {CATEGORIES.map((cat) => {
+            const catDocs = docs.filter((d) => d.category === cat.id);
+            const covered = frameworks.filter((fw) => catDocs.some((d) => d.frameworks.includes(fw))).length;
+            const pct = Math.round((covered / frameworks.length) * 100);
+            const Icon = cat.icon;
+            return (
+              <tr key={cat.id}>
+                <td>
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      className="flex items-center justify-center rounded-[3px]"
+                      style={{ width: 28, height: 28, background: "var(--accent-soft)", color: "var(--accent)" }}
+                    >
+                      <Icon size={14} />
+                    </span>
+                    <div>
+                      <div className="text-[13px] font-semibold">{cat.label}</div>
+                      <div className="text-[11px] text-muted">
+                        {catDocs.length} {catDocs.length === 1 ? "document" : "documents"}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                {frameworks.map((fw) => {
+                  const n = catDocs.filter((d) => d.frameworks.includes(fw)).length;
+                  return (
+                    <td key={fw} style={{ textAlign: "center" }}>
+                      {n > 0 ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] font-semibold"
+                          style={{ background: "rgba(34,197,94,0.14)", color: "#15803d" }}
+                        >
+                          <Check size={12} strokeWidth={2.5} /> {n}
+                        </span>
+                      ) : (
+                        <span className="text-[12px] text-subtle">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+                <td>
+                  <div className="flex items-center gap-2">
+                    <div className="h-1.5 w-[60px] overflow-hidden rounded-full" style={{ background: "var(--bg-subtle)" }}>
+                      <div
+                        className="h-full"
+                        style={{ width: `${pct}%`, background: pct === 100 ? "var(--success-500)" : "var(--accent)" }}
+                      />
+                    </div>
+                    <span className="mono text-[12px] font-semibold">{pct}%</span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
