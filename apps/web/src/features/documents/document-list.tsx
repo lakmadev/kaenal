@@ -2,14 +2,22 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, FileText, Folder, Clock, Eye, List, LayoutGrid, Table, Check, ShieldCheck } from "lucide-react";
+import { Plus, Search, FileText, Folder, Clock, Eye, List, LayoutGrid, Table, Check, ShieldCheck, Upload } from "lucide-react";
 import type { DocumentDto, DocumentCategory, DocumentStatus } from "@kaenal/types";
 import { shortDate } from "@/lib/format";
 import { useMe, hasCapability } from "@/hooks/use-me";
 import { useDocuments } from "@/hooks/use-documents";
 import { PageHeader } from "@/components/page-header";
 import { Button, Segmented, Chip, EmptyState, Skeleton } from "@/components/ui";
-import { CATEGORIES, categoryLabel, DocStatus, UserCell } from "./document-bits";
+import {
+  CATEGORIES,
+  categoryLabel,
+  fileTypeIcon,
+  formatBytes,
+  DocStatus,
+  UserCell,
+  UserAvatar,
+} from "./document-bits";
 import { DocumentCreateDialog } from "./document-create-dialog";
 
 type CategoryFilter = "all" | DocumentCategory;
@@ -32,8 +40,7 @@ function daysUntil(iso: string): number {
 }
 function isExpiringSoon(iso: string | null): boolean {
   if (iso === null) return false;
-  const d = daysUntil(iso);
-  return d <= 90;
+  return daysUntil(iso) <= 90;
 }
 
 export function DocumentList(): React.ReactElement {
@@ -43,15 +50,24 @@ export function DocumentList(): React.ReactElement {
 
   const [category, setCategory] = useState<CategoryFilter>("all");
   const [smart, setSmart] = useState<Smart>(null);
+  const [framework, setFramework] = useState<string | null>(null);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<View>("list");
   const [createOpen, setCreateOpen] = useState(false);
+  const [createWithFile, setCreateWithFile] = useState(false);
 
   // The library spans every category/status, so we load one page and narrow it
   // client-side (mirrors the NCR/CAPA modules until virtualized paging).
   const query = useDocuments();
   const items = useMemo(() => query.data?.items ?? [], [query.data]);
+
+  // Frameworks actually present on the loaded documents drive the rail's
+  // Compliance filter — no hard-coded standards that don't match the data.
+  const frameworks = useMemo(
+    () => [...new Set(items.flatMap((d) => d.frameworks))].sort((a, b) => a.localeCompare(b)),
+    [items],
+  );
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -60,13 +76,15 @@ export function DocumentList(): React.ReactElement {
         (smart !== "expiring" || (d.status === "approved" && isExpiringSoon(d.expiresAt))) &&
         (smart !== "review" || d.status === "pending") &&
         (category === "all" || d.category === category) &&
+        (framework === null || d.frameworks.includes(framework)) &&
         (status === "all" || d.status === status) &&
         (q === "" || d.title.toLowerCase().includes(q) || d.code.toLowerCase().includes(q)),
     );
-  }, [items, search, smart, category, status]);
+  }, [items, search, smart, category, framework, status]);
 
-  // The compliance matrix is a cross-category lens, so it ignores the folder
-  // (category) selection — category is its row axis — but honours search/status/smart.
+  // The compliance matrix is a cross-category, cross-framework lens, so it
+  // ignores the folder (its row axis) and framework (its column axis), honouring
+  // only search/status/smart.
   const matrixDocs = useMemo(() => {
     const q = search.trim().toLowerCase();
     return items.filter(
@@ -82,21 +100,34 @@ export function DocumentList(): React.ReactElement {
     id === "all" ? items.length : items.filter((d) => d.category === id).length;
 
   const headerTitle =
-    smart === "expiring"
-      ? "Expiring soon"
-      : smart === "review"
-        ? "Pending review"
-        : category === "all"
-          ? "All Documents"
-          : categoryLabel(category);
+    framework !== null
+      ? framework
+      : smart === "expiring"
+        ? "Expiring soon"
+        : smart === "review"
+          ? "Pending review"
+          : category === "all"
+            ? "All Documents"
+            : categoryLabel(category);
 
   const pickCategory = (id: CategoryFilter): void => {
     setCategory(id);
     setSmart(null);
+    setFramework(null);
   };
   const pickSmart = (s: Exclude<Smart, null>): void => {
     setSmart((v) => (v === s ? null : s));
     setCategory("all");
+    setFramework(null);
+  };
+  const pickFramework = (f: string): void => {
+    setFramework((v) => (v === f ? null : f));
+    setSmart(null);
+  };
+
+  const openCreate = (withFile: boolean): void => {
+    setCreateWithFile(withFile);
+    setCreateOpen(true);
   };
 
   return (
@@ -104,14 +135,23 @@ export function DocumentList(): React.ReactElement {
       {/* Library rail */}
       <div className="w-[240px] shrink-0 overflow-y-auto border-r border-border bg-surface px-3 py-4">
         <div className="k-overline px-2 pb-2">Library</div>
-        <RailItem icon={Folder} label="All Documents" count={countFor("all")} active={category === "all" && smart === null} onClick={() => pickCategory("all")} />
+        <RailItem icon={Folder} label="All Documents" count={countFor("all")} active={category === "all" && smart === null && framework === null} onClick={() => pickCategory("all")} />
         {CATEGORIES.map((c) => (
-          <RailItem key={c.id} icon={c.icon} label={c.label} count={countFor(c.id)} active={category === c.id && smart === null} onClick={() => pickCategory(c.id)} />
+          <RailItem key={c.id} icon={c.icon} color={c.color} label={c.label} count={countFor(c.id)} active={category === c.id && smart === null && framework === null} onClick={() => pickCategory(c.id)} />
         ))}
 
         <div className="k-overline px-2 pb-2 pt-5">Smart views</div>
-        <RailItem icon={Clock} label="Expiring soon" active={smart === "expiring"} onClick={() => pickSmart("expiring")} />
-        <RailItem icon={Eye} label="Pending review" active={smart === "review"} onClick={() => pickSmart("review")} />
+        <RailItem icon={Clock} color="var(--warning-600)" label="Expiring soon" active={smart === "expiring"} onClick={() => pickSmart("expiring")} />
+        <RailItem icon={Eye} color="var(--info-600)" label="Pending review" active={smart === "review"} onClick={() => pickSmart("review")} />
+
+        {frameworks.length > 0 && (
+          <>
+            <div className="k-overline px-2 pb-2 pt-5">Compliance</div>
+            {frameworks.map((f) => (
+              <RailItem key={f} icon={ShieldCheck} label={f} active={framework === f} onClick={() => pickFramework(f)} />
+            ))}
+          </>
+        )}
       </div>
 
       {/* Main */}
@@ -122,9 +162,14 @@ export function DocumentList(): React.ReactElement {
             description={`${rows.length} of ${items.length} documents`}
             actions={
               canManage ? (
-                <Button variant="primary" onClick={() => setCreateOpen(true)}>
-                  <Plus size={14} /> New document
-                </Button>
+                <>
+                  <Button variant="ghost" onClick={() => openCreate(true)}>
+                    <Upload size={14} /> Upload
+                  </Button>
+                  <Button variant="primary" onClick={() => openCreate(false)}>
+                    <Plus size={14} /> New document
+                  </Button>
+                </>
               ) : undefined
             }
           />
@@ -170,11 +215,11 @@ export function DocumentList(): React.ReactElement {
             <div className="k-surface">
               <EmptyState
                 icon={FileText}
-                title={search !== "" || status !== "all" || category !== "all" || smart !== null ? "No matching documents" : "No documents yet"}
+                title={search !== "" || status !== "all" || category !== "all" || smart !== null || framework !== null ? "No matching documents" : "No documents yet"}
                 body="Create a controlled document to start managing it."
                 action={
                   canManage ? (
-                    <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                    <Button variant="primary" onClick={() => openCreate(false)}>
                       <Plus size={14} /> New document
                     </Button>
                   ) : undefined
@@ -195,19 +240,21 @@ export function DocumentList(): React.ReactElement {
         </div>
       </div>
 
-      <DocumentCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <DocumentCreateDialog open={createOpen} onOpenChange={setCreateOpen} fileFirst={createWithFile} />
     </div>
   );
 }
 
 function RailItem({
   icon: Icon,
+  color,
   label,
   count,
   active,
   onClick,
 }: {
   icon: typeof Folder;
+  color?: string;
   label: string;
   count?: number;
   active: boolean;
@@ -223,7 +270,7 @@ function RailItem({
         color: active ? "var(--accent)" : "var(--text)",
       }}
     >
-      <Icon size={15} className="shrink-0" />
+      <Icon size={15} className="shrink-0" style={{ color: active ? "var(--accent)" : color }} />
       <span className="flex-1 truncate text-left">{label}</span>
       {count !== undefined && <span className="text-[11px] font-semibold text-subtle">{count}</span>}
     </button>
@@ -271,12 +318,14 @@ function DocTable({
         <tbody>
           {rows.map((d) => {
             const expiring = d.status === "approved" && isExpiringSoon(d.expiresAt);
+            const { Icon, color } = fileTypeIcon(d.fileMime);
+            const size = formatBytes(d.fileSizeBytes);
             return (
               <tr key={d.id} className="cursor-pointer" onClick={() => onOpen(d.id)}>
                 <td>
                   <div className="flex items-center gap-2.5">
-                    <span style={{ color: "var(--text-muted)" }}>
-                      <FileText size={18} strokeWidth={1.5} />
+                    <span style={{ color }}>
+                      <Icon size={20} strokeWidth={1.5} />
                     </span>
                     <div className="min-w-0">
                       <div className="truncate text-[13px] font-semibold" title={d.title}>
@@ -284,6 +333,8 @@ function DocTable({
                       </div>
                       <div className="text-[11px] text-muted">
                         <span className="mono">{d.code}</span> · {categoryLabel(d.category)}
+                        {size !== null && ` · ${size}`}
+                        {expiring && <span className="ml-1.5 font-semibold" style={{ color: "var(--warning-600)" }}>● Expiring</span>}
                       </div>
                     </div>
                   </div>
@@ -320,33 +371,35 @@ function DocTable({
 function DocGrid({ rows, onOpen }: { rows: DocumentDto[]; onOpen: (id: string) => void }): React.ReactElement {
   return (
     <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-      {rows.map((d) => (
-        <button
-          key={d.id}
-          type="button"
-          onClick={() => onOpen(d.id)}
-          className="k-surface flex flex-col gap-3 p-4 text-left transition-shadow hover:shadow-md"
-        >
-          <div
-            className="flex h-[100px] items-center justify-center rounded-md"
-            style={{ background: "var(--bg-subtle)", color: "var(--text-muted)" }}
+      {rows.map((d) => {
+        const { Icon, color } = fileTypeIcon(d.fileMime);
+        const size = formatBytes(d.fileSizeBytes);
+        return (
+          <button
+            key={d.id}
+            type="button"
+            onClick={() => onOpen(d.id)}
+            className="k-surface flex flex-col gap-3 p-4 text-left transition-shadow hover:shadow-md"
           >
-            <FileText size={40} strokeWidth={1.5} />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold" title={d.title}>
-              {d.title}
+            <div className="flex h-[100px] items-center justify-center rounded-md" style={{ background: "var(--bg-subtle)", color }}>
+              <Icon size={42} strokeWidth={1.5} />
             </div>
-            <div className="text-[11px] text-muted">
-              v{d.version} · {shortDate(d.updatedAt)}
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-semibold" title={d.title}>
+                {d.title}
+              </div>
+              <div className="text-[11px] text-muted">
+                v{d.version}
+                {size !== null && ` · ${size}`} · {shortDate(d.updatedAt)}
+              </div>
             </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <DocStatus status={d.status} />
-            <span className="text-[11px] text-subtle">{categoryLabel(d.category)}</span>
-          </div>
-        </button>
-      ))}
+            <div className="flex items-center justify-between">
+              <DocStatus status={d.status} />
+              <UserAvatar />
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -401,7 +454,7 @@ function ComplianceMatrix({ docs }: { docs: DocumentDto[] }): React.ReactElement
                   <div className="flex items-center gap-2.5">
                     <span
                       className="flex items-center justify-center rounded-[3px]"
-                      style={{ width: 28, height: 28, background: "var(--accent-soft)", color: "var(--accent)" }}
+                      style={{ width: 28, height: 28, background: `${cat.color}18`, color: cat.color }}
                     >
                       <Icon size={14} />
                     </span>

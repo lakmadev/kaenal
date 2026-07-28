@@ -1,7 +1,11 @@
 import type {
+  AuditEventDto,
   CapaDto,
+  CommentDto,
   DocumentDto,
   DocumentVersionDto,
+  EntityKind,
+  EntityLinkDto,
   FileDto,
   InspectionDto,
   MeDto,
@@ -127,6 +131,30 @@ export const apiQueries = {
     detail: (client: ApiClient, id: string): QueryOption<FileDto> => ({
       queryKey: queryKeys.files.detail(id),
       queryFn: () => client.getFile({ params: { id } }).then((r) => unwrap<FileDto>(r)),
+    }),
+  },
+
+  comments: {
+    list: (client: ApiClient, entityKind: EntityKind, entityId: string): QueryOption<Page<CommentDto>> => ({
+      queryKey: queryKeys.comments.list(entityKind, entityId),
+      queryFn: () =>
+        client.listComments({ query: { entityKind, entityId, limit: 100 } }).then((r) => unwrap<Page<CommentDto>>(r)),
+    }),
+  },
+
+  entityLinks: {
+    list: (client: ApiClient, entityKind: EntityKind, entityId: string): QueryOption<Page<EntityLinkDto>> => ({
+      queryKey: queryKeys.entityLinks.list(entityKind, entityId),
+      queryFn: () =>
+        client.listEntityLinks({ query: { entityKind, entityId } }).then((r) => unwrap<Page<EntityLinkDto>>(r)),
+    }),
+  },
+
+  auditEvents: {
+    list: (client: ApiClient, entityKind: EntityKind, entityId: string): QueryOption<Page<AuditEventDto>> => ({
+      queryKey: queryKeys.auditEvents.list(entityKind, entityId),
+      queryFn: () =>
+        client.listAuditEvents({ query: { entityKind, entityId, limit: 50 } }).then((r) => unwrap<Page<AuditEventDto>>(r)),
     }),
   },
 

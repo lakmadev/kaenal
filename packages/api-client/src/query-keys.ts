@@ -40,6 +40,20 @@ export const queryKeys = {
     detail: (id: string) => ["files", "detail", id] as const,
   },
 
+  comments: {
+    all: ["comments"] as const,
+    list: (entityKind: string, entityId: string) => ["comments", entityKind, entityId] as const,
+  },
+
+  entityLinks: {
+    all: ["entity-links"] as const,
+    list: (entityKind: string, entityId: string) => ["entity-links", entityKind, entityId] as const,
+  },
+
+  auditEvents: {
+    list: (entityKind: string, entityId: string) => ["audit-events", entityKind, entityId] as const,
+  },
+
   notifications: {
     all: ["notifications"] as const,
     list: (params?: unknown) => ["notifications", "list", params ?? null] as const,

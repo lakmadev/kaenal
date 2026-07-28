@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -14,8 +14,12 @@ import {
   Sparkles,
   FileText,
   Clock,
+  Eye,
+  Download,
+  Link2,
+  ArrowRight,
 } from "lucide-react";
-import type { DocumentDto, DocumentVersionDto } from "@kaenal/types";
+import type { DocumentDto, DocumentVersionDto, EntityKind, EntityLinkDto, FileDto } from "@kaenal/types";
 import { cn } from "@/lib/cn";
 import { longDate } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
@@ -27,6 +31,8 @@ import {
   useReviewDocument,
   useNewDocumentVersion,
 } from "@/hooks/use-documents";
+import { useDownloadFile } from "@/hooks/use-files";
+import { useEntityLinks } from "@/hooks/use-entity-links";
 import {
   Button,
   Dialog,
@@ -38,9 +44,30 @@ import {
   EmptyState,
   useToast,
 } from "@/components/ui";
-import { DocStatus, UserCell, categoryLabel } from "./document-bits";
+import { DocStatus, UserCell, categoryLabel, fileTypeIcon, formatBytes } from "./document-bits";
+import { FileDrop } from "./file-drop";
 
-type Tab = "versions" | "approvals";
+type Tab = "preview" | "versions" | "approvals" | "links";
+
+/** Where each linkable entity kind lives in the web app (for "Open" on links). */
+const ENTITY_ROUTE: Record<EntityKind, string> = {
+  inspection: "inspections",
+  ncr: "ncrs",
+  eight_d: "8d",
+  audit: "audits",
+  capa: "capa",
+  document: "documents",
+  supplier: "suppliers",
+};
+const ENTITY_LABEL: Record<EntityKind, string> = {
+  inspection: "Inspection",
+  ncr: "NCR",
+  eight_d: "8D",
+  audit: "Audit",
+  capa: "CAPA",
+  document: "Document",
+  supplier: "Supplier",
+};
 
 export function DocumentDetail({ id }: { id: string }): React.ReactElement {
   const router = useRouter();
@@ -85,7 +112,8 @@ function DocumentDetailView({
   const transition = useTransitionDocument();
   const review = useReviewDocument();
   const newVersion = useNewDocumentVersion();
-  const [tab, setTab] = useState<Tab>("versions");
+  const download = useDownloadFile();
+  const [tab, setTab] = useState<Tab>("preview");
   const [rejectOpen, setRejectOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
 
@@ -120,9 +148,17 @@ function DocumentDetailView({
       },
     );
 
-  const openVersion = (nextVersion: string, changelog: string): void =>
+  const openVersion = (nextVersion: string, changelog: string, fileId: string | null): void =>
     newVersion.mutate(
-      { id: doc.id, body: { nextVersion, version: doc.lockVersion, ...(changelog !== "" ? { changelog } : {}) } },
+      {
+        id: doc.id,
+        body: {
+          nextVersion,
+          version: doc.lockVersion,
+          ...(changelog !== "" ? { changelog } : {}),
+          ...(fileId !== null ? { fileId } : {}),
+        },
+      },
       {
         onSuccess: () => {
           toast.success(`Draft v${nextVersion} opened`);
@@ -131,6 +167,14 @@ function DocumentDetailView({
         onError: (e) => toast.error(errorMessage(e)),
       },
     );
+
+  const doDownload = (): void => {
+    if (doc.fileId === null) return;
+    download.mutate(doc.fileId, {
+      onSuccess: (r) => window.open(r.url, "_blank", "noopener,noreferrer"),
+      onError: (e) => toast.error(errorMessage(e)),
+    });
+  };
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 p-6">
@@ -147,11 +191,19 @@ function DocumentDetailView({
               <DocStatus status={doc.status} />
               <span className="mono text-[12px] text-muted">v{doc.version}</span>
               <span className="text-[12px] text-muted">· {categoryLabel(doc.category)}</span>
+              {formatBytes(doc.fileSizeBytes) !== null && (
+                <span className="text-[12px] text-muted">· {formatBytes(doc.fileSizeBytes)}</span>
+              )}
             </div>
             <h1 className="text-[22px] font-bold tracking-tight">{doc.title}</h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {doc.fileId !== null && (
+              <Button variant="ghost" loading={download.isPending} onClick={doDownload}>
+                <Download size={14} /> Download
+              </Button>
+            )}
             {doc.status === "draft" && canManage && (
               <Button variant="primary" loading={busy} onClick={() => runTransition("pending", `${doc.code} submitted for review`)}>
                 <Send size={14} /> Submit for review
@@ -195,16 +247,24 @@ function DocumentDetailView({
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_300px]">
         <div>
           <div className="k-tabs mb-3.5">
+            <button type="button" className={cn("k-tab", tab === "preview" && "active")} onClick={() => setTab("preview")}>
+              <Eye size={13} /> Preview
+            </button>
             <button type="button" className={cn("k-tab", tab === "versions" && "active")} onClick={() => setTab("versions")}>
               <History size={13} /> Versions
             </button>
             <button type="button" className={cn("k-tab", tab === "approvals" && "active")} onClick={() => setTab("approvals")}>
               <ShieldCheck size={13} /> Approvals
             </button>
+            <button type="button" className={cn("k-tab", tab === "links" && "active")} onClick={() => setTab("links")}>
+              <Link2 size={13} /> Linked records
+            </button>
           </div>
 
+          {tab === "preview" && <PreviewTab doc={doc} />}
           {tab === "versions" && <VersionsTab id={doc.id} currentVersion={doc.version} meId={meId} />}
           {tab === "approvals" && <ApprovalsTab doc={doc} meId={meId} />}
+          {tab === "links" && <LinkedTab docId={doc.id} onOpen={(kind, id) => router.push(`/${ENTITY_ROUTE[kind]}/${id}`)} />}
         </div>
 
         {/* Sidebar */}
@@ -221,6 +281,14 @@ function DocumentDetailView({
               <Meta label="Category">
                 <span className="text-[12.5px]">{categoryLabel(doc.category)}</span>
               </Meta>
+              {doc.fileMime !== null && (
+                <Meta label="File">
+                  <span className="text-[12.5px]">
+                    {fileTypeLabel(doc.fileMime)}
+                    {formatBytes(doc.fileSizeBytes) !== null && ` · ${formatBytes(doc.fileSizeBytes)}`}
+                  </span>
+                </Meta>
+              )}
               <Meta label="Version">
                 <span className="mono text-[12px]">v{doc.version}</span>
               </Meta>
@@ -268,6 +336,113 @@ function DocumentDetailView({
 
       <RejectDialog open={rejectOpen} onOpenChange={setRejectOpen} loading={review.isPending} onConfirm={reject} />
       <NewVersionDialog open={versionOpen} onOpenChange={setVersionOpen} loading={newVersion.isPending} onConfirm={openVersion} />
+    </div>
+  );
+}
+
+function fileTypeLabel(mime: string): string {
+  if (mime === "application/pdf") return "PDF";
+  if (mime.startsWith("image/")) return `Image (${mime.slice(6).toUpperCase()})`;
+  if (mime.includes("sheet") || mime.includes("excel")) return "Spreadsheet";
+  if (mime.includes("word") || mime.includes("document")) return "Word document";
+  return mime;
+}
+
+/**
+ * Renders the attached file inline (04 §9 "viewer"). PDFs and images embed via a
+ * short-TTL presigned URL fetched once when the tab opens (the fetch is the
+ * audited download event, 07 §1); other types offer a download instead.
+ */
+function PreviewTab({ doc }: { doc: DocumentDto }): React.ReactElement {
+  const download = useDownloadFile();
+  const [url, setUrl] = useState<string | null>(null);
+  const requested = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (doc.fileId === null || requested.current === doc.fileId) return;
+    requested.current = doc.fileId;
+    download.mutate(doc.fileId, {
+      onSuccess: (r) => setUrl(r.url),
+      onError: () => setUrl(null),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.fileId]);
+
+  if (doc.fileId === null) {
+    return (
+      <div className="k-surface">
+        <EmptyState icon={FileText} title="No file attached" body="Attach a file by opening a new version of this document." />
+      </div>
+    );
+  }
+  if (download.isPending || url === null) {
+    return <Skeleton className="h-[520px] rounded-xl" />;
+  }
+
+  const mime = doc.fileMime ?? "";
+  const { Icon, color } = fileTypeIcon(doc.fileMime);
+  return (
+    <div className="k-surface overflow-hidden p-3">
+      {mime === "application/pdf" ? (
+        <iframe title="Document preview" src={url} className="h-[560px] w-full rounded-md border border-border" />
+      ) : mime.startsWith("image/") ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={doc.title} className="mx-auto max-h-[560px] rounded-md" />
+      ) : (
+        <div className="flex flex-col items-center gap-3 py-16 text-center">
+          <span style={{ color }}>
+            <Icon size={44} strokeWidth={1.5} />
+          </span>
+          <p className="text-[13px] text-muted">Inline preview isn&apos;t available for this file type.</p>
+          <Button variant="primary" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}>
+            <Download size={14} /> Download to view
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LinkedTab({
+  docId,
+  onOpen,
+}: {
+  docId: string;
+  onOpen: (kind: EntityKind, id: string) => void;
+}): React.ReactElement {
+  const query = useEntityLinks("document", docId);
+  if (query.isLoading) return <Skeleton className="h-40 rounded-xl" />;
+  const links = query.data?.items ?? [];
+  if (links.length === 0) {
+    return (
+      <div className="k-surface">
+        <EmptyState icon={Link2} title="No linked records" body="Records that cite or reference this document appear here." />
+      </div>
+    );
+  }
+  // Show the end OPPOSITE this document.
+  const other = (l: EntityLinkDto): { kind: EntityKind; id: string } =>
+    l.fromKind === "document" && l.fromId === docId ? { kind: l.toKind, id: l.toId } : { kind: l.fromKind, id: l.fromId };
+
+  return (
+    <div className="flex flex-col gap-2">
+      {links.map((l) => {
+        const o = other(l);
+        return (
+          <div key={l.id} className="k-surface flex items-center gap-3 p-3">
+            <div className="flex-1">
+              <Chip bg="var(--bg-subtle)" fg="var(--text-muted)">
+                {ENTITY_LABEL[o.kind]}
+              </Chip>
+              <span className="mono ml-2 text-[12px] text-muted">{o.id.slice(0, 8)}</span>
+              <span className="ml-2 text-[12px] text-subtle">· {l.relation}</span>
+            </div>
+            <Button variant="ghost" onClick={() => onOpen(o.kind, o.id)}>
+              Open <ArrowRight size={12} />
+            </Button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -448,12 +623,20 @@ function NewVersionDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   loading: boolean;
-  onConfirm: (nextVersion: string, changelog: string) => void;
+  onConfirm: (nextVersion: string, changelog: string, fileId: string | null) => void;
 }): React.ReactElement {
   const [nextVersion, setNextVersion] = useState("");
   const [changelog, setChangelog] = useState("");
+  const [file, setFile] = useState<FileDto | null>(null);
+
+  const reset = (): void => {
+    setNextVersion("");
+    setChangelog("");
+    setFile(null);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
       <DialogContent
         title="Open a new version"
         description="Opens a fresh draft version. The current approved version stays approved and auditable until the new one is approved."
@@ -463,6 +646,9 @@ function NewVersionDialog({
             {(a) => (
               <Input {...a} autoFocus value={nextVersion} onChange={(e) => setNextVersion(e.target.value)} placeholder="e.g. 2.0" />
             )}
+          </Field>
+          <Field label="File" hint="Optional — the revised controlled file">
+            {() => <FileDrop value={file} onChange={setFile} />}
           </Field>
           <Field label="Changelog">
             {(a) => (
@@ -485,7 +671,7 @@ function NewVersionDialog({
               variant="primary"
               loading={loading}
               disabled={nextVersion.trim() === ""}
-              onClick={() => onConfirm(nextVersion.trim(), changelog.trim())}
+              onClick={() => onConfirm(nextVersion.trim(), changelog.trim(), file?.id ?? null)}
             >
               Open draft version
             </Button>
