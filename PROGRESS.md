@@ -650,6 +650,35 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       category-change endpoints). The compliance-matrix view is now BUILT (see above). `UserCell` (You/short-id, no fabricated
       names) is duplicated across the ncr/capa/documents modules — a candidate to promote to
       `components/ui` later.
+      **Documents backend depth + upload/preview/fidelity (2026-07-28, `feat/web-documents`):** closed the
+      logged Documents deviations that were genuinely in scope, backend-first.
+      *Collaboration backend* (`apps/api/src/collab/`, commit 8aaad99) — the three FEATURES §9/§329 gaps,
+      generic over a new `EntityKind` enum so they serve every module: **Comments** (list/create/soft-delete,
+      audited `commented` on the parent, author-only delete, parent-visibility 404; the `comments` table
+      already existed in 0001), **Access log** (`GET /v1/audit-events` — a payload-free projection of
+      `audit_events` for one record, no before/after leak), **Entity links** (migration 0018 adds
+      `entity_links` with RLS+FORCE+tenant indexes+composite member FK and the `linked`/`unlinked` audit
+      actions; directed edges read from both ends; dedupe/self-link/cross-tenant-404). Tests: `collab.test.ts`
+      (4) + RLS suite now 227 (entity_links fixture added). *Upload unblocked* (commit 51d826e) — **BullMQ
+      bug fix**: `BullMqProducer` used `:` in custom job ids (`scan:<id>`…), which BullMQ rejects ("Custom Id
+      cannot contain :"), 500-ing `POST /v1/files/:id/complete` whenever jobs are enabled; tests run with
+      jobs OFF so it was latent. Switched to `-` + added a real-BullMQ regression test. `DocumentDto` now
+      carries `fileMime`/`fileSizeBytes` (correlated subqueries on list/get, no N+1). *FE* (commit a83bca5):
+      `use-files` (presign→PUT-with-XHR-progress→complete, scan-gated download), `FileDrop` drag-drop
+      (upload-flow.jsx) wired into the create + new-version dialogs (attach `fileId`), an **Upload** header
+      button; detail gains a **Preview** tab (renders the attached PDF/image via a presigned URL — the
+      audited download), a **Download** action, a File row in Properties, and a **Linked records** tab reading
+      real `entity_links`; the rail gains **folder colours** + a **Compliance framework filter**; list/grid
+      show real **file-type icons+colours+sizes**. **Verified end-to-end live**: upload (presign→MinIO PUT
+      200→complete 200 after the fix), a doc created with the file shows the PDF icon + "68 B" + framework
+      chips + the Compliance rail filter, detail shows Download + FILE property + the Preview iframe (download
+      200, no console errors) + the Linked-records empty state. **Still deferred (logged, NOT built):** the
+      bulk-select toolbar — its Share/Move actions have no backend and multi-file zip is an unbuilt export
+      job (all mock-only per the scope decision); starred/recently-viewed smart views (need favorites +
+      view-tracking tables) and the multi-stage approval chain (contradicts the settled single-`approver_id`
+      model, 02 §4) — jsx-only, out of scope. Comments + Access-log backends are built + client-ready but not
+      surfaced on the Documents detail (documents.jsx has no such tabs — they'll appear where a module's
+      design includes them); entity-links has no create/delete UI yet (populated by API/cross-module flows).
 - [~] All six UI states on every list/detail (04 §6) — loading/empty/error demonstrated on the dashboard;
       stale-write (409), offline, and per-capability hiding land with the first CRUD module
 
