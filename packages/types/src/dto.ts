@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   AiConfidence,
   AiFeature,
+  AuditAction,
   AuditFindingKind,
   AuditPhase,
   AuditType,
@@ -11,6 +12,7 @@ import {
   DocumentCategory,
   DocumentStatus,
   EightDStatus,
+  EntityKind,
   EightDStepStatus,
   ExportFormat,
   ExportResource,
@@ -773,3 +775,80 @@ export const AiSummaryDto = z.object({
   lockVersion: z.number().int().nonnegative(),
 });
 export type AiSummaryDto = z.infer<typeof AiSummaryDto>;
+
+// --- Collaboration: comments, links, access log -----------------------------
+// FEATURES §9 (document detail = "related items · access log · comments") and
+// §329 (the cross-module linkage graph). These are generic over EntityKind so
+// the same three endpoints serve documents, NCRs, 8Ds, audits, CAPAs, etc.
+
+/** A `?entityKind=&entityId=` selector shared by the comments and links lists. */
+export const EntityRefQuery = z.object({
+  entityKind: EntityKind,
+  entityId: z.string().uuid(),
+});
+export type EntityRefQuery = z.infer<typeof EntityRefQuery>;
+
+export const CommentDto = z.object({
+  id: z.string().uuid(),
+  entityKind: EntityKind,
+  entityId: z.string().uuid(),
+  authorId: z.string().uuid(),
+  body: z.string(),
+  parentId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type CommentDto = z.infer<typeof CommentDto>;
+
+export const CreateCommentBody = z.object({
+  entityKind: EntityKind,
+  entityId: z.string().uuid(),
+  body: z.string().min(1).max(4000),
+  /** Threaded reply — must be a comment on the same entity. */
+  parentId: z.string().uuid().nullable().optional(),
+});
+export type CreateCommentBody = z.infer<typeof CreateCommentBody>;
+
+/**
+ * One row of an entity's access log — a projection of `audit_events` that
+ * deliberately omits `before`/`after` (which can carry changed field values) so
+ * the log reveals who did what and when without leaking payloads (07 §1).
+ */
+export const AuditEventDto = z.object({
+  id: z.string().uuid(),
+  entityKind: z.string(),
+  entityId: z.string().uuid(),
+  actorId: z.string().uuid().nullable(),
+  actorKind: z.string(),
+  action: AuditAction,
+  reason: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type AuditEventDto = z.infer<typeof AuditEventDto>;
+
+/**
+ * A directed link between two records (FEATURES §329). `relation` is a free
+ * label ("linked", "containment_wi", "reference", …). The link is stored once
+ * from `from` → `to`; the detail view queries links touching a record on either
+ * side, so a document sees the NCR that cites it and the audit that sampled it.
+ */
+export const EntityLinkDto = z.object({
+  id: z.string().uuid(),
+  fromKind: EntityKind,
+  fromId: z.string().uuid(),
+  toKind: EntityKind,
+  toId: z.string().uuid(),
+  relation: z.string(),
+  /** The end OPPOSITE the queried record — what the detail view renders. */
+  createdAt: z.string().datetime(),
+});
+export type EntityLinkDto = z.infer<typeof EntityLinkDto>;
+
+export const CreateEntityLinkBody = z.object({
+  fromKind: EntityKind,
+  fromId: z.string().uuid(),
+  toKind: EntityKind,
+  toId: z.string().uuid(),
+  relation: z.string().min(1).max(64).optional(),
+});
+export type CreateEntityLinkBody = z.infer<typeof CreateEntityLinkBody>;

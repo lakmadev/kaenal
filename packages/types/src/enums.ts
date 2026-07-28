@@ -268,6 +268,24 @@ export type ExportStatus = z.infer<typeof ExportStatus>;
 export const ActorKind = defineEnum(["user", "system", "api_key", "support"]);
 export type ActorKind = z.infer<typeof ActorKind>;
 
+/**
+ * Top-level entity kinds that carry comments, cross-links, and an access log
+ * (FEATURES §9 "related items · access log · comments"; §329 linkage graph).
+ * Free-text `entity_kind` columns (comments, audit_events, entity_links) are
+ * validated against this closed set at the API edge so a typo can't orphan a
+ * comment or a link.
+ */
+export const EntityKind = defineEnum([
+  "inspection",
+  "ncr",
+  "eight_d",
+  "audit",
+  "capa",
+  "document",
+  "supplier",
+]);
+export type EntityKind = z.infer<typeof EntityKind>;
+
 export const AuditAction = defineEnum([
   "created",
   "updated",
@@ -281,6 +299,8 @@ export const AuditAction = defineEnum([
   "deleted",
   "restored",
   "purged",
+  "linked",
+  "unlinked",
   "signed_in",
   "sign_in_failed",
   "signed_out",

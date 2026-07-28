@@ -193,6 +193,12 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
   );
 
   await q(
+    `INSERT INTO entity_links (tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by)
+     VALUES ($1, 'document', $2, 'ncr', $3, 'reference', $4) RETURNING id`,
+    [t, documentId, ncrId, userId],
+  );
+
+  await q(
     `INSERT INTO counters (tenant_id, kind, year, value) VALUES ($1, 'ncr', 2026, 1) RETURNING id`,
     [t],
   );

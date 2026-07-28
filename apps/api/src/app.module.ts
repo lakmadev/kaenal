@@ -49,6 +49,12 @@ import { SearchController } from "./search/search.controller.js";
 import { SearchService } from "./search/search.service.js";
 import { NotificationsController } from "./notifications/notifications.controller.js";
 import { NotificationsService } from "./notifications/notifications.service.js";
+import { CommentsController } from "./collab/comments.controller.js";
+import { CommentsService } from "./collab/comments.service.js";
+import { AuditLogController } from "./collab/audit-log.controller.js";
+import { AuditLogService } from "./collab/audit-log.service.js";
+import { EntityLinksController } from "./collab/entity-links.controller.js";
+import { EntityLinksService } from "./collab/entity-links.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -56,10 +62,13 @@ import {
   SECRET_RESOLVER,
   TENANT_POOLS,
   AUDITS_SERVICE,
+  AUDIT_LOG_SERVICE,
   AUTH_SERVICE,
   AUTHENTICATOR,
   CAPA_SERVICE,
+  COMMENTS_SERVICE,
   CONTROL_POOL,
+  ENTITY_LINKS_SERVICE,
   DOCUMENTS_SERVICE,
   EIGHT_D_SERVICE,
   ENV,
@@ -98,6 +107,9 @@ import {
     AiController,
     SearchController,
     NotificationsController,
+    CommentsController,
+    AuditLogController,
+    EntityLinksController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -219,6 +231,9 @@ import {
       useFactory: (jobs: JobProducer) => new NotificationsService(jobs),
       inject: [JOB_PRODUCER],
     },
+    { provide: COMMENTS_SERVICE, useFactory: () => new CommentsService() },
+    { provide: AUDIT_LOG_SERVICE, useFactory: () => new AuditLogService() },
+    { provide: ENTITY_LINKS_SERVICE, useFactory: () => new EntityLinksService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),
