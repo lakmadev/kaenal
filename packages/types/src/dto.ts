@@ -360,6 +360,10 @@ export const DocumentDto = z.object({
   status: DocumentStatus,
   version: z.string(), // the semantic version label, e.g. "1.0"
   fileId: z.string().uuid().nullable(),
+  /** Attached file's mime + size, resolved for the list/detail so the library
+   *  can show file-type icons and sizes without an N+1 fetch (null = no file). */
+  fileMime: z.string().nullable(),
+  fileSizeBytes: z.number().int().nonnegative().nullable(),
   ownerId: z.string().uuid().nullable(),
   approverId: z.string().uuid().nullable(),
   expiresAt: z.string().datetime().nullable(),

@@ -39,10 +39,19 @@ interface DocumentRow {
   lock_version: number;
   created_at: Date;
   updated_at: Date;
+  // Resolved from the attached file on list/get (absent on mutation RETURNING).
+  file_mime?: string | null;
+  file_size_bytes?: string | null; // bigint arrives as string from pg
 }
 
 const DOCUMENT_COLUMNS = `id, code, title, category, status, version, file_id, owner_id, approver_id,
   expires_at, frameworks, ai_summary, lock_version, created_at, updated_at`;
+
+// Resolve the attached file's mime + size as correlated subqueries so the
+// documents FROM stays single-table — the keyset predicate and column list stay
+// unqualified, and there is no N+1 fetch for the library's file-type icons/sizes.
+const FILE_META = `(SELECT mime FROM files WHERE files.id = documents.file_id) AS file_mime,
+  (SELECT size_bytes FROM files WHERE files.id = documents.file_id) AS file_size_bytes`;
 
 const iso = (d: Date | null): string | null => (d === null ? null : d.toISOString());
 
@@ -55,6 +64,8 @@ function toDocumentDto(row: DocumentRow): DocumentDto {
     status: row.status as DocumentStatus,
     version: row.version,
     fileId: row.file_id,
+    fileMime: row.file_mime ?? null,
+    fileSizeBytes: row.file_size_bytes != null ? Number(row.file_size_bytes) : null,
     ownerId: row.owner_id,
     approverId: row.approver_id,
     expiresAt: iso(row.expires_at),
@@ -130,7 +141,7 @@ export class DocumentsService {
     params.push(limit + 1);
 
     const { rows } = await tx.query<DocumentRow>(
-      `SELECT ${DOCUMENT_COLUMNS} FROM documents ${where} ${keyset.sql}
+      `SELECT ${DOCUMENT_COLUMNS}, ${FILE_META} FROM documents ${where} ${keyset.sql}
         ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,
       params,
     );
@@ -444,7 +455,7 @@ export class DocumentsService {
 
   private async fetch(tx: Tx, id: string): Promise<DocumentRow | null> {
     const { rows } = await tx.query<DocumentRow>(
-      `SELECT ${DOCUMENT_COLUMNS} FROM documents WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT ${DOCUMENT_COLUMNS}, ${FILE_META} FROM documents WHERE id = $1 AND deleted_at IS NULL`,
       [id],
     );
     return rows[0] ?? null;
