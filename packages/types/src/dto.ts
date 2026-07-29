@@ -479,6 +479,15 @@ export type PresignFileResult = z.infer<typeof PresignFileResult>;
 export const CompleteFileBody = z.object({});
 export type CompleteFileBody = z.infer<typeof CompleteFileBody>;
 
+/**
+ * `?disposition=inline` renders the file in place (the document Preview);
+ * the default `attachment` forces a download (the Download button).
+ */
+export const DownloadFileQuery = z.object({
+  disposition: z.enum(["inline", "attachment"]).optional(),
+});
+export type DownloadFileQuery = z.infer<typeof DownloadFileQuery>;
+
 export const DownloadFileResult = z.object({
   url: z.string().url(),
   expiresIn: z.number().int().positive(),

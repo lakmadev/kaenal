@@ -27,6 +27,7 @@ import {
   CreateExportBody,
   DocumentDto,
   DocumentVersionDto,
+  DownloadFileQuery,
   DownloadFileResult,
   EightDDto,
   ExportDto,
@@ -701,8 +702,9 @@ export const contract = c.router(
       method: "GET",
       path: "/v1/files/:id/download",
       pathParams: z.object({ id: z.string().uuid() }),
+      query: DownloadFileQuery,
       responses: { 200: DownloadFileResult, ...commonErrors },
-      summary: "Get a presigned download URL (gated on AV scan status; audited)",
+      summary: "Get a presigned download URL (inline for preview / attachment; gated on AV scan; audited)",
     },
   },
   {

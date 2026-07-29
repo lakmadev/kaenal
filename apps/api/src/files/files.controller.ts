@@ -1,6 +1,6 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
-import { PresignFileBody, type DownloadFileResult, type FileDto, type PresignFileResult } from "@kaenal/types";
+import { DownloadFileQuery, PresignFileBody, type DownloadFileResult, type FileDto, type PresignFileResult } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
@@ -38,7 +38,15 @@ export class FilesController {
   }
 
   @Get("v1/files/:id/download")
-  async download(@Param("id") id: string): Promise<DownloadFileResult> {
-    return this.files.download(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
+  async download(@Param("id") id: string, @Query() query: unknown): Promise<DownloadFileResult> {
+    const q = parse(DownloadFileQuery, query);
+    return this.files.download(
+      currentTx(),
+      currentContext().tenantId,
+      actorIdOf(),
+      parse(uuid, id),
+      auditCtxOf(),
+      q.disposition,
+    );
   }
 }

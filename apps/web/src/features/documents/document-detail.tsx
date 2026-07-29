@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -31,7 +31,7 @@ import {
   useReviewDocument,
   useNewDocumentVersion,
 } from "@/hooks/use-documents";
-import { useDownloadFile } from "@/hooks/use-files";
+import { useDownloadFile, usePreviewUrl } from "@/hooks/use-files";
 import { useEntityLinks } from "@/hooks/use-entity-links";
 import {
   Button,
@@ -170,10 +170,13 @@ function DocumentDetailView({
 
   const doDownload = (): void => {
     if (doc.fileId === null) return;
-    download.mutate(doc.fileId, {
-      onSuccess: (r) => window.open(r.url, "_blank", "noopener,noreferrer"),
-      onError: (e) => toast.error(errorMessage(e)),
-    });
+    download.mutate(
+      { id: doc.fileId, disposition: "attachment" },
+      {
+        onSuccess: (r) => window.open(r.url, "_blank", "noopener,noreferrer"),
+        onError: (e) => toast.error(errorMessage(e)),
+      },
+    );
   };
 
   return (
@@ -354,19 +357,7 @@ function fileTypeLabel(mime: string): string {
  * audited download event, 07 §1); other types offer a download instead.
  */
 function PreviewTab({ doc }: { doc: DocumentDto }): React.ReactElement {
-  const download = useDownloadFile();
-  const [url, setUrl] = useState<string | null>(null);
-  const requested = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (doc.fileId === null || requested.current === doc.fileId) return;
-    requested.current = doc.fileId;
-    download.mutate(doc.fileId, {
-      onSuccess: (r) => setUrl(r.url),
-      onError: () => setUrl(null),
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc.fileId]);
+  const { data, isLoading, isError } = usePreviewUrl(doc.fileId);
 
   if (doc.fileId === null) {
     return (
@@ -375,8 +366,16 @@ function PreviewTab({ doc }: { doc: DocumentDto }): React.ReactElement {
       </div>
     );
   }
-  if (download.isPending || url === null) {
+  if (isLoading) {
     return <Skeleton className="h-[520px] rounded-xl" />;
+  }
+  const url = data?.url ?? null;
+  if (isError || url === null) {
+    return (
+      <div className="k-surface">
+        <EmptyState icon={FileText} title="Preview unavailable" body="The file is still being scanned, or you don't have access to view it." />
+      </div>
+    );
   }
 
   const mime = doc.fileMime ?? "";

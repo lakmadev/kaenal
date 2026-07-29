@@ -48,6 +48,26 @@ export function useFile(id: string | null | undefined) {
 }
 
 /**
+ * A presigned INLINE url for rendering a file in place (the document Preview).
+ * A declarative query — StrictMode-safe and cached for the URL's lifetime —
+ * rather than an imperative mutation, so the iframe/img always gets its src.
+ * Fires the audited download once per fileId (03 §7, 07 §1).
+ */
+export function usePreviewUrl(fileId: string | null | undefined) {
+  const client = getApiClient();
+  return useQuery({
+    queryKey: ["file", fileId ?? "", "preview"],
+    queryFn: () =>
+      client
+        .downloadFile({ params: { id: fileId as string }, query: { disposition: "inline" } })
+        .then((r) => unwrap<DownloadFileResult>(r)),
+    enabled: fileId !== null && fileId !== undefined && fileId !== "",
+    staleTime: 10 * 60 * 1000, // presigned TTL is 15m; stay well within it
+    gcTime: 10 * 60 * 1000,
+  });
+}
+
+/**
  * A short-TTL presigned GET for a clean file (03 §7). The server audits the
  * download and refuses files that are not `clean` (except to the uploader while
  * a scan is pending). The caller opens `result.url` on a user click.
@@ -55,6 +75,11 @@ export function useFile(id: string | null | undefined) {
 export function useDownloadFile() {
   const client = getApiClient();
   return useMutation({
-    mutationFn: (id: string) => client.downloadFile({ params: { id } }).then((r) => unwrap<DownloadFileResult>(r)),
+    // disposition "inline" renders in the Preview iframe; default "attachment"
+    // forces a download for the Download button.
+    mutationFn: ({ id, disposition }: { id: string; disposition?: "inline" | "attachment" }) =>
+      client
+        .downloadFile({ params: { id }, query: disposition !== undefined ? { disposition } : {} })
+        .then((r) => unwrap<DownloadFileResult>(r)),
   });
 }
