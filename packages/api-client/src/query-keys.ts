@@ -36,6 +36,13 @@ export const queryKeys = {
     versions: (id: string) => ["documents", id, "versions"] as const,
   },
 
+  suppliers: {
+    all: ["suppliers"] as const,
+    list: (params?: unknown) => ["suppliers", "list", params ?? null] as const,
+    detail: (id: string) => ["suppliers", "detail", id] as const,
+    scorecard: (params?: unknown) => ["suppliers", "scorecard", params ?? null] as const,
+  },
+
   files: {
     detail: (id: string) => ["files", "detail", id] as const,
   },

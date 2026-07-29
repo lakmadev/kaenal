@@ -27,6 +27,30 @@ last-approved-version protection) were all mutation-tested (the CAPA and documen
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
 
+**Feature delivery roadmap (2026-07-29):** `project_brain/project/implementation/phases/` now holds a
+roadmap index + 24 per-feature phase docs (P01–P24), each specifying backend→FE end-to-end and mapped
+to the `src/*.jsx` visual spec. Tier-2 modules (SPC/FMEA/Risk/MSA/Training/Calibration/Complaints/ECN)
+carry a `PROPOSED` backend flagged for sign-off; mock-only admin screens are explicitly out of scope.
+
+**Suppliers backend — entity slice (P08, 2026-07-29):** first vertical of the Supply-chain block.
+`suppliers`/`ppap_submissions`/`scars` turned out to **already exist** (thin) since `0001_core.sql`,
+and `codes.ts` already registers `supplier`/`scar` — so this EXTENDED rather than created. Migration
+`0019_supplier_profile.sql` adds `lock_version` (+ bump trigger — the table had none), the queryable
+descriptors (country/city/category/cert_expires/last_audit/next_audit/ai_risk_tier/ai_risk_confidence/
+flags) and a `profile` jsonb, honoring `0001`'s design note ("`scorecard` jsonb = RAW metrics; weighted
+score computed in packages/core"). `packages/core/supplier-score.ts` is the pure, re-weightable scorer
+(each KPI → 0–100 goodness, weighted over *present* metrics so raw-material suppliers still grade; 8
+unit tests off the `suppliers-data.js` numbers). Contract adds list (status/riskTier/tier/category/
+country/flag/q filters), get, create (auto `SUP-YYYY-NNNN` or explicit for imports), update (optimistic
+`version`), and `GET /v1/supplier-scorecard?wPpm&wOtd&wOqe&wScar` (ranked; weights are query params,
+never stored). `SuppliersService` is tenant-wide (RLS-only isolation, foreign-tenant→404), audits every
+mutation, `supplier:view` (all roles) / `supplier:manage` (admin/manager). `apiQueries.suppliers.*`
+client factories added. Tests: `apps/api/test/suppliers.test.ts` (8, incl. real globex cross-tenant
+404 + optimistic 409 + viewer-403) + core (8); RLS suite green (227), `pnpm -r typecheck` + api-client
+tests green. **Risk_tier reuses the RiskLevel scale (A=low … D=critical); no new enum.** **Deferred
+(logged, NOT built):** the FE screens, the nightly `supplier-scorecard` flag/insight job, server-side
+flag derivation, `supplier_kpis` time-series + risk-matrix endpoint (trends stored inline for v1).
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already

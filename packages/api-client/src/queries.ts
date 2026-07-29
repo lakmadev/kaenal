@@ -15,6 +15,7 @@ import type {
   NotificationPrefsDto,
   Page,
   SearchResults,
+  SupplierDto,
   UnreadCountDto,
 } from "@kaenal/types";
 import type { ApiClient } from "./client.js";
@@ -124,6 +125,21 @@ export const apiQueries = {
     versions: (client: ApiClient, id: string): QueryOption<Page<DocumentVersionDto>> => ({
       queryKey: queryKeys.documents.versions(id),
       queryFn: () => client.listDocumentVersions({ params: { id } }).then((r) => unwrap<Page<DocumentVersionDto>>(r)),
+    }),
+  },
+
+  suppliers: {
+    list: (client: ApiClient, args?: Arg<"listSuppliers">): QueryOption<Page<SupplierDto>> => ({
+      queryKey: queryKeys.suppliers.list(args?.query),
+      queryFn: () => client.listSuppliers(args).then((r) => unwrap<Page<SupplierDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<SupplierDto> => ({
+      queryKey: queryKeys.suppliers.detail(id),
+      queryFn: () => client.getSupplier({ params: { id } }).then((r) => unwrap<SupplierDto>(r)),
+    }),
+    scorecard: (client: ApiClient, args?: Arg<"scorecardSuppliers">): QueryOption<Page<SupplierDto>> => ({
+      queryKey: queryKeys.suppliers.scorecard(args?.query),
+      queryFn: () => client.scorecardSuppliers(args).then((r) => unwrap<Page<SupplierDto>>(r)),
     }),
   },
 

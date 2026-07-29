@@ -57,8 +57,12 @@ import {
   UpdateEightDStepBody,
   UpdateNotificationPrefsBody,
   RevertCapaBody,
+  ScorecardWeightsQuery,
   SetRecurrenceBody,
   StartInspectionBody,
+  SupplierDto,
+  CreateSupplierBody,
+  UpdateSupplierBody,
   TemplateDto,
   TransitionDocumentBody,
   TransitionEightDBody,
@@ -81,6 +85,8 @@ import {
   InspectionStatus,
   NcrPriority,
   NcrStatus,
+  RiskLevel,
+  SupplierStatus,
   TemplateStatus,
 } from "./enums.js";
 
@@ -630,6 +636,52 @@ export const contract = c.router(
       body: z.object({}),
       responses: { 200: EntityLinkDto, ...commonErrors },
       summary: "Remove a link between two records",
+    },
+
+    // --- Suppliers (FEATURES §11.1) ----------------------------------------
+    listSuppliers: {
+      method: "GET",
+      path: "/v1/suppliers",
+      query: PageQuery.extend({
+        status: SupplierStatus.optional(),
+        riskTier: RiskLevel.optional(),
+        tier: z.coerce.number().int().optional(),
+        category: z.string().optional(),
+        country: z.string().optional(),
+        flag: z.string().optional(),
+        q: z.string().optional(),
+      }),
+      responses: { 200: page(SupplierDto), ...commonErrors },
+      summary: "List suppliers (cursor-paginated; filter by tier/risk/category/country/flag/search)",
+    },
+    getSupplier: {
+      method: "GET",
+      path: "/v1/suppliers/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: SupplierDto, ...commonErrors },
+      summary: "Fetch one supplier (with scorecard + profile)",
+    },
+    createSupplier: {
+      method: "POST",
+      path: "/v1/suppliers",
+      body: CreateSupplierBody,
+      responses: { 201: SupplierDto, ...commonErrors },
+      summary: "Create a supplier",
+    },
+    updateSupplier: {
+      method: "POST",
+      path: "/v1/suppliers/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UpdateSupplierBody,
+      responses: { 200: SupplierDto, ...commonErrors },
+      summary: "Update a supplier (optimistic concurrency via version)",
+    },
+    scorecardSuppliers: {
+      method: "GET",
+      path: "/v1/supplier-scorecard",
+      query: ScorecardWeightsQuery,
+      responses: { 200: page(SupplierDto), ...commonErrors },
+      summary: "Suppliers ranked by weighted score (PPM/OTD/OQE/SCAR weights as query params)",
     },
 
     // --- Notifications -----------------------------------------------------

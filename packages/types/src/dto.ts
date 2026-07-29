@@ -28,6 +28,7 @@ import {
   RiskLevel,
   ScanStatus,
   SlaState,
+  SupplierStatus,
   TemplateStatus,
 } from "./enums.js";
 import { FormResponses, FormSchema } from "./form.js";
@@ -865,3 +866,100 @@ export const CreateEntityLinkBody = z.object({
   relation: z.string().min(1).max(64).optional(),
 });
 export type CreateEntityLinkBody = z.infer<typeof CreateEntityLinkBody>;
+
+// --- Supply chain — Suppliers (FEATURES §11.1, P08) ------------------------
+
+/**
+ * Raw KPI metrics stored on `suppliers.scorecard`. The WEIGHTED score is derived
+ * in `packages/core` (`weightedSupplierScore`) and never persisted — the same
+ * supplier can be scored under different weights without a write.
+ */
+export const SupplierScorecard = z.object({
+  ppm: z.number().nullable().optional(),
+  ppmTarget: z.number().nullable().optional(),
+  otd: z.number().nullable().optional(),
+  otdTarget: z.number().nullable().optional(),
+  oqe: z.number().nullable().optional(),
+  oqeTarget: z.number().nullable().optional(),
+  scarHours: z.number().nullable().optional(),
+  scarTarget: z.number().nullable().optional(),
+  materialRejectsPct: z.number().nullable().optional(),
+  materialRejectsTarget: z.number().nullable().optional(),
+  ppmTrend: z.array(z.number()).nullable().optional(),
+  otdTrend: z.array(z.number()).nullable().optional(),
+});
+export type SupplierScorecard = z.infer<typeof SupplierScorecard>;
+
+/** Display-only descriptive bulk (`suppliers.profile`) — parts, spend, certs,
+ *  contract dates, historical PPAP programs, AI insights. Typed but open. */
+export const SupplierProfile = z.record(z.string(), z.unknown());
+export type SupplierProfile = z.infer<typeof SupplierProfile>;
+
+const SupplierGrade = z.enum(["A", "B", "C", "D"]);
+const DateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
+
+export const SupplierDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  tier: z.number().int().nullable(),
+  category: z.string().nullable(),
+  country: z.string().nullable(),
+  city: z.string().nullable(),
+  status: SupplierStatus,
+  // Manual grade is authoritative; ai* is advisory. Both on the RiskLevel scale
+  // (A=low … D=critical in the visual spec).
+  riskTier: RiskLevel.nullable(),
+  aiRiskTier: RiskLevel.nullable(),
+  aiRiskConfidence: z.number().int().nullable(),
+  flags: z.array(z.string()),
+  contact: z.record(z.string(), z.unknown()).nullable(),
+  certExpires: z.string().nullable(),
+  lastAudit: z.string().nullable(),
+  nextAudit: z.string().nullable(),
+  scorecard: SupplierScorecard,
+  profile: SupplierProfile,
+  /** Weighted 0–100 score + letter grade under the applied weights. */
+  score: z.number().nullable(),
+  grade: SupplierGrade.nullable(),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type SupplierDto = z.infer<typeof SupplierDto>;
+
+export const CreateSupplierBody = z.object({
+  name: z.string().min(1).max(200),
+  // Optional so imports can carry their existing code; auto-generated otherwise.
+  code: z.string().min(1).max(40).optional(),
+  tier: z.number().int().min(1).max(5).nullable().optional(),
+  category: z.string().max(120).nullable().optional(),
+  country: z.string().max(120).nullable().optional(),
+  city: z.string().max(120).nullable().optional(),
+  status: SupplierStatus.optional(),
+  riskTier: RiskLevel.nullable().optional(),
+  aiRiskTier: RiskLevel.nullable().optional(),
+  aiRiskConfidence: z.number().int().min(0).max(100).nullable().optional(),
+  flags: z.array(z.string().max(40)).max(20).optional(),
+  contact: z.record(z.string(), z.unknown()).nullable().optional(),
+  certExpires: DateOnly.nullable().optional(),
+  lastAudit: DateOnly.nullable().optional(),
+  nextAudit: DateOnly.nullable().optional(),
+  scorecard: SupplierScorecard.optional(),
+  profile: SupplierProfile.optional(),
+});
+export type CreateSupplierBody = z.infer<typeof CreateSupplierBody>;
+
+export const UpdateSupplierBody = CreateSupplierBody.partial().extend({
+  version: z.number().int().nonnegative(),
+});
+export type UpdateSupplierBody = z.infer<typeof UpdateSupplierBody>;
+
+/** Optional scorecard weights, as query params on the scorecard endpoint. */
+export const ScorecardWeightsQuery = z.object({
+  wPpm: z.coerce.number().min(0).optional(),
+  wOtd: z.coerce.number().min(0).optional(),
+  wOqe: z.coerce.number().min(0).optional(),
+  wScar: z.coerce.number().min(0).optional(),
+});
+export type ScorecardWeightsQuery = z.infer<typeof ScorecardWeightsQuery>;

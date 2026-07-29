@@ -34,6 +34,8 @@ import { AuditsController } from "./audits/audits.controller.js";
 import { AuditsService } from "./audits/audits.service.js";
 import { DocumentsController } from "./documents/documents.controller.js";
 import { DocumentsService } from "./documents/documents.service.js";
+import { SuppliersController } from "./suppliers/suppliers.controller.js";
+import { SuppliersService } from "./suppliers/suppliers.service.js";
 import { FilesController } from "./files/files.controller.js";
 import { FilesService } from "./files/files.service.js";
 import { ExportsController } from "./exports/exports.controller.js";
@@ -70,6 +72,7 @@ import {
   CONTROL_POOL,
   ENTITY_LINKS_SERVICE,
   DOCUMENTS_SERVICE,
+  SUPPLIERS_SERVICE,
   EIGHT_D_SERVICE,
   ENV,
   EXPORTS_SERVICE,
@@ -102,6 +105,7 @@ import {
     EightDController,
     AuditsController,
     DocumentsController,
+    SuppliersController,
     FilesController,
     ExportsController,
     AiController,
@@ -180,6 +184,7 @@ import {
       inject: [NCR_SERVICE, CAPA_SERVICE],
     },
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
+    { provide: SUPPLIERS_SERVICE, useFactory: () => new SuppliersService() },
 
     // Object storage (03 §7). One S3 client for the process; MinIO locally.
     {

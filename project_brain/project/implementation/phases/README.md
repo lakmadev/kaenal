@@ -62,7 +62,7 @@ Every `PNN-*.md` follows the same shape:
 
 | # | Feature | Backend | FE | Design jsx |
 |---|---------|---------|----|-----------|
-| [P08](P08-suppliers.md) | Suppliers (list, scorecards, risk matrix, detail) | 🔴 | 🔴 | `suppliers.jsx`, `suppliers-data.js` |
+| [P08](P08-suppliers.md) | Suppliers (list, scorecards, risk matrix, detail) | 🟡 (entity slice ✅) | 🔴 | `suppliers.jsx`, `suppliers-data.js` |
 | [P09](P09-ppap.md) | PPAP submissions (18-element package, review, AI prediction) | 🔴 | 🔴 | `suppliers-ppap.jsx` |
 | [P10](P10-scar.md) | SCAR & chargebacks (8D-style supplier CAR) | 🔴 | 🔴 | `suppliers.jsx` (SCAR view) |
 | [P11](P11-supplier-portal.md) | Supplier Portal (external-facing) | 🔴 | 🔴 | `supplier-portal.jsx` |
