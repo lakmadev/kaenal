@@ -227,14 +227,28 @@ export const SupplierStatus = defineEnum([
 ]);
 export type SupplierStatus = z.infer<typeof SupplierStatus>;
 
+// PPAP submission review workflow (P09), matching `suppliers-ppap.jsx`:
+// pending (received, not yet in review) → in_review → interim (interim approval)
+// / approved / rejected. Reconciled from 0001's generic draft/submitted set by
+// migration 0020.
 export const PpapStatus = defineEnum([
-  "draft",
-  "submitted",
+  "pending",
+  "in_review",
   "interim",
   "approved",
   "rejected",
 ]);
 export type PpapStatus = z.infer<typeof PpapStatus>;
+
+// Per-element review state within a submission. N/A means the element is
+// legitimately waived (excluded from the completeness denominator).
+export const PpapElementStatus = defineEnum([
+  "pending",
+  "approved",
+  "changes_requested",
+  "n_a",
+]);
+export type PpapElementStatus = z.infer<typeof PpapElementStatus>;
 
 export const ScarStatus = defineEnum([
   "open",

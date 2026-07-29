@@ -14,6 +14,7 @@ import type {
   NotificationDto,
   NotificationPrefsDto,
   Page,
+  PpapSubmissionDto,
   SearchResults,
   SupplierDto,
   UnreadCountDto,
@@ -140,6 +141,17 @@ export const apiQueries = {
     scorecard: (client: ApiClient, args?: Arg<"scorecardSuppliers">): QueryOption<Page<SupplierDto>> => ({
       queryKey: queryKeys.suppliers.scorecard(args?.query),
       queryFn: () => client.scorecardSuppliers(args).then((r) => unwrap<Page<SupplierDto>>(r)),
+    }),
+  },
+
+  ppap: {
+    list: (client: ApiClient, args?: Arg<"listPpap">): QueryOption<Page<PpapSubmissionDto>> => ({
+      queryKey: queryKeys.ppap.list(args?.query),
+      queryFn: () => client.listPpap(args).then((r) => unwrap<Page<PpapSubmissionDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<PpapSubmissionDto> => ({
+      queryKey: queryKeys.ppap.detail(id),
+      queryFn: () => client.getPpap({ params: { id } }).then((r) => unwrap<PpapSubmissionDto>(r)),
     }),
   },
 

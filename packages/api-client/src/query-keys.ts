@@ -43,6 +43,12 @@ export const queryKeys = {
     scorecard: (params?: unknown) => ["suppliers", "scorecard", params ?? null] as const,
   },
 
+  ppap: {
+    all: ["ppap"] as const,
+    list: (params?: unknown) => ["ppap", "list", params ?? null] as const,
+    detail: (id: string) => ["ppap", "detail", id] as const,
+  },
+
   files: {
     detail: (id: string) => ["files", "detail", id] as const,
   },

@@ -1,9 +1,18 @@
 # P09 — PPAP Submissions (end-to-end)
 
-**Status:** Backend 🔴 (new build; model in `suppliers-data.js` `PPAP_SUBMISSIONS`) · FE 🔴
+**Status:** Backend ✅ · FE ✅ — **both delivered (this branch)**; AI prediction is job-fed (P21), stubbed for now
 **Design jsx:** `suppliers-ppap.jsx`
 **Spec:** FEATURES §11.2 · **Code:** `PPAP-YYYY-NNNN`
 **Value:** Production Part Approval Process is the gate for new/changed parts — the core Tier-1↔OEM quality artifact.
+
+> **Reality check (corrected during build):** like `suppliers`, the `ppap_submissions`
+> table **already existed** (thin) since `0001_core.sql`, WITH an `elements jsonb` column — so
+> this EXTENDED it and stores the 18 elements **inline in jsonb** (the same "raw structure in
+> jsonb, rules in packages/core" choice as `suppliers.scorecard`), **superseding** this doc's
+> original `ppap_elements` / `ppap_history` table proposal. History uses `audit_events`
+> (`entity_kind = 'ppap_submission'`). `codes.ts` gained `ppap`→`PPAP`. `PpapStatus` was
+> reconciled from 0001's generic `draft/submitted/…` to the review workflow
+> `pending/in_review/interim/approved/rejected`.
 
 ## 1. Feature scope (from jsx + data)
 - **List** — submissions with supplier, part+rev, program, level (1–5), customer (OEM), status (`pending|in_review|approved|rejected`), submitted/due dates, days-open, **AI deadline prediction**.
@@ -40,10 +49,26 @@
 - **Hooks/keys:** `apiQueries.ppap.*`.
 
 ## 4. Definition of Done
-- [ ] List + AI-prediction pill + detail 18-element grid match `suppliers-ppap.jsx`.
-- [ ] Element status/reviewer/comment editable + audited; PSW is element 18.
-- [ ] Overall approve blocked until all non-N/A elements approved (core-tested).
-- [ ] History timeline from audit-events; cross-tenant 404; RLS green.
+- [x] List + AI-prediction pill + detail 18-element grid match `suppliers-ppap.jsx`.
+- [x] Element status/reviewer/comment editable + audited; PSW is element 18.
+- [x] Overall approve blocked until all non-N/A elements approved (core-tested + verified in-browser).
+- [x] Cross-tenant 404; RLS green (227). *(History timeline from audit-events deferred with the activity UI.)*
+
+## Delivered this branch
+**Backend:** migration `0020_ppap.sql` (lock_version + bump trigger, part_rev/program_name/customer/
+dates/owner composite-FK/ai_prediction jsonb; status CHECK reconciled); `packages/core/ppap.ts`
+(canonical 18 elements + `ppapCompleteness`/`isPpapApprovable`/`ppapDaysOpen`, 15 unit tests);
+contract + DTOs; `PpapService` (list/get/create-seeds-18/update/updateElement/decide with the
+approvability guard; every mutation `withAudit`, optimistic `version`→409, foreign-tenant→404);
+`ppap:view`/`ppap:manage` capabilities (view all roles; manage admin/manager/auditor);
+`apiQueries.ppap.*`. Tests: `apps/api/test/ppap.test.ts` (8) + core (15); RLS 227.
+**FE:** `apps/web/src/features/ppap/` — `ppap-bits.tsx` (submission/element badges, level chip,
+AI-prediction pill, element marker), `ppap-list.tsx` (KPI strip, active/approved/rejected/all tabs,
+AI pill, element count), `ppap-detail.tsx` (completeness progress, AI banner, 18-element grid with
+per-element status select + comment editor, Approve gated on `completeness.approvable` + Reject),
+`ppap-create-dialog.tsx` (supplier picker). Routes `/ppap` + `/ppap/[id]`; nav link (`ppap:view`).
+**Verified in-browser:** list + AI pill, detail grid, element edits, and the full gate → approve
+flow (Approve disabled at 12/17, enabled at 17/17, approve stamps the date + flips to read-only).
 
 ## 5. Dependencies & open questions
 - Depends on: [P08](P08-suppliers.md) (supplier FK), [P21](P21-predictive-risk.md) (AI prediction source).

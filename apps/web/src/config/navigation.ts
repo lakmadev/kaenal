@@ -5,6 +5,7 @@ import {
   GitBranch,
   ShieldCheck,
   FileText,
+  FileCheck,
   Truck,
   Network,
   LineChart,
@@ -79,7 +80,10 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Supply chain",
-    items: [{ label: "Suppliers", href: "/suppliers", icon: Truck, capability: "supplier:view" }],
+    items: [
+      { label: "Suppliers", href: "/suppliers", icon: Truck, capability: "supplier:view" },
+      { label: "PPAP", href: "/ppap", icon: FileCheck, capability: "ppap:view" },
+    ],
   },
   {
     label: "Platform",

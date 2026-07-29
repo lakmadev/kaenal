@@ -36,6 +36,8 @@ import { DocumentsController } from "./documents/documents.controller.js";
 import { DocumentsService } from "./documents/documents.service.js";
 import { SuppliersController } from "./suppliers/suppliers.controller.js";
 import { SuppliersService } from "./suppliers/suppliers.service.js";
+import { PpapController } from "./ppap/ppap.controller.js";
+import { PpapService } from "./ppap/ppap.service.js";
 import { FilesController } from "./files/files.controller.js";
 import { FilesService } from "./files/files.service.js";
 import { ExportsController } from "./exports/exports.controller.js";
@@ -73,6 +75,7 @@ import {
   ENTITY_LINKS_SERVICE,
   DOCUMENTS_SERVICE,
   SUPPLIERS_SERVICE,
+  PPAP_SERVICE,
   EIGHT_D_SERVICE,
   ENV,
   EXPORTS_SERVICE,
@@ -106,6 +109,7 @@ import {
     AuditsController,
     DocumentsController,
     SuppliersController,
+    PpapController,
     FilesController,
     ExportsController,
     AiController,
@@ -185,6 +189,7 @@ import {
     },
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
     { provide: SUPPLIERS_SERVICE, useFactory: () => new SuppliersService() },
+    { provide: PPAP_SERVICE, useFactory: () => new PpapService() },
 
     // Object storage (03 §7). One S3 client for the process; MinIO locally.
     {

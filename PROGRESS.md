@@ -70,6 +70,34 @@ P10 SCAR. *(Also surfaced but NOT fixed here — logged for follow-up: the lifec
 — "no silent downgrade"), which can wedge login after a session dies; a bearer-authed sign-out clears it. Worth a
 UX decision: clear the cookie on `UNAUTHENTICATED` instead of hard-failing.)*
 
+**PPAP submissions — backend + FE (P09, 2026-07-29):** the second Supply-chain vertical, end-to-end.
+Like `suppliers`, `ppap_submissions` **already existed** (thin) since `0001` **with an `elements jsonb`
+column** — so this EXTENDED it and stores the 18 PPAP elements **inline in jsonb** (same "raw structure
+in jsonb, rules in core" choice as `suppliers.scorecard`), **superseding** the P09 doc's separate
+`ppap_elements`/`ppap_history` table proposal; history uses `audit_events` (`entity_kind='ppap_submission'`).
+Migration `0020_ppap.sql` adds `lock_version` (+ bump trigger), part_rev/program_name/customer/dates,
+`owner` (composite member FK), `ai_prediction` jsonb, a `(tenant_id,code)` unique + `(tenant_id,status)`
+index, and **reconciles `PpapStatus`** from 0001's generic `draft/submitted/interim/approved/rejected`
+to the review workflow `pending/in_review/interim/approved/rejected` (existing rows migrated in the same
+file; RLS fixture updated). `codes.ts` gained `ppap`→`PPAP`. `packages/core/ppap.ts` holds the canonical
+18 AIAG elements + the pure `ppapCompleteness`/`isPpapApprovable` rule (N/A excluded from the denominator,
+empty package not approvable) + `ppapDaysOpen` (15 unit tests). `PpapService`: list (supplier/status/
+customer/level/q filters, supplier name via correlated subquery so the shared keyset stays unambiguous),
+get, create (auto `PPAP-YYYY-NNNN`, seeds 18 pending elements, 404s an unknown/cross-tenant supplier),
+update, `updateElement` (per-element status/reviewer/comment, optimistic on the submission), and `decide`
+(**approve refused unless every non-N/A element is approved** → 422; sets `approved_date`; audited
+`status_changed`). Capabilities `ppap:view` (all roles) / `ppap:manage` (admin/manager/auditor).
+**FE** (`apps/web/src/features/ppap/`): list (KPI strip, active/approved/rejected/all tabs, AI-prediction
+pill, element count), detail (completeness progress, AI banner, 18-element grid with per-element status
+select + inline comment editor, Approve gated on `completeness.approvable` + Reject, read-only once decided),
+create dialog (supplier picker); routes `/ppap` + `/ppap/[id]`; nav link. **Also fixed a latent P08
+regression:** the `rbac` capability-matrix test never had `supplier:*` added (P08's check ran supplier-score
++ RLS, not the full core suite) — added `supplier:*` **and** `ppap:*` to the matrix; core now 524 green.
+**Verified in-browser** against 3 suppliers + 3 PPAPs: list AI pill, detail grid, and the full gate→approve
+flow (Approve disabled at 12/17, enabled at 17/17, approve stamps date + flips read-only). API ppap 8/8,
+core 524, RLS 227, repo typecheck 7/7, api-client 11, web 3, lint clean. **Deferred:** the activity-history
+timeline UI (data is in audit_events) and the AI-prediction source (P21 job; stubbed via `ai_prediction` jsonb).
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already

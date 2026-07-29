@@ -158,7 +158,7 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
 
   await q(
     `INSERT INTO ppap_submissions (tenant_id, supplier_id, part_number, level, status)
-     VALUES ($1, $2, 'PN-1001', 3, 'submitted') RETURNING id`,
+     VALUES ($1, $2, 'PN-1001', 3, 'in_review') RETURNING id`,
     [t, supplierId],
   );
 

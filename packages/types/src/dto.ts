@@ -24,6 +24,8 @@ import {
   NcrPriority,
   NcrSource,
   NcrStatus,
+  PpapElementStatus,
+  PpapStatus,
   RecurrenceFreq,
   RiskLevel,
   ScanStatus,
@@ -963,3 +965,118 @@ export const ScorecardWeightsQuery = z.object({
   wScar: z.coerce.number().min(0).optional(),
 });
 export type ScorecardWeightsQuery = z.infer<typeof ScorecardWeightsQuery>;
+
+// --- Supply chain — PPAP submissions (FEATURES §11.2, P09) -----------------
+
+/**
+ * One of the 18 PPAP elements, stored inline on the submission. The names are
+ * seeded from the canonical AIAG list (`packages/core/ppap.ts`); element 18 is
+ * the PSW. `reviewer` is a member id (not FK-checked here — it lives in jsonb).
+ */
+export const PpapElementDto = z.object({
+  id: z.number().int().min(1).max(18),
+  name: z.string(),
+  status: PpapElementStatus,
+  // Default to null so a freshly-seeded element (which carries only id/name/status)
+  // round-trips through the wire shape without the reviewer/comment keys.
+  reviewer: z.string().nullable().default(null),
+  comment: z.string().nullable().default(null),
+});
+export type PpapElementDto = z.infer<typeof PpapElementDto>;
+
+/** AI deadline prediction — written by the predictive job, advisory only. */
+export const PpapAiPrediction = z.object({
+  confidence: z.number().int().min(0).max(100).nullable().optional(),
+  willMissDeadline: z.boolean().nullable().optional(),
+  daysLikelyOver: z.number().int().nullable().optional(),
+  reasoning: z.string().nullable().optional(),
+});
+export type PpapAiPrediction = z.infer<typeof PpapAiPrediction>;
+
+/** Derived element completeness (computed in `packages/core`, never stored). */
+export const PpapCompletenessDto = z.object({
+  required: z.number().int(),
+  approved: z.number().int(),
+  outstanding: z.number().int(),
+  approvable: z.boolean(),
+});
+export type PpapCompletenessDto = z.infer<typeof PpapCompletenessDto>;
+
+export const PpapSubmissionDto = z.object({
+  id: z.string().uuid(),
+  code: z.string().nullable(),
+  supplierId: z.string().uuid(),
+  /** Joined from the supplier for display; null if the supplier is gone. */
+  supplierName: z.string().nullable(),
+  partNumber: z.string(),
+  partRev: z.string().nullable(),
+  programName: z.string().nullable(),
+  level: z.number().int().min(1).max(5),
+  customer: z.string().nullable(),
+  status: PpapStatus,
+  submittedDate: z.string().nullable(),
+  dueDate: z.string().nullable(),
+  approvedDate: z.string().nullable(),
+  owner: z.string().nullable(),
+  elements: z.array(PpapElementDto),
+  aiPrediction: PpapAiPrediction,
+  /** now − submittedDate, whole days; null when not yet submitted. */
+  daysOpen: z.number().int().nullable(),
+  completeness: PpapCompletenessDto,
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type PpapSubmissionDto = z.infer<typeof PpapSubmissionDto>;
+
+export const CreatePpapBody = z.object({
+  supplierId: z.string().uuid(),
+  partNumber: z.string().min(1).max(120),
+  level: z.number().int().min(1).max(5),
+  // Optional so imports can carry an existing code; auto-generated otherwise.
+  code: z.string().min(1).max(40).optional(),
+  partRev: z.string().max(40).nullable().optional(),
+  programName: z.string().max(200).nullable().optional(),
+  customer: z.string().max(200).nullable().optional(),
+  status: PpapStatus.optional(),
+  submittedDate: DateOnly.nullable().optional(),
+  dueDate: DateOnly.nullable().optional(),
+  owner: z.string().uuid().nullable().optional(),
+});
+export type CreatePpapBody = z.infer<typeof CreatePpapBody>;
+
+/** Submission-level edits. Elements and the overall decision have their own
+ *  endpoints; `code` is immutable once assigned. */
+export const UpdatePpapBody = z
+  .object({
+    partNumber: z.string().min(1).max(120),
+    level: z.number().int().min(1).max(5),
+    partRev: z.string().max(40).nullable(),
+    programName: z.string().max(200).nullable(),
+    customer: z.string().max(200).nullable(),
+    status: PpapStatus,
+    submittedDate: DateOnly.nullable(),
+    dueDate: DateOnly.nullable(),
+    owner: z.string().uuid().nullable(),
+  })
+  .partial()
+  .extend({ version: z.number().int().nonnegative() });
+export type UpdatePpapBody = z.infer<typeof UpdatePpapBody>;
+
+/** Set one element's review state. Optimistic on the parent submission. */
+export const UpdatePpapElementBody = z.object({
+  status: PpapElementStatus,
+  reviewer: z.string().uuid().nullable().optional(),
+  comment: z.string().max(4000).nullable().optional(),
+  version: z.number().int().nonnegative(),
+});
+export type UpdatePpapElementBody = z.infer<typeof UpdatePpapElementBody>;
+
+/** Overall approve/reject. Approve is blocked server-side unless every non-N/A
+ *  element is approved (the `packages/core` completeness rule). */
+export const PpapDecisionBody = z.object({
+  decision: z.enum(["approve", "reject"]),
+  reason: z.string().max(4000).nullable().optional(),
+  version: z.number().int().nonnegative(),
+});
+export type PpapDecisionBody = z.infer<typeof PpapDecisionBody>;
