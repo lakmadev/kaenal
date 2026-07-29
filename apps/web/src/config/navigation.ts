@@ -79,7 +79,7 @@ export const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Supply chain",
-    items: [{ label: "Suppliers", href: "/suppliers", icon: Truck, capability: "suppliers:read" }],
+    items: [{ label: "Suppliers", href: "/suppliers", icon: Truck, capability: "supplier:view" }],
   },
   {
     label: "Platform",

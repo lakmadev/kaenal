@@ -51,6 +51,25 @@ tests green. **Risk_tier reuses the RiskLevel scale (A=low … D=critical); no n
 (logged, NOT built):** the FE screens, the nightly `supplier-scorecard` flag/insight job, server-side
 flag derivation, `supplier_kpis` time-series + risk-matrix endpoint (trends stored inline for v1).
 
+**Suppliers FE (P08, 2026-07-29):** the Supply-chain FE, matching `suppliers.jsx`, over `apiQueries.suppliers.*`.
+`apps/web/src/features/suppliers/` — `suppliers-bits.tsx` (RiskLevel→A–D tier map, name-initial monogram,
+MiniSpark/KpiCell/FlagChip, typed `profile` accessors), `supplier-list.tsx` (one `/suppliers` page with a
+**List / Scorecards / Risk-matrix** Segmented: KPI strip, tier tabs w/ live counts, search, sort, sparkline
+table), `supplier-scorecards.tsx` (PPM/OTD/OQE/SCAR weight sliders → the **`/v1/supplier-scorecard?w*`**
+endpoint so ranking is **server-computed**, rule 5), `supplier-risk-matrix.tsx` (score×spend bubble plot,
+grade bands, hover card; degrades to even X-spacing when spend isn't populated), `supplier-detail.tsx` (360
+header + AI-insight banner + tabs Overview/Scorecard/Linked-records/Parts; the scorecard radar reuses core's
+`weightedSupplierScore` via one-hot weights rather than reimplementing normalization), `supplier-create-dialog.tsx`.
+Routes: `/suppliers` + `/suppliers/[id]` (replaced the placeholder). Fixed the nav: the Suppliers link was gated
+on a **dead `suppliers:read`** capability → corrected to the real `supplier:view`. **Verified in-browser** against
+3 seeded suppliers (Bharat Forge A / Rhein B / Ningbo D): KPI strip, tier tabs, sparklines, live weight re-rank
+(bumping `wScar` reorders server-side, Ningbo 62→57), matrix hover card, detail 360 + full-diamond radar. Repo-wide
+`pnpm -r typecheck` (7/7) + eslint clean; web tests green. **Deferred unchanged:** nightly scorecard job, P09 PPAP,
+P10 SCAR. *(Also surfaced but NOT fixed here — logged for follow-up: the lifecycle interceptor hard-401s an
+`@AllowAnonymous` sign-in when a stale/expired `kaenal_session` cookie is present, by design (`session.authenticator.ts`
+— "no silent downgrade"), which can wedge login after a session dies; a bearer-authed sign-out clears it. Worth a
+UX decision: clear the cookie on `UNAUTHENTICATED` instead of hard-failing.)*
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already

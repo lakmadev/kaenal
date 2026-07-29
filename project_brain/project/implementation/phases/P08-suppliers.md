@@ -1,6 +1,6 @@
 # P08 — Suppliers (end-to-end)
 
-**Status:** Backend 🟡 — **entity slice ✅ (this branch)**; scorecard job + risk-matrix endpoint pending · FE 🔴
+**Status:** Backend 🟡 — **entity slice ✅**; scorecard job + risk-matrix endpoint pending · FE ✅ — **list + scorecards + risk-matrix + detail (this branch)**
 **Design jsx:** `suppliers.jsx`, `suppliers-data.js`
 **Spec:** FEATURES §11.1 · **Code:** `SUP-YYYY-NNNN` (via `packages/core/codes.ts`, which already registers `supplier`→`SUP`)
 **Value:** supplier quality is the largest net-new value block — scorecards, risk tiers, and the hub every PPAP/SCAR/complaint/audit links to.
@@ -49,18 +49,20 @@ the 12-month trend arrays inline in `scorecard` (faithful to `suppliers-data.js`
 - **`packages/core/test/supplier-score.test.ts` (8)**: weighting, weights sensitivity, absent-metric handling, grade bands — fixtures lifted from `suppliers-data.js`.
 - RLS suite green (227) with the altered table; `pnpm -r typecheck` + client factories (`apiQueries.suppliers.*`) all green.
 
-## 3. Frontend (maps to jsx)
-- **Routes:** `/suppliers` (list + risk-matrix toggle + scorecard weighting panel), `/suppliers/[id]`.
-- **Components:** SupplierTable (tier badge, PPM/OTD sparkline, PPAP badge, flags), RiskMatrix, ScorecardWeights (the Tweaks-panel PPM/OTD/OQE/SCAR sliders → `?weights=`), SupplierDetail (profile card, KPI trend charts, AISuggestion insights, linked-records tabs, PPAP programs table, chargebacks).
-- **States:** empty/loading/error/permission; `benchmark`/`preferred` chips.
-- **Hooks/keys:** new `apiQueries.suppliers.*`; reuse `entityLinks` for linked records.
+## 3. Frontend (maps to jsx) ✅
+- **Routes:** `/suppliers` ([`supplier-list.tsx`](../../../../apps/web/src/features/suppliers/supplier-list.tsx) — one page, three views switched by a Segmented: **List / Scorecards / Risk matrix**), `/suppliers/[id]` ([`supplier-detail.tsx`](../../../../apps/web/src/features/suppliers/supplier-detail.tsx)).
+- **Components** (`apps/web/src/features/suppliers/`): `suppliers-bits.tsx` (RiskTierBadge with the RiskLevel→A–D map, name-initial SupplierLogo, MiniSpark, KpiCell, FlagChip, typed `profile` accessors); `supplier-list.tsx` (KPI strip, tier tabs with live counts, search, sort, sparkline table); `supplier-scorecards.tsx` (PPM/OTD/OQE/SCAR weight sliders → the **`/v1/supplier-scorecard?w*`** endpoint, so the ranking is server-computed — rule 5); `supplier-risk-matrix.tsx` (score×spend bubble plot, grade bands, hover card; degrades to even X-spacing when spend isn't populated); `supplier-create-dialog.tsx`.
+- **Detail tabs:** Overview (PPM trend BigSpark w/ target line + profile card), Scorecard (per-axis breakdown + composite grade + radar — normalization reuses `weightedSupplierScore` via one-hot weights, not reimplemented), Linked records (via `entityLinks`), Parts (from `profile.parts`). AI-insight banner from `profile.aiInsights`.
+- **States:** empty/loading/error/permission; `preferred`/`benchmark`/breach flag chips. Nav gated on the real `supplier:view` capability (was a dead `suppliers:read`).
+- **Hooks/keys:** `apps/web/src/hooks/use-suppliers.ts` over `apiQueries.suppliers.*`; `entityLinks` for linked records.
+- **Verified in-browser** against 3 seeded suppliers: list KPIs/tabs/sparklines, live weight re-rank (`wScar` bump reorders server-side), matrix hover, detail 360 + scorecard radar. Repo-wide typecheck + lint clean.
 
 ## 4. Definition of Done
 - [x] **Backend entity slice**: schema extension, DTO/contract, `SuppliersService` + controller, capabilities, `apiQueries.suppliers.*` client factories.
 - [x] Scorecard weighting is pure core logic, unit-tested (8); ranking endpoint live.
 - [x] RLS suite green with the altered table; mutations audited; optimistic concurrency; cross-tenant 404.
-- [ ] Detail shows profile, KPI sparklines/trends, AI insights, linked NCR/8D/audit/ECN/complaint, PPAP programs, chargebacks. *(FE)*
-- [ ] List + risk-matrix + scorecard (live weight sliders) match `suppliers.jsx`. *(FE)*
+- [x] Detail shows profile, KPI sparklines/trends, AI insights, linked records; PPAP programs/chargebacks render from `profile` when present. *(FE ✅)*
+- [x] List + risk-matrix + scorecard (live weight sliders) match `suppliers.jsx`; Suppliers nav link restored. *(FE ✅)*
 - [ ] Server-side flag derivation + AI insights via the nightly `supplier-scorecard` job. *(deferred)*
 
 ## 6. Delivered this branch / what's next
