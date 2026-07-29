@@ -1185,3 +1185,75 @@ export const ScarChargebackBody = z.object({
   version: z.number().int().nonnegative(),
 });
 export type ScarChargebackBody = z.infer<typeof ScarChargebackBody>;
+
+// --- Supplier portal — external, read-only projections (FEATURES §17, P11) --
+//
+// These are DELIBERATELY narrower than the internal ScarDto / PpapSubmissionDto:
+// an external partner must never see internal identifiers (the owning member,
+// the linked NCR, the reviewer member id) or internal advisory data (the AI
+// prediction). The portal service maps the internal record onto these before it
+// ever crosses the boundary. The supplier is implicit (it is always the caller's
+// own), so supplierId/supplierName are omitted.
+
+/** The partner's own supplier identity — what `/v1/portal/me` returns. */
+export const PortalIdentityDto = z.object({
+  supplierId: z.string().uuid(),
+  supplierName: z.string(),
+  supplierCode: z.string(),
+});
+export type PortalIdentityDto = z.infer<typeof PortalIdentityDto>;
+
+export const PortalChargebackDto = z.object({
+  amount: z.number().nullable(),
+  currency: z.string(),
+  status: ChargebackStatus.nullable(),
+});
+export type PortalChargebackDto = z.infer<typeof PortalChargebackDto>;
+
+/** A SCAR as the responsible supplier sees it. No owner / linked-NCR leak. */
+export const PortalScarDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string().nullable(),
+  severity: ScarSeverity,
+  status: ScarStatus,
+  currentD: z.number().int().min(1).max(8),
+  raisedDate: z.string().nullable(),
+  dueDate: z.string().nullable(),
+  supplierResponseDue: z.string().nullable(),
+  supplierAcknowledged: z.boolean(),
+  ackDate: z.string().nullable(),
+  affectedLots: z.number().int().nullable(),
+  chargeback: PortalChargebackDto,
+  daysOpen: z.number().int().nullable(),
+  overdue: z.boolean(),
+});
+export type PortalScarDto = z.infer<typeof PortalScarDto>;
+
+/** One PPAP element with its reviewer feedback — but NOT the reviewer's id. */
+export const PortalPpapElementDto = z.object({
+  id: z.number().int().min(1).max(18),
+  name: z.string(),
+  status: PpapElementStatus,
+  comment: z.string().nullable(),
+});
+export type PortalPpapElementDto = z.infer<typeof PortalPpapElementDto>;
+
+/** A PPAP submission as the supplier sees it. No owner / AI-prediction leak. */
+export const PortalPpapDto = z.object({
+  id: z.string().uuid(),
+  code: z.string().nullable(),
+  partNumber: z.string(),
+  partRev: z.string().nullable(),
+  programName: z.string().nullable(),
+  level: z.number().int().min(1).max(5),
+  customer: z.string().nullable(),
+  status: PpapStatus,
+  submittedDate: z.string().nullable(),
+  dueDate: z.string().nullable(),
+  approvedDate: z.string().nullable(),
+  elements: z.array(PortalPpapElementDto),
+  completeness: PpapCompletenessDto,
+  daysOpen: z.number().int().nullable(),
+});
+export type PortalPpapDto = z.infer<typeof PortalPpapDto>;

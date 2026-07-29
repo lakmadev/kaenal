@@ -40,6 +40,8 @@ import { PpapController } from "./ppap/ppap.controller.js";
 import { PpapService } from "./ppap/ppap.service.js";
 import { ScarController } from "./scar/scar.controller.js";
 import { ScarService } from "./scar/scar.service.js";
+import { PortalController } from "./portal/portal.controller.js";
+import { PortalService } from "./portal/portal.service.js";
 import { FilesController } from "./files/files.controller.js";
 import { FilesService } from "./files/files.service.js";
 import { ExportsController } from "./exports/exports.controller.js";
@@ -79,6 +81,7 @@ import {
   SUPPLIERS_SERVICE,
   PPAP_SERVICE,
   SCAR_SERVICE,
+  PORTAL_SERVICE,
   EIGHT_D_SERVICE,
   ENV,
   EXPORTS_SERVICE,
@@ -114,6 +117,7 @@ import {
     SuppliersController,
     PpapController,
     ScarController,
+    PortalController,
     FilesController,
     ExportsController,
     AiController,
@@ -195,6 +199,11 @@ import {
     { provide: SUPPLIERS_SERVICE, useFactory: () => new SuppliersService() },
     { provide: PPAP_SERVICE, useFactory: () => new PpapService() },
     { provide: SCAR_SERVICE, useFactory: () => new ScarService() },
+    {
+      provide: PORTAL_SERVICE,
+      useFactory: (scar: ScarService, ppap: PpapService) => new PortalService(scar, ppap),
+      inject: [SCAR_SERVICE, PPAP_SERVICE],
+    },
 
     // Object storage (03 §7). One S3 client for the process; MinIO locally.
     {

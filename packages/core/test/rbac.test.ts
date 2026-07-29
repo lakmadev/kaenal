@@ -3,10 +3,12 @@ import { Role } from "@kaenal/types";
 import {
   authorize,
   authorizePlant,
+  authorizeSupplier,
   authorizeVerify,
   CAPABILITIES,
   capabilitiesFor,
   hasCapability,
+  isPartner,
   isPlantScoped,
   type Capability,
 } from "../src/rbac.js";
@@ -48,6 +50,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "members:manage",
     "apikeys:manage",
     "billing:manage",
+    "portal:view",
   ],
   manager: [
     "inspection:view",
@@ -109,6 +112,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ppap:view",
     "scar:view",
   ],
+  partner: ["portal:view"],
 };
 
 describe("capability matrix — every cell", () => {
@@ -156,6 +160,53 @@ describe("the denials that matter most", () => {
 
   it("inspector cannot approve documents", () => {
     expect(hasCapability("inspector", "document:approve")).toBe(false);
+  });
+});
+
+describe("partner is portal-only (P11 external boundary)", () => {
+  it("holds portal:view and NOTHING internal", () => {
+    expect(hasCapability("partner", "portal:view")).toBe(true);
+    for (const cap of CAPABILITIES) {
+      if (cap === "portal:view") continue;
+      expect(hasCapability("partner", cap)).toBe(false);
+    }
+  });
+
+  it("only admin (all-caps) and partner hold portal:view", () => {
+    expect(hasCapability("admin", "portal:view")).toBe(true);
+    expect(hasCapability("partner", "portal:view")).toBe(true);
+    for (const role of ["manager", "auditor", "inspector", "viewer"] as const) {
+      expect(hasCapability(role, "portal:view")).toBe(false);
+    }
+  });
+});
+
+describe("supplier scoping (P11) — one boundary out from plant scope", () => {
+  const partner = (supplierScope: string | null) =>
+    ({ role: "partner", plantIds: [], supplierScope }) as const;
+
+  it("allows a partner to reach their own supplier's record", () => {
+    expect(authorizeSupplier(partner("sup-1"), "sup-1").ok).toBe(true);
+  });
+
+  it("denies another supplier's record as NOT_FOUND, never FORBIDDEN (rule 8)", () => {
+    const result = authorizeSupplier(partner("sup-1"), "sup-2");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("NOT_FOUND");
+    expect(result.message).not.toMatch(/supplier|permission|forbidden/i);
+  });
+
+  it("denies a partner with no scope (should be impossible via the DB CHECK)", () => {
+    expect(authorizeSupplier(partner(null), "sup-1").ok).toBe(false);
+  });
+
+  it("is a no-op for internal roles (they are not supplier-scoped)", () => {
+    for (const role of ["admin", "manager", "auditor", "inspector", "viewer"] as const) {
+      expect(authorizeSupplier({ role, plantIds: [] }, "sup-1").ok).toBe(true);
+    }
+    expect(isPartner("partner")).toBe(true);
+    expect(isPartner("admin")).toBe(false);
   });
 });
 

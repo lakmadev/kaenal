@@ -8,6 +8,7 @@ import {
   checkPasswordPolicy,
   INVITATION_TTL_MS,
   isLocked,
+  mfaRequiredFor,
   PASSWORD_RESET_TTL_MS,
   registerFailure,
   registerSuccess,
@@ -42,6 +43,7 @@ export interface SignInResult {
 interface CredentialRow {
   id: string;
   password_hash: string | null;
+  mfa_secret: string | null;
   failed_login_attempts: number;
   locked_until: Date | null;
   status: string;
@@ -68,7 +70,7 @@ export class AuthService {
       new ApiError("UNAUTHENTICATED", "Email or password is incorrect");
 
     const { rows } = await this.control.query<CredentialRow>(
-      `SELECT id, password_hash, failed_login_attempts, locked_until, status
+      `SELECT id, password_hash, mfa_secret, failed_login_attempts, locked_until, status
          FROM control.users WHERE email = $1`,
       [email],
     );
@@ -115,6 +117,18 @@ export class AuthService {
       throw invalid();
     }
 
+    // P11: external partners must have MFA configured (07 §4). The password has
+    // already verified here, so this is not a credential oracle — it is a hard
+    // stop on an under-secured external account, and it says so plainly rather
+    // than reusing the generic invalid-credentials envelope.
+    if (mfaRequiredFor(membership.role) && user.mfa_secret === null) {
+      await this.auditSignIn(tenantId, user.id, "sign_in_failed", { reason: "mfa_required" }, context);
+      throw new ApiError(
+        "FORBIDDEN",
+        "This account requires multi-factor authentication, which is not configured. Contact your administrator.",
+      );
+    }
+
     const reset = registerSuccess();
     await this.control.query(
       `UPDATE control.users
@@ -124,7 +138,8 @@ export class AuthService {
     );
 
     const sessionToken = generateToken();
-    const expiresAt = slideSessionExpiry(now);
+    // Partners get a short-lived session (P11); staff get the standard 12h.
+    const expiresAt = slideSessionExpiry(now, membership.role);
 
     await withAudit(
       tx,
@@ -172,9 +187,19 @@ export class AuthService {
   async resolveSession(
     tx: Tx,
     token: string,
-  ): Promise<{ userId: string; role: Role; plantIds: readonly string[] } | null> {
-    const { rows } = await tx.query<{ user_id: string; role: Role; plant_ids: string[] }>(
-      `SELECT s.user_id, m.role, m.plant_ids
+  ): Promise<{
+    userId: string;
+    role: Role;
+    plantIds: readonly string[];
+    supplierScope: string | null;
+  } | null> {
+    const { rows } = await tx.query<{
+      user_id: string;
+      role: Role;
+      plant_ids: string[];
+      supplier_scope: string | null;
+    }>(
+      `SELECT s.user_id, m.role, m.plant_ids, m.supplier_scope
          FROM sessions s
          JOIN memberships m ON m.tenant_id = s.tenant_id AND m.user_id = s.user_id
         WHERE s.refresh_token_hash = $1
@@ -188,10 +213,15 @@ export class AuthService {
     const row = rows[0];
     if (row === undefined) return null;
 
-    // Role is re-read from the database on every request (07 §7): a role
-    // downgraded mid-session must take effect on the next request, not at the
-    // next sign-in.
-    return { userId: row.user_id, role: row.role, plantIds: row.plant_ids };
+    // Role AND supplier scope are re-read from the database on every request
+    // (07 §7): a role downgrade or a re-scoped partner must take effect on the
+    // next request, not the next sign-in.
+    return {
+      userId: row.user_id,
+      role: row.role,
+      plantIds: row.plant_ids,
+      supplierScope: row.supplier_scope,
+    };
   }
 
   async signOut(tx: Tx, tenantId: string, token: string, userId: string): Promise<void> {
@@ -447,14 +477,16 @@ export class AuthService {
   private async activeMembership(
     tx: Tx,
     userId: string,
-  ): Promise<{ role: Role; plantIds: readonly string[] } | null> {
-    const { rows } = await tx.query<{ role: Role; plant_ids: string[] }>(
-      `SELECT role, plant_ids FROM memberships
+  ): Promise<{ role: Role; plantIds: readonly string[]; supplierScope: string | null } | null> {
+    const { rows } = await tx.query<{ role: Role; plant_ids: string[]; supplier_scope: string | null }>(
+      `SELECT role, plant_ids, supplier_scope FROM memberships
         WHERE user_id = $1 AND status = 'active' AND deleted_at IS NULL`,
       [userId],
     );
     const row = rows[0];
-    return row === undefined ? null : { role: row.role, plantIds: row.plant_ids };
+    return row === undefined
+      ? null
+      : { role: row.role, plantIds: row.plant_ids, supplierScope: row.supplier_scope };
   }
 
   /**

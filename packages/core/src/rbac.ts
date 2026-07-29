@@ -39,6 +39,11 @@ export const CAPABILITIES = [
   "members:manage",
   "apikeys:manage",
   "billing:manage",
+  // External supplier portal (P11). The ONLY capability a `partner` holds — it
+  // gates the read-only /v1/portal/* namespace. Internal roles never carry it
+  // (except admin, which holds everything), and holding it is not enough on its
+  // own: the portal service also requires the session to carry a supplier scope.
+  "portal:view",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -115,6 +120,12 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ppap:view",
     "scar:view",
   ],
+
+  // External supplier contact — the read-only portal, nothing internal. Every
+  // internal capability is absent, so a partner hitting /v1/ncrs, /v1/suppliers,
+  // etc. is denied by RBAC before the query runs. Their `portal:view` access is
+  // further narrowed to their own supplier by the supplier-scope check.
+  partner: ["portal:view"],
 };
 
 export function capabilitiesFor(role: Role): readonly Capability[] {
@@ -140,6 +151,17 @@ export interface Membership {
   readonly role: Role;
   /** Empty array = no restriction (03 §3: scoping applies "when set"). */
   readonly plantIds: readonly string[];
+  /**
+   * The single supplier an external `partner` is bound to (P11); null for every
+   * internal role. The DB CHECK guarantees `partner ⇔ supplierScope !== null`,
+   * so a partner always has one and an internal role never does.
+   */
+  readonly supplierScope?: string | null;
+}
+
+/** External supplier-portal user — see {@link authorizeSupplier}. */
+export function isPartner(role: Role): boolean {
+  return role === "partner";
 }
 
 /**
@@ -167,6 +189,24 @@ export function authorizePlant(membership: Membership, plantId: string | null): 
   if (!isPlantScoped(membership.role)) return allow();
   if (membership.plantIds.length === 0) return allow();
   if (plantId !== null && membership.plantIds.includes(plantId)) return allow();
+  return deny("NOT_FOUND", "Resource not found");
+}
+
+/**
+ * Supplier-level scoping for an external `partner` (P11) — the same shape as
+ * {@link authorizePlant}, one boundary out.
+ *
+ * A partner may only ever touch records belonging to the single supplier their
+ * membership is scoped to. A mismatch (or a partner with no scope, which the DB
+ * CHECK should make impossible) returns NOT_FOUND, never FORBIDDEN: a 403 would
+ * confirm the other supplier's record exists (rule 8). Internal roles are not
+ * supplier-scoped, so this is a no-op for them — the portal endpoints gate
+ * *reaching* this check on the partner-only supplier scope, not on role.
+ */
+export function authorizeSupplier(membership: Membership, supplierId: string): Decision {
+  if (!isPartner(membership.role)) return allow();
+  const scope = membership.supplierScope ?? null;
+  if (scope !== null && scope === supplierId) return allow();
   return deny("NOT_FOUND", "Resource not found");
 }
 

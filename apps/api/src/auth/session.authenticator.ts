@@ -46,7 +46,11 @@ export class SessionAuthenticator implements Authenticator {
 
     return {
       userId: resolved.userId,
-      membership: { role: resolved.role, plantIds: resolved.plantIds },
+      membership: {
+        role: resolved.role,
+        plantIds: resolved.plantIds,
+        supplierScope: resolved.supplierScope,
+      },
     };
   }
 

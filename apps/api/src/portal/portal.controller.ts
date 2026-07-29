@@ -1,0 +1,70 @@
+import { Controller, Get, Inject, Param, Query } from "@nestjs/common";
+import { z } from "zod";
+import {
+  PageQuery,
+  type Page,
+  type PortalIdentityDto,
+  type PortalPpapDto,
+  type PortalScarDto,
+} from "@kaenal/types";
+import { currentContext, currentTx } from "../context.js";
+import { RequireCapability } from "../decorators.js";
+import { parse } from "../http/validate.js";
+import { PORTAL_SERVICE } from "../tokens.js";
+import type { PortalService } from "./portal.service.js";
+
+const uuid = z.string().uuid();
+
+/**
+ * External supplier-portal routes (FEATURES §17, P11). Every route is
+ * `portal:view` (partner-only), and the supplier scope is taken from the
+ * authenticated membership — never from the request — inside the tenant-scoped
+ * transaction. Read-only in this slice; audited writes (SCAR respond, PPAP
+ * re-submit) are the next slice.
+ */
+@Controller()
+export class PortalController {
+  constructor(@Inject(PORTAL_SERVICE) private readonly portal: PortalService) {}
+
+  private scope(): string | null | undefined {
+    return currentContext().membership?.supplierScope;
+  }
+
+  @Get("v1/portal/me")
+  @RequireCapability("portal:view")
+  async identity(): Promise<PortalIdentityDto> {
+    return this.portal.identity(currentTx(), this.scope());
+  }
+
+  @Get("v1/portal/scars")
+  @RequireCapability("portal:view")
+  async listScars(@Query() query: unknown): Promise<Page<PortalScarDto>> {
+    const q = parse(PageQuery, query);
+    return this.portal.listScars(currentTx(), this.scope(), {
+      ...(q.cursor !== undefined ? { cursor: q.cursor } : {}),
+      limit: q.limit,
+    });
+  }
+
+  @Get("v1/portal/scars/:id")
+  @RequireCapability("portal:view")
+  async getScar(@Param("id") id: string): Promise<PortalScarDto> {
+    return this.portal.getScar(currentTx(), this.scope(), parse(uuid, id));
+  }
+
+  @Get("v1/portal/ppap")
+  @RequireCapability("portal:view")
+  async listPpap(@Query() query: unknown): Promise<Page<PortalPpapDto>> {
+    const q = parse(PageQuery, query);
+    return this.portal.listPpap(currentTx(), this.scope(), {
+      ...(q.cursor !== undefined ? { cursor: q.cursor } : {}),
+      limit: q.limit,
+    });
+  }
+
+  @Get("v1/portal/ppap/:id")
+  @RequireCapability("portal:view")
+  async getPpap(@Param("id") id: string): Promise<PortalPpapDto> {
+    return this.portal.getPpap(currentTx(), this.scope(), parse(uuid, id));
+  }
+}

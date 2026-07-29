@@ -74,6 +74,9 @@ import {
   AdvanceScarBody,
   AcknowledgeScarBody,
   ScarChargebackBody,
+  PortalIdentityDto,
+  PortalScarDto,
+  PortalPpapDto,
   TemplateDto,
   TransitionDocumentBody,
   TransitionEightDBody,
@@ -810,6 +813,44 @@ export const contract = c.router(
       body: ScarChargebackBody,
       responses: { 200: ScarDto, ...commonErrors },
       summary: "Set / transition the chargeback (one-way: none→pending→debit_issued→closed)",
+    },
+
+    // --- Supplier portal (external, read-only; FEATURES §17) ---------------
+    // Partner-only (`portal:view`), and every response is additionally scoped to
+    // the caller's own supplier — a foreign id is 404, never 403.
+    getPortalIdentity: {
+      method: "GET",
+      path: "/v1/portal/me",
+      responses: { 200: PortalIdentityDto, ...commonErrors },
+      summary: "The partner's own supplier identity",
+    },
+    listPortalScars: {
+      method: "GET",
+      path: "/v1/portal/scars",
+      query: PageQuery,
+      responses: { 200: page(PortalScarDto), ...commonErrors },
+      summary: "The partner's own SCARs (cursor-paginated, scoped to their supplier)",
+    },
+    getPortalScar: {
+      method: "GET",
+      path: "/v1/portal/scars/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: PortalScarDto, ...commonErrors },
+      summary: "One of the partner's own SCARs (foreign supplier → 404)",
+    },
+    listPortalPpap: {
+      method: "GET",
+      path: "/v1/portal/ppap",
+      query: PageQuery,
+      responses: { 200: page(PortalPpapDto), ...commonErrors },
+      summary: "The partner's own PPAP submissions (cursor-paginated, scoped)",
+    },
+    getPortalPpap: {
+      method: "GET",
+      path: "/v1/portal/ppap/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: PortalPpapDto, ...commonErrors },
+      summary: "One of the partner's own PPAP submissions (foreign supplier → 404)",
     },
 
     // --- Notifications -----------------------------------------------------

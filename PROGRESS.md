@@ -128,6 +128,32 @@ recovered — all under optimistic concurrency, no console errors. API scar 10/1
 typecheck 6/6, api-client 11, lint clean. **Deferred:** the activity-history timeline UI (data in
 audit_events) and an entity-links management UI on the SCAR detail (the backend/graph already supports it).
 
+**Supplier Portal — security foundation, read-only (P11 slice 1, 2026-07-29):** the one phase that
+crosses the tenant trust boundary; built the isolation model FIRST (see Decisions log for the sign-off).
+Migration `0022_supplier_portal.sql` adds `partner` to the memberships/invitations role CHECKs, a
+`supplier_scope` uuid (FK → suppliers) on both, the DB-level coupling invariant
+`(role='partner') = (supplier_scope IS NOT NULL)`, and a partial scope index. `Role` gains `partner`;
+a new `InternalRole` (Role minus partner) is used by the staff-invite body so that endpoint can never
+mint an un-scoped external membership. `rbac`: a `portal:view` capability held ONLY by `partner`
+(plus admin's all-caps) — partners have NO internal capability, so `/v1/ncrs`, `/v1/suppliers`,
+`/v1/scars`, `/v1/ppap` all 403 by RBAC; `Membership` carries `supplierScope`; `authorizeSupplier`
+mirrors `authorizePlant` (foreign supplier → NOT_FOUND, never 403). `auth-policy`: `mfaRequiredFor`
+(partner) + `sessionTtlFor`/`PARTNER_SESSION_TTL_MS` (2h). `AuthService`: a partner is refused sign-in
+(403, "requires multi-factor authentication") unless `mfa_secret` is set; partner sessions use the
+short TTL; `resolveSession`/`activeMembership` thread `supplier_scope` into the session membership.
+`PortalService`/`PortalController`: read-only `/v1/portal/{me,scars,scars/:id,ppap,ppap/:id}`, every
+route `@RequireCapability("portal:view")`, scoped to the membership's own supplier (never a
+caller-supplied id — a partner cannot widen it), reusing the tested `ScarService`/`PpapService` and
+mapping onto **narrow portal DTOs** that omit internal identifiers (owner, linked NCR, reviewer id, AI
+prediction). **Isolation suite** `apps/api/test/portal.test.ts` (11 adversarial tests): partner sees
+only their supplier's SCAR/PPAP, foreign records 404, internal endpoints 403, internal viewer 403 on
+the portal, admin (cap-but-no-scope) 403, no-MFA partner sign-in 403, short session verified, no
+field leakage. core 592, RLS 227, api portal 11 / auth 16 / control-identity 14, typecheck 6/6, lint
+clean. **DELIBERATELY deferred to slice 2:** the portal FE (separate `/portal/*` route group + shell +
+screens) and the audited external WRITES (SCAR respond, PPAP re-submit, AV-gated evidence upload).
+**Hard dependency before any production exposure (Known issues):** a per-login TOTP challenge/enrolment
+subsystem — the MFA gate today only proves a secret is enrolled, not that it was verified this login.
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already
@@ -860,6 +886,26 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Decisions log
 
+- **2026-07-29 — Supplier Portal (P11): partner role + supplier-scope within the ONE identity plane;
+    MFA-required + short sessions; read-only v1 (SECURITY SIGN-OFF).** The one phase that crosses the
+    tenant trust boundary (external supplier users acting on tenant data). Decided AGAINST a separate
+    external service: for an enterprise QMS the single-identity model is stronger *when scoping is
+    enforced server-side* — one governed identity/audit/MFA plane, one revoke point, and it reuses the
+    already-mutation-tested RLS instead of a data-sync boundary (itself a leak surface). So a `partner`
+    is a normal `control.users` person with a `membership` whose role is `partner` and which carries a
+    `supplier_scope` (one supplier). What makes them safe is AUTHORIZATION, not a separate schema:
+    (a) `partner` holds ONLY `portal:view` — no internal capability, so RBAC 403s every `/v1/*` internal
+    route before a query runs; (b) the portal service filters to the membership's `supplier_scope` (never
+    a caller-supplied id) and 404s another supplier's record (rule 8, one boundary out from plant-scope);
+    (c) the DB CHECK `(role='partner') = (supplier_scope IS NOT NULL)` makes an un-scoped partner or a
+    scoped internal role impossible; (d) partners get a short (2h) session and are refused sign-in unless
+    MFA is configured. External writes (SCAR respond, PPAP re-submit, AV-gated upload) are a DELIBERATE
+    second slice — read-only first validates the boundary before any external write path exists.
+    **Caveat recorded in Known issues:** the MFA gate enforces *enrolment*, not a per-login TOTP
+    challenge (no TOTP subsystem exists yet) — the portal must not be exposed to real suppliers until it
+    lands. Portal DTOs are narrow projections that never emit internal identifiers (owner, linked NCR,
+    reviewer id, AI prediction). Isolation proven by `apps/api/test/portal.test.ts` (11 adversarial tests).
+
 - **2026-07-24 — Web foundation: tokens as the one styling source, Tailwind v4 bridges to them, primitives
     hand-built, Radix reserved for the hard a11y widgets.** `apps/web` is Next.js 15 (App Router, React 19,
     TS strict). Styling is the token system, not per-component CSS: `src/styles/tokens.css` holds every
@@ -1492,6 +1538,20 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 ---
 
 ## Known issues / TODO
+
+- **P11 Supplier Portal — TOTP verify/enrolment subsystem is a HARD dependency before production exposure.**
+  The partner MFA gate (`mfaRequiredFor` + the sign-in check) currently enforces only that a `mfa_secret`
+  is *enrolled*, not that a TOTP code was verified this login — no TOTP challenge/enrolment subsystem
+  exists anywhere in the codebase yet (the `control.users.mfa_secret` column is schema-only). The portal
+  must NOT be opened to real external suppliers until: (a) TOTP enrolment (QR/secret provisioning +
+  recovery codes) and (b) a per-login verify step are built, and (c) the partner-invite/onboarding flow
+  (a supplier-scoped variant of the staff invite — deferred) mints the `partner` membership + drives
+  enrolment. The read-only portal backend + isolation model are done and proven; these are the gates on
+  turning it on. See P11 Decisions log entry.
+- **P11 Supplier Portal — remaining build (slice 2):** the portal FE (`/portal/*` route group, minimal
+  supplier-branded shell, my-SCARs / my-PPAP / notifications screens per `supplier-portal.jsx`) and the
+  audited external WRITES (SCAR respond + 8D evidence upload via the AV-gated presign flow, PPAP
+  re-submit), every write `withAudit` with `actor_kind='partner'`. Backend read-only slice is in.
 
 - **Web app (`apps/web`): foundation only; module screens + several cross-cutting systems pending.** The
   shell, design system, sign-in, and a dashboard slice are up and building, but most nav destinations are

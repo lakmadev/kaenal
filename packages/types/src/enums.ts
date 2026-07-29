@@ -40,8 +40,25 @@ export const Role = defineEnum([
   "auditor",
   "inspector",
   "viewer",
+  // External supplier contact (P11). Scoped to ONE supplier_id, portal-only
+  // capabilities, no access to internal endpoints. See 07 / FEATURES §17.
+  "partner",
 ]);
 export type Role = z.infer<typeof Role>;
+
+/**
+ * The internal (staff) roles — every role except the external `partner`. Used
+ * by the internal member-invite flow, which must never mint an un-scoped
+ * `partner` membership (partner onboarding is the portal-specific invite path).
+ */
+export const InternalRole = defineEnum([
+  "admin",
+  "manager",
+  "auditor",
+  "inspector",
+  "viewer",
+]);
+export type InternalRole = z.infer<typeof InternalRole>;
 
 // --- Inspections -----------------------------------------------------------
 
