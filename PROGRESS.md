@@ -98,6 +98,36 @@ flow (Approve disabled at 12/17, enabled at 17/17, approve stamps date + flips r
 core 524, RLS 227, repo typecheck 7/7, api-client 11, web 3, lint clean. **Deferred:** the activity-history
 timeline UI (data is in audit_events) and the AI-prediction source (P21 job; stubbed via `ai_prediction` jsonb).
 
+**SCAR & chargebacks — backend + FE (P10, 2026-07-29):** the third Supply-chain vertical, end-to-end.
+Like `suppliers`/`ppap_submissions`, the `scars` table **already existed** (thin) since `0001` — so
+`0021_scar.sql` EXTENDED it: `lock_version` (+ bump trigger), title/severity/`current_d`(1–8)/raised-
+due-response dates/`supplier_acknowledged`+`ack_date`/`affected_lots`/`owner` (composite member FK),
+explicit **chargeback columns** (`_amount`/`_currency`/`_status`) replacing the opaque `chargeback`
+jsonb, a `(tenant_id,status)` index, and **reconciles `ScarStatus`** from 0001's generic
+`open/responded/accepted/rejected/closed` to the SCAR lifecycle `draft/open/responded/closed/rejected/
+cancelled`. **Design choice (recorded):** the jsx's `awaiting_d4`/`d5_review` are **derived display
+labels** (status + `current_d`), and `overdue` is **derived** (an active SCAR past its response/overall
+due date) — neither is stored; history uses `audit_events` (`entity_kind='scar'`); `EntityKind` gained
+`scar` so NCR/8D cross-links reuse `entity_links` (the originating NCR also keeps 0001's direct `ncr_id`).
+`packages/core/scar.ts` holds the pure rules: the **forward-only 8D `nextD` machine** (blocked past D8),
+`scarIsOverdue`, `scarDaysOpen`, the **chargeback ratchet** `canTransitionChargeback` (none→pending→
+debit_issued→closed, one-way), and `scarStageLabel` (31 unit tests). `ScarService`: list (supplier/
+status/severity/overdue/q filters, supplier name via correlated subquery so the shared keyset stays
+unambiguous), get, create (auto `SCAR-YYYY-NNNN`, 404s unknown/cross-tenant supplier **and** linked NCR),
+update, `advance` (opens a draft, 422 past D8), `acknowledge`, and `chargeback` (illegal jump → 422) —
+every mutation `withAudit`, optimistic `version`→409. Capabilities `scar:view` (all roles) / `scar:manage`
+(admin/manager/auditor). **FE** (`apps/web/src/features/scar/`): list (KPI strip incl. chargebacks-YTD /
+pending-recovery / avg-closure, active/overdue/closed tabs + a **chargeback-ledger tab**, 8-square D-step
+stepper, severity, overdue due-dates, chargeback badge), detail (header strip, **acknowledgement banner**
++ Record-ack, **8D discipline tracker** with Advance, **chargeback panel** with the pending→debit-issued→
+recovered ratchet, linked-records panel), create dialog (supplier picker + chargeback amount); routes
+`/scars` + `/scars/[id]`; nav link (`scar:view`). **Verified in-browser** against 1 supplier + 3 SCARs:
+list + KPIs + ledger tab, and the full lifecycle on SCAR-0001 — Advance 8D (draft→open, D1→D2 with the
+stepper re-colouring), Record acknowledgement (banner turned green), chargeback pending→debit-issued→
+recovered — all under optimistic concurrency, no console errors. API scar 10/10, core 555, RLS 227, repo
+typecheck 6/6, api-client 11, lint clean. **Deferred:** the activity-history timeline UI (data in
+audit_events) and an entity-links management UI on the SCAR detail (the backend/graph already supports it).
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already

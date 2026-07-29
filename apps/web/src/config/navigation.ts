@@ -6,6 +6,7 @@ import {
   ShieldCheck,
   FileText,
   FileCheck,
+  FileWarning,
   Truck,
   Network,
   LineChart,
@@ -83,6 +84,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Suppliers", href: "/suppliers", icon: Truck, capability: "supplier:view" },
       { label: "PPAP", href: "/ppap", icon: FileCheck, capability: "ppap:view" },
+      { label: "SCAR", href: "/scars", icon: FileWarning, capability: "scar:view" },
     ],
   },
   {

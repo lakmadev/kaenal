@@ -250,14 +250,25 @@ export const PpapElementStatus = defineEnum([
 ]);
 export type PpapElementStatus = z.infer<typeof PpapElementStatus>;
 
+// SCAR lifecycle (P10). Coarse status; the 8D `currentD` (1–8) is the fine
+// progress and `overdue` is derived from the due dates — neither is a stored
+// status. Reconciled from 0001's generic open/responded/accepted/rejected/closed.
 export const ScarStatus = defineEnum([
+  "draft",
   "open",
   "responded",
-  "accepted",
-  "rejected",
   "closed",
+  "rejected",
+  "cancelled",
 ]);
 export type ScarStatus = z.infer<typeof ScarStatus>;
+
+export const ScarSeverity = defineEnum(["minor", "major", "critical"]);
+export type ScarSeverity = z.infer<typeof ScarSeverity>;
+
+// Chargeback (cost-recovery) status — a one-way ratchet (rules in packages/core).
+export const ChargebackStatus = defineEnum(["pending", "debit_issued", "closed"]);
+export type ChargebackStatus = z.infer<typeof ChargebackStatus>;
 
 // --- Exports (03 §8, 06 `reports` queue) -----------------------------------
 
@@ -297,6 +308,7 @@ export const EntityKind = defineEnum([
   "capa",
   "document",
   "supplier",
+  "scar",
 ]);
 export type EntityKind = z.infer<typeof EntityKind>;
 

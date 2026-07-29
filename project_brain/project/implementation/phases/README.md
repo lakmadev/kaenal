@@ -40,7 +40,7 @@ Every `PNN-*.md` follows the same shape:
 - Every list endpoint cursor-paginated; every create idempotency-safe; writes use `lockVersion`.
 - Foreign-tenant ids → **404, not 403**. No business logic in UI — it lives in `packages/core` or API.
 - Entity codes via `packages/core/src/codes.ts` (`XXX-YYYY-NNNN`).
-- **Next free migration number: `0021`** (last shipped is `0020_ppap.sql`).
+- **Next free migration number: `0022`** (last shipped is `0021_scar.sql`).
 
 ---
 
@@ -64,7 +64,7 @@ Every `PNN-*.md` follows the same shape:
 |---|---------|---------|----|-----------|
 | [P08](P08-suppliers.md) | Suppliers (list, scorecards, risk matrix, detail) | 🟡 (entity slice ✅) | ✅ | `suppliers.jsx`, `suppliers-data.js` |
 | [P09](P09-ppap.md) | PPAP submissions (18-element package, review, AI prediction) | ✅ | ✅ | `suppliers-ppap.jsx` |
-| [P10](P10-scar.md) | SCAR & chargebacks (8D-style supplier CAR) | 🔴 | 🔴 | `suppliers.jsx` (SCAR view) |
+| [P10](P10-scar.md) | SCAR & chargebacks (8D-style supplier CAR) | ✅ | ✅ | `suppliers-ppap.jsx` (`ScarWorkflow`) |
 | [P11](P11-supplier-portal.md) | Supplier Portal (external-facing) | 🔴 | 🔴 | `supplier-portal.jsx` |
 
 ### Part C — Quality Engineering (`PROPOSED` backend + FE)

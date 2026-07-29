@@ -15,6 +15,7 @@ import type {
   NotificationPrefsDto,
   Page,
   PpapSubmissionDto,
+  ScarDto,
   SearchResults,
   SupplierDto,
   UnreadCountDto,
@@ -152,6 +153,17 @@ export const apiQueries = {
     detail: (client: ApiClient, id: string): QueryOption<PpapSubmissionDto> => ({
       queryKey: queryKeys.ppap.detail(id),
       queryFn: () => client.getPpap({ params: { id } }).then((r) => unwrap<PpapSubmissionDto>(r)),
+    }),
+  },
+
+  scars: {
+    list: (client: ApiClient, args?: Arg<"listScars">): QueryOption<Page<ScarDto>> => ({
+      queryKey: queryKeys.scars.list(args?.query),
+      queryFn: () => client.listScars(args).then((r) => unwrap<Page<ScarDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<ScarDto> => ({
+      queryKey: queryKeys.scars.detail(id),
+      queryFn: () => client.getScar({ params: { id } }).then((r) => unwrap<ScarDto>(r)),
     }),
   },
 

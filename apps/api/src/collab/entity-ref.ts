@@ -19,6 +19,7 @@ const ENTITY_TABLES: Record<EntityKind, string> = {
   capa: "capas",
   document: "documents",
   supplier: "suppliers",
+  scar: "scars",
 };
 
 export function tableFor(kind: EntityKind): string {

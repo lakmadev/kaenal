@@ -26,6 +26,9 @@ import {
   NcrStatus,
   PpapElementStatus,
   PpapStatus,
+  ChargebackStatus,
+  ScarSeverity,
+  ScarStatus,
   RecurrenceFreq,
   RiskLevel,
   ScanStatus,
@@ -1080,3 +1083,105 @@ export const PpapDecisionBody = z.object({
   version: z.number().int().nonnegative(),
 });
 export type PpapDecisionBody = z.infer<typeof PpapDecisionBody>;
+
+// --- Supply chain — SCAR & chargebacks (FEATURES §11.3, P10) ---------------
+
+/** Chargeback (cost-recovery) sub-record. Null status = no chargeback raised. */
+export const ChargebackDto = z.object({
+  amount: z.number().nullable(),
+  currency: z.string(),
+  status: ChargebackStatus.nullable(),
+});
+export type ChargebackDto = z.infer<typeof ChargebackDto>;
+
+export const ScarDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  supplierId: z.string().uuid(),
+  /** Joined from the supplier for display; null if the supplier is gone. */
+  supplierName: z.string().nullable(),
+  title: z.string().nullable(),
+  severity: ScarSeverity,
+  status: ScarStatus,
+  /** 8D progress (1–8), forward-only. */
+  currentD: z.number().int().min(1).max(8),
+  raisedDate: z.string().nullable(),
+  dueDate: z.string().nullable(),
+  supplierResponseDue: z.string().nullable(),
+  supplierAcknowledged: z.boolean(),
+  ackDate: z.string().nullable(),
+  affectedLots: z.number().int().nullable(),
+  /** Direct link to the originating NCR (0001 column); 8D links via entity-links. */
+  ncrId: z.string().uuid().nullable(),
+  owner: z.string().nullable(),
+  chargeback: ChargebackDto,
+  /** now − raisedDate, whole days; null when not yet raised. */
+  daysOpen: z.number().int().nullable(),
+  /** Derived: an active SCAR whose response-due / due date has passed. */
+  overdue: z.boolean(),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type ScarDto = z.infer<typeof ScarDto>;
+
+export const CreateScarBody = z.object({
+  supplierId: z.string().uuid(),
+  title: z.string().min(1).max(200),
+  severity: ScarSeverity,
+  // Optional so imports can carry an existing code; auto-generated otherwise.
+  code: z.string().min(1).max(40).optional(),
+  status: ScarStatus.optional(),
+  ncrId: z.string().uuid().nullable().optional(),
+  raisedDate: DateOnly.nullable().optional(),
+  dueDate: DateOnly.nullable().optional(),
+  supplierResponseDue: DateOnly.nullable().optional(),
+  affectedLots: z.number().int().nonnegative().nullable().optional(),
+  owner: z.string().uuid().nullable().optional(),
+  chargebackAmount: z.number().nonnegative().nullable().optional(),
+  chargebackCurrency: z.string().min(1).max(8).optional(),
+});
+export type CreateScarBody = z.infer<typeof CreateScarBody>;
+
+/** Field edits. Advance, acknowledge and chargeback transitions have their own
+ *  endpoints; `code` and `currentD` are not set here. */
+export const UpdateScarBody = z
+  .object({
+    title: z.string().min(1).max(200),
+    severity: ScarSeverity,
+    status: ScarStatus,
+    ncrId: z.string().uuid().nullable(),
+    raisedDate: DateOnly.nullable(),
+    dueDate: DateOnly.nullable(),
+    supplierResponseDue: DateOnly.nullable(),
+    affectedLots: z.number().int().nonnegative().nullable(),
+    owner: z.string().uuid().nullable(),
+  })
+  .partial()
+  .extend({ version: z.number().int().nonnegative() });
+export type UpdateScarBody = z.infer<typeof UpdateScarBody>;
+
+/** Advance the 8D one discipline forward (D1→…→D8). Optimistic via version. */
+export const AdvanceScarBody = z.object({
+  reason: z.string().max(4000).nullable().optional(),
+  version: z.number().int().nonnegative(),
+});
+export type AdvanceScarBody = z.infer<typeof AdvanceScarBody>;
+
+/** Record the supplier's acknowledgement of the SCAR. Optimistic via version. */
+export const AcknowledgeScarBody = z.object({
+  ackDate: DateOnly.nullable().optional(),
+  version: z.number().int().nonnegative(),
+});
+export type AcknowledgeScarBody = z.infer<typeof AcknowledgeScarBody>;
+
+/** Set / transition the chargeback (one-way: none→pending→debit_issued→closed).
+ *  Amount/currency may be set when raising. Optimistic via version. */
+export const ScarChargebackBody = z.object({
+  status: ChargebackStatus,
+  amount: z.number().nonnegative().nullable().optional(),
+  currency: z.string().min(1).max(8).optional(),
+  reason: z.string().max(4000).nullable().optional(),
+  version: z.number().int().nonnegative(),
+});
+export type ScarChargebackBody = z.infer<typeof ScarChargebackBody>;

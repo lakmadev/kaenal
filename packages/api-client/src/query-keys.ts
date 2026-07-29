@@ -49,6 +49,12 @@ export const queryKeys = {
     detail: (id: string) => ["ppap", "detail", id] as const,
   },
 
+  scars: {
+    all: ["scars"] as const,
+    list: (params?: unknown) => ["scars", "list", params ?? null] as const,
+    detail: (id: string) => ["scars", "detail", id] as const,
+  },
+
   files: {
     detail: (id: string) => ["files", "detail", id] as const,
   },

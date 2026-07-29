@@ -58,6 +58,7 @@ const ENTITY_ROUTE: Record<EntityKind, string> = {
   capa: "capa",
   document: "documents",
   supplier: "suppliers",
+  scar: "scars",
 };
 const ENTITY_LABEL: Record<EntityKind, string> = {
   inspection: "Inspection",
@@ -67,6 +68,7 @@ const ENTITY_LABEL: Record<EntityKind, string> = {
   capa: "CAPA",
   document: "Document",
   supplier: "Supplier",
+  scar: "SCAR",
 };
 
 export function DocumentDetail({ id }: { id: string }): React.ReactElement {

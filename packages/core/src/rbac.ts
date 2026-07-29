@@ -33,6 +33,8 @@ export const CAPABILITIES = [
   "supplier:manage",
   "ppap:view",
   "ppap:manage",
+  "scar:view",
+  "scar:manage",
   "settings:manage",
   "members:manage",
   "apikeys:manage",
@@ -68,6 +70,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "supplier:manage",
     "ppap:view",
     "ppap:manage",
+    "scar:view",
+    "scar:manage",
     "settings:manage",
   ],
 
@@ -84,6 +88,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "supplier:view",
     "ppap:view",
     "ppap:manage",
+    "scar:view",
+    "scar:manage",
   ],
 
   inspector: [
@@ -96,6 +102,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "document:view",
     "supplier:view",
     "ppap:view",
+    "scar:view",
   ],
 
   viewer: [
@@ -106,6 +113,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "document:view",
     "supplier:view",
     "ppap:view",
+    "scar:view",
   ],
 };
 

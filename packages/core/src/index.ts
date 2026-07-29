@@ -21,3 +21,4 @@ export * from "./audit-partitions.js";
 export * from "./offboarding.js";
 export * from "./supplier-score.js";
 export * from "./ppap.js";
+export * from "./scar.js";
