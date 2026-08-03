@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     tx.query<{ id: string }>("SELECT id FROM inspection_templates WHERE name = $1 LIMIT 1", [TEMPLATE_NAME]),
   );
   if (already.rows.length > 0) {
-    console.log(`Demo already seeded. Sign in at /login as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
+    console.log(`Demo already seeded. Sign in at /sign-in as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
     await control.end();
     return;
   }
@@ -403,7 +403,7 @@ async function main(): Promise<void> {
   const aiGateway = new AiGatewayService(new StubAiProvider());
   await generateDocumentSummary({ tenantId, userId, documentId: demoDocId }, { gateway: aiGateway });
 
-  console.log(`Seeded. Sign in at /login as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
+  console.log(`Seeded. Sign in at /sign-in as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
   await control.end();
 }
 
