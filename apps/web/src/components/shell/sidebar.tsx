@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { PanelLeft, X, ChevronDown } from "lucide-react";
+import { X, ChevronDown } from "lucide-react";
 import type { MeDto } from "@kaenal/types";
 import { cn } from "@/lib/cn";
 import { useUiStore } from "@/lib/stores/ui";
@@ -53,7 +53,6 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
   const currentUrl = searchParams.toString() === "" ? pathname : `${pathname}?${searchParams.toString()}`;
 
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
-  const toggle = useUiStore((s) => s.toggleSidebar);
   const mobileOpen = useUiStore((s) => s.mobileNavOpen);
   const setMobileOpen = useUiStore((s) => s.setMobileNavOpen);
 
@@ -93,14 +92,6 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
           {!collapsed && (
             <span className="text-[16px] font-bold tracking-[0.08em] text-white">KAENAL</span>
           )}
-          <button
-            type="button"
-            onClick={toggle}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="ml-auto hidden rounded-md p-1.5 text-sidebar-fg hover:bg-white/10 lg:block"
-          >
-            <PanelLeft size={16} />
-          </button>
           <button
             type="button"
             onClick={() => setMobileOpen(false)}

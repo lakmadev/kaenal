@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, Search, Moon, Sun, Bell, LogOut, ChevronRight } from "lucide-react";
+import { Menu, PanelLeft, Search, Moon, Sun, Bell, LogOut, ChevronRight } from "lucide-react";
 import type { MeDto } from "@kaenal/types";
 import { useTheme } from "@/lib/theme";
 import { useUiStore } from "@/lib/stores/ui";
@@ -32,11 +32,21 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
   const setMobileOpen = useUiStore((s) => s.setMobileNavOpen);
+  const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   const [menuOpen, setMenuOpen] = useState(false);
   const signOut = useSignOut();
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-surface px-4">
+      {/* Sidebar toggle (04 §3 / shell.jsx) — collapse on desktop, open drawer on mobile. */}
+      <button
+        type="button"
+        aria-label="Collapse sidebar"
+        onClick={toggleSidebar}
+        className="k-btn k-btn-plain k-btn-icon hidden lg:flex"
+      >
+        <PanelLeft size={18} />
+      </button>
       <button
         type="button"
         aria-label="Open navigation"
