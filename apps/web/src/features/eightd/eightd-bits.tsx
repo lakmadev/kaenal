@@ -1,12 +1,13 @@
-import type { EightDStatus, EightDStepStatus } from "@kaenal/types";
+import type { EightDDto, EightDStatus, EightDStepStatus } from "@kaenal/types";
 import { Chip } from "@/components/ui";
 
 /**
  * The eight disciplines (03 §5). Titles/descriptions are presentation, so they
  * live here; the completion GATING (prerequisites, D3∥D2) is the pure core rule
- * (`canCompleteStep`) enforced server-side. Each discipline names the freeform
- * `data` fields the detail panel edits — the payload is open jsonb, so these are
- * a convention, not a schema.
+ * (`canCompleteStep`) enforced server-side. `fields` are the freeform `data`
+ * keys the simple D5–D8 panels edit — the payload is open jsonb, so these are a
+ * convention, not a schema. The rich panels (D1–D4) read/write their own keys
+ * (`problemStatement`, `isIsNot`, `actions`, `fiveWhys`, …) directly.
  */
 export interface StepField {
   readonly key: string;
@@ -24,37 +25,41 @@ export interface Discipline {
 }
 
 export const DISCIPLINES: readonly Discipline[] = [
-  { n: 1, key: "d1", code: "D1", title: "Team", desc: "Form the cross-functional team", fields: [
-    { key: "charter", label: "Team charter / scope", placeholder: "Purpose, scope, and authority of the team…", rows: 3 },
-  ] },
-  { n: 2, key: "d2", code: "D2", title: "Problem", desc: "Describe the problem", fields: [
-    { key: "problem", label: "Problem statement", placeholder: "What, where, when, and how big — quantified…", rows: 4 },
-  ] },
-  { n: 3, key: "d3", code: "D3", title: "Contain", desc: "Interim containment", fields: [
-    { key: "containment", label: "Containment actions", placeholder: "Quarantine, sort, rework — protect the customer now…", rows: 3 },
-    { key: "effectiveness", label: "Effectiveness check", placeholder: "How was containment verified effective?", rows: 2 },
-  ] },
-  { n: 4, key: "d4", code: "D4", title: "Root Cause", desc: "Analyze & verify", fields: [
-    { key: "rootCause", label: "Root cause", placeholder: "The verified systemic root cause (5-Why / fishbone)…", rows: 3 },
-    { key: "verification", label: "Verification", placeholder: "How was the root cause proven (turn the failure on/off)?", rows: 2 },
-  ] },
+  { n: 1, key: "d1", code: "D1", title: "Team", desc: "Form the team", fields: [] },
+  { n: 2, key: "d2", code: "D2", title: "Problem", desc: "Describe the problem", fields: [] },
+  { n: 3, key: "d3", code: "D3", title: "Contain", desc: "Interim containment", fields: [] },
+  { n: 4, key: "d4", code: "D4", title: "Root Cause", desc: "Analyze & verify", fields: [] },
   { n: 5, key: "d5", code: "D5", title: "Corrective", desc: "Choose permanent actions", fields: [
-    { key: "corrective", label: "Permanent corrective actions", placeholder: "The chosen permanent corrective action(s)…", rows: 3 },
+    { key: "corrective", label: "Permanent corrective actions", placeholder: "The chosen permanent corrective action(s)…", rows: 4 },
+    { key: "verificationPlan", label: "Verification plan", placeholder: "How the permanent action will be validated…", rows: 3 },
   ] },
-  { n: 6, key: "d6", code: "D6", title: "Implement", desc: "Implement & validate", fields: [
+  { n: 6, key: "d6", code: "D6", title: "Implement", desc: "Validate effectiveness", fields: [
     { key: "implementation", label: "Implementation", placeholder: "How the corrective action was implemented…", rows: 3 },
-    { key: "validation", label: "Validation of effectiveness", placeholder: "Evidence the action worked (data, dates)…", rows: 2 },
+    { key: "validation", label: "Validation of effectiveness", placeholder: "Evidence the action worked (data, dates)…", rows: 3 },
   ] },
-  { n: 7, key: "d7", code: "D7", title: "Prevent", desc: "Prevent recurrence", fields: [
-    { key: "preventive", label: "Systemic / preventive actions", placeholder: "FMEA, control-plan, procedure updates to prevent recurrence…", rows: 3 },
+  { n: 7, key: "d7", code: "D7", title: "Prevent", desc: "Systemic changes", fields: [
+    { key: "preventive", label: "Systemic / preventive actions", placeholder: "FMEA, control-plan, procedure updates to prevent recurrence…", rows: 4 },
   ] },
-  { n: 8, key: "d8", code: "D8", title: "Close", desc: "Recognize the team & close", fields: [
-    { key: "closure", label: "Closure & recognition", placeholder: "Lessons learned, team recognition, closure notes…", rows: 3 },
+  { n: 8, key: "d8", code: "D8", title: "Close", desc: "Congratulate team", fields: [
+    { key: "closure", label: "Closure & recognition", placeholder: "Lessons learned, team recognition, closure notes…", rows: 4 },
   ] },
 ];
 
 export function disciplineFor(n: number): Discipline {
   return DISCIPLINES[n - 1] ?? DISCIPLINES[0]!;
+}
+
+/** The `.data` payload of a discipline, typed as an open record for the panels. */
+export function stepData(report: EightDDto, key: string): Record<string, unknown> {
+  return report.steps[key]?.data ?? {};
+}
+
+/** Short "Apr 16"-style date for the stepper's completed marks (jsx `fmtStepDate`). */
+export function fmtStepDate(iso: string | null | undefined): string {
+  if (iso == null || iso === "") return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 const STATUS_STYLES: Record<EightDStatus, { label: string; bg: string; fg: string; dot: string }> = {
@@ -88,50 +93,21 @@ export function StepStatusBadge({ status }: { status: EightDStepStatus }): React
 }
 
 /**
- * The D1–D8 rail: each discipline a cell coloured by status, the active one
- * ringed. Mirrors `eightd.jsx`'s stepper. `statusOf(n)` reads the step's status.
+ * The 8-segment progress bar the LIST uses (jsx `StepperMini`): filled green for
+ * complete steps, amber for the current one, faint for the rest, with a `D{n}/8`
+ * tag. `current` is the discipline in progress (1-based).
  */
-export function DisciplineRail({
-  active,
-  statusOf,
-  onSelect,
-}: {
-  active: number;
-  statusOf: (n: number) => EightDStepStatus;
-  onSelect: (n: number) => void;
-}): React.ReactElement {
+export function StepperMini({ current }: { current: number }): React.ReactElement {
   return (
-    <div className="flex gap-1.5 overflow-x-auto">
-      {DISCIPLINES.map((d) => {
-        const st = statusOf(d.n);
-        const isActive = d.n === active;
-        const s = STEP_STATUS_STYLES[st];
-        const filled = st === "complete" || st === "in_progress";
-        return (
-          <button
-            key={d.n}
-            onClick={() => onSelect(d.n)}
-            title={`${d.code} · ${d.title}`}
-            className="flex min-w-[76px] flex-1 flex-col items-center gap-1 rounded-lg border px-2 py-2 transition-colors"
-            style={{
-              borderColor: isActive ? "var(--accent)" : "var(--border)",
-              borderWidth: isActive ? 2 : 1,
-              background: isActive ? "var(--bg-subtle)" : "transparent",
-            }}
-          >
-            <span
-              className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold"
-              style={{ background: filled ? s.color : "var(--bg-subtle)", color: filled ? "white" : "var(--text-muted)" }}
-            >
-              {d.n}
-            </span>
-            <span className="text-[11px] font-semibold leading-none" style={{ color: isActive ? "var(--text)" : "var(--text-muted)" }}>
-              {d.code}
-            </span>
-            <span className="text-[10px] leading-none text-muted">{d.title}</span>
-          </button>
-        );
-      })}
+    <div className="flex items-center gap-[3px]">
+      {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+        <span
+          key={n}
+          className="h-1.5 flex-1 rounded-[3px]"
+          style={{ background: n < current ? "var(--success-500)" : n === current ? "var(--warning-500)" : "var(--border)" }}
+        />
+      ))}
+      <span className="mono ml-1.5 text-[11px] font-semibold text-muted">D{current}/8</span>
     </div>
   );
 }

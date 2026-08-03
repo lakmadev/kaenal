@@ -13,6 +13,7 @@ export const TENANT_POOLS = Symbol("TENANT_POOLS");
 export const SECRET_RESOLVER = Symbol("SECRET_RESOLVER");
 export const AUTHENTICATOR = Symbol("AUTHENTICATOR");
 export const AUTH_SERVICE = Symbol("AUTH_SERVICE");
+export const MEMBERS_SERVICE = Symbol("MEMBERS_SERVICE");
 export const IDEMPOTENCY = Symbol("IDEMPOTENCY");
 export const TEMPLATES_SERVICE = Symbol("TEMPLATES_SERVICE");
 export const INSPECTIONS_SERVICE = Symbol("INSPECTIONS_SERVICE");

@@ -35,6 +35,7 @@ import {
   FindingDto,
   InspectionDto,
   MeDto,
+  MemberDto,
   NcrActionDto,
   NcrDto,
   CountDto,
@@ -137,6 +138,15 @@ export const contract = c.router(
       path: "/v1/me",
       responses: { 200: MeDto, 401: ErrorBody },
       summary: "The current session's identity and capabilities",
+    },
+
+    // --- Members directory -------------------------------------------------
+    listMembers: {
+      method: "GET",
+      path: "/v1/members",
+      query: PageQuery,
+      responses: { 200: page(MemberDto), ...commonErrors },
+      summary: "List this tenant's members (id → name + role) so the UI can resolve people",
     },
 
     // --- Search ------------------------------------------------------------

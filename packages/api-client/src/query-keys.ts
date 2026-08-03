@@ -6,6 +6,11 @@
 export const queryKeys = {
   me: () => ["me"] as const,
 
+  members: {
+    all: ["members"] as const,
+    list: (params?: unknown) => ["members", "list", params ?? null] as const,
+  },
+
   search: (q: string) => ["search", q] as const,
 
   inspections: {

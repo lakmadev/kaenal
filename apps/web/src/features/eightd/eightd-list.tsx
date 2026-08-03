@@ -1,99 +1,102 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, GitBranch, ChevronRight } from "lucide-react";
-import type { EightDDto, EightDStatus } from "@kaenal/types";
+import { Filter, GitBranch, Link2, Plus } from "lucide-react";
+import type { EightDStatus } from "@kaenal/types";
 import { shortDate } from "@/lib/format";
 import { useMe, hasCapability } from "@/hooks/use-me";
 import { useEightDs } from "@/hooks/use-eightd";
-import { UserCell } from "@/features/documents/document-bits";
+import { useMemberLookup } from "@/hooks/use-members";
+import { Avatar } from "@/components/avatar";
 import { PageHeader } from "@/components/page-header";
 import { Button, EmptyState, Skeleton } from "@/components/ui";
-import { EightDStatusBadge, disciplineFor } from "./eightd-bits";
+import { EightDStatusBadge, StepperMini } from "./eightd-bits";
 import { EightDCreateDialog } from "./eightd-create-dialog";
-
-type Tab = EightDStatus | "all";
-
-function completeCount(e: EightDDto): number {
-  return Object.values(e.steps).filter((s) => s.status === "complete").length;
-}
 
 export function EightDList(): React.ReactElement {
   const router = useRouter();
   const { data: me } = useMe();
   const canManage = hasCapability(me, "ncr:manage");
-  const meId = me?.userId;
+  const lookup = useMemberLookup();
 
-  const [tab, setTab] = useState<Tab>("active");
-  const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<{ status: EightDStatus | "any"; lead: string }>({ status: "any", lead: "any" });
+  const filterRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const close = (e: MouseEvent): void => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFiltersOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [filtersOpen]);
 
   const query = useEightDs();
   const items = useMemo(() => query.data?.items ?? [], [query.data]);
 
-  const counts = useMemo(
-    () => ({
-      active: items.filter((e) => e.status === "active").length,
-      completed: items.filter((e) => e.status === "completed").length,
-      cancelled: items.filter((e) => e.status === "cancelled").length,
-      all: items.length,
-    }),
-    [items],
+  const uniqueLeads = useMemo(() => [...new Set(items.map((e) => e.teamLeadId).filter((x): x is string => x != null))], [items]);
+  const activeFilterCount = (filters.status !== "any" ? 1 : 0) + (filters.lead !== "any" ? 1 : 0);
+  const rows = useMemo(
+    () =>
+      items.filter(
+        (e) => (filters.status === "any" || e.status === filters.status) && (filters.lead === "any" || e.teamLeadId === filters.lead),
+      ),
+    [items, filters],
   );
 
-  const rows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return items.filter((e) => {
-      if (tab !== "all" && e.status !== tab) return false;
-      if (q === "") return true;
-      return `${e.title} ${e.code}`.toLowerCase().includes(q);
-    });
-  }, [items, tab, search]);
-
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "active", label: `Active (${counts.active})` },
-    { id: "completed", label: `Completed (${counts.completed})` },
-    { id: "cancelled", label: `Cancelled (${counts.cancelled})` },
-    { id: "all", label: `All (${counts.all})` },
-  ];
-
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-4 p-6">
+    <div className="fade-in flex flex-col gap-4" style={{ padding: "24px 28px" }}>
       <PageHeader
-        title="8D Problem Solving"
-        description="Guided D1–D8 disciplines — the deep corrective-action tool, often raised from an NCR."
+        title="8D Reports"
+        description="Guided D1–D8 problem solving — Kaenal's quality differentiator"
         actions={
-          canManage ? (
-            <Button variant="primary" onClick={() => setCreateOpen(true)}>
-              <Plus size={14} /> Open 8D
-            </Button>
-          ) : undefined
+          <>
+            <div className="relative">
+              <button className="k-btn k-btn-ghost" onClick={() => setFiltersOpen((v) => !v)}>
+                <Filter size={14} />Filters
+                {activeFilterCount > 0 && (
+                  <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white" style={{ background: "var(--accent)" }}>
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+              {filtersOpen && (
+                <div ref={filterRef} className="k-surface absolute right-0 top-full z-30 mt-2 flex min-w-[280px] flex-col gap-3.5 p-4 text-left" style={{ boxShadow: "var(--shadow-lg)" }}>
+                  <div className="flex items-center justify-between">
+                    <div className="text-[13px] font-semibold">Filters</div>
+                    <button className="k-btn-plain text-[11px] text-muted" onClick={() => setFilters({ status: "any", lead: "any" })}>Reset</button>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="k-overline">Status</span>
+                    <select className="k-input" value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value as EightDStatus | "any" }))}>
+                      <option value="any">Any</option>
+                      <option value="active">Active</option>
+                      <option value="completed">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="k-overline">Team Lead</span>
+                    <select className="k-input" value={filters.lead} onChange={(e) => setFilters((f) => ({ ...f, lead: e.target.value }))}>
+                      <option value="any">Any</option>
+                      {uniqueLeads.map((id) => (
+                        <option key={id} value={id}>{lookup.nameOf(id)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+            {canManage && (
+              <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                <Plus size={14} />Start 8D
+              </Button>
+            )}
+          </>
         }
       />
-
-      <div className="flex flex-wrap items-center gap-2.5">
-        <div className="relative max-w-[320px] flex-1">
-          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
-          <input
-            className="k-input"
-            placeholder="Search title or code…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ paddingLeft: 34 }}
-          />
-        </div>
-        <div className="k-tabs">
-          {tabs.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`k-tab ${tab === t.id ? "active" : ""}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <span className="ml-auto text-[12px] text-muted">
-          {rows.length} of {items.length}
-        </span>
-      </div>
 
       {query.isLoading ? (
         <div className="k-surface flex flex-col gap-2 p-4">
@@ -103,71 +106,57 @@ export function EightDList(): React.ReactElement {
         </div>
       ) : query.isError ? (
         <div className="k-surface">
-          <EmptyState
-            icon={GitBranch}
-            title="Couldn't load 8D reports"
-            body="Something went wrong fetching the list."
-            action={
-              <Button variant="primary" onClick={() => void query.refetch()}>
-                Retry
-              </Button>
-            }
-          />
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="k-surface">
-          <EmptyState
-            icon={GitBranch}
-            title={search !== "" || tab !== "active" ? "No matching 8D reports" : "No active 8D reports"}
-            body="Open an 8D to work a problem through the eight disciplines."
-            action={
-              canManage ? (
-                <Button variant="primary" onClick={() => setCreateOpen(true)}>
-                  <Plus size={14} /> Open 8D
-                </Button>
-              ) : undefined
-            }
-          />
+          <EmptyState icon={GitBranch} title="Couldn't load 8D reports" body="Something went wrong fetching the list." action={<Button variant="primary" onClick={() => void query.refetch()}>Retry</Button>} />
         </div>
       ) : (
-        <div className="k-surface overflow-x-auto p-0">
+        <div className="k-surface overflow-hidden p-0">
           <table className="k-table">
             <thead>
               <tr>
-                <th style={{ width: 120 }}>8D ID</th>
+                <th style={{ width: 140 }}>ID</th>
                 <th>Title</th>
-                <th style={{ width: 150 }}>Stage</th>
-                <th style={{ width: 90 }}>Progress</th>
+                <th style={{ width: 130 }}>Linked NCR</th>
+                <th style={{ width: 260 }}>Progress</th>
+                <th style={{ width: 130 }}>Team Lead</th>
                 <th style={{ width: 110 }}>Status</th>
-                <th style={{ width: 130 }}>Team lead</th>
-                <th style={{ width: 90 }}>Target</th>
-                <th style={{ width: 28 }} />
+                <th style={{ width: 110 }}>Target</th>
               </tr>
             </thead>
             <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-[13px] text-muted">No 8D reports match these filters.</td>
+                </tr>
+              )}
               {rows.map((e) => {
-                const done = completeCount(e);
-                const stage = disciplineFor(e.currentStep);
+                const lead = lookup.memberOf(e.teamLeadId);
+                const leadName = lookup.nameOf(e.teamLeadId);
                 return (
                   <tr key={e.id} className="cursor-pointer" onClick={() => router.push(`/8d/${e.id}`)}>
-                    <td className="mono text-[11.5px] font-semibold" style={{ color: "var(--accent)" }}>
-                      {e.code}
+                    <td>
+                      <span className="mono text-[12px] font-semibold" style={{ color: "var(--accent)" }}>{e.code}</span>
                     </td>
-                    <td className="text-[12.5px] font-medium">{e.title}</td>
-                    <td className="text-[12px] text-muted">
-                      {stage.code} · {stage.title}
+                    <td className="font-medium">{e.title}</td>
+                    <td>
+                      {e.ncrId ? (
+                        <span className="mono inline-flex items-center gap-1 text-[11px] text-muted"><Link2 size={11} />Linked</span>
+                      ) : (
+                        <span className="text-[11px] text-subtle">—</span>
+                      )}
                     </td>
-                    <td className="mono text-[12px]">{done}/8</td>
+                    <td>
+                      <StepperMini current={e.currentStep} />
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <Avatar name={lead?.name} size={22} />
+                        <span className="text-[12px]">{leadName.split(" ")[0]}</span>
+                      </div>
+                    </td>
                     <td>
                       <EightDStatusBadge status={e.status} />
                     </td>
-                    <td>
-                      <UserCell userId={e.teamLeadId} meId={meId} emptyLabel="—" />
-                    </td>
                     <td className="whitespace-nowrap text-[12px] text-muted">{shortDate(e.targetAt)}</td>
-                    <td>
-                      <ChevronRight size={14} className="text-subtle" />
-                    </td>
                   </tr>
                 );
               })}

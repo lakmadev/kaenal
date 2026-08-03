@@ -9,6 +9,7 @@ import type {
   FileDto,
   InspectionDto,
   MeDto,
+  MemberDto,
   NcrActionDto,
   NcrDto,
   NotificationDto,
@@ -76,6 +77,13 @@ export const apiQueries = {
     queryKey: queryKeys.me(),
     queryFn: () => client.getMe().then((r) => unwrap<MeDto>(r)),
   }),
+
+  members: {
+    list: (client: ApiClient, args?: Arg<"listMembers">): QueryOption<Page<MemberDto>> => ({
+      queryKey: queryKeys.members.list(args?.query),
+      queryFn: () => client.listMembers(args).then((r) => unwrap<Page<MemberDto>>(r)),
+    }),
+  },
 
   search: (client: ApiClient, q: string): QueryOption<SearchResults> => ({
     queryKey: queryKeys.search(q),

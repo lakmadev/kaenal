@@ -27,6 +27,7 @@ import {
   PpapElementStatus,
   PpapStatus,
   ChargebackStatus,
+  Role,
   ScarSeverity,
   ScarStatus,
   RecurrenceFreq,
@@ -43,6 +44,21 @@ import { FormResponses, FormSchema } from "./form.js";
  * from the snake_case database rows. A service maps a row onto one of these; a
  * column rename never leaks to the client because the mapping is explicit.
  */
+
+/**
+ * A tenant member as the UI needs to render people: the person's display name
+ * and their role in THIS tenant. The id is the `memberships.user_id`, which is
+ * exactly what every tenant table's composite member FK points at, so the FE can
+ * resolve an owner / lead / author id to a name and avatar. `name` comes from
+ * `control.users`; everything else is per-tenant membership. Read-only — mutating
+ * membership is the invite/admin surface, not this directory.
+ */
+export const MemberDto = z.object({
+  userId: z.string().uuid(),
+  name: z.string(),
+  role: Role,
+});
+export type MemberDto = z.infer<typeof MemberDto>;
 
 // --- Inspection templates ---------------------------------------------------
 

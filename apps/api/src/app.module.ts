@@ -15,6 +15,8 @@ import { AuthService } from "./auth/auth.service.js";
 import { SessionAuthenticator } from "./auth/session.authenticator.js";
 import { AuthController } from "./auth/auth.controller.js";
 import { MeController } from "./me.controller.js";
+import { MembersController } from "./members/members.controller.js";
+import { MembersService } from "./members/members.service.js";
 import { OpenApiController } from "./openapi.controller.js";
 import { IdempotencyStore } from "./http/idempotency.js";
 import { RateLimiter } from "./http/rate-limit.js";
@@ -90,6 +92,7 @@ import {
   IDEMPOTENCY,
   INSPECTIONS_SERVICE,
   JOB_PRODUCER,
+  MEMBERS_SERVICE,
   NCR_SERVICE,
   NOTIFICATIONS_SERVICE,
   RATE_LIMITER,
@@ -104,6 +107,7 @@ import {
   controllers: [
     HealthController,
     MeController,
+    MembersController,
     AuthController,
     OpenApiController,
     TemplatesController,
@@ -168,6 +172,14 @@ import {
     {
       provide: AUTH_SERVICE,
       useFactory: (control: pg.Pool) => new AuthService(control),
+      inject: [CONTROL_POOL],
+    },
+
+    // Names live in `control.users` (outside RLS), the roster in `memberships`
+    // (RLS): the directory service needs the control pool for the former.
+    {
+      provide: MEMBERS_SERVICE,
+      useFactory: (control: pg.Pool) => new MembersService(control),
       inject: [CONTROL_POOL],
     },
 
