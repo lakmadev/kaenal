@@ -55,6 +55,12 @@ export const queryKeys = {
     detail: (id: string) => ["scars", "detail", id] as const,
   },
 
+  eightDs: {
+    all: ["eightDs"] as const,
+    list: (params?: unknown) => ["eightDs", "list", params ?? null] as const,
+    detail: (id: string) => ["eightDs", "detail", id] as const,
+  },
+
   portal: {
     all: ["portal"] as const,
     identity: () => ["portal", "me"] as const,

@@ -19,6 +19,7 @@ import type {
   PortalIdentityDto,
   PortalScarDto,
   PortalPpapDto,
+  EightDDto,
   SearchResults,
   SupplierDto,
   UnreadCountDto,
@@ -167,6 +168,17 @@ export const apiQueries = {
     detail: (client: ApiClient, id: string): QueryOption<ScarDto> => ({
       queryKey: queryKeys.scars.detail(id),
       queryFn: () => client.getScar({ params: { id } }).then((r) => unwrap<ScarDto>(r)),
+    }),
+  },
+
+  eightDs: {
+    list: (client: ApiClient, args?: Arg<"listEightDs">): QueryOption<Page<EightDDto>> => ({
+      queryKey: queryKeys.eightDs.list(args?.query),
+      queryFn: () => client.listEightDs(args).then((r) => unwrap<Page<EightDDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<EightDDto> => ({
+      queryKey: queryKeys.eightDs.detail(id),
+      queryFn: () => client.getEightD({ params: { id } }).then((r) => unwrap<EightDDto>(r)),
     }),
   },
 

@@ -154,6 +154,26 @@ screens) and the audited external WRITES (SCAR respond, PPAP re-submit, AV-gated
 **Hard dependency before any production exposure (Known issues):** a per-login TOTP challenge/enrolment
 subsystem — the MFA gate today only proves a secret is enrolled, not that it was verified this login.
 
+**8D Problem Solving — FE (P03 FE, 2026-08-03):** first of the Part-A core-loop FE-fidelity pass (the
+backends are all built + tested; recreating the 🟡 screens to the jsx is the fastest remaining value).
+The `/8d` route was a `ModulePlaceholder`; now a full feature over the existing tested 8D backend
+(`/v1/eight-ds`, D1–D8 with `canCompleteStep` prerequisite gating, D3∥D2). `apiQueries.eightDs.*` +
+`use-eightd.ts` hooks (list/detail/create/updateStep/transition, mutations `setQueryData` the detail
+cache). `apps/web/src/features/eightd/`: `eightd-bits.tsx` (the eight `DISCIPLINES` config — titles/
+descriptions + the freeform `data` fields each panel edits; status badges; the D1–D8 `DisciplineRail`),
+`eightd-list.tsx` (active/completed/cancelled/all tabs, stage + N/8 progress + team-lead via the shared
+`UserCell`), `eightd-create-dialog.tsx` (title + optional NCR link + target), `eightd-detail.tsx`
+(header strip with linked-NCR jump, the rail, and the active-discipline panel: per-field textareas bound
+to the step `data`, Save-draft / Complete-Dn / Re-open, overall Complete-8D gated on 8/8 + Cancel).
+Gated on `ncr:view`/`ncr:manage` (what the 8D endpoints require). Routes `/8d` + `/8d/[id]`.
+**Verified in-browser** (demo admin, 3 reports): list; opened a report; edited D1 + completed it (1/8,
+rail greens, data persists across reload); completed D2 (2/8); confirmed the **prerequisite gate** —
+completing D4 out of order returns `INVALID_TRANSITION` "D4 cannot be completed until D2, D3 are
+complete" (HTTP 409 for a state-machine violation), surfaced via toast; version threads cleanly across
+sequential writes. api-client 11, typecheck 6/6, lint clean. **Deferred (still 🟡 on P03):** the AI
+copilot (`eightd-agentic.jsx`), 8D templates, and PDF export — and the D4 root-cause *tools* (5-Why /
+fishbone / Pareto builders from the jsx) beyond the plain root-cause/verification fields.
+
 **Supplier Portal — audited writes + portal FE (P11 slice 2, 2026-08-03):** the external surface goes
 interactive. Migration `0023_portal_writes.sql` widens `audit_events.actor_kind` to admit `partner`;
 `ActorKind` gains `partner`; a new `portal:respond` capability (partner + admin only) gates the writes.

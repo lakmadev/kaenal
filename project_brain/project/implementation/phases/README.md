@@ -52,7 +52,7 @@ Every `PNN-*.md` follows the same shape:
 |---|---------|---------|----|-----------|
 | [P01](P01-inspections.md) | Inspections (list, detail, wizard, form engine, schedule, templates) | ✅ | 🟡 | `inspections.jsx`, `createwizard.jsx`, `template-editor.jsx`, `schedule.jsx`, `mobile-inspector.jsx` |
 | [P02](P02-ncr.md) | Non-Conformities (list, kanban, investigation, actions, SLA) | ✅ | 🟡 | `ncr.jsx` |
-| [P03](P03-8d.md) | 8D Problem Solving (D1–D8, AI copilot, templates, PDF) | ✅ | 🟡 | `eightd.jsx`, `eightd-agentic.jsx`, `eightd-templates.jsx`, `eightd-pdf.jsx` |
+| [P03](P03-8d.md) | 8D Problem Solving (D1–D8, AI copilot, templates, PDF) | ✅ | 🟡 (list + D1–D8 detail ✅; AI copilot / templates / PDF deferred) | `eightd.jsx`, `eightd-agentic.jsx`, `eightd-templates.jsx`, `eightd-pdf.jsx` |
 | [P04](P04-audits.md) | Audits (list, schedule, detail, findings→NCR/CAPA) | ✅ | 🟡 | `audits.jsx` |
 | [P05](P05-capa.md) | CAPA (phased workflow, advance/revert, links) | ✅ | ✅ | `capa.jsx` |
 | [P06](P06-documents.md) | Documents, Compliance & Files (library, detail, upload, compliance matrix) | ✅ | 🟡 | `documents.jsx`, `upload-flow.jsx`, `compliance-extra.jsx` |
