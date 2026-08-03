@@ -16,6 +16,9 @@ import type {
   Page,
   PpapSubmissionDto,
   ScarDto,
+  PortalIdentityDto,
+  PortalScarDto,
+  PortalPpapDto,
   SearchResults,
   SupplierDto,
   UnreadCountDto,
@@ -164,6 +167,29 @@ export const apiQueries = {
     detail: (client: ApiClient, id: string): QueryOption<ScarDto> => ({
       queryKey: queryKeys.scars.detail(id),
       queryFn: () => client.getScar({ params: { id } }).then((r) => unwrap<ScarDto>(r)),
+    }),
+  },
+
+  portal: {
+    identity: (client: ApiClient): QueryOption<PortalIdentityDto> => ({
+      queryKey: queryKeys.portal.identity(),
+      queryFn: () => client.getPortalIdentity().then((r) => unwrap<PortalIdentityDto>(r)),
+    }),
+    scars: (client: ApiClient, args?: Arg<"listPortalScars">): QueryOption<Page<PortalScarDto>> => ({
+      queryKey: queryKeys.portal.scars(args?.query),
+      queryFn: () => client.listPortalScars(args).then((r) => unwrap<Page<PortalScarDto>>(r)),
+    }),
+    scar: (client: ApiClient, id: string): QueryOption<PortalScarDto> => ({
+      queryKey: queryKeys.portal.scar(id),
+      queryFn: () => client.getPortalScar({ params: { id } }).then((r) => unwrap<PortalScarDto>(r)),
+    }),
+    ppapList: (client: ApiClient, args?: Arg<"listPortalPpap">): QueryOption<Page<PortalPpapDto>> => ({
+      queryKey: queryKeys.portal.ppapList(args?.query),
+      queryFn: () => client.listPortalPpap(args).then((r) => unwrap<Page<PortalPpapDto>>(r)),
+    }),
+    ppap: (client: ApiClient, id: string): QueryOption<PortalPpapDto> => ({
+      queryKey: queryKeys.portal.ppap(id),
+      queryFn: () => client.getPortalPpap({ params: { id } }).then((r) => unwrap<PortalPpapDto>(r)),
     }),
   },
 

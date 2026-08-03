@@ -1,7 +1,9 @@
-import { Controller, Get, Inject, Param, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
   PageQuery,
+  PortalPpapResubmitBody,
+  PortalScarRespondBody,
   type Page,
   type PortalIdentityDto,
   type PortalPpapDto,
@@ -10,6 +12,7 @@ import {
 import { currentContext, currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
+import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
 import { PORTAL_SERVICE } from "../tokens.js";
 import type { PortalService } from "./portal.service.js";
 
@@ -66,5 +69,37 @@ export class PortalController {
   @RequireCapability("portal:view")
   async getPpap(@Param("id") id: string): Promise<PortalPpapDto> {
     return this.portal.getPpap(currentTx(), this.scope(), parse(uuid, id));
+  }
+
+  @Post("v1/portal/scars/:id/respond")
+  @HttpCode(200)
+  @RequireCapability("portal:respond")
+  async respondScar(@Param("id") id: string, @Body() body: unknown): Promise<PortalScarDto> {
+    const input = parse(PortalScarRespondBody, body);
+    return this.portal.respondScar(
+      currentTx(),
+      currentContext().tenantId,
+      this.scope(),
+      actorIdOf(),
+      parse(uuid, id),
+      input,
+      auditCtxOf(),
+    );
+  }
+
+  @Post("v1/portal/ppap/:id/resubmit")
+  @HttpCode(200)
+  @RequireCapability("portal:respond")
+  async resubmitPpap(@Param("id") id: string, @Body() body: unknown): Promise<PortalPpapDto> {
+    const input = parse(PortalPpapResubmitBody, body);
+    return this.portal.resubmitPpap(
+      currentTx(),
+      currentContext().tenantId,
+      this.scope(),
+      actorIdOf(),
+      parse(uuid, id),
+      input,
+      auditCtxOf(),
+    );
   }
 }

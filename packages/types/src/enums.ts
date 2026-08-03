@@ -307,7 +307,9 @@ export type ExportStatus = z.infer<typeof ExportStatus>;
 
 // --- Audit trail (07 §1) ---------------------------------------------------
 
-export const ActorKind = defineEnum(["user", "system", "api_key", "support"]);
+// `partner` is an EXTERNAL supplier-portal actor (P11) — their audited writes
+// (SCAR respond, PPAP re-submit) are attributable and distinct from staff.
+export const ActorKind = defineEnum(["user", "system", "api_key", "support", "partner"]);
 export type ActorKind = z.infer<typeof ActorKind>;
 
 /**

@@ -1257,3 +1257,18 @@ export const PortalPpapDto = z.object({
   daysOpen: z.number().int().nullable(),
 });
 export type PortalPpapDto = z.infer<typeof PortalPpapDto>;
+
+/** The supplier's response to a SCAR — a note, optionally acknowledging it. The
+ *  note is recorded as a comment on the SCAR (visible to internal staff too). */
+export const PortalScarRespondBody = z.object({
+  note: z.string().min(1, "A response is required").max(4000),
+  acknowledge: z.boolean().optional(),
+});
+export type PortalScarRespondBody = z.infer<typeof PortalScarRespondBody>;
+
+/** The supplier re-submits a PPAP package after changes-requested feedback,
+ *  optionally with a note (recorded on the audit event). */
+export const PortalPpapResubmitBody = z.object({
+  note: z.string().max(4000).nullable().optional(),
+});
+export type PortalPpapResubmitBody = z.infer<typeof PortalPpapResubmitBody>;

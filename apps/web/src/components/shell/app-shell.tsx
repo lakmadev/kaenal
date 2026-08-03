@@ -20,11 +20,19 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
 
   const unauthenticated = error instanceof ApiRequestError && error.status === 401;
 
+  // An external partner has only portal:* capabilities and nothing internal to
+  // render here — send them to their own surface (P11) rather than an empty shell.
+  const portalOnly =
+    me !== undefined &&
+    me.capabilities.length > 0 &&
+    me.capabilities.every((c) => c.startsWith("portal:"));
+
   useEffect(() => {
     if (unauthenticated) router.replace("/sign-in");
-  }, [unauthenticated, router]);
+    else if (portalOnly) router.replace("/portal");
+  }, [unauthenticated, portalOnly, router]);
 
-  if (unauthenticated) return <FullBleed />;
+  if (unauthenticated || portalOnly) return <FullBleed />;
 
   return (
     <div className="flex h-dvh overflow-hidden">

@@ -147,8 +147,9 @@ afterAll(async () => {
     "portal-viewer@acme.test",
     "portal-nomfa@a.test",
   ];
+  await control.query("DELETE FROM comments WHERE entity_kind = 'scar' AND entity_id = ANY($1)", [[scarA, scarB]]);
   await control.query("DELETE FROM scars WHERE title LIKE 'FIXT-portal%'");
-  await control.query("DELETE FROM ppap_submissions WHERE part_number LIKE 'FIXT-%-PART'");
+  await control.query("DELETE FROM ppap_submissions WHERE part_number LIKE 'FIXT-%'");
   const ids = (
     await control.query<{ id: string }>("SELECT id FROM control.users WHERE email = ANY($1)", [emails])
   ).rows.map((r) => r.id);
@@ -250,5 +251,74 @@ describe("supplier portal — external auth policy (P11)", () => {
     const hoursOut = (expiresAt.getTime() - Date.now()) / 3_600_000;
     expect(hoursOut).toBeGreaterThan(0);
     expect(hoursOut).toBeLessThan(3); // 2h partner TTL, not the 12h staff TTL
+  });
+});
+
+describe("supplier portal — audited writes (P11 slice 2)", () => {
+  it("lets a partner respond to their SCAR (comment + acknowledge, audited as partner)", async () => {
+    const res = await authed("post", `/v1/portal/scars/${scarA}/respond`, partnerTok).send({
+      note: "Containment complete — remaining lot quarantined. 8D attached.",
+      acknowledge: true,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.supplierAcknowledged).toBe(true);
+
+    // The note is a comment on the SCAR (internal staff see it too).
+    const comments = await control.query<{ body: string; author_id: string }>(
+      `SELECT body, author_id FROM comments WHERE entity_kind = 'scar' AND entity_id = $1`,
+      [scarA],
+    );
+    expect(comments.rows.some((c) => c.body.includes("Containment complete") && c.author_id === partnerUserId)).toBe(true);
+
+    // The write is attributed to an EXTERNAL actor in the audit trail.
+    const audit = await control.query<{ actor_kind: string; action: string }>(
+      `SELECT actor_kind, action FROM audit_events WHERE entity_kind = 'scar' AND entity_id = $1 AND action = 'commented'`,
+      [scarA],
+    );
+    expect(audit.rows.some((a) => a.actor_kind === "partner")).toBe(true);
+  });
+
+  it("404s a respond to another supplier's SCAR", async () => {
+    const res = await authed("post", `/v1/portal/scars/${scarB}/respond`, partnerTok).send({ note: "nope" });
+    expect(res.status).toBe(404);
+  });
+
+  it("denies respond without the write capability (viewer, admin-no-scope)", async () => {
+    const viewer = await authed("post", `/v1/portal/scars/${scarA}/respond`, viewerTok).send({ note: "x" });
+    expect(viewer.status).toBe(403); // no portal:respond
+    const admin = await authed("post", `/v1/portal/scars/${scarA}/respond`, adminTok).send({ note: "x" });
+    expect(admin.status).toBe(403); // has cap (all-caps) but no supplier scope
+  });
+
+  it("lets a partner re-submit their PPAP (→ in_review, audited as partner)", async () => {
+    const res = await authed("post", `/v1/portal/ppap/${ppapA}/resubmit`, partnerTok).send({
+      note: "Re-submitted dimensional results per D-lab feedback.",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("in_review");
+
+    const audit = await control.query<{ actor_kind: string }>(
+      `SELECT actor_kind FROM audit_events WHERE entity_kind = 'ppap_submission' AND entity_id = $1 AND action = 'status_changed'`,
+      [ppapA],
+    );
+    expect(audit.rows.some((a) => a.actor_kind === "partner")).toBe(true);
+  });
+
+  it("refuses re-submitting a decided PPAP package", async () => {
+    const decided = randomUUID();
+    await withTenant(acmeId, null, async (tx) => {
+      await tx.query(
+        `INSERT INTO ppap_submissions (id, tenant_id, code, supplier_id, part_number, level, status)
+         VALUES ($1,$2,'PPAP-FP-9999',$3,'FIXT-A-DECIDED',3,'approved')`,
+        [decided, acmeId, supplierA],
+      );
+    });
+    const res = await authed("post", `/v1/portal/ppap/${decided}/resubmit`, partnerTok).send({});
+    expect(res.status).toBe(422);
+  });
+
+  it("404s a re-submit of another supplier's PPAP", async () => {
+    const res = await authed("post", `/v1/portal/ppap/${ppapB}/resubmit`, partnerTok).send({});
+    expect(res.status).toBe(404);
   });
 });

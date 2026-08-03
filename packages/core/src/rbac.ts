@@ -39,11 +39,13 @@ export const CAPABILITIES = [
   "members:manage",
   "apikeys:manage",
   "billing:manage",
-  // External supplier portal (P11). The ONLY capability a `partner` holds — it
-  // gates the read-only /v1/portal/* namespace. Internal roles never carry it
-  // (except admin, which holds everything), and holding it is not enough on its
-  // own: the portal service also requires the session to carry a supplier scope.
+  // External supplier portal (P11). `portal:view` gates the read-only namespace;
+  // `portal:respond` gates the narrow audited writes (respond to a SCAR,
+  // re-submit a PPAP). Internal roles never carry either (except admin, which
+  // holds everything), and holding them is not enough on its own: the portal
+  // service also requires the session to carry a supplier scope.
   "portal:view",
+  "portal:respond",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -125,7 +127,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
   // internal capability is absent, so a partner hitting /v1/ncrs, /v1/suppliers,
   // etc. is denied by RBAC before the query runs. Their `portal:view` access is
   // further narrowed to their own supplier by the supplier-scope check.
-  partner: ["portal:view"],
+  partner: ["portal:view", "portal:respond"],
 };
 
 export function capabilitiesFor(role: Role): readonly Capability[] {

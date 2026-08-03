@@ -77,6 +77,8 @@ import {
   PortalIdentityDto,
   PortalScarDto,
   PortalPpapDto,
+  PortalScarRespondBody,
+  PortalPpapResubmitBody,
   TemplateDto,
   TransitionDocumentBody,
   TransitionEightDBody,
@@ -851,6 +853,22 @@ export const contract = c.router(
       pathParams: z.object({ id: z.string().uuid() }),
       responses: { 200: PortalPpapDto, ...commonErrors },
       summary: "One of the partner's own PPAP submissions (foreign supplier → 404)",
+    },
+    respondPortalScar: {
+      method: "POST",
+      path: "/v1/portal/scars/:id/respond",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: PortalScarRespondBody,
+      responses: { 200: PortalScarDto, ...commonErrors },
+      summary: "Supplier responds to a SCAR (note + optional acknowledge; audited actor_kind=partner)",
+    },
+    resubmitPortalPpap: {
+      method: "POST",
+      path: "/v1/portal/ppap/:id/resubmit",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: PortalPpapResubmitBody,
+      responses: { 200: PortalPpapDto, ...commonErrors },
+      summary: "Supplier re-submits a PPAP package after feedback (audited actor_kind=partner)",
     },
 
     // --- Notifications -----------------------------------------------------

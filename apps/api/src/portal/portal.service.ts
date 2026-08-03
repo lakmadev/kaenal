@@ -1,10 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { Injectable, Inject } from "@nestjs/common";
-import type { Tx } from "@kaenal/db";
+import { withAudit, type Tx } from "@kaenal/db";
 import type {
   Page,
   PortalIdentityDto,
   PortalPpapDto,
+  PortalPpapResubmitBody,
   PortalScarDto,
+  PortalScarRespondBody,
   PpapSubmissionDto,
   ScarDto,
 } from "@kaenal/types";
@@ -12,6 +15,12 @@ import { ApiError, notFound } from "../errors.js";
 import { PPAP_SERVICE, SCAR_SERVICE } from "../tokens.js";
 import type { ScarService } from "../scar/scar.service.js";
 import type { PpapService } from "../ppap/ppap.service.js";
+import type { AuditContext } from "../ncr/audit-context.js";
+
+/** SCAR lifecycle states that still invite a supplier response. */
+const RESPONDABLE_SCAR = new Set(["draft", "open", "responded"]);
+/** PPAP states a supplier may re-submit into review (not a decided package). */
+const RESUBMITTABLE_PPAP = new Set(["pending", "in_review", "interim"]);
 
 /**
  * Supplier portal (FEATURES §17, P11) — the external, read-only surface.
@@ -101,6 +110,117 @@ export class PortalService {
     const ppap = await this.ppap.get(tx, id);
     if (ppap.supplierId !== supplierId) throw notFound();
     return toPortalPpap(ppap);
+  }
+
+  /**
+   * The supplier's response to a SCAR: a note (recorded as a comment on the
+   * SCAR, so internal staff see it too) plus an optional acknowledgement. This
+   * is a partner input into the 8D — it does NOT move the internal D-step
+   * machine forward (that stays with the internal reviewer). Audited as an
+   * EXTERNAL actor (`actor_kind='partner'`).
+   */
+  async respondScar(
+    tx: Tx,
+    tenantId: string,
+    supplierScope: string | null | undefined,
+    actorId: string,
+    id: string,
+    body: PortalScarRespondBody,
+    context: AuditContext,
+  ): Promise<PortalScarDto> {
+    const supplierId = this.scopeOf(supplierScope);
+    const scar = await this.scars.get(tx, id); // 404 if not in this tenant
+    if (scar.supplierId !== supplierId) throw notFound(); // another supplier → invisible
+    if (!RESPONDABLE_SCAR.has(scar.status)) {
+      throw new ApiError("VALIDATION_FAILED", "This SCAR is closed and no longer accepts responses");
+    }
+
+    const acknowledged = body.acknowledge === true && !scar.supplierAcknowledged;
+    const commentId = randomUUID();
+
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "partner",
+        entityKind: "scar",
+        entityId: id,
+        action: "commented",
+        after: { commentId, acknowledged },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        await t.query(
+          `INSERT INTO comments (id, tenant_id, entity_kind, entity_id, author_id, body, created_by, updated_by)
+           VALUES ($1,$2,'scar',$3,$4,$5,$4,$4)`,
+          [commentId, tenantId, id, actorId, body.note],
+        );
+        if (acknowledged) {
+          await t.query(
+            `UPDATE scars SET supplier_acknowledged = true, ack_date = CURRENT_DATE, updated_by = $2
+              WHERE id = $1`,
+            [id, actorId],
+          );
+        }
+      },
+    );
+
+    return toPortalScar(await this.scars.get(tx, id));
+  }
+
+  /**
+   * The supplier re-submits a PPAP package after changes-requested feedback:
+   * the package goes back to `in_review` with a fresh submitted date, signalling
+   * the internal reviewers to re-check. A decided package (approved/rejected)
+   * cannot be re-submitted. Audited as an external actor; the note (if any) is
+   * the audit reason — PPAP has no comment thread.
+   */
+  async resubmitPpap(
+    tx: Tx,
+    tenantId: string,
+    supplierScope: string | null | undefined,
+    actorId: string,
+    id: string,
+    body: PortalPpapResubmitBody,
+    context: AuditContext,
+  ): Promise<PortalPpapDto> {
+    const supplierId = this.scopeOf(supplierScope);
+    const ppap = await this.ppap.get(tx, id);
+    if (ppap.supplierId !== supplierId) throw notFound();
+    if (!RESUBMITTABLE_PPAP.has(ppap.status)) {
+      throw new ApiError("VALIDATION_FAILED", "A decided PPAP package cannot be re-submitted");
+    }
+
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "partner",
+        entityKind: "ppap_submission",
+        entityId: id,
+        action: "status_changed",
+        before: { status: ppap.status },
+        after: { status: "in_review" },
+        ...(body.note != null && body.note !== "" ? { reason: body.note } : {}),
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        await t.query(
+          `UPDATE ppap_submissions
+              SET status = 'in_review', submitted_date = CURRENT_DATE, updated_by = $2
+            WHERE id = $1`,
+          [id, actorId],
+        );
+      },
+    );
+
+    return toPortalPpap(await this.ppap.get(tx, id));
   }
 }
 

@@ -51,6 +51,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "apikeys:manage",
     "billing:manage",
     "portal:view",
+    "portal:respond",
   ],
   manager: [
     "inspection:view",
@@ -112,7 +113,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ppap:view",
     "scar:view",
   ],
-  partner: ["portal:view"],
+  partner: ["portal:view", "portal:respond"],
 };
 
 describe("capability matrix — every cell", () => {
@@ -164,19 +165,22 @@ describe("the denials that matter most", () => {
 });
 
 describe("partner is portal-only (P11 external boundary)", () => {
-  it("holds portal:view and NOTHING internal", () => {
+  it("holds only the portal capabilities and NOTHING internal", () => {
     expect(hasCapability("partner", "portal:view")).toBe(true);
+    expect(hasCapability("partner", "portal:respond")).toBe(true);
     for (const cap of CAPABILITIES) {
-      if (cap === "portal:view") continue;
+      if (cap === "portal:view" || cap === "portal:respond") continue;
       expect(hasCapability("partner", cap)).toBe(false);
     }
   });
 
-  it("only admin (all-caps) and partner hold portal:view", () => {
-    expect(hasCapability("admin", "portal:view")).toBe(true);
-    expect(hasCapability("partner", "portal:view")).toBe(true);
-    for (const role of ["manager", "auditor", "inspector", "viewer"] as const) {
-      expect(hasCapability(role, "portal:view")).toBe(false);
+  it("only admin (all-caps) and partner hold the portal capabilities", () => {
+    for (const cap of ["portal:view", "portal:respond"] as const) {
+      expect(hasCapability("admin", cap)).toBe(true);
+      expect(hasCapability("partner", cap)).toBe(true);
+      for (const role of ["manager", "auditor", "inspector", "viewer"] as const) {
+        expect(hasCapability(role, cap)).toBe(false);
+      }
     }
   });
 });

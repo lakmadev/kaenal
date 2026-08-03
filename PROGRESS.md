@@ -154,6 +154,28 @@ screens) and the audited external WRITES (SCAR respond, PPAP re-submit, AV-gated
 **Hard dependency before any production exposure (Known issues):** a per-login TOTP challenge/enrolment
 subsystem — the MFA gate today only proves a secret is enrolled, not that it was verified this login.
 
+**Supplier Portal — audited writes + portal FE (P11 slice 2, 2026-08-03):** the external surface goes
+interactive. Migration `0023_portal_writes.sql` widens `audit_events.actor_kind` to admit `partner`;
+`ActorKind` gains `partner`; a new `portal:respond` capability (partner + admin only) gates the writes.
+`PortalService` gains two narrow, supplier-scoped, `withAudit(actor_kind='partner')` writes: `respondScar`
+(records the supplier's note as a comment on the SCAR — internal staff see it too — plus an optional
+acknowledge; refused once the SCAR is closed) and `resubmitPpap` (flips a package back to `in_review`
+with a fresh submitted date so the reviewers re-check; refused on an already-decided package; the note
+becomes the audit `reason`, since PPAP has no comment thread). Both 404 a foreign supplier's record.
+`apiQueries.portal.*` added. `apps/api/test/portal.test.ts` grows 11 → **17** (respond writes a
+partner-authored comment + a `partner`-attributed audit event; foreign respond 404; viewer & admin-no-scope
+403; re-submit → in_review audited as partner; decided-package 422; foreign re-submit 404). **FE:** a
+SEPARATE `apps/web/src/app/(portal)/` route group with `PortalShell` — a distinct **teal top-nav** (no
+internal sidebar) that owns the portal session guard (401 → sign-in; a non-partner such as an admin with
+no scope, who 403s on `/v1/portal/me`, sees a "supplier accounts only" notice). Screens: overview
+(welcome banner + KPIs + open-corrective-actions list), SCAR list + detail (8D tracker + response form
+with Submit / Submit&acknowledge), PPAP list + detail (element-feedback grid + re-submit). `AppShell`
+now bounces a portal-only session to `/portal`. **Verified in-browser** as a real MFA-gated,
+supplier-scoped partner (`jen@acmeforging.test`): landed on `/portal`, saw only Acme Forging's records,
+submitted a SCAR response + acknowledge (green banner, today's date), re-submitted the PPAP (Pending →
+In review, submitted date bumped) — no console errors. core 592 / rbac 174, api 238 (portal 17), RLS
+227, typecheck 6/6, lint clean. **One piece deferred (Known issues):** the AV-gated evidence *upload*.
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already
@@ -1548,10 +1570,11 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
   (a supplier-scoped variant of the staff invite — deferred) mints the `partner` membership + drives
   enrolment. The read-only portal backend + isolation model are done and proven; these are the gates on
   turning it on. See P11 Decisions log entry.
-- **P11 Supplier Portal — remaining build (slice 2):** the portal FE (`/portal/*` route group, minimal
-  supplier-branded shell, my-SCARs / my-PPAP / notifications screens per `supplier-portal.jsx`) and the
-  audited external WRITES (SCAR respond + 8D evidence upload via the AV-gated presign flow, PPAP
-  re-submit), every write `withAudit` with `actor_kind='partner'`. Backend read-only slice is in.
+- **P11 Supplier Portal — remaining piece: AV-gated evidence UPLOAD.** Slice 2 delivered the portal FE
+  and the audited writes (SCAR respond, PPAP re-submit). The one deferred write is letting a partner
+  UPLOAD 8D evidence / a re-submitted PPAP file through the presign + AV-scan flow made partner-safe (a
+  portal presign endpoint scoped to the partner's supplier, then attach on scan-clean). The respond form
+  currently takes a text note only; wiring the upload is the follow-up.
 
 - **Web app (`apps/web`): foundation only; module screens + several cross-cutting systems pending.** The
   shell, design system, sign-in, and a dashboard slice are up and building, but most nav destinations are
