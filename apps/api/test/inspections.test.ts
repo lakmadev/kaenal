@@ -139,6 +139,11 @@ afterAll(async () => {
       "SELECT id FROM control.users WHERE email LIKE '%@acme.test' AND email LIKE 'insp-%'",
     )
   ).rows.map((r) => r.id);
+  // Completing an inspection can spawn findings that FK to it — clear them
+  // before the inspections they reference, or the delete violates the FK.
+  await control.query(
+    "DELETE FROM findings WHERE inspection_id IN (SELECT id FROM inspections WHERE title LIKE 'TEST %' OR code LIKE 'INS-%')",
+  );
   await control.query("DELETE FROM inspections WHERE title LIKE 'TEST %' OR code LIKE 'INS-%'");
   await control.query("DELETE FROM inspection_templates WHERE name LIKE 'TEST %'");
   await control.query("DELETE FROM plants WHERE code LIKE 'TESTP%'");

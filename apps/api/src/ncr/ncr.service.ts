@@ -78,6 +78,7 @@ function toNcrDto(row: NcrRow): NcrDto {
     areaId: row.area_id,
     dueAt: iso(row.due_at),
     slaState: row.sla_state as NcrDto["slaState"],
+    eightDId: row.eight_d_id,
     resolvedBy: row.resolved_by,
     resolvedAt: iso(row.resolved_at),
     verifiedBy: row.verified_by,

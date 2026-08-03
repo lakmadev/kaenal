@@ -47,3 +47,18 @@
 ## 5. Dependencies & open questions
 - Depends on: [P06](P06-documents.md) (media/files), [P02](P02-ncr.md) (raise-NCR target).
 - Mobile inspector is Phase 3 (05-MOBILE-APP) — out of this phase's DoD.
+
+## FE fidelity pass — list done, gaps flagged (2026-08-03)
+
+Rebuilt the Inspections **list** to `inspections.jsx`: Filters popover (Risk / Template /
+Inspector), a `Template` column (new `templateName` on `InspectionDto`, resolved by a correlated
+subquery), a `Findings` column (count of `"fail"` responses — a real metric off the persisted
+`responses`), inspector avatars/names (via `/v1/members`), enriched grid cards, and the
+"Showing N of M" footer.
+
+**Surfaced gaps (need a decision / backend before building):**
+- **Row-actions `⋯` menu** (Open / Edit / Download PDF / Duplicate / Reassign inspector / Delete):
+  Duplicate, Reassign and Delete need real endpoints (some are mock in the jsx); PDF is the
+  branded-export path ([P24](P24-pdf-designer.md)). Omitted from the list until wired.
+- **Detail** (score bar, Findings / Media / History tabs, edit modal, signature, linked-NCRs) is
+  the next slice — the current detail renders the template sections but not the full jsx surface.

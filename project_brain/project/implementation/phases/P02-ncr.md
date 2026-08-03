@@ -41,3 +41,20 @@
 ## 5. Dependencies & open questions
 - Depends on: [P01](P01-inspections.md) (finding source), [P23](P23-ai-assistant.md) (root-cause suggestion), [P18](P18-complaints.md) (complaint source).
 - **Open:** confirm whether structured Investigation data already has a home in the contract (avoid inventing a table).
+
+## 6. FE fidelity pass — list done, gaps flagged (2026-08-03)
+
+Rebuilt the NCR **list** to `ncr.jsx`: Filters popover, `Linked 8D` column + owner
+avatars/names (via `/v1/members`), kanban card owner avatar. Backend: `eightDId` now on
+`NcrDto` (the `ncrs.eight_d_id` column, previously unexposed) — powers the Linked-8D column,
+the detail cross-link, and the investigation 5-Whys join.
+
+**Surfaced gaps (NOT silently dropped — need a decision before building):**
+- **`risk` on NCR** — `ncr.jsx` shows a `RiskBadge` column + a Risk filter, but `ncrs` has no
+  `risk` column (only `priority`). Adding it is a schema + spec decision (is NCR risk distinct
+  from priority, or derived?). The Risk filter is omitted from the popover until then.
+- **Detail — Investigation tab** (root cause + AI-suggest + 5-Whys from the linked 8D),
+  **Evidence** panel (needs the file/attachment wire), and **Impact assessment** (defect-rate /
+  cost / qty — these are hardcoded mock in the jsx; no NCR columns back them). The detail also
+  wants header risk/area/age chips. Detail rebuild is the next slice; the 5-Whys + linked-8D chip
+  are now unblocked by `eightDId`.

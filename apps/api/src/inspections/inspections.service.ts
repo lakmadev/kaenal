@@ -37,6 +37,7 @@ interface InspectionRow {
   code: string;
   title: string;
   template_id: string;
+  template_name: string | null;
   template_version: number;
   inspector_id: string | null;
   plant_id: string | null;
@@ -58,7 +59,9 @@ interface InspectionRow {
 
 // occurrence_date is a `date`; cast to text so pg hands back a clean
 // 'YYYY-MM-DD' string rather than a local-midnight Date that can shift a day.
-const COLUMNS = `id, code, title, template_id, template_version, inspector_id, plant_id, area_id,
+const COLUMNS = `id, code, title, template_id,
+  (SELECT t.name FROM inspection_templates t WHERE t.id = template_id) AS template_name,
+  template_version, inspector_id, plant_id, area_id,
   status, risk, scheduled_at, started_at, completed_at, score, responses,
   recurrence, series_id, occurrence_date::text AS occurrence_date, lock_version,
   created_at, updated_at`;
@@ -73,6 +76,7 @@ function toDto(row: InspectionRow): InspectionDto {
     code: row.code,
     title: row.title,
     templateId: row.template_id,
+    templateName: row.template_name,
     templateVersion: row.template_version,
     inspectorId: row.inspector_id,
     plantId: row.plant_id,

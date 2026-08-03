@@ -17,6 +17,7 @@ import { cn } from "@/lib/cn";
 import { shortDate } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
 import { PriorityBadge, useToast } from "@/components/ui";
+import { MemberCell } from "@/components/member-cell";
 import { useTransitionNcr, useVerifyNcr } from "@/hooks/use-ncrs";
 
 /** Board columns (matches the prototype). `verified` is reached via the four-eyes
@@ -106,7 +107,7 @@ export function NcrKanban({ ncrs, meId }: { ncrs: NcrDto[]; meId: string | undef
           return (
             <Column key={col.key} col={col} count={items.length}>
               {items.map((n) => (
-                <Card key={n.id} ncr={n} onOpen={() => router.push(`/ncrs/${n.id}`)} />
+                <Card key={n.id} ncr={n} meId={meId} onOpen={() => router.push(`/ncrs/${n.id}`)} />
               ))}
             </Column>
           );
@@ -152,7 +153,7 @@ function Column({
   );
 }
 
-function Card({ ncr, onOpen }: { ncr: NcrDto; onOpen: () => void }): React.ReactElement {
+function Card({ ncr, meId, onOpen }: { ncr: NcrDto; meId: string | undefined; onOpen: () => void }): React.ReactElement {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: ncr.id });
   return (
     <div
@@ -173,6 +174,7 @@ function Card({ ncr, onOpen }: { ncr: NcrDto; onOpen: () => void }): React.React
       </div>
       <div className="text-[12.5px] font-medium leading-snug">{ncr.title}</div>
       <div className="flex items-center justify-between text-[11px] text-muted">
+        <MemberCell userId={ncr.ownerId} meId={meId} size={20} emptyLabel="—" firstNameOnly />
         <span className="inline-flex items-center gap-1">
           <Calendar size={11} />
           {shortDate(ncr.dueAt)}

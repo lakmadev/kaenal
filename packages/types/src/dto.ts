@@ -102,6 +102,8 @@ export const InspectionDto = z.object({
   code: z.string(),
   title: z.string().min(1).max(200),
   templateId: z.string().uuid(),
+  /** Resolved template name for display (the list's Template column). */
+  templateName: z.string().nullable(),
   templateVersion: z.number().int().positive(),
   inspectorId: z.string().uuid().nullable(),
   plantId: z.string().uuid().nullable(),
@@ -198,6 +200,9 @@ export const NcrDto = z.object({
   areaId: z.string().uuid().nullable(),
   dueAt: z.string().datetime().nullable(),
   slaState: SlaState,
+  /** The 8D raised from this NCR, if any — the list's "Linked 8D" column and
+   *  the detail's investigation cross-link both read it. */
+  eightDId: z.string().uuid().nullable(),
   resolvedBy: z.string().uuid().nullable(),
   resolvedAt: z.string().datetime().nullable(),
   verifiedBy: z.string().uuid().nullable(),

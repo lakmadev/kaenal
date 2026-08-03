@@ -1,4 +1,3 @@
-import { User } from "lucide-react";
 import type { SlaState } from "@kaenal/types";
 
 const SLA: Record<SlaState, { label: string; color: string }> = {
@@ -17,30 +16,4 @@ export function SlaIndicator({ state }: { state: SlaState }): React.ReactElement
     </span>
   );
 }
-
-/**
- * Owner display. The API exposes only `ownerId` (no members endpoint yet), so we
- * show "You" for the current user, "Unassigned" for null, and a neutral member
- * chip (short id) otherwise — never a fabricated name.
- */
-export function OwnerCell({
-  ownerId,
-  meId,
-}: {
-  ownerId: string | null;
-  meId: string | undefined;
-}): React.ReactElement {
-  if (ownerId === null) return <span className="text-subtle">Unassigned</span>;
-  const isMe = meId !== undefined && ownerId === meId;
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[12px]">
-      <span
-        className="inline-flex items-center justify-center rounded-full"
-        style={{ width: 20, height: 20, background: "var(--bg-subtle)", color: "var(--text-muted)" }}
-      >
-        <User size={12} />
-      </span>
-      {isMe ? "You" : <span className="mono text-muted">{ownerId.slice(0, 8)}</span>}
-    </span>
-  );
-}
+// Owner display now uses the shared <MemberCell> (real names via /v1/members).

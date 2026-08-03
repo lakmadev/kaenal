@@ -10,7 +10,8 @@ import { errorMessage } from "@/lib/api-error";
 import { useMe } from "@/hooks/use-me";
 import { useNcr, useTransitionNcr, useVerifyNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, PriorityBadge, Skeleton, EmptyState, useToast } from "@/components/ui";
-import { SlaIndicator, OwnerCell } from "./ncr-bits";
+import { MemberCell } from "@/components/member-cell";
+import { SlaIndicator } from "./ncr-bits";
 import { NcrActionsTab } from "./ncr-actions";
 
 type Tab = "details" | "actions" | "history";
@@ -165,7 +166,7 @@ function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined })
             <StatusBadge status={ncr.status} />
           </Meta>
           <Meta label="Owner">
-            <OwnerCell ownerId={ncr.ownerId} meId={meId} />
+            <MemberCell userId={ncr.ownerId} meId={meId} />
           </Meta>
           <Meta label="Priority">
             <PriorityBadge priority={ncr.priority} />
