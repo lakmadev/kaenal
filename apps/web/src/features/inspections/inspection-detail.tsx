@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Calendar, ClipboardCheck, Clock, Play, TriangleAlert, Plus } from "lucide-react";
+import { ArrowLeft, Calendar, Camera, ClipboardCheck, Clock, Play, TriangleAlert, Plus } from "lucide-react";
 import { FindingSeverity, type FindingDto, type FormResponses, type InspectionDto, type TemplateDto } from "@kaenal/types";
 import { scoreInspection, validateResponses } from "@kaenal/core";
 import { cn } from "@/lib/cn";
@@ -20,7 +20,7 @@ import { useCreateNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, RiskBadge, Skeleton, EmptyState, Input, useToast } from "@/components/ui";
 import { InspectionForm } from "./form-renderer";
 
-type Tab = "overview" | "findings" | "history";
+type Tab = "overview" | "findings" | "media" | "history";
 
 export function InspectionDetail({ id }: { id: string }): React.ReactElement {
   const router = useRouter();
@@ -134,7 +134,7 @@ function View({ inspection, template }: { inspection: InspectionDto; template: T
       </div>
 
       <div className="k-tabs">
-        {(["overview", "findings", "history"] as Tab[]).map((t) => (
+        {(["overview", "findings", "media", "history"] as Tab[]).map((t) => (
           <button key={t} type="button" className={cn("k-tab", tab === t && "active")} onClick={() => setTab(t)}>
             {titleCase(t)}
           </button>
@@ -165,6 +165,16 @@ function View({ inspection, template }: { inspection: InspectionDto; template: T
         ))}
 
       {tab === "findings" && <FindingsTab inspection={inspection} />}
+
+      {tab === "media" && (
+        <div className="k-surface">
+          <EmptyState
+            icon={Camera}
+            title="No photos attached"
+            body="Photos captured on the mobile inspector app will appear here once media capture is wired up."
+          />
+        </div>
+      )}
 
       {tab === "history" && (
         <div className="k-surface">

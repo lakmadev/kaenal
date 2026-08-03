@@ -13,8 +13,9 @@ import { Button, StatusBadge, PriorityBadge, Skeleton, EmptyState, useToast } fr
 import { MemberCell } from "@/components/member-cell";
 import { SlaIndicator } from "./ncr-bits";
 import { NcrActionsTab } from "./ncr-actions";
+import { NcrInvestigationTab } from "./ncr-investigation";
 
-type Tab = "details" | "actions" | "history";
+type Tab = "details" | "investigation" | "actions" | "history";
 
 /** Contextual transitions per status — the server is the final guard, so an
  *  illegal attempt surfaces as a toast; this just offers the sensible next steps. */
@@ -143,7 +144,7 @@ function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined })
       </div>
 
       <div className="k-tabs">
-        {(["details", "actions", "history"] as Tab[]).map((t) => (
+        {(["details", "investigation", "actions", "history"] as Tab[]).map((t) => (
           <button key={t} type="button" className={cn("k-tab", tab === t && "active")} onClick={() => setTab(t)}>
             {titleCase(t)}
           </button>
@@ -153,6 +154,7 @@ function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined })
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_280px]">
         <div>
           {tab === "details" && <DetailsTab ncr={ncr} />}
+          {tab === "investigation" && <NcrInvestigationTab ncr={ncr} />}
           {tab === "actions" && <NcrActionsTab ncrId={ncr.id} />}
           {tab === "history" && (
             <div className="k-surface">
