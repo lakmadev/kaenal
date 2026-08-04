@@ -59,7 +59,8 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
   // Manual expand overrides; a section defaults to open per DEFAULT_OPEN.
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const sections = buildSections(me);
-  const settingsActive = isParentActive(pathname, SETTINGS_ITEM.href);
+  // Any /settings/* section keeps the footer Settings item highlighted.
+  const settingsActive = pathname.startsWith("/settings");
 
   return (
     <>

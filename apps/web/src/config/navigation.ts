@@ -202,7 +202,7 @@ export const NAV: NavEntry[] = [
 export const SETTINGS_ITEM: NavItem = {
   id: "settings",
   label: "Settings",
-  href: "/settings/personal",
+  href: "/settings/profile",
   icon: Settings,
 };
 
