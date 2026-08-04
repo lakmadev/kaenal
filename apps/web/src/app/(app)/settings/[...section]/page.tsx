@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { SettingsShell } from "@/features/settings/settings-shell";
+import { SettingsContent } from "@/features/settings/settings-shell";
 import { settingsItem, DEFAULT_SETTINGS_SECTION } from "@/features/settings/settings-nav";
 
 /** Resolve the URL slug to a known section, defaulting to Profile. */
@@ -24,5 +24,5 @@ export default async function SettingsSectionPage({
   params: Promise<{ section: string[] }>;
 }): Promise<React.ReactElement> {
   const { section } = await params;
-  return <SettingsShell section={resolveSection(section)} />;
+  return <SettingsContent section={resolveSection(section)} />;
 }
