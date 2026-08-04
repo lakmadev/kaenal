@@ -64,7 +64,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     group: "Workspace",
     items: [
       { id: "organization", label: "Organization", icon: Building2 },
-      { id: "members", label: "Members & teams", icon: Users },
+      { id: "members", label: "Members & teams", icon: Users, built: true },
       { id: "roles", label: "Roles & permissions", icon: KeyRound },
       { id: "sites", label: "Sites & areas", icon: MapPin },
     ],

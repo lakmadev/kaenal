@@ -7,6 +7,7 @@ import { ProfileSection } from "./sections/profile";
 import { NotificationsSection } from "./sections/notifications";
 import { SecuritySection } from "./sections/security";
 import { PreferencesSection } from "./sections/preferences";
+import { MembersSection } from "./sections/members";
 
 /**
  * The active settings section's content. The section rail lives in the settings
@@ -24,6 +25,8 @@ export function SettingsContent({ section }: { section: string }): React.ReactEl
       return <SecuritySection />;
     case "preferences":
       return <PreferencesSection />;
+    case "members":
+      return <MembersSection />;
     default:
       return <ComingSoon section={section} />;
   }
