@@ -245,6 +245,23 @@ NCR"; INS-2026-0005 (recurring, scheduler-created) → "System created this insp
 null-actor path); CAPA still renders via the shared component. All three `window.__live` clean; typecheck
 6/6 + lint green. RCA/Effectiveness (CAPA) and any other stub tabs unaffected.
 
+**Supplier detail — 7-tab split (2026-08-04):** `supplier-detail.tsx` matched `suppliers.jsx`'s seven
+tabs. The single merged "Linked records" tab became **PPAP / Quality events / Audits / Documents** (joining
+the existing Overview / Scorecard / Parts) with live counts in the tab labels. Data is real and honest per
+source: **PPAP** via `usePpapList({ supplierId })` (rich table — code, part/program, `LevelChip`,
+customer, `PpapStatusBadge`, `AiPredictionPill`, due; reuses `ppap-bits`); **Quality events** = SCARs via
+`useScarList({ supplierId })` (rich — `SeverityChip`, `stageLabel`, `ScarStatusBadge`, reuses `scar-bits`)
+**plus** linked NCRs/8Ds/CAPAs from the entity-link graph; **Audits** = linked audit/inspection edges;
+**Documents** = linked document edges — the id-level link rows share one `LinkTable`/`LinkList` (a tidy of
+the old `LinksTab`), each entity-link bucket grouped by the opposite end's `kind`. Row-clicks route via
+`navigateToEntity` (added the missing `scar → /scars` route; PPAP routes directly since `ppap` isn't an
+`EntityKind`). Honest empty states per tab; NCR/8D/audit/doc rows stay id-level (no title fetch — same as
+the CAPA linked-items call). **Verified in-browser** (SUP-2026-0001): all 7 tabs render, empty states
+clean at 0; after seeding one PPAP + one SCAR for the supplier via the real create endpoints
+(PPAP-2026-0001, SCAR-2026-0001 — left in the acme demo tenant), counts went live (PPAP (1)/Quality
+events (1)) and both rich tables rendered correctly; row-click navigates to `/ppap/:id` and `/scars/:id`;
+`window.__live` clean; typecheck 6/6 + lint green.
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already

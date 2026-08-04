@@ -14,14 +14,23 @@ import {
   Link2,
   ChevronRight,
   Download,
+  ClipboardCheck,
+  ShieldCheck,
+  FileText,
 } from "lucide-react";
 import { weightedSupplierScore, type ScoreWeights, type SupplierMetrics } from "@kaenal/core";
-import type { EntityKind, SupplierDto } from "@kaenal/types";
-import { longDate, titleCase } from "@/lib/format";
+import type { EntityKind, EntityLinkDto, PpapSubmissionDto, ScarDto, SupplierDto } from "@kaenal/types";
+import type { UseQueryResult } from "@tanstack/react-query";
+import type { Page } from "@kaenal/types";
+import { longDate, shortDate, titleCase } from "@/lib/format";
 import { useSupplier } from "@/hooks/use-suppliers";
 import { useEntityLinks } from "@/hooks/use-entity-links";
+import { usePpapList } from "@/hooks/use-ppap";
+import { useScarList } from "@/hooks/use-scar";
 import { PageHeader } from "@/components/page-header";
 import { Button, Card, Chip, StatusBadge, EmptyState, Skeleton } from "@/components/ui";
+import { PpapStatusBadge, LevelChip, AiPredictionPill } from "../ppap/ppap-bits";
+import { ScarStatusBadge, SeverityChip, stageLabel } from "../scar/scar-bits";
 import {
   RISK_TIER,
   RiskTierBadge,
@@ -34,14 +43,7 @@ import {
   type AiInsight,
 } from "./suppliers-bits";
 
-type Tab = "overview" | "scorecard" | "links" | "parts";
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "scorecard", label: "Scorecard" },
-  { id: "links", label: "Linked records" },
-  { id: "parts", label: "Parts" },
-];
+type Tab = "overview" | "scorecard" | "ppap" | "events" | "audits" | "parts" | "docs";
 
 export function SupplierDetail({ id }: { id: string }): React.ReactElement {
   const router = useRouter();
@@ -66,10 +68,60 @@ export function SupplierDetail({ id }: { id: string }): React.ReactElement {
   return <SupplierDetailView s={supplier} />;
 }
 
+/** The end of a supplier link opposite this supplier. */
+function oppositeEnd(l: EntityLinkDto, supplierId: string): { kind: EntityKind; id: string } {
+  const isFrom = l.fromKind === "supplier" && l.fromId === supplierId;
+  return isFrom ? { kind: l.toKind, id: l.toId } : { kind: l.fromKind, id: l.fromId };
+}
+
+interface LinkRow {
+  key: string;
+  kind: EntityKind;
+  id: string;
+  relation: string;
+}
+
 function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
   const insights = aiInsights(s.profile);
+
+  // Real supplier-scoped records for the split tabs. PPAP and SCARs have their
+  // own filtered endpoints (rich rows); NCRs/8Ds/audits/documents come through
+  // the entity-link graph (id-level), grouped by the opposite end's kind.
+  const ppap = usePpapList({ supplierId: s.id });
+  const scars = useScarList({ supplierId: s.id });
+  const links = useEntityLinks("supplier", s.id);
+
+  const groups = useMemo(() => {
+    const events: LinkRow[] = [];
+    const audits: LinkRow[] = [];
+    const docs: LinkRow[] = [];
+    for (const l of links.data?.items ?? []) {
+      const o = oppositeEnd(l, s.id);
+      const row: LinkRow = { key: l.id, kind: o.kind, id: o.id, relation: l.relation };
+      if (o.kind === "ncr" || o.kind === "eight_d" || o.kind === "capa") events.push(row);
+      else if (o.kind === "audit" || o.kind === "inspection") audits.push(row);
+      else if (o.kind === "document") docs.push(row);
+      // `scar` edges are omitted here — SCARs render richly from their own list.
+    }
+    return { events, audits, docs };
+  }, [links.data, s.id]);
+
+  const ppapCount = ppap.data?.items.length ?? 0;
+  const scarCount = scars.data?.items.length ?? 0;
+  const partsCount = profileArr(s.profile, "parts").length;
+  const onOpen = (kind: EntityKind, oid: string): void => navigateToEntity(router, kind, oid);
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "overview", label: "Overview" },
+    { id: "scorecard", label: "Scorecard" },
+    { id: "ppap", label: `PPAP (${ppapCount})` },
+    { id: "events", label: `Quality events (${scarCount + groups.events.length})` },
+    { id: "audits", label: `Audits (${groups.audits.length})` },
+    { id: "parts", label: `Parts (${partsCount})` },
+    { id: "docs", label: "Documents" },
+  ];
   const contact = s.contact ?? {};
   const contactName = typeof contact["name"] === "string" ? contact["name"] : null;
   const contactRole = typeof contact["role"] === "string" ? contact["role"] : null;
@@ -143,7 +195,7 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
 
       {/* Tabs */}
       <div className="k-tabs">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`k-tab ${tab === t.id ? "active" : ""}`}>
             {t.label}
           </button>
@@ -152,8 +204,25 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
 
       {tab === "overview" && <OverviewTab s={s} />}
       {tab === "scorecard" && <ScorecardTab s={s} />}
-      {tab === "links" && <LinksTab supplierId={s.id} onOpen={(kind, oid) => navigateToEntity(router, kind, oid)} />}
+      {tab === "ppap" && <PpapTab query={ppap} onOpenPpap={(pid) => router.push(`/ppap/${pid}`)} />}
+      {tab === "events" && <EventsTab scars={scars} linked={groups.events} onOpen={onOpen} />}
+      {tab === "audits" && (
+        <LinkList
+          query={links}
+          rows={groups.audits}
+          onOpen={onOpen}
+          empty={{ icon: ShieldCheck, title: "No audits linked", body: "Audits and inspections of this supplier will appear here." }}
+        />
+      )}
       {tab === "parts" && <PartsTab s={s} />}
+      {tab === "docs" && (
+        <LinkList
+          query={links}
+          rows={groups.docs}
+          onOpen={onOpen}
+          empty={{ icon: FileText, title: "No documents linked", body: "Documents referencing this supplier will appear here." }}
+        />
+      )}
     </div>
   );
 }
@@ -432,40 +501,198 @@ function Radar({ metrics }: { metrics: SupplierMetrics }): React.ReactElement {
   );
 }
 
-// --- Linked records tab ----------------------------------------------------
+// --- PPAP tab --------------------------------------------------------------
 
-function LinksTab({
-  supplierId,
+function PpapTab({
+  query,
+  onOpenPpap,
+}: {
+  query: UseQueryResult<Page<PpapSubmissionDto>>;
+  onOpenPpap: (id: string) => void;
+}): React.ReactElement {
+  if (query.isLoading) return <Skeleton className="h-40" />;
+  if (query.isError) {
+    return (
+      <Card>
+        <EmptyState icon={ClipboardCheck} title="Couldn't load PPAP submissions" />
+      </Card>
+    );
+  }
+  const rows = query.data?.items ?? [];
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <EmptyState icon={ClipboardCheck} title="No PPAP submissions" body="Part-approval packages for this supplier will appear here." />
+      </Card>
+    );
+  }
+  return (
+    <Card className="overflow-hidden p-0">
+      <table className="k-table w-full">
+        <thead>
+          <tr>
+            <th style={{ width: 120 }}>PPAP</th>
+            <th>Part / Program</th>
+            <th style={{ width: 80 }}>Level</th>
+            <th style={{ width: 120 }}>Customer</th>
+            <th style={{ width: 110 }}>Status</th>
+            <th style={{ width: 120 }}>AI</th>
+            <th style={{ width: 90 }}>Due</th>
+            <th style={{ width: 28 }} />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr key={p.id} className="cursor-pointer" onClick={() => onOpenPpap(p.id)}>
+              <td className="mono text-[11.5px] font-semibold" style={{ color: "var(--accent)" }}>
+                {p.code ?? p.id.slice(0, 8)}
+              </td>
+              <td>
+                <div className="text-[12.5px] font-medium">{p.partNumber}</div>
+                {p.programName !== null && <div className="text-[10.5px] text-muted">{p.programName}</div>}
+              </td>
+              <td>
+                <LevelChip level={p.level} />
+              </td>
+              <td className="text-[12px]">{p.customer ?? "—"}</td>
+              <td>
+                <PpapStatusBadge status={p.status} />
+              </td>
+              <td>
+                <AiPredictionPill
+                  willMissDeadline={p.aiPrediction.willMissDeadline}
+                  confidence={p.aiPrediction.confidence}
+                  daysLikelyOver={p.aiPrediction.daysLikelyOver}
+                />
+              </td>
+              <td className="whitespace-nowrap text-[12px] text-muted">{shortDate(p.dueDate)}</td>
+              <td>
+                <ChevronRight size={14} className="text-subtle" />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
+// --- Quality events tab (SCARs + linked NCRs/8Ds) --------------------------
+
+function EventsTab({
+  scars,
+  linked,
   onOpen,
 }: {
-  supplierId: string;
+  scars: UseQueryResult<Page<ScarDto>>;
+  linked: LinkRow[];
   onOpen: (kind: EntityKind, id: string) => void;
 }): React.ReactElement {
-  const { data, isLoading, isError } = useEntityLinks("supplier", supplierId);
-  const links = useMemo(() => data?.items ?? [], [data]);
+  if (scars.isLoading) return <Skeleton className="h-40" />;
+  const scarRows = scars.data?.items ?? [];
+  if (scarRows.length === 0 && linked.length === 0) {
+    return (
+      <Card>
+        <EmptyState
+          icon={TriangleAlert}
+          title="No quality events"
+          body="SCARs raised against this supplier, plus linked NCRs and 8Ds, will appear here."
+        />
+      </Card>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      {scarRows.length > 0 && (
+        <Card className="overflow-hidden p-0">
+          <div className="border-b border-border px-4 py-2.5 text-[12px] font-semibold text-muted">SCARs</div>
+          <table className="k-table w-full">
+            <thead>
+              <tr>
+                <th style={{ width: 130 }}>SCAR</th>
+                <th>Title</th>
+                <th style={{ width: 100 }}>Severity</th>
+                <th style={{ width: 150 }}>Stage</th>
+                <th style={{ width: 110 }}>Status</th>
+                <th style={{ width: 90 }}>Due</th>
+                <th style={{ width: 28 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {scarRows.map((sc) => (
+                <tr key={sc.id} className="cursor-pointer" onClick={() => onOpen("scar", sc.id)}>
+                  <td className="mono text-[11.5px] font-semibold" style={{ color: "var(--accent)" }}>
+                    {sc.code}
+                  </td>
+                  <td className="text-[12.5px] font-medium">{sc.title ?? "—"}</td>
+                  <td>
+                    <SeverityChip severity={sc.severity} />
+                  </td>
+                  <td className="text-[12px] text-muted">{stageLabel(sc.currentD)}</td>
+                  <td>
+                    <ScarStatusBadge status={sc.status} />
+                  </td>
+                  <td className="whitespace-nowrap text-[12px] text-muted">{shortDate(sc.dueDate)}</td>
+                  <td>
+                    <ChevronRight size={14} className="text-subtle" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+      {linked.length > 0 && <LinkTable title="Linked NCRs & 8Ds" rows={linked} onOpen={onOpen} />}
+    </div>
+  );
+}
 
-  if (isLoading) return <Skeleton className="h-40" />;
-  if (isError) {
+// --- Linked-record tables (audits, documents, linked NCRs/8Ds) -------------
+
+/** A tab that renders entity-link rows of one bucket, with its own load/empty
+ *  states (the link query is shared across the audits/docs tabs). */
+function LinkList({
+  query,
+  rows,
+  onOpen,
+  empty,
+}: {
+  query: UseQueryResult<Page<EntityLinkDto>>;
+  rows: LinkRow[];
+  onOpen: (kind: EntityKind, id: string) => void;
+  empty: { icon: typeof Link2; title: string; body: string };
+}): React.ReactElement {
+  if (query.isLoading) return <Skeleton className="h-40" />;
+  if (query.isError) {
     return (
       <Card>
         <EmptyState icon={Link2} title="Couldn't load linked records" />
       </Card>
     );
   }
-  if (links.length === 0) {
+  if (rows.length === 0) {
     return (
       <Card>
-        <EmptyState
-          icon={Link2}
-          title="No linked records"
-          body="NCRs, 8Ds, audits, and complaints raised against this supplier will appear here."
-        />
+        <EmptyState icon={empty.icon} title={empty.title} body={empty.body} />
       </Card>
     );
   }
+  return <LinkTable rows={rows} onOpen={onOpen} />;
+}
 
+/** The id-level linked-record table shared by every entity-link bucket. */
+function LinkTable({
+  title,
+  rows,
+  onOpen,
+}: {
+  title?: string;
+  rows: LinkRow[];
+  onOpen: (kind: EntityKind, id: string) => void;
+}): React.ReactElement {
   return (
     <Card className="overflow-hidden p-0">
+      {title !== undefined && <div className="border-b border-border px-4 py-2.5 text-[12px] font-semibold text-muted">{title}</div>}
       <table className="k-table w-full">
         <thead>
           <tr>
@@ -476,24 +703,18 @@ function LinksTab({
           </tr>
         </thead>
         <tbody>
-          {links.map((l) => {
-            // The opposite end of the edge from this supplier.
-            const isFrom = l.fromKind === "supplier" && l.fromId === supplierId;
-            const kind = isFrom ? l.toKind : l.fromKind;
-            const oid = isFrom ? l.toId : l.fromId;
-            return (
-              <tr key={l.id} className="cursor-pointer" onClick={() => onOpen(kind, oid)}>
-                <td>
-                  <Chip bg="var(--bg-subtle)">{titleCase(kind)}</Chip>
-                </td>
-                <td className="mono text-[12px]">{oid.slice(0, 8)}</td>
-                <td className="text-[12px] text-muted">{titleCase(l.relation)}</td>
-                <td>
-                  <ChevronRight size={14} className="text-subtle" />
-                </td>
-              </tr>
-            );
-          })}
+          {rows.map((r) => (
+            <tr key={r.key} className="cursor-pointer" onClick={() => onOpen(r.kind, r.id)}>
+              <td>
+                <Chip bg="var(--bg-subtle)">{titleCase(r.kind)}</Chip>
+              </td>
+              <td className="mono text-[12px]">{r.id.slice(0, 8)}</td>
+              <td className="text-[12px] text-muted">{titleCase(r.relation)}</td>
+              <td>
+                <ChevronRight size={14} className="text-subtle" />
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </Card>
@@ -560,6 +781,7 @@ function navigateToEntity(router: ReturnType<typeof useRouter>, kind: EntityKind
     inspection: "/inspections",
     document: "/documents",
     supplier: "/suppliers",
+    scar: "/scars",
   };
   const base = path[kind];
   if (base !== undefined) router.push(`${base}/${id}`);
