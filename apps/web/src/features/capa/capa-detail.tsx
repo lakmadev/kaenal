@@ -18,17 +18,15 @@ import {
   Link2,
   Download,
 } from "lucide-react";
-import type { AuditEventDto, CapaDto, EntityKind } from "@kaenal/types";
+import type { CapaDto, EntityKind } from "@kaenal/types";
 import { cn } from "@/lib/cn";
 import { longDate, titleCase } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
 import { useMe, hasCapability } from "@/hooks/use-me";
-import { useMemberLookup } from "@/hooks/use-members";
 import { useCapa, useAdvanceCapa, useRevertCapa, useCapaActions } from "@/hooks/use-capas";
 import { useEntityLinks } from "@/hooks/use-entity-links";
-import { useAuditEvents } from "@/hooks/use-audit-events";
-import { Avatar } from "@/components/avatar";
 import { MemberCell } from "@/components/member-cell";
+import { ActivityFeed } from "@/components/activity-feed";
 import {
   Button,
   Dialog,
@@ -38,7 +36,6 @@ import {
   PriorityBadge,
   RiskBadge,
   Skeleton,
-  Spinner,
   EmptyState,
   useToast,
 } from "@/components/ui";
@@ -265,7 +262,7 @@ function CapaDetailView({
               />
             </div>
           )}
-          {tab === "history" && <CapaActivity capaId={capa.id} meId={meId} />}
+          {tab === "history" && <ActivityFeed entityKind="capa" entityId={capa.id} meId={meId} noun="CAPA" />}
         </div>
 
         {/* Sidebar */}
@@ -484,87 +481,6 @@ function LinkedItem({
   );
 }
 
-/** Action → timeline glyph + verb. Falls back to a neutral dot + the raw action. */
-const ACTION_META: Partial<Record<AuditEventDto["action"], { icon: typeof History; label: string }>> = {
-  created: { icon: ClipboardList, label: "created this CAPA" },
-  updated: { icon: History, label: "updated the CAPA" },
-  status_changed: { icon: ArrowRight, label: "changed the phase" },
-  assigned: { icon: History, label: "reassigned the CAPA" },
-  commented: { icon: History, label: "commented" },
-  file_attached: { icon: Link2, label: "attached a file" },
-  linked: { icon: Link2, label: "linked a record" },
-  unlinked: { icon: Link2, label: "unlinked a record" },
-  exported: { icon: Download, label: "exported the CAPA" },
-};
-
-/**
- * The record's real activity trail, straight from `audit_events` (07 §1) — every
- * mutation writes an event in-transaction, so this is authoritative, not a
- * fabricated timeline. Actors resolve through the member directory; a null actor
- * (system job) shows as "System".
- */
-function CapaActivity({ capaId, meId }: { capaId: string; meId: string | undefined }): React.ReactElement {
-  const query = useAuditEvents("capa", capaId);
-  const { memberOf } = useMemberLookup();
-
-  if (query.isLoading) {
-    return (
-      <div className="k-surface flex items-center justify-center py-10">
-        <Spinner />
-      </div>
-    );
-  }
-  const events = [...(query.data?.items ?? [])].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  );
-  if (events.length === 0) {
-    return (
-      <div className="k-surface">
-        <EmptyState icon={History} title="No activity yet" body="Every change to this CAPA is recorded here as it happens." />
-      </div>
-    );
-  }
-
-  const actorName = (e: AuditEventDto): string => {
-    if (e.actorId === null) return e.actorKind === "system" ? "System" : "Automated";
-    if (meId !== undefined && e.actorId === meId) return "You";
-    return memberOf(e.actorId)?.name ?? `${e.actorId.slice(0, 8)}…`;
-  };
-
-  return (
-    <div className="k-surface p-[18px]">
-      <h4 className="mb-3.5 text-[13px] font-semibold">Activity history</h4>
-      <div className="flex flex-col gap-3">
-        {events.map((e) => {
-          const meta = ACTION_META[e.action];
-          const Icon = meta?.icon ?? History;
-          const name = actorName(e);
-          return (
-            <div key={e.id} className="flex items-start gap-2.5">
-              <span
-                className="mt-0.5 flex shrink-0 items-center justify-center rounded-full"
-                style={{ width: 26, height: 26, background: "var(--accent-soft)", color: "var(--accent)" }}
-              >
-                <Icon size={13} />
-              </span>
-              <div className="min-w-0 flex-1 text-[12.5px]">
-                <div>
-                  <span className="inline-flex items-center gap-1.5 font-semibold">
-                    {e.actorId !== null && <Avatar name={memberOf(e.actorId)?.name ?? null} size={16} />}
-                    {name}
-                  </span>{" "}
-                  <span className="text-muted">{meta?.label ?? e.action.replace(/_/g, " ")}</span>
-                </div>
-                {e.reason !== null && e.reason !== "" && <div className="mt-0.5 text-[11.5px] text-muted">“{e.reason}”</div>}
-                <div className="mt-0.5 text-[11px] text-subtle">{longDate(e.createdAt)}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function Meta({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
   return (

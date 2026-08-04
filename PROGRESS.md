@@ -232,6 +232,19 @@ header, "Opened 3 Aug 2026 (1d)", Owner Unassigned / Sponsor None honest labels,
 item, and the Activity feed showing two real events ("You changed the phase", "You created this CAPA")
 — `window.__live` listener clean (`[]`), web typecheck + lint green.
 
+**Shared ActivityFeed → NCR + Inspection (2026-08-04):** extracted the CAPA detail's audit-trail feed
+into `apps/web/src/components/activity-feed.tsx` (the "shared history component" the NCR and Inspection
+history-tab stubs literally named), and wired all three details to it — `<ActivityFeed entityKind
+entityId meId noun />` over `useAuditEvents`. The component owns the loading/empty/list states, resolves
+actors through the members directory ("You" / name / "System" for a null system actor), and shapes the
+verb by `noun` ("created this NCR" / "…inspection" / "…CAPA") with a generic `status_changed` → "changed
+the status" (rule #5 — one component, no per-screen duplication; `capa-detail.tsx` lost its local
+`CapaActivity`/`ACTION_META` and the now-unused imports). Inspection detail gained `useMe()` for the
+"You" comparison. **Verified in-browser:** NCR bfe593f8 → "You changed the status" ×2 + "You created this
+NCR"; INS-2026-0005 (recurring, scheduler-created) → "System created this inspection" (exercises the
+null-actor path); CAPA still renders via the shared component. All three `window.__live` clean; typecheck
+6/6 + lint green. RCA/Effectiveness (CAPA) and any other stub tabs unaffected.
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already

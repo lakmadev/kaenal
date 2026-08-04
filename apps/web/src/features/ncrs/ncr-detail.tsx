@@ -11,6 +11,7 @@ import { useMe } from "@/hooks/use-me";
 import { useNcr, useTransitionNcr, useVerifyNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, PriorityBadge, Skeleton, EmptyState, useToast } from "@/components/ui";
 import { MemberCell } from "@/components/member-cell";
+import { ActivityFeed } from "@/components/activity-feed";
 import { SlaIndicator } from "./ncr-bits";
 import { NcrActionsTab } from "./ncr-actions";
 import { NcrInvestigationTab } from "./ncr-investigation";
@@ -156,11 +157,7 @@ function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined })
           {tab === "details" && <DetailsTab ncr={ncr} />}
           {tab === "investigation" && <NcrInvestigationTab ncr={ncr} />}
           {tab === "actions" && <NcrActionsTab ncrId={ncr.id} />}
-          {tab === "history" && (
-            <div className="k-surface">
-              <EmptyState icon={Clock} title="Activity timeline" body="The audit trail view lands with the shared history component." />
-            </div>
-          )}
+          {tab === "history" && <ActivityFeed entityKind="ncr" entityId={ncr.id} meId={meId} noun="NCR" />}
         </div>
 
         <aside className="k-surface flex h-fit flex-col gap-3.5 p-4">

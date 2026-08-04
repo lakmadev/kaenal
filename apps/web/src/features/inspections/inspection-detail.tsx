@@ -18,6 +18,8 @@ import {
 } from "@/hooks/use-inspections";
 import { useCreateNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, RiskBadge, Skeleton, EmptyState, Input, useToast } from "@/components/ui";
+import { useMe } from "@/hooks/use-me";
+import { ActivityFeed } from "@/components/activity-feed";
 import { InspectionForm } from "./form-renderer";
 
 type Tab = "overview" | "findings" | "media" | "history";
@@ -45,6 +47,7 @@ export function InspectionDetail({ id }: { id: string }): React.ReactElement {
 function View({ inspection, template }: { inspection: InspectionDto; template: TemplateDto | undefined }): React.ReactElement {
   const router = useRouter();
   const toast = useToast();
+  const { data: me } = useMe();
   const start = useStartInspection();
   const complete = useCompleteInspection();
   const [tab, setTab] = useState<Tab>("overview");
@@ -177,9 +180,7 @@ function View({ inspection, template }: { inspection: InspectionDto; template: T
       )}
 
       {tab === "history" && (
-        <div className="k-surface">
-          <EmptyState icon={Clock} title="Activity timeline" body="The audit-trail view lands with the shared history component." />
-        </div>
+        <ActivityFeed entityKind="inspection" entityId={inspection.id} meId={me?.userId} noun="inspection" />
       )}
     </div>
   );
