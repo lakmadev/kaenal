@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@ne
 import { z } from "zod";
 import {
   AdvanceCapaBody,
+  AssignCapaBody,
   CapaPhase,
   CapaType,
   CreateCapaActionBody,
@@ -85,6 +86,21 @@ export class CapaController {
   async revert(@Param("id") id: string, @Body() body: unknown): Promise<CapaDto> {
     const input = parse(RevertCapaBody, body);
     return this.capas.revert(
+      currentTx(),
+      currentContext().tenantId,
+      actorIdOf(),
+      parse(uuid, id),
+      input,
+      auditCtxOf(),
+    );
+  }
+
+  @Post("v1/capas/:id/assign")
+  @HttpCode(200)
+  @RequireCapability("capa:manage")
+  async assign(@Param("id") id: string, @Body() body: unknown): Promise<CapaDto> {
+    const input = parse(AssignCapaBody, body);
+    return this.capas.assign(
       currentTx(),
       currentContext().tenantId,
       actorIdOf(),

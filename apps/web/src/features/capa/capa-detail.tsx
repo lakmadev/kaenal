@@ -23,9 +23,9 @@ import { cn } from "@/lib/cn";
 import { longDate, titleCase } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
 import { useMe, hasCapability } from "@/hooks/use-me";
-import { useCapa, useAdvanceCapa, useRevertCapa, useCapaActions } from "@/hooks/use-capas";
+import { useCapa, useAdvanceCapa, useRevertCapa, useCapaActions, useAssignCapa } from "@/hooks/use-capas";
 import { useEntityLinks } from "@/hooks/use-entity-links";
-import { MemberCell } from "@/components/member-cell";
+import { AssigneePicker } from "@/components/assignee-picker";
 import { ActivityFeed } from "@/components/activity-feed";
 import {
   Button,
@@ -111,8 +111,20 @@ function CapaDetailView({
   const advance = useAdvanceCapa();
   const revert = useRevertCapa();
   const actions = useCapaActions(capa.id);
+  const assign = useAssignCapa();
   const [tab, setTab] = useState<Tab>("plan");
   const [revertOpen, setRevertOpen] = useState(false);
+
+  const runAssign = (body: { version: number; ownerId?: string | null; sponsorId?: string | null }): void => {
+    const cleared = body.ownerId === null || body.sponsorId === null;
+    assign.mutate(
+      { id: capa.id, body },
+      {
+        onSuccess: () => toast.success(cleared ? "Unassigned" : "Assignment updated"),
+        onError: (e) => toast.error(errorMessage(e)),
+      },
+    );
+  };
 
   const actionCount = actions.data?.items.length ?? 0;
   const daysOpen = Math.max(0, Math.floor((Date.now() - new Date(capa.createdAt).getTime()) / DAY_MS));
@@ -260,10 +272,23 @@ function CapaDetailView({
             <div className="k-overline mb-2.5">Details</div>
             <div className="flex flex-col gap-2.5">
               <Meta label="Owner">
-                <MemberCell userId={capa.ownerId} meId={meId} size={18} />
+                <AssigneePicker
+                  userId={capa.ownerId}
+                  meId={meId}
+                  canManage={canManage}
+                  busy={assign.isPending}
+                  onAssign={(v) => runAssign({ version: capa.lockVersion, ownerId: v })}
+                />
               </Meta>
               <Meta label="Sponsor">
-                <MemberCell userId={capa.sponsorId} meId={meId} size={18} emptyLabel="None" />
+                <AssigneePicker
+                  userId={capa.sponsorId}
+                  meId={meId}
+                  canManage={canManage}
+                  busy={assign.isPending}
+                  emptyLabel="None"
+                  onAssign={(v) => runAssign({ version: capa.lockVersion, sponsorId: v })}
+                />
               </Meta>
               <Meta label="Type">
                 <span className="text-[12.5px]">{titleCase(capa.type)}</span>

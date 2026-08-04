@@ -7,6 +7,7 @@ import {
   AiDraftDto,
   AiDraftRequest,
   AiSummaryDto,
+  AssignCapaBody,
   AuditDto,
   AuditFindingDto,
   CapaActionDto,
@@ -528,6 +529,14 @@ export const contract = c.router(
       body: RevertCapaBody,
       responses: { 200: CapaDto, ...commonErrors },
       summary: "Revert a CAPA to an earlier phase (audited, reason required)",
+    },
+    assignCapa: {
+      method: "POST",
+      path: "/v1/capas/:id/assign",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: AssignCapaBody,
+      responses: { 200: CapaDto, ...commonErrors },
+      summary: "Assign, reassign, or clear a CAPA's owner and/or sponsor (audited)",
     },
 
     // --- CAPA actions ------------------------------------------------------

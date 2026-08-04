@@ -279,6 +279,27 @@ sidebar picked up the same edge; a new CAPA-2026-0003 with an effectiveness date
 6/6 + lint green. **Demo rows left in the acme tenant** (for the rich paths): PPAP-2026-0001,
 SCAR-2026-0001, 8D-2026-0002 + its CAPA link, CAPA-2026-0003 — harmless seed-style data, removable.
 
+**User assignment — P25, CAPA slice (2026-08-04):** you couldn't assign/reassign/unassign anyone on any
+screen — every assignee (`owner_id`/`sponsor_id`/`inspector_id`/…) was create-only or (NCR) settable once
+via the `open→assigned` lifecycle transition, and the FE rendered them read-only. Assignment is clearly
+intended (`AuditAction.assigned` + the columns exist), so this is a gap, not new scope. Plan +
+per-entity rollout: **`project_brain/project/implementation/phases/P25-user-assignment.md`**. Shipped the
+**CAPA reference slice** end-to-end, dedicated `assign` endpoint (orthogonal to the phase machine, like
+advance/revert are separate): `AssignCapaBody` (tri-state per field — uuid assigns / `null` unassigns /
+absent leaves; `.refine` needs ≥1) + `POST /v1/capas/:id/assign`; `CapaService.assign` builds a dynamic
+SET from only the provided keys, `assertMember`s every non-null id (foreign-tenant→invisible→same
+failure, no existence leak), optimistic-concurrency guarded, `withAudit('assigned', before/after)` in one
+tx. Capability `capa:manage` (admin/manager). Tests: `capa.test.ts` +4 (assign+reassign+unassign audited;
+non-member 422; empty-body 422; stale 409 + viewer 403) — **13/13 green**. FE: reusable
+`components/assignee-picker.tsx` (dropdown = search + member list + Unassign row; plain `MemberCell` when
+`!canManage`) wired into the CAPA detail Owner + Sponsor rows through `useAssignCapa`, which `setQueryData`s
+the returned row so a rapid second reassign uses the fresh `lockVersion` instead of racing the refetch.
+**Verified in-browser** (demo admin): assigned Sarah Chen (owner cell + toast + `assigned` audit event in
+the Activity feed), unassigned (API `ownerId:null`), and a rapid Sarah→Priya double-reassign lands on
+Priya with no STALE_WRITE; `window.__live` clean; all typechecks (6/6) + web lint green. **Next slices
+(planned, not built):** NCR (free reassign complementing the transition), Inspection, 8D, SCAR — each
+mirrors this pattern.
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already

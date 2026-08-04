@@ -349,6 +349,24 @@ export const RevertCapaBody = z.object({
 });
 export type RevertCapaBody = z.infer<typeof RevertCapaBody>;
 
+/**
+ * Assign, reassign, or clear a CAPA's owner and/or sponsor (P25) — orthogonal to
+ * the phase machine, so it is its own endpoint. Each field is tri-state: a uuid
+ * assigns, an explicit `null` unassigns, and an absent key leaves that column
+ * untouched. At least one of the two must be provided. `version` is the
+ * optimistic-concurrency token; every non-null id must be an active member.
+ */
+export const AssignCapaBody = z
+  .object({
+    version: z.number().int().nonnegative(),
+    ownerId: z.string().uuid().nullable().optional(),
+    sponsorId: z.string().uuid().nullable().optional(),
+  })
+  .refine((b) => b.ownerId !== undefined || b.sponsorId !== undefined, {
+    message: "Provide ownerId and/or sponsorId",
+  });
+export type AssignCapaBody = z.infer<typeof AssignCapaBody>;
+
 // --- CAPA actions -----------------------------------------------------------
 
 export const CapaActionDto = z.object({

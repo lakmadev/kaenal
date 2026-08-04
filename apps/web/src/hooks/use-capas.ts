@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiQueries, queryKeys, unwrap } from "@kaenal/api-client";
 import type {
   AdvanceCapaBody,
+  AssignCapaBody,
   CapaActionDto,
   CapaDto,
   CreateCapaActionBody,
@@ -72,6 +73,22 @@ export function useRevertCapa() {
     onSuccess: (capa) => {
       void qc.invalidateQueries({ queryKey: queryKeys.capas.list() });
       void qc.invalidateQueries({ queryKey: queryKeys.capas.detail(capa.id) });
+    },
+  });
+}
+
+/** Assign / reassign / clear a CAPA's owner and/or sponsor (P25). */
+export function useAssignCapa() {
+  const client = getApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: AssignCapaBody }) =>
+      client.assignCapa({ params: { id }, body }).then((r) => unwrap<CapaDto>(r)),
+    onSuccess: (capa) => {
+      // Seed the detail cache with the fresh row (new lockVersion) so a rapid
+      // second reassign uses the current version instead of racing the refetch.
+      qc.setQueryData(queryKeys.capas.detail(capa.id), capa);
+      void qc.invalidateQueries({ queryKey: queryKeys.capas.list() });
     },
   });
 }
