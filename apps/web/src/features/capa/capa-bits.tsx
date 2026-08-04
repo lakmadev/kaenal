@@ -1,4 +1,4 @@
-import { Plus, Brain, ClipboardList, Wrench, Check, ShieldCheck, Lock, User, type LucideIcon } from "lucide-react";
+import { Plus, Brain, ClipboardList, Wrench, Check, ShieldCheck, Lock, type LucideIcon } from "lucide-react";
 import type { CapaPhase, CapaType } from "@kaenal/types";
 import { Chip } from "@/components/ui";
 
@@ -101,31 +101,3 @@ export function PhaseTracker({ phase }: { phase: CapaPhase }): React.ReactElemen
   );
 }
 
-/**
- * Owner display. The API exposes only `ownerId` (no members endpoint yet), so we
- * show "You" for the current user, "Unassigned" for null, and a neutral member
- * chip (short id) otherwise — never a fabricated name. Mirrors the NCR module.
- */
-export function OwnerCell({
-  ownerId,
-  meId,
-  unassignedLabel = "Unassigned",
-}: {
-  ownerId: string | null;
-  meId: string | undefined;
-  unassignedLabel?: string;
-}): React.ReactElement {
-  if (ownerId === null) return <span className="text-subtle">{unassignedLabel}</span>;
-  const isMe = meId !== undefined && ownerId === meId;
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[12px]">
-      <span
-        className="inline-flex items-center justify-center rounded-full"
-        style={{ width: 20, height: 20, background: "var(--bg-subtle)", color: "var(--text-muted)" }}
-      >
-        <User size={12} />
-      </span>
-      {isMe ? "You" : <span className="mono text-muted">{ownerId.slice(0, 8)}</span>}
-    </span>
-  );
-}

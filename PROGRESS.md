@@ -196,6 +196,42 @@ submitted a SCAR response + acknowledge (green banner, today's date), re-submitt
 In review, submitted date bumped) — no console errors. core 592 / rbac 174, api 238 (portal 17), RLS
 227, typecheck 6/6, lint clean. **One piece deferred (Known issues):** the AV-gated evidence *upload*.
 
+**Web FE fidelity — Settings + CAPA (2026-08-04):** a run of FE-only fidelity commits landed (these had
+not been logged here at the time — recorded now for continuity): the **Settings module** (shell + section
+rail moved into the layout so nav is static across sections, `settings-nav.ts` porting `settings.jsx`'s
+full grouped map with `built` flags, "coming soon" placeholders for unbuilt sections), the **Personal
+group** (Profile/Notifications/Security/Preferences), **Settings › Workspace › Members & teams**
+(`sections/members.tsx` over the real `/v1/members` directory — search, All/Active/Invited/Suspended
+filter, avatar+role table; membership-admin columns show `—` with an honest "read-only, not wired" toast
+since no membership-write API exists), and the **CAPA list to `capa.jsx` fidelity** (4-KPI row,
+opened-vs-closed 6-month trend chart, the "At risk" tab, SLA sub-line, owner-by-name via
+`useMemberLookup`). Two honesty calls on the CAPA list (logged for sign-off): KPI #4 shows a real "Avg
+days open" in place of the jsx's fabricated "Avg closure = 38", and the trend's "closed" series is
+approximated from each closed CAPA's last-update month with a disclosure caption (no CAPA-analytics
+endpoint yet). Also a **CI fix** (`bc31a75`): `audit-partition-roll.test.ts` was a time-bomb — it pinned
+`now` to a hardcoded September that migration 0015's `now + 2 months` provisioning had already created
+once real time reached August; rewritten date-relative (`ROLL_NOW` = real-now + 6 months) so the
+"created" assertions hold whenever CI runs.
+
+**CAPA detail polish (2026-08-04):** brought `capa-detail.tsx` up to `capa.jsx` and wired three areas to
+**real backend endpoints** that had landed but gone unused on this screen. (1) The **Activity tab** now
+renders the record's true `audit_events` trail via a new `useAuditEvents("capa", id)` hook +
+`apiQueries.auditEvents` — actor resolved through the member directory ("You"/name/"System"), action
+verb, optional reason, date, newest-first — replacing the old stub empty state (the jsx's timeline was
+fabricated mock; this is authoritative). (2) **Owner/Sponsor** in the sidebar switched from the stale
+short-id `OwnerCell` fallback to the shared `MemberCell` (real names, matching the list) — `OwnerCell`
+was then dead and removed from `capa-bits.tsx`. (3) **Linked items** became a `LinkedItemsCard` that
+lists the CAPA's origin (`source*`, labelled "· source") *plus* every `entity_links` edge touching it
+(opposite end, relation label, routable "Open"); the card is omitted entirely when empty rather than
+showing a placeholder. Small fidelity adds: **days-open** in the phase tracker ("Opened … (Nd)"), an
+**action-plan count badge** on the tab, and the previously-dropped **Export** button restored with an
+honest "not wired — lands with the reporting service" toast (Members precedent; rule #9 = surface, don't
+silently drop). RCA + Effectiveness tabs keep their honest empty states (no backend root-cause /
+effectiveness-check data to fabricate). **Verified in-browser** (CAPA-2026-0001): Export/Revert/Advance
+header, "Opened 3 Aug 2026 (1d)", Owner Unassigned / Sponsor None honest labels, "NCR · source" linked
+item, and the Activity feed showing two real events ("You changed the phase", "You created this CAPA")
+— `window.__live` listener clean (`[]`), web typecheck + lint green.
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already

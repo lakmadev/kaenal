@@ -16,13 +16,19 @@ import {
   ChevronRight,
   TriangleAlert,
   Link2,
+  Download,
 } from "lucide-react";
-import type { CapaDto } from "@kaenal/types";
+import type { AuditEventDto, CapaDto, EntityKind } from "@kaenal/types";
 import { cn } from "@/lib/cn";
 import { longDate, titleCase } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
 import { useMe, hasCapability } from "@/hooks/use-me";
-import { useCapa, useAdvanceCapa, useRevertCapa } from "@/hooks/use-capas";
+import { useMemberLookup } from "@/hooks/use-members";
+import { useCapa, useAdvanceCapa, useRevertCapa, useCapaActions } from "@/hooks/use-capas";
+import { useEntityLinks } from "@/hooks/use-entity-links";
+import { useAuditEvents } from "@/hooks/use-audit-events";
+import { Avatar } from "@/components/avatar";
+import { MemberCell } from "@/components/member-cell";
 import {
   Button,
   Dialog,
@@ -32,11 +38,38 @@ import {
   PriorityBadge,
   RiskBadge,
   Skeleton,
+  Spinner,
   EmptyState,
   useToast,
 } from "@/components/ui";
-import { CAPA_PHASES, phaseIndex, TypeChip, PhaseTracker, OwnerCell } from "./capa-bits";
+import { CAPA_PHASES, phaseIndex, TypeChip, PhaseTracker } from "./capa-bits";
 import { CapaActionPlan } from "./capa-actions";
+
+const DAY_MS = 86_400_000;
+
+/** Route segment for each linkable entity kind (sidebar "Open" targets). */
+const ENTITY_ROUTE: Record<EntityKind, string | null> = {
+  ncr: "ncrs",
+  capa: "capa",
+  inspection: "inspections",
+  document: "documents",
+  supplier: "suppliers",
+  audit: "audits",
+  eight_d: null, // 8D detail route not built yet
+  scar: null, // SCAR detail route not built yet
+};
+
+/** Human label for an entity kind in the linked-records list. */
+const ENTITY_LABEL: Record<EntityKind, string> = {
+  ncr: "NCR",
+  capa: "CAPA",
+  inspection: "Inspection",
+  document: "Document",
+  supplier: "Supplier",
+  audit: "Audit",
+  eight_d: "8D",
+  scar: "SCAR",
+};
 
 type Tab = "plan" | "rca" | "effectiveness" | "history";
 
@@ -80,8 +113,12 @@ function CapaDetailView({
   const toast = useToast();
   const advance = useAdvanceCapa();
   const revert = useRevertCapa();
+  const actions = useCapaActions(capa.id);
   const [tab, setTab] = useState<Tab>("plan");
   const [revertOpen, setRevertOpen] = useState(false);
+
+  const actionCount = actions.data?.items.length ?? 0;
+  const daysOpen = Math.max(0, Math.floor((Date.now() - new Date(capa.createdAt).getTime()) / DAY_MS));
 
   const idx = phaseIndex(capa.status);
   const nextPhase = CAPA_PHASES[idx + 1];
@@ -138,19 +175,32 @@ function CapaDetailView({
             )}
           </div>
 
-          {canManage && (
-            <div className="flex flex-wrap items-center gap-2">
-              {!atStart && (
-                <Button variant="ghost" loading={busy} onClick={() => setRevertOpen(true)}>
-                  <Undo2 size={14} /> Revert
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              onClick={() =>
+                toast.toast(
+                  "Export isn't wired to the backend yet — the CAPA effectiveness report lands with the reporting service",
+                  "info",
+                )
+              }
+            >
+              <Download size={14} /> Export
+            </Button>
+            {canManage && (
+              <>
+                {!atStart && (
+                  <Button variant="ghost" loading={busy} onClick={() => setRevertOpen(true)}>
+                    <Undo2 size={14} /> Revert
+                  </Button>
+                )}
+                <Button variant="primary" loading={busy} disabled={atEnd} onClick={runAdvance}>
+                  {atEnd ? <Lock size={14} /> : <ArrowRight size={14} />}
+                  {atEnd ? "Closed" : `Advance to ${nextPhase?.label}`}
                 </Button>
-              )}
-              <Button variant="primary" loading={busy} disabled={atEnd} onClick={runAdvance}>
-                {atEnd ? <Lock size={14} /> : <ArrowRight size={14} />}
-                {atEnd ? "Closed" : `Advance to ${nextPhase?.label}`}
-              </Button>
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -163,7 +213,7 @@ function CapaDetailView({
           </div>
           <div className="flex flex-wrap gap-4 text-[12px] text-muted">
             <span className="inline-flex items-center gap-1.5">
-              <Clock size={12} /> Opened {longDate(capa.createdAt)}
+              <Clock size={12} /> Opened {longDate(capa.createdAt)} ({daysOpen}d)
             </span>
             <span className="inline-flex items-center gap-1.5">
               <Calendar size={12} /> Due {longDate(capa.dueAt)}
@@ -179,9 +229,18 @@ function CapaDetailView({
           <div className="k-tabs mb-3.5">
             {TABS.map((t) => {
               const Icon = t.icon;
+              const count = t.id === "plan" ? actionCount : 0;
               return (
                 <button key={t.id} type="button" className={cn("k-tab", tab === t.id && "active")} onClick={() => setTab(t.id)}>
                   <Icon size={13} /> {t.label}
+                  {count > 0 && (
+                    <span
+                      className="ml-1 rounded-full px-1.5 text-[11px] font-semibold"
+                      style={{ background: "var(--bg-subtle)" }}
+                    >
+                      {count}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -206,11 +265,7 @@ function CapaDetailView({
               />
             </div>
           )}
-          {tab === "history" && (
-            <div className="k-surface">
-              <EmptyState icon={History} title="Activity timeline" body="The audit trail view lands with the shared history component." />
-            </div>
-          )}
+          {tab === "history" && <CapaActivity capaId={capa.id} meId={meId} />}
         </div>
 
         {/* Sidebar */}
@@ -219,10 +274,10 @@ function CapaDetailView({
             <div className="k-overline mb-2.5">Details</div>
             <div className="flex flex-col gap-2.5">
               <Meta label="Owner">
-                <OwnerCell ownerId={capa.ownerId} meId={meId} />
+                <MemberCell userId={capa.ownerId} meId={meId} size={18} />
               </Meta>
               <Meta label="Sponsor">
-                <OwnerCell ownerId={capa.sponsorId} meId={meId} unassignedLabel="None" />
+                <MemberCell userId={capa.sponsorId} meId={meId} size={18} emptyLabel="None" />
               </Meta>
               <Meta label="Type">
                 <span className="text-[12.5px]">{titleCase(capa.type)}</span>
@@ -247,16 +302,13 @@ function CapaDetailView({
             </div>
           </div>
 
-          {capa.sourceKind !== null && capa.sourceId !== null && (
-            <div className="k-surface p-4">
-              <div className="k-overline mb-2.5">Linked items</div>
-              <LinkedItem
-                label={titleCase(capa.sourceKind)}
-                id={capa.sourceId}
-                {...(capa.sourceKind === "ncr" ? { onClick: () => router.push(`/ncrs/${capa.sourceId}`) } : {})}
-              />
-            </div>
-          )}
+          <LinkedItemsCard
+            capa={capa}
+            onOpen={(kind, id) => {
+              const route = ENTITY_ROUTE[kind];
+              if (route !== null) router.push(`/${route}/${id}`);
+            }}
+          />
         </aside>
       </div>
 
@@ -320,7 +372,89 @@ function RevertDialog({
   );
 }
 
-function LinkedItem({ label, id, onClick }: { label: string; id: string; onClick?: () => void }): React.ReactElement {
+/**
+ * The sidebar "Linked items" card: the CAPA's origin (`source*`) plus every
+ * `entity_links` edge touching it, rendered as the record on the OPPOSITE end.
+ * All rows are real — the source ref and the link graph both come from the API;
+ * nothing is fabricated. The card is omitted entirely when there is nothing to
+ * show (rather than an empty-card placeholder).
+ */
+function LinkedItemsCard({
+  capa,
+  onOpen,
+}: {
+  capa: CapaDto;
+  onOpen: (kind: EntityKind, id: string) => void;
+}): React.ReactElement | null {
+  const links = useEntityLinks("capa", capa.id);
+
+  type Row = { key: string; kind: EntityKind; id: string; relation: string | null };
+  const rows: Row[] = [];
+  const seen = new Set<string>();
+  const push = (kind: EntityKind, id: string, relation: string | null): void => {
+    const dedupe = `${kind}:${id}`;
+    if (seen.has(dedupe)) return;
+    seen.add(dedupe);
+    rows.push({ key: `${dedupe}:${relation ?? ""}`, kind, id, relation });
+  };
+
+  // Origin first — the record this CAPA was raised from.
+  if (capa.sourceKind !== null && capa.sourceId !== null && isEntityKind(capa.sourceKind)) {
+    push(capa.sourceKind, capa.sourceId, "source");
+  }
+  // Then every graph edge, resolved to the end opposite this CAPA.
+  for (const l of links.data?.items ?? []) {
+    const opp =
+      l.fromKind === "capa" && l.fromId === capa.id ? { kind: l.toKind, id: l.toId } : { kind: l.fromKind, id: l.fromId };
+    push(opp.kind, opp.id, l.relation);
+  }
+
+  if (links.isLoading && rows.length === 0) {
+    return (
+      <div className="k-surface p-4">
+        <div className="k-overline mb-2.5">Linked items</div>
+        <Skeleton className="h-12 rounded-md" />
+      </div>
+    );
+  }
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="k-surface p-4">
+      <div className="k-overline mb-2.5">Linked items</div>
+      <div className="flex flex-col gap-2">
+        {rows.map((r) => {
+          const routable = ENTITY_ROUTE[r.kind] !== null;
+          return (
+            <LinkedItem
+              key={r.key}
+              label={ENTITY_LABEL[r.kind]}
+              id={r.id}
+              relation={r.relation}
+              {...(routable ? { onClick: () => onOpen(r.kind, r.id) } : {})}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function isEntityKind(v: string): v is EntityKind {
+  return v in ENTITY_LABEL;
+}
+
+function LinkedItem({
+  label,
+  id,
+  relation,
+  onClick,
+}: {
+  label: string;
+  id: string;
+  relation?: string | null;
+  onClick?: () => void;
+}): React.ReactElement {
   return (
     <button
       type="button"
@@ -335,13 +469,100 @@ function LinkedItem({ label, id, onClick }: { label: string; id: string; onClick
         <Link2 size={13} />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[11px] text-muted">{label}</div>
+        <div className="flex items-center gap-1.5 text-[11px] text-muted">
+          {label}
+          {relation !== null && relation !== undefined && relation !== "" && (
+            <span className="text-subtle">· {relation}</span>
+          )}
+        </div>
         <div className="mono text-[12px] font-semibold" style={{ color: "var(--accent)" }}>
           {id.slice(0, 8)}
         </div>
       </div>
       {onClick !== undefined && <ChevronRight size={14} className="text-muted" />}
     </button>
+  );
+}
+
+/** Action → timeline glyph + verb. Falls back to a neutral dot + the raw action. */
+const ACTION_META: Partial<Record<AuditEventDto["action"], { icon: typeof History; label: string }>> = {
+  created: { icon: ClipboardList, label: "created this CAPA" },
+  updated: { icon: History, label: "updated the CAPA" },
+  status_changed: { icon: ArrowRight, label: "changed the phase" },
+  assigned: { icon: History, label: "reassigned the CAPA" },
+  commented: { icon: History, label: "commented" },
+  file_attached: { icon: Link2, label: "attached a file" },
+  linked: { icon: Link2, label: "linked a record" },
+  unlinked: { icon: Link2, label: "unlinked a record" },
+  exported: { icon: Download, label: "exported the CAPA" },
+};
+
+/**
+ * The record's real activity trail, straight from `audit_events` (07 §1) — every
+ * mutation writes an event in-transaction, so this is authoritative, not a
+ * fabricated timeline. Actors resolve through the member directory; a null actor
+ * (system job) shows as "System".
+ */
+function CapaActivity({ capaId, meId }: { capaId: string; meId: string | undefined }): React.ReactElement {
+  const query = useAuditEvents("capa", capaId);
+  const { memberOf } = useMemberLookup();
+
+  if (query.isLoading) {
+    return (
+      <div className="k-surface flex items-center justify-center py-10">
+        <Spinner />
+      </div>
+    );
+  }
+  const events = [...(query.data?.items ?? [])].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  if (events.length === 0) {
+    return (
+      <div className="k-surface">
+        <EmptyState icon={History} title="No activity yet" body="Every change to this CAPA is recorded here as it happens." />
+      </div>
+    );
+  }
+
+  const actorName = (e: AuditEventDto): string => {
+    if (e.actorId === null) return e.actorKind === "system" ? "System" : "Automated";
+    if (meId !== undefined && e.actorId === meId) return "You";
+    return memberOf(e.actorId)?.name ?? `${e.actorId.slice(0, 8)}…`;
+  };
+
+  return (
+    <div className="k-surface p-[18px]">
+      <h4 className="mb-3.5 text-[13px] font-semibold">Activity history</h4>
+      <div className="flex flex-col gap-3">
+        {events.map((e) => {
+          const meta = ACTION_META[e.action];
+          const Icon = meta?.icon ?? History;
+          const name = actorName(e);
+          return (
+            <div key={e.id} className="flex items-start gap-2.5">
+              <span
+                className="mt-0.5 flex shrink-0 items-center justify-center rounded-full"
+                style={{ width: 26, height: 26, background: "var(--accent-soft)", color: "var(--accent)" }}
+              >
+                <Icon size={13} />
+              </span>
+              <div className="min-w-0 flex-1 text-[12.5px]">
+                <div>
+                  <span className="inline-flex items-center gap-1.5 font-semibold">
+                    {e.actorId !== null && <Avatar name={memberOf(e.actorId)?.name ?? null} size={16} />}
+                    {name}
+                  </span>{" "}
+                  <span className="text-muted">{meta?.label ?? e.action.replace(/_/g, " ")}</span>
+                </div>
+                {e.reason !== null && e.reason !== "" && <div className="mt-0.5 text-[11.5px] text-muted">“{e.reason}”</div>}
+                <div className="mt-0.5 text-[11px] text-subtle">{longDate(e.createdAt)}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
