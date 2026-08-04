@@ -262,6 +262,23 @@ clean at 0; after seeding one PPAP + one SCAR for the supplier via the real crea
 events (1)) and both rich tables rendered correctly; row-click navigates to `/ppap/:id` and `/scars/:id`;
 `window.__live` clean; typecheck 6/6 + lint green.
 
+**CAPA detail — RCA + Effectiveness tabs off flat empty states (2026-08-04):** the two remaining CAPA
+tabs went from a single hard-coded `EmptyState` each to real, data-backed views (no fabrication — the
+DTO carries no root-cause text/method and no structured effectiveness results, confirmed). **RCA tab**
+(`CapaRcaTab`): the structured 5-Whys / Ishikawa work lives on a linked 8D's D4 discipline, so it reads
+`useEntityLinks("capa", id)`, filters to `eight_d` edges, and surfaces each as a navigable "8D report ·
+root cause" card → `/8d/:id` (reusing `LinkedItem`); with none linked it stays an honest prompt to link
+an 8D. **Effectiveness tab** (`CapaEffectivenessTab`): shows the real `effectivenessCheckAt` schedule
+date + a phase-aware state (Pending / In effectiveness check / verified-on-close from `phaseIndex`), with
+a plain note that structured pass/fail results record later; the pre-schedule/pre-phase case keeps an
+honest empty state. Extracted a shared `openEntity(kind,id)` in the detail (used by the sidebar
+LinkedItemsCard + RCA card). **Verified in-browser:** empty states on the seed CAPA; then after seeding
+a linked 8D (8D-2026-0002 via a `capa→eight_d` root_cause entity-link) the RCA card rendered + the
+sidebar picked up the same edge; a new CAPA-2026-0003 with an effectiveness date showed SCHEDULED
+3 Sept 2026 / PHASE "Pending — hasn't reached the effectiveness phase". `window.__live` clean; typecheck
+6/6 + lint green. **Demo rows left in the acme tenant** (for the rich paths): PPAP-2026-0001,
+SCAR-2026-0001, 8D-2026-0002 + its CAPA link, CAPA-2026-0003 — harmless seed-style data, removable.
+
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
 registry to `offboarding`, which blocks logins for free — `TenantRegistry.resolveBySlug` already

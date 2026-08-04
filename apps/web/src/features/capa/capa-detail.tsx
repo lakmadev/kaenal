@@ -117,6 +117,11 @@ function CapaDetailView({
   const actionCount = actions.data?.items.length ?? 0;
   const daysOpen = Math.max(0, Math.floor((Date.now() - new Date(capa.createdAt).getTime()) / DAY_MS));
 
+  const openEntity = (kind: EntityKind, entityId: string): void => {
+    const route = ENTITY_ROUTE[kind];
+    if (route !== null) router.push(`/${route}/${entityId}`);
+  };
+
   const idx = phaseIndex(capa.status);
   const nextPhase = CAPA_PHASES[idx + 1];
   const prevPhase = idx > 0 ? CAPA_PHASES[idx - 1] : undefined;
@@ -244,24 +249,8 @@ function CapaDetailView({
           </div>
 
           {tab === "plan" && <CapaActionPlan capaId={capa.id} canManage={canManage} />}
-          {tab === "rca" && (
-            <div className="k-surface">
-              <EmptyState
-                icon={Brain}
-                title="Root cause not yet documented"
-                body="Root-cause analysis (5-Whys / fishbone) is captured on a linked 8D. The dedicated RCA editor lands with the 8D module."
-              />
-            </div>
-          )}
-          {tab === "effectiveness" && (
-            <div className="k-surface">
-              <EmptyState
-                icon={ShieldCheck}
-                title="Effectiveness checks not scheduled"
-                body="Effectiveness checks are scheduled after action-plan completion."
-              />
-            </div>
-          )}
+          {tab === "rca" && <CapaRcaTab capa={capa} onOpen={openEntity} />}
+          {tab === "effectiveness" && <CapaEffectivenessTab capa={capa} />}
           {tab === "history" && <ActivityFeed entityKind="capa" entityId={capa.id} meId={meId} noun="CAPA" />}
         </div>
 
@@ -299,13 +288,7 @@ function CapaDetailView({
             </div>
           </div>
 
-          <LinkedItemsCard
-            capa={capa}
-            onOpen={(kind, id) => {
-              const route = ENTITY_ROUTE[kind];
-              if (route !== null) router.push(`/${route}/${id}`);
-            }}
-          />
+          <LinkedItemsCard capa={capa} onOpen={openEntity} />
         </aside>
       </div>
 
@@ -481,6 +464,99 @@ function LinkedItem({
   );
 }
 
+
+/**
+ * Root-cause tab. The CAPA row carries no root-cause field of its own — the
+ * structured analysis (5-Whys / Ishikawa) lives on a linked 8D's D4 discipline
+ * (07/FEATURES). So rather than a fabricated RCA editor, this surfaces the real
+ * linked 8D(s) as navigable cards; with none linked it stays an honest prompt.
+ */
+function CapaRcaTab({ capa, onOpen }: { capa: CapaDto; onOpen: (kind: EntityKind, id: string) => void }): React.ReactElement {
+  const links = useEntityLinks("capa", capa.id);
+  const eightDs = (links.data?.items ?? [])
+    .map((l) => (l.fromKind === "capa" && l.fromId === capa.id ? { kind: l.toKind, id: l.toId } : { kind: l.fromKind, id: l.fromId }))
+    .filter((o) => o.kind === "eight_d");
+
+  if (links.isLoading) return <Skeleton className="h-40 rounded-xl" />;
+
+  if (eightDs.length === 0) {
+    return (
+      <div className="k-surface">
+        <EmptyState
+          icon={Brain}
+          title="No root-cause analysis linked"
+          body="This CAPA's structured root-cause work (5-Whys / Ishikawa) is captured on a linked 8D — its D4 discipline. Link an 8D and it will surface here."
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="k-surface p-5">
+      <h4 className="text-[13px] font-semibold">Root cause analysis</h4>
+      <p className="mt-1 mb-3.5 text-[12.5px] text-muted">
+        The structured analysis for this CAPA is maintained on its linked 8D (discipline D4 · Root Cause). Open it to review or
+        edit the 5-Whys / Ishikawa work.
+      </p>
+      <div className="flex flex-col gap-2">
+        {eightDs.map((d) => (
+          <LinkedItem key={d.id} label="8D report" id={d.id} relation="root cause" onClick={() => onOpen("eight_d", d.id)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Effectiveness tab. The backend records only `effectivenessCheckAt` (a schedule
+ * date) — not structured pass/fail check results — so this shows the real
+ * scheduled date and phase-aware state instead of fabricated result cards, and
+ * says plainly that captured results land later.
+ */
+function CapaEffectivenessTab({ capa }: { capa: CapaDto }): React.ReactElement {
+  const reached = phaseIndex(capa.status) >= phaseIndex("effectiveness");
+  const scheduled = capa.effectivenessCheckAt;
+
+  if (scheduled === null && !reached) {
+    return (
+      <div className="k-surface">
+        <EmptyState
+          icon={ShieldCheck}
+          title="Effectiveness check not scheduled"
+          body="Once the corrective actions are implemented, schedule an effectiveness check to verify they hold before the CAPA closes."
+        />
+      </div>
+    );
+  }
+
+  const phaseLabel =
+    capa.status === "closed"
+      ? "CAPA closed — effectiveness verified"
+      : reached
+        ? "In effectiveness check"
+        : "Pending — the CAPA hasn't reached the effectiveness phase yet";
+
+  return (
+    <div className="k-surface p-5">
+      <h4 className="text-[13px] font-semibold">Effectiveness verification</h4>
+      <p className="mt-1 mb-4 text-[12.5px] text-muted">
+        Confirms the implemented actions are sustainably effective before the CAPA closes.
+      </p>
+      <div className="flex flex-col gap-2.5">
+        <Meta label="Scheduled">
+          <span className="mono text-[12px]">{scheduled !== null ? longDate(scheduled) : "Not set"}</span>
+        </Meta>
+        <Meta label="Phase">
+          <span className="text-[12.5px]">{phaseLabel}</span>
+        </Meta>
+      </div>
+      <p className="mt-4 text-[11.5px] text-subtle">
+        Structured check results (metric vs. target, pass/fail) will record here once effectiveness-check capture is
+        implemented; today the CAPA tracks the scheduled date and phase only.
+      </p>
+    </div>
+  );
+}
 
 function Meta({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
   return (
