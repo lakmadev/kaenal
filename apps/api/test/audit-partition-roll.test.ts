@@ -15,6 +15,31 @@ import { rollAuditPartitions } from "../src/jobs/processors/audit-partition-roll
  */
 
 const PAST = "audit_events_2019_01";
+
+/**
+ * A `now` far enough beyond real time that migration 0015's provisioning
+ * (current month + next, i.e. `now + 2 months`) cannot have pre-created the
+ * partitions this test expects to create fresh. A fixed near-future date flakes
+ * as the wall clock approaches it (e.g. a hard-coded September fails once real
+ * time reaches August); deriving it as real-now + 6 months keeps the "created"
+ * assertions true regardless of when CI runs.
+ */
+const ROLL_NOW: Date = (() => {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(10); // day 10 → adding months never overflows
+  d.setUTCMonth(d.getUTCMonth() + 6);
+  return d;
+})();
+
+function monthPartition(offset: number): string {
+  const d = new Date(ROLL_NOW);
+  d.setUTCMonth(d.getUTCMonth() + offset);
+  return `audit_events_${d.getUTCFullYear()}_${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+const CUR = monthPartition(0);
+const NXT = monthPartition(1);
+
 let owner: pg.Pool;
 let acmeId = "";
 
@@ -50,25 +75,26 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await owner.query("DELETE FROM control.audit_partition_stats WHERE partition_name IN ($1,'audit_events_2026_09','audit_events_2026_10')", [PAST]);
+  await owner.query("DELETE FROM control.audit_partition_stats WHERE partition_name IN ($1,$2,$3)", [PAST, CUR, NXT]);
   await owner.query(`DROP TABLE IF EXISTS ${PAST}`);
-  await owner.query("DROP TABLE IF EXISTS audit_events_2026_09");
-  await owner.query("DROP TABLE IF EXISTS audit_events_2026_10");
+  await owner.query(`DROP TABLE IF EXISTS ${CUR}`);
+  await owner.query(`DROP TABLE IF EXISTS ${NXT}`);
   await owner.end();
 });
 
 describe("audit partition roll", () => {
   it("provisions the current + next month partitions that don't exist yet", async () => {
-    // Drive `now` into September 2026 → neither Sept nor Oct exists yet.
-    const { created } = await rollAuditPartitions({ now: new Date("2026-09-10T00:00:00Z") });
-    expect(created).toContain("audit_events_2026_09");
-    expect(created).toContain("audit_events_2026_10");
-    expect(await partitionExists("audit_events_2026_09")).toBe(true);
-    expect(await partitionExists("audit_events_2026_10")).toBe(true);
+    // Drive `now` well past the migration's provisioning window → neither the
+    // current nor the next month for ROLL_NOW exists yet (see ROLL_NOW note).
+    const { created } = await rollAuditPartitions({ now: ROLL_NOW });
+    expect(created).toContain(CUR);
+    expect(created).toContain(NXT);
+    expect(await partitionExists(CUR)).toBe(true);
+    expect(await partitionExists(NXT)).toBe(true);
 
     // Idempotent: a second run creates nothing new.
-    const again = await rollAuditPartitions({ now: new Date("2026-09-10T00:00:00Z") });
-    expect(again.created).not.toContain("audit_events_2026_09");
+    const again = await rollAuditPartitions({ now: ROLL_NOW });
+    expect(again.created).not.toContain(CUR);
   });
 
   it("records a baseline count for each partition, then flags a shrink", async () => {
