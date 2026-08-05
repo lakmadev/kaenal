@@ -304,7 +304,7 @@ function KpiStrip({ items, criticalCount }: { items: SupplierDto[]; criticalCoun
   ];
 
   return (
-    <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
       {cards.map((k) => (
         <div key={k.label} className="k-surface p-3">
           <div className="text-[10.5px] font-semibold uppercase text-muted">{k.label}</div>

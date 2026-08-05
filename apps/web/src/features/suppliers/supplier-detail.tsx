@@ -146,7 +146,7 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
       />
 
       {/* 360 header strip */}
-      <Card className="grid items-center gap-4 p-4" style={{ gridTemplateColumns: "auto 1fr auto" }}>
+      <Card className="grid items-center gap-4 p-4 md:[grid-template-columns:auto_1fr_auto]">
         <SupplierLogo name={s.name} code={s.code} profile={s.profile} size={64} rounded={12} />
         <div>
           <div className="mb-1.5 flex flex-wrap items-center gap-2">
@@ -159,7 +159,7 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
               <FlagChip key={f} flag={f} />
             ))}
           </div>
-          <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+          <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
             <Mini360
               label="PPM (YTD)"
               value={s.scorecard.ppm}
@@ -282,7 +282,7 @@ function AiInsightBanner({ insights, confidence }: { insights: AiInsight[]; conf
           AI insights{confidence !== null ? ` — confidence ${confidence}%` : ""}
         </strong>
       </div>
-      <div className="grid gap-2.5" style={{ gridTemplateColumns: `repeat(${Math.min(insights.length, 3)}, 1fr)` }}>
+      <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
         {insights.slice(0, 3).map((insight, i) => {
           const meta = INSIGHT_ICON[insight.kind] ?? INSIGHT_ICON["trend"]!;
           const Icon = meta.icon;
@@ -303,7 +303,7 @@ function AiInsightBanner({ insights, confidence }: { insights: AiInsight[]; conf
 function OverviewTab({ s }: { s: SupplierDto }): React.ReactElement {
   const trend = s.scorecard.ppmTrend;
   return (
-    <div className="grid gap-4" style={{ gridTemplateColumns: "2fr 1fr" }}>
+    <div className="grid gap-4 lg:[grid-template-columns:2fr_1fr]">
       <Card className="p-5">
         <h3 className="text-[15px] font-semibold text-text">PPM trend — 12 mo</h3>
         <p className="mb-3 text-[12px] text-muted">
@@ -372,7 +372,7 @@ function ScorecardTab({ s }: { s: SupplierDto }): React.ReactElement {
   const gradeColor = s.grade === null ? "var(--text-muted)" : RISK_TIER[s.grade].fg;
 
   return (
-    <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
+    <div className="grid gap-4 lg:[grid-template-columns:1.2fr_1fr]">
       <Card className="p-5">
         <h3 className="text-[15px] font-semibold text-text">Scorecard breakdown</h3>
         <p className="mb-3.5 text-[12px] text-muted">
@@ -527,7 +527,7 @@ function PpapTab({
     );
   }
   return (
-    <Card className="overflow-hidden p-0">
+    <Card className="overflow-x-auto p-0">
       <table className="k-table w-full">
         <thead>
           <tr>
@@ -604,7 +604,7 @@ function EventsTab({
   return (
     <div className="flex flex-col gap-4">
       {scarRows.length > 0 && (
-        <Card className="overflow-hidden p-0">
+        <Card className="overflow-x-auto p-0">
           <div className="border-b border-border px-4 py-2.5 text-[12px] font-semibold text-muted">SCARs</div>
           <table className="k-table w-full">
             <thead>
@@ -691,7 +691,7 @@ function LinkTable({
   onOpen: (kind: EntityKind, id: string) => void;
 }): React.ReactElement {
   return (
-    <Card className="overflow-hidden p-0">
+    <Card className="overflow-x-auto p-0">
       {title !== undefined && <div className="border-b border-border px-4 py-2.5 text-[12px] font-semibold text-muted">{title}</div>}
       <table className="k-table w-full">
         <thead>
@@ -735,7 +735,7 @@ function PartsTab({ s }: { s: SupplierDto }): React.ReactElement {
     );
   }
   return (
-    <Card className="overflow-hidden p-0">
+    <Card className="overflow-x-auto p-0">
       <table className="k-table w-full">
         <thead>
           <tr>

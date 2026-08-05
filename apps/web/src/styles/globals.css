@@ -262,6 +262,13 @@
     gap: 4px;
     border-bottom: 1px solid var(--border);
     padding: 0 4px;
+    /* On narrow screens a long tab row (e.g. the supplier's 7 tabs) scrolls
+     * horizontally rather than wrapping or overflowing the viewport. */
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .k-tabs::-webkit-scrollbar {
+    display: none;
   }
   .k-tab {
     padding: 10px 14px;
@@ -273,6 +280,8 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    flex: none;
+    white-space: nowrap;
     transition: all 120ms;
     cursor: pointer;
   }
@@ -344,6 +353,17 @@
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
     border-radius: var(--r-sm);
+  }
+
+  /* Dashboard grid cell: full-width (or 2-up for KPIs) on phones, real /12 span
+   * from `md` up. `--col` / `--col-m` are set per-widget in dashboard-view. */
+  .dash-cell {
+    grid-column: span var(--col-m, 12);
+  }
+  @media (min-width: 768px) {
+    .dash-cell {
+      grid-column: span var(--col, 12);
+    }
   }
 
   .pulse-dot {

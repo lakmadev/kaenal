@@ -83,7 +83,7 @@ export function ScarList(): React.ReactElement {
         }
       />
 
-      <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         <Kpi label="Active SCARs" value={String(counts.active)} sub={`${counts.overdue} overdue`} color="#b45309" />
         <Kpi
           label="Chargebacks YTD"

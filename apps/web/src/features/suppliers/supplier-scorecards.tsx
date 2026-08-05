@@ -53,7 +53,7 @@ export function SupplierScorecardsView(): React.ReactElement {
   const isDefault = AXES.every((a) => pct[a.key] === DEFAULT_PCT[a.key]);
 
   return (
-    <div className="grid gap-4" style={{ gridTemplateColumns: "280px 1fr" }}>
+    <div className="grid gap-4 lg:[grid-template-columns:280px_1fr]">
       <Card className="h-fit p-4">
         <div className="mb-1 flex items-center justify-between">
           <h3 className="text-[14px] font-semibold text-text">Scoring weights</h3>
@@ -96,7 +96,7 @@ export function SupplierScorecardsView(): React.ReactElement {
         </div>
       </Card>
 
-      <Card className="overflow-hidden p-0">
+      <Card className="overflow-x-auto p-0">
         {query.isLoading ? (
           <div className="flex flex-col gap-2 p-4">
             {Array.from({ length: 8 }).map((_, i) => (

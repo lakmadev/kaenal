@@ -7,9 +7,9 @@ import { SettingsNavRail } from "@/features/settings/settings-nav-rail";
  */
 export default function SettingsLayout({ children }: { children: React.ReactNode }): React.ReactElement {
   return (
-    <div className="flex" style={{ height: "calc(100vh - 56px)" }}>
+    <div className="flex flex-col md:h-[calc(100vh-56px)] md:flex-row">
       <SettingsNavRail />
-      <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
+      <div className="min-w-0 flex-1 md:overflow-y-auto">{children}</div>
     </div>
   );
 }

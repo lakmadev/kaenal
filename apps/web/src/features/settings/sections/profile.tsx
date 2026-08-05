@@ -98,7 +98,7 @@ export function ProfileSection(): React.ReactElement {
       </SettingsCard>
 
       <SettingsCard title="AI assistant tone" desc="How the in-app AI writes messages and summaries on your behalf">
-        <div className="grid grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
           {[
             { id: "professional", label: "Professional", sample: '"Confirming the rework batch passed CMM verification at 14:22."' },
             { id: "concise", label: "Concise", sample: '"Rework batch — CMM passed @ 14:22."' },

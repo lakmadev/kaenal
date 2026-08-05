@@ -88,7 +88,7 @@ export function MembersSection(): React.ReactElement {
         />
       </div>
 
-      <div className="k-surface overflow-hidden p-0">
+      <div className="k-surface overflow-x-auto p-0">
         {isLoading ? (
           <div className="flex justify-center py-16">
             <Spinner />

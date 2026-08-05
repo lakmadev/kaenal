@@ -75,7 +75,7 @@ export function CapaCreateDialog({
             {(a) => <Input {...a} {...register("title")} placeholder="What problem is this CAPA addressing?" autoFocus />}
           </Field>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Type" error={errors.type?.message} required>
               {(a) => (
                 <select {...a} {...register("type")} className="k-input">

@@ -109,7 +109,7 @@ export function EightDList(): React.ReactElement {
           <EmptyState icon={GitBranch} title="Couldn't load 8D reports" body="Something went wrong fetching the list." action={<Button variant="primary" onClick={() => void query.refetch()}>Retry</Button>} />
         </div>
       ) : (
-        <div className="k-surface overflow-hidden p-0">
+        <div className="k-surface overflow-x-auto p-0">
           <table className="k-table">
             <thead>
               <tr>

@@ -107,7 +107,7 @@ function ScarDetailView({
       />
 
       {/* Header strip */}
-      <Card className="grid items-center gap-4 p-4" style={{ gridTemplateColumns: "1fr auto" }}>
+      <Card className="grid gap-4 p-4 sm:items-center sm:[grid-template-columns:1fr_auto]">
         <div>
           <div className="mb-3 flex flex-wrap items-center gap-2.5">
             <ScarStatusBadge status={scar.status} />
@@ -159,7 +159,7 @@ function ScarDetailView({
         )}
       </div>
 
-      <div className="grid gap-4" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
+      <div className="grid gap-4 lg:[grid-template-columns:1.4fr_1fr]">
         {/* 8D discipline tracker */}
         <Card className="p-5">
           <h3 className="text-[15px] font-semibold">8D disciplines</h3>
@@ -310,7 +310,7 @@ function DetailSkeleton(): React.ReactElement {
       <Skeleton className="h-5 w-24" />
       <Skeleton className="h-16" />
       <Skeleton className="h-14" />
-      <div className="grid gap-4" style={{ gridTemplateColumns: "1.4fr 1fr" }}>
+      <div className="grid gap-4 lg:[grid-template-columns:1.4fr_1fr]">
         <Skeleton className="h-80" />
         <Skeleton className="h-80" />
       </div>

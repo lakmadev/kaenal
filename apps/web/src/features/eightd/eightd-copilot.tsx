@@ -109,9 +109,10 @@ export function AIProvenanceStrip({ prov, reviewed, onApproveAll, onOpenNcr }: {
   const allDone = reviewed === total;
   return (
     <div
-      className="flex items-center gap-4 rounded-[var(--r-xl)] px-[18px] py-3.5"
+      className="flex flex-col gap-3 rounded-[var(--r-xl)] px-[18px] py-3.5 sm:flex-row sm:items-center sm:gap-4"
       style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.10), rgba(219,39,119,0.07))", border: "1px solid rgba(99,102,241,0.22)" }}
     >
+      <div className="flex min-w-0 flex-1 items-center gap-4">
       <div className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-[var(--r-md)] text-white" style={{ background: "linear-gradient(135deg, #6366f1, #db2777)" }}>
         <Sparkles size={18} />
       </div>
@@ -131,7 +132,8 @@ export function AIProvenanceStrip({ prov, reviewed, onApproveAll, onOpenNcr }: {
           <div className="h-full rounded-full transition-[width]" style={{ width: `${pct}%`, background: allDone ? "var(--success-500)" : "linear-gradient(90deg, #6366f1, #db2777)" }} />
         </div>
       </div>
-      <button onClick={onApproveAll} disabled={allDone} className="k-btn k-btn-ghost flex-shrink-0" style={{ opacity: allDone ? 0.5 : 1, background: "var(--surface)" }}>
+      </div>
+      <button onClick={onApproveAll} disabled={allDone} className="k-btn k-btn-ghost w-full flex-shrink-0 sm:w-auto" style={{ opacity: allDone ? 0.5 : 1, background: "var(--surface)" }}>
         <Sparkles size={14} />{allDone ? "All reviewed" : "Approve all drafts"}
       </button>
     </div>

@@ -111,7 +111,7 @@ export function ScarCreateDialog({
             {(a) => <Input {...a} {...register("title")} placeholder="e.g. Porosity on BHS-12 housings (lot WK-1814)" autoFocus />}
           </Field>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Severity" error={errors.severity?.message} required>
               {(a) => (
                 <select {...a} {...register("severity")} className="k-input">
@@ -126,7 +126,7 @@ export function ScarCreateDialog({
             </Field>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Raised" error={errors.raisedDate?.message}>
               {(a) => <Input {...a} {...register("raisedDate")} placeholder="YYYY-MM-DD" />}
             </Field>
@@ -135,7 +135,7 @@ export function ScarCreateDialog({
             </Field>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Overall due" error={errors.dueDate?.message}>
               {(a) => <Input {...a} {...register("dueDate")} placeholder="YYYY-MM-DD" />}
             </Field>

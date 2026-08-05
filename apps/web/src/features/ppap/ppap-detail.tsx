@@ -89,7 +89,7 @@ function PpapDetailView({ ppap, canManage }: { ppap: PpapSubmissionDto; canManag
       />
 
       {/* Header strip */}
-      <Card className="grid items-center gap-4 p-4" style={{ gridTemplateColumns: "1fr auto" }}>
+      <Card className="grid gap-4 p-4 sm:items-center sm:[grid-template-columns:1fr_auto]">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-2.5">
             <PpapStatusBadge status={ppap.status} />
@@ -156,7 +156,7 @@ function PpapDetailView({ ppap, canManage }: { ppap: PpapSubmissionDto; canManag
       <Card className="p-5">
         <h3 className="text-[15px] font-semibold text-text">PPAP elements</h3>
         <p className="mb-3 text-[12px] text-muted">AIAG PPAP 4th ed. — 18 elements. Element 18 is the PSW.</p>
-        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
           {ppap.elements.map((el) => (
             <ElementRow key={el.id} submissionId={ppap.id} version={ppap.lockVersion} el={el} canManage={canManage && !decided} />
           ))}

@@ -73,7 +73,7 @@ export function PpapList(): React.ReactElement {
         }
       />
 
-      <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         <Kpi label="In review / active" value={String(counts.active)} sub="pending, in review, interim" color="#b45309" />
         <Kpi label="AI-predicted delays" value={String(counts.delays)} sub="likely to miss customer date" color="#b91c1c" />
         <Kpi label="Approved" value={String(counts.approved)} sub="first-time approvals" color="#15803d" />

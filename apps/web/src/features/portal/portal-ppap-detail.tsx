@@ -117,7 +117,7 @@ function View({ ppap }: { ppap: PortalPpapDto }): React.ReactElement {
       <div className="rounded-xl border p-5" style={{ background: "#fff", borderColor: "#e2e8f0" }}>
         <h2 className="text-[14px] font-semibold">Element feedback</h2>
         <p className="mb-3 text-[12px] text-muted">AIAG PPAP — 18 elements. Element 18 is the PSW.</p>
-        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
           {ppap.elements.map((el) => (
             <div key={el.id} className="rounded-md border p-2.5" style={{ borderColor: "#e2e8f0" }}>
               <div className="flex items-center justify-between gap-2">

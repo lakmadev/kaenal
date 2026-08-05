@@ -122,7 +122,7 @@ export function DashboardView(): React.ReactElement {
   return (
     <div className="fade-in">
       {/* Page header */}
-      <div className="flex flex-wrap items-start gap-5 px-7 pt-6">
+      <div className="flex flex-col gap-4 px-4 pt-6 sm:flex-row sm:flex-wrap sm:items-start sm:gap-5 sm:px-7">
         <div className="min-w-0 flex-1">
           <h1 className="m-0 text-[24px] font-bold tracking-[-0.02em]">Dashboard</h1>
           <p className="m-0 mt-1 text-[13px] text-muted">
@@ -131,7 +131,7 @@ export function DashboardView(): React.ReactElement {
               : `${PRESETS[preset]?.label ?? "Custom"} layout · ${layout.length} widgets`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => setShowPresets(true)} className="k-btn k-btn-ghost">
             <LayoutGrid size={14} /> Presets
           </button>
@@ -155,7 +155,7 @@ export function DashboardView(): React.ReactElement {
         </div>
       </div>
 
-      <div className="flex flex-col gap-5 px-7 pb-7 pt-5">
+      <div className="flex flex-col gap-5 px-4 pb-7 pt-5 sm:px-7">
         {editing && (
           <div
             className="flex items-center gap-3 rounded-md px-4 py-3 text-[13px]"
@@ -176,12 +176,15 @@ export function DashboardView(): React.ReactElement {
             if (w === undefined) return null;
             const sz: WidgetSize = sizes[id] ?? w.defaultSize ?? w.size;
             const cols = SIZE_TO_COLS[sz];
+            // On phones a KPI tile (span 3) shows 2-up; everything wider stacks
+            // full-width. `md+` uses the real /12 span (see `.dash-cell` in globals).
+            const mobileCols = cols <= 3 ? 6 : 12;
             const isDropTarget = dragOverIdx === i && draggedIdx !== i;
             return (
               <div
                 key={id}
-                style={{ gridColumn: `span ${cols}`, position: "relative" }}
-                className={isDropTarget ? "rounded-[7px] outline-2 outline-dashed outline-[var(--accent)]" : ""}
+                style={{ ["--col" as string]: cols, ["--col-m" as string]: mobileCols, position: "relative" }}
+                className={`dash-cell ${isDropTarget ? "rounded-[7px] outline-2 outline-dashed outline-[var(--accent)]" : ""}`}
                 onDragOver={
                   editing
                     ? (e) => {
@@ -333,7 +336,7 @@ function WidgetCatalog({
             <X size={16} />
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-2.5 overflow-y-auto p-4">
+        <div className="grid grid-cols-1 gap-2.5 overflow-y-auto p-4 sm:grid-cols-2">
           {Object.entries(WIDGET_REGISTRY).map(([k, w]) => {
             const inLayout = currentLayout.includes(k);
             const WIcon = w.icon;

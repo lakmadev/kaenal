@@ -63,7 +63,7 @@ export function SupplierRiskMatrix({ suppliers }: { suppliers: SupplierDto[] }):
   }
 
   return (
-    <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 280px" }}>
+    <div className="grid gap-4 lg:[grid-template-columns:1fr_280px]">
       <Card className="p-5">
         <h3 className="text-[15px] font-semibold text-text">Risk × spend</h3>
         <p className="mb-2 text-[12px] text-muted">

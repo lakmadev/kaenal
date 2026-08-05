@@ -48,7 +48,7 @@ export function PortalOverview(): React.ReactElement {
       </div>
 
       {/* KPI grid */}
-      <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+      <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
         <Kpi label="Open corrective actions" value={String(openScars.length)} sub={`${needsAck} awaiting your acknowledgement`} color="#b45309" />
         <Kpi label="Overdue" value={String(overdue)} sub="past the response date" color="#dc2626" />
         <Kpi label="PPAP in review" value={String(ppapInReview)} sub="submissions with the customer" color={TEAL} />

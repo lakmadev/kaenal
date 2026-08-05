@@ -26,7 +26,7 @@ export function Stepper({ report, active, onSelect }: { report: EightDDto; activ
   const cur = report.currentStep;
   return (
     <div className="k-surface" style={{ padding: "24px 28px 22px" }}>
-      <div className="mb-[18px] flex items-baseline justify-between">
+      <div className="mb-[18px] flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <div className="flex items-baseline gap-2.5">
           <span className="k-overline">Workflow progress</span>
           <span className="text-[11px] text-muted">
@@ -40,7 +40,8 @@ export function Stepper({ report, active, onSelect }: { report: EightDDto; activ
         </div>
       </div>
 
-      <div className="relative px-1">
+      <div className="overflow-x-auto">
+      <div className="relative min-w-[640px] px-1">
         {/* connectors */}
         {DISCIPLINES.slice(0, -1).map((_, i) => {
           const n = i + 1;
@@ -112,6 +113,7 @@ export function Stepper({ report, active, onSelect }: { report: EightDDto; activ
           })}
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -175,7 +177,7 @@ export function D1Step({
       <StepHeader code="D1" badge={completeBadge} />
       <div className="k-surface p-5">
         <AiCardHeader label="Team & roles" fieldKey="d1" ai={ai} />
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
           <div>
             <div className="k-overline mb-2">Team Lead</div>
             {editable ? (
@@ -277,7 +279,7 @@ export function D2Step({ report, ai }: { report: EightDDto; ai: AiControls }): R
       </div>
       <div className="k-surface p-5">
         <AiCardHeader label="Impact assessment" fieldKey="d2-impact" ai={ai} />
-        <div className="grid grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div>
             <div className="k-overline">Cost impact</div>
             <div className="mono mt-1 text-[22px] font-bold" style={{ color: "var(--danger-600)" }}>${(cost / 1000).toFixed(0)}k</div>

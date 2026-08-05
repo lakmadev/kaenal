@@ -60,7 +60,8 @@ export function PhaseProgress({ phase }: { phase: CapaPhase }): React.ReactEleme
 export function PhaseTracker({ phase }: { phase: CapaPhase }): React.ReactElement {
   const idx = phaseIndex(phase);
   return (
-    <div className="flex gap-0">
+    <div className="overflow-x-auto">
+    <div className="flex min-w-[560px] gap-0">
       {CAPA_PHASES.map((p, i) => {
         const done = i < idx;
         const current = i === idx;
@@ -97,6 +98,7 @@ export function PhaseTracker({ phase }: { phase: CapaPhase }): React.ReactElemen
           </div>
         );
       })}
+    </div>
     </div>
   );
 }

@@ -252,22 +252,22 @@ export function TemplateEditor({ initial }: { initial?: Draft }): React.ReactEle
   return (
     <div className="flex h-[calc(100vh-56px)] flex-col">
       {/* Header strip */}
-      <div className="flex items-center gap-3.5 border-b border-border bg-surface px-6 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface px-4 py-3 sm:gap-3.5 sm:px-6">
         <button
           onClick={() => router.push("/inspections/templates")}
           className="inline-flex items-center gap-1.5 text-[12px] text-muted hover:text-text"
         >
           <ArrowLeft size={14} /> Templates
         </button>
-        <div className="h-5 w-px bg-border" />
+        <div className="h-5 w-px bg-border max-sm:hidden" />
         <input
           value={draft.name}
           onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-          className="min-w-0 flex-1 border-none bg-transparent text-[16px] font-bold text-text outline-none"
+          className="min-w-[140px] flex-1 border-none bg-transparent text-[16px] font-bold text-text outline-none"
           placeholder="Template name"
           aria-label="Template name"
         />
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[11.5px] text-muted">
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[11.5px] text-muted max-sm:hidden">
           <ClipboardCheck size={12} /> {draft.sections.length} sections · {totalItems} items
         </span>
         <Segmented

@@ -162,15 +162,15 @@ function MonthGrid({
   const todayKey = localKey(new Date());
 
   return (
-    <div className="k-surface overflow-hidden p-0">
-      <div className="grid grid-cols-7 border-b border-border bg-bg-subtle">
+    <div className="k-surface overflow-x-auto p-0">
+      <div className="grid min-w-[700px] grid-cols-7 border-b border-border bg-bg-subtle">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
           <div key={d} className="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wide text-muted">
             {d}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7">
+      <div className="grid min-w-[700px] grid-cols-7">
         {cells.map((date, i) => {
           const key = localKey(date);
           const dayEvents = byDay.get(key) ?? [];
@@ -238,8 +238,8 @@ function WeekGrid({
   const todayKey = localKey(new Date());
 
   return (
-    <div className="k-surface overflow-hidden p-0">
-      <div className="grid grid-cols-7">
+    <div className="k-surface overflow-x-auto p-0">
+      <div className="grid min-w-[700px] grid-cols-7">
         {days.map((date, i) => {
           const key = localKey(date);
           const dayEvents = byDay.get(key) ?? [];

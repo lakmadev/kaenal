@@ -101,7 +101,7 @@ export function PpapCreateDialog({
             )}
           </Field>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Part number" error={errors.partNumber?.message} required>
               {(a) => <Input {...a} {...register("partNumber")} placeholder="e.g. R-44 ring" autoFocus />}
             </Field>
@@ -118,7 +118,7 @@ export function PpapCreateDialog({
             </Field>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Program" error={errors.programName?.message}>
               {(a) => <Input {...a} {...register("programName")} placeholder="e.g. BMW B58 refresh" />}
             </Field>
@@ -127,7 +127,7 @@ export function PpapCreateDialog({
             </Field>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Submitted" error={errors.submittedDate?.message}>
               {(a) => <Input {...a} {...register("submittedDate")} placeholder="YYYY-MM-DD" />}
             </Field>

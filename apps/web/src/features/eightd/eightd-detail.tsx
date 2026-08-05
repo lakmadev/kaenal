@@ -162,7 +162,7 @@ function DetailView({
               {report.targetAt && <span className="inline-flex items-center gap-1.5"><Target size={13} />Target {longDate(report.targetAt)}</span>}
             </div>
           </div>
-          <div className="flex flex-shrink-0 gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={() => setGenModal("audit")} className="k-btn k-btn-ghost"><FileText size={14} />Audit-ready report</button>
             <button onClick={() => setGenModal("capa")} className="k-btn k-btn-primary" style={{ background: "linear-gradient(135deg, #6366f1, #db2777)", border: "none" }}>
               <Sparkles size={14} />Generate CAPA pack
@@ -205,7 +205,7 @@ function DetailView({
       />
 
       {/* Two-column workspace */}
-      <div className="grid items-start gap-4" style={{ gridTemplateColumns: "minmax(0, 1fr) 322px" }}>
+      <div className="grid items-start gap-4 lg:[grid-template-columns:minmax(0,1fr)_322px]">
         <div className="flex min-w-0 flex-col gap-4">
           <Stepper report={report} active={active} onSelect={setActive} />
           {active === 1 && (
@@ -471,7 +471,7 @@ function DetailSkeleton(): React.ReactElement {
       <Skeleton className="h-5 w-40" />
       <Skeleton className="h-28" />
       <Skeleton className="h-16" />
-      <div className="grid gap-4" style={{ gridTemplateColumns: "minmax(0,1fr) 322px" }}>
+      <div className="grid gap-4 lg:[grid-template-columns:minmax(0,1fr)_322px]">
         <Skeleton className="h-96" />
         <Skeleton className="h-96" />
       </div>

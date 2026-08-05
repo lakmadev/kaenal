@@ -73,8 +73,8 @@ export function SettingsRow({
 }): React.ReactElement {
   return (
     <div
-      className="grid gap-6 border-b border-border py-3.5 last:border-b-0"
-      style={{ gridTemplateColumns: "200px 1fr", alignItems: align === "start" ? "flex-start" : "center" }}
+      className="grid gap-2 border-b border-border py-3.5 last:border-b-0 sm:gap-6 sm:[grid-template-columns:200px_1fr]"
+      style={{ alignItems: align === "start" ? "flex-start" : "center" }}
     >
       <div>
         <div className="text-[13px] font-medium">{label}</div>
