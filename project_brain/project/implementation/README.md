@@ -8,9 +8,12 @@ A B2B SaaS where manufacturers (tenants like "Precision Auto", "Bosch") run thei
 ## About the design reference
 `../Kaenal.html` (+ `../src/*.jsx`, `../styles/tokens.css`) is a **high-fidelity HTML/React prototype** — a design reference, NOT production code. Do not copy it into the codebase. Recreate its screens in the real Next.js app using the patterns defined in these files. It runs in a browser and shows exact layouts, copy, colors, spacing, and interactions for every module. When a spec here and the prototype disagree on visuals, the prototype wins; on data/security/architecture, these files win.
 
+> **Before any frontend work, read `00-FRONTEND-FIDELITY.md`.** It is the anti-hallucination contract for the UI: reproduce the prototype exactly, do not design your own. The system is monochrome **ink + Archivo** — there is no blue brand color and the font is not Inter.
+
 ## Files in this package — read in this order
 | File | Contents |
 |---|---|
+| `00-FRONTEND-FIDELITY.md` | **Mandatory before any UI work.** How to reproduce the prototype exactly instead of inventing a design; token/type/class rules; screen→source map; remediation of already-built screens. |
 | `01-ARCHITECTURE.md` | Monorepo layout, environments, tenancy models, request lifecycle, conventions |
 | `02-DATABASE.md` | Full schema conventions, core tables, RLS policies (exact SQL), audit trail, migrations |
 | `03-API.md` | Contract-first API, auth, RBAC matrix, error format, pagination, webhooks, idempotency |

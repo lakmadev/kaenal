@@ -14,6 +14,9 @@ You are implementing **Kaenal**, a multi-tenant Quality & Safety Management SaaS
 
 The HTML prototype (`Kaenal.html`, `src/*.jsx`, `styles/tokens.css`) is the **visual spec only** — never copy it into the codebase; recreate screens per `04-WEB-APP.md`.
 
+## ⚠️ Frontend fidelity — do NOT design your own UI
+Before writing ANY frontend code, read **`implementation/00-FRONTEND-FIDELITY.md`** and follow it exactly. The design is already fully specified in `styles/tokens.css` + `src/*.jsx`; reproduce it, do not invent one. It is a **monochrome INK design on the Archivo typeface — there is no blue brand color and the font is not Inter.** Any screen you build must start by reading the matching `src/*.jsx`. Screens already built with a different design (Auth, Sidebar, Inspections) must be re-skinned per §7 of that doc before new work continues.
+
 ## Order of work
 **Backend first, frontend second.** Follow the phases in `implementation/README.md`, but sequence within each phase as: database → API → (later) web UI.
 
