@@ -8,6 +8,10 @@ import {
   AiDraftRequest,
   AiSummaryDto,
   AssignCapaBody,
+  AssignEightDBody,
+  AssignInspectionBody,
+  AssignNcrBody,
+  AssignScarBody,
   AuditDto,
   AuditFindingDto,
   CapaActionDto,
@@ -239,6 +243,14 @@ export const contract = c.router(
       responses: { 200: InspectionDto, ...commonErrors },
       summary: "Set, change, or clear a series head's recurrence (06 materialises occurrences)",
     },
+    assignInspection: {
+      method: "POST",
+      path: "/v1/inspections/:id/assign",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: AssignInspectionBody,
+      responses: { 200: InspectionDto, ...commonErrors },
+      summary: "Assign, reassign, or clear an inspection's inspector (audited)",
+    },
     listInspectionOccurrences: {
       method: "GET",
       path: "/v1/inspections/:id/occurrences",
@@ -308,6 +320,14 @@ export const contract = c.router(
       responses: { 200: NcrDto, ...commonErrors },
       summary: "Verify a resolved NCR (four-eyes: not the resolver)",
     },
+    assignNcr: {
+      method: "POST",
+      path: "/v1/ncrs/:id/assign",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: AssignNcrBody,
+      responses: { 200: NcrDto, ...commonErrors },
+      summary: "Assign, reassign, or clear an NCR's owner (audited)",
+    },
 
     // --- NCR corrective actions -------------------------------------------
     listNcrActions: {
@@ -375,6 +395,14 @@ export const contract = c.router(
       body: TransitionEightDBody,
       responses: { 200: EightDDto, ...commonErrors },
       summary: "Complete (all disciplines done) or cancel an 8D",
+    },
+    assignEightD: {
+      method: "POST",
+      path: "/v1/eight-ds/:id/assign",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: AssignEightDBody,
+      responses: { 200: EightDDto, ...commonErrors },
+      summary: "Assign, reassign, or clear an 8D's team lead and/or champion (audited)",
     },
 
     // --- Audits ------------------------------------------------------------
@@ -834,6 +862,14 @@ export const contract = c.router(
       body: ScarChargebackBody,
       responses: { 200: ScarDto, ...commonErrors },
       summary: "Set / transition the chargeback (one-way: none→pending→debit_issued→closed)",
+    },
+    assignScar: {
+      method: "POST",
+      path: "/v1/scars/:id/assign",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: AssignScarBody,
+      responses: { 200: ScarDto, ...commonErrors },
+      summary: "Assign, reassign, or clear a SCAR's owner (audited)",
     },
 
     // --- Supplier portal (external, read-only; FEATURES §17) ---------------

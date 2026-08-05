@@ -296,9 +296,32 @@ non-member 422; empty-body 422; stale 409 + viewer 403) — **13/13 green**. FE:
 the returned row so a rapid second reassign uses the fresh `lockVersion` instead of racing the refetch.
 **Verified in-browser** (demo admin): assigned Sarah Chen (owner cell + toast + `assigned` audit event in
 the Activity feed), unassigned (API `ownerId:null`), and a rapid Sarah→Priya double-reassign lands on
-Priya with no STALE_WRITE; `window.__live` clean; all typechecks (6/6) + web lint green. **Next slices
-(planned, not built):** NCR (free reassign complementing the transition), Inspection, 8D, SCAR — each
-mirrors this pattern.
+Priya with no STALE_WRITE; `window.__live` clean; all typechecks (6/6) + web lint green.
+
+**User assignment — P25, remaining rollout NCR/Inspection/8D/SCAR (2026-08-05):** rolled the CAPA
+pattern out to the four other assignee-bearing entities — P25 is now **complete** (all 5 done). Each got
+a dedicated audited `assign` endpoint (orthogonal to its lifecycle machine — never moves `status`):
+`AssignNcrBody` (`owner_id`), `AssignInspectionBody` (`inspector_id`), `AssignEightDBody` (`team_lead_id`
++ `champion_id`, tri-state `.refine` like CAPA), `AssignScarBody` (`owner`) in `packages/types` + the
+five contract routes. Services: `NcrService.assign` / `InspectionsService.assign` (both enforce plant
+scope → 404 before assigning; Inspection gained an `assertMember` it lacked), `EightDService.assign`
+(dynamic SET; **refuses** to re-form a completed/cancelled team → `INVALID_TRANSITION`), `ScarService.assign`
+(new — distinct from `update`, which audits `updated` and skips membership). Capabilities from the real
+RBAC catalogue: `ncr:manage`, `inspection:perform`, `ncr:manage`, `scar:manage` (the plan's
+`inspection:manage`/`supplier:manage` don't exist; corrected in the P25 doc). All `withAudit('assigned',
+before/after)`, optimistic-concurrency guarded, `assertMember` on non-null ids (no existence leak).
+Tests: `ncr.test.ts` +3, `inspections.test.ts` +2, `eight-d.test.ts` +3, `scar.test.ts` +2 — **44/44
+across the four suites**. FE: hooks `useAssignNcr`/`useAssignInspection`/`useAssignEightD`/`useAssignScar`
+(all `setQueryData` the fresh row); shared `AssigneePicker` wired into the NCR Owner row, the 8D D1
+"Team & roles" lead + champion (managers only, `!decided`; viewers keep the 36px read block), the SCAR
+detail Owner panel, and — restoring a designed-but-omitted element — an **Inspection overview metadata
+panel** (`inspections.jsx` §Metadata: Status / Inspector-picker / Template / Scheduled / Started /
+Completed; only honest fields, no fabricated tags/location). **Verified in-browser** (demo admin) for all
+four: NCR owner→Sarah Chen (status stayed `in_progress`, lockVersion 3→4), 8D team-lead→Priya Nair
+(partial update, status `active`/step 1 untouched), SCAR owner→Marco Reyes (status/currentD untouched),
+new inspection inspector→Tom Fischer (status `scheduled` untouched); every `window.__live` clean.
+Typechecks types/core/api-client/api/web + web lint + types tests (25) all green; throwaway demo
+inspection/template cleaned up.
 
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the

@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiQueries, queryKeys, unwrap } from "@kaenal/api-client";
 import type {
+  AssignInspectionBody,
   CompleteInspectionBody,
   CreateFindingBody,
   CreateInspectionBody,
@@ -114,6 +115,21 @@ export function useCompleteInspection() {
     onSuccess: (i) => {
       void qc.invalidateQueries({ queryKey: queryKeys.inspections.list() });
       void qc.invalidateQueries({ queryKey: queryKeys.inspections.detail(i.id) });
+    },
+  });
+}
+
+/** Assign / reassign / clear an inspection's inspector (P25). Orthogonal to the
+ *  scheduled → in_progress → completed machine — it never moves status. */
+export function useAssignInspection() {
+  const client = getApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: AssignInspectionBody }) =>
+      client.assignInspection({ params: { id }, body }).then((r) => unwrap<InspectionDto>(r)),
+    onSuccess: (i) => {
+      qc.setQueryData(queryKeys.inspections.detail(i.id), i);
+      void qc.invalidateQueries({ queryKey: queryKeys.inspections.list() });
     },
   });
 }

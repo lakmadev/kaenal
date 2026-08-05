@@ -14,6 +14,7 @@ import {
   type RecurrenceRule as CoreRecurrenceRule,
 } from "@kaenal/core";
 import {
+  type AssignInspectionBody,
   type CreateInspectionBody,
   type FormResponses,
   type FormSchema,
@@ -390,6 +391,49 @@ export class InspectionsService {
     );
   }
 
+  /**
+   * Assign, reassign, or clear the inspector (P25). Orthogonal to the
+   * scheduled → in_progress → completed machine — it never touches `status`.
+   * `inspectorId` is a uuid to assign or `null` to unassign; a non-null id must
+   * be an active member. Optimistic-concurrency guarded and audited (`assigned`,
+   * before/after) in one transaction. Plant scope is enforced first (out-of-scope
+   * → 404, rule 8).
+   */
+  async assign(
+    tx: Tx,
+    tenantId: string,
+    membership: Membership,
+    actorId: string,
+    id: string,
+    body: AssignInspectionBody,
+    context: AuditContext,
+  ): Promise<InspectionDto> {
+    const row = await this.fetch(tx, id);
+    if (row === null) throw notFound();
+    this.assertInScope(membership, row.plant_id);
+    this.assertVersion(row, body.version);
+
+    if (body.inspectorId !== null) await this.assertMember(tx, body.inspectorId);
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "inspection",
+        entityId: id,
+        action: "assigned",
+        before: { inspectorId: row.inspector_id },
+        after: { inspectorId: body.inspectorId },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      (t) => this.applyUpdate(t, id, body.version, "inspector_id = $3, updated_by = $4", [body.inspectorId, actorId]),
+    );
+  }
+
   /** List a series head's materialised occurrences (newest first). */
   async listOccurrences(
     tx: Tx,
@@ -552,6 +596,14 @@ export class InspectionsService {
     if (plantId !== null && membership.plantIds.includes(plantId)) return;
     // A record outside the caller's plant scope is invisible, not forbidden.
     throw notFound();
+  }
+
+  private async assertMember(tx: Tx, userId: string): Promise<void> {
+    const { rows } = await tx.query(
+      "SELECT 1 FROM memberships WHERE user_id = $1 AND status = 'active' AND deleted_at IS NULL",
+      [userId],
+    );
+    if (rows.length === 0) throw new ApiError("VALIDATION_FAILED", "That user is not an active member");
   }
 
   private assertVersion(row: InspectionRow, expected: number): void {

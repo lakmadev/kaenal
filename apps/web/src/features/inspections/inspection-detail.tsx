@@ -15,10 +15,12 @@ import {
   useCompleteInspection,
   useInspectionFindings,
   useCreateFinding,
+  useAssignInspection,
 } from "@/hooks/use-inspections";
 import { useCreateNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, RiskBadge, Skeleton, EmptyState, Input, useToast } from "@/components/ui";
-import { useMe } from "@/hooks/use-me";
+import { useMe, hasCapability } from "@/hooks/use-me";
+import { AssigneePicker } from "@/components/assignee-picker";
 import { ActivityFeed } from "@/components/activity-feed";
 import { InspectionForm } from "./form-renderer";
 
@@ -50,7 +52,18 @@ function View({ inspection, template }: { inspection: InspectionDto; template: T
   const { data: me } = useMe();
   const start = useStartInspection();
   const complete = useCompleteInspection();
+  const assign = useAssignInspection();
+  const canManage = hasCapability(me, "inspection:perform");
   const [tab, setTab] = useState<Tab>("overview");
+
+  const runAssign = (inspectorId: string | null): void =>
+    assign.mutate(
+      { id: inspection.id, body: { version: inspection.lockVersion, inspectorId } },
+      {
+        onSuccess: () => toast.success(inspectorId === null ? "Unassigned" : "Inspector updated"),
+        onError: (e) => toast.error(errorMessage(e)),
+      },
+    );
 
   const editable = inspection.status === "in_progress";
   const [responses, setResponses] = useState<FormResponses>(inspection.responses);
@@ -144,28 +157,62 @@ function View({ inspection, template }: { inspection: InspectionDto; template: T
         ))}
       </div>
 
-      {tab === "overview" &&
-        (template === undefined ? (
-          <div className="k-surface">
-            <EmptyState icon={TriangleAlert} title="Template unavailable" body="The inspection's template couldn't be loaded." />
+      {tab === "overview" && (
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1">
+            {template === undefined ? (
+              <div className="k-surface">
+                <EmptyState icon={TriangleAlert} title="Template unavailable" body="The inspection's template couldn't be loaded." />
+              </div>
+            ) : inspection.status === "scheduled" ? (
+              <div className="k-surface">
+                <EmptyState
+                  icon={Play}
+                  title="Not started yet"
+                  body="Start the inspection to begin filling in the checklist."
+                  action={<Button variant="primary" loading={start.isPending} onClick={onStart}><Play size={14} /> Start inspection</Button>}
+                />
+              </div>
+            ) : (
+              <InspectionForm
+                schema={template.schema}
+                responses={responses}
+                readOnly={!editable}
+                onChange={(itemId, value) => setResponses((r) => ({ ...r, [itemId]: value }))}
+              />
+            )}
           </div>
-        ) : inspection.status === "scheduled" ? (
-          <div className="k-surface">
-            <EmptyState
-              icon={Play}
-              title="Not started yet"
-              body="Start the inspection to begin filling in the checklist."
-              action={<Button variant="primary" loading={start.isPending} onClick={onStart}><Play size={14} /> Start inspection</Button>}
-            />
-          </div>
-        ) : (
-          <InspectionForm
-            schema={template.schema}
-            responses={responses}
-            readOnly={!editable}
-            onChange={(itemId, value) => setResponses((r) => ({ ...r, [itemId]: value }))}
-          />
-        ))}
+
+          <aside className="k-surface flex shrink-0 flex-col gap-3.5 p-4 lg:w-64">
+            <MetaRow label="Status">
+              <StatusBadge status={inspection.status} />
+            </MetaRow>
+            <MetaRow label="Inspector">
+              <AssigneePicker
+                userId={inspection.inspectorId}
+                meId={me?.userId}
+                canManage={canManage}
+                busy={assign.isPending}
+                onAssign={runAssign}
+              />
+            </MetaRow>
+            <MetaRow label="Template">
+              <span className="text-[12.5px]">
+                {template !== undefined ? `${template.name} v${inspection.templateVersion}` : "—"}
+              </span>
+            </MetaRow>
+            <MetaRow label="Scheduled">
+              <span className="mono text-[12px]">{longDate(inspection.scheduledAt)}</span>
+            </MetaRow>
+            <MetaRow label="Started">
+              <span className="mono text-[12px]">{longDate(inspection.startedAt)}</span>
+            </MetaRow>
+            <MetaRow label="Completed">
+              <span className="mono text-[12px]">{longDate(inspection.completedAt)}</span>
+            </MetaRow>
+          </aside>
+        </div>
+      )}
 
       {tab === "findings" && <FindingsTab inspection={inspection} />}
 
@@ -319,6 +366,15 @@ function Block({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <div className="k-overline mb-1.5">{label}</div>
       {children}
+    </div>
+  );
+}
+
+function MetaRow({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="k-overline">{label}</span>
+      <div className="text-right">{children}</div>
     </div>
   );
 }

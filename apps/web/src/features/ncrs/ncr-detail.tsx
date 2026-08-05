@@ -7,10 +7,10 @@ import type { NcrDto, NcrStatus, NcrTransition } from "@kaenal/types";
 import { cn } from "@/lib/cn";
 import { longDate, titleCase } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
-import { useMe } from "@/hooks/use-me";
-import { useNcr, useTransitionNcr, useVerifyNcr } from "@/hooks/use-ncrs";
+import { useMe, hasCapability } from "@/hooks/use-me";
+import { useNcr, useTransitionNcr, useVerifyNcr, useAssignNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, PriorityBadge, Skeleton, EmptyState, useToast } from "@/components/ui";
-import { MemberCell } from "@/components/member-cell";
+import { AssigneePicker } from "@/components/assignee-picker";
 import { ActivityFeed } from "@/components/activity-feed";
 import { SlaIndicator } from "./ncr-bits";
 import { NcrActionsTab } from "./ncr-actions";
@@ -66,17 +66,35 @@ export function NcrDetail({ id }: { id: string }): React.ReactElement {
     );
   }
 
-  return <NcrDetailView ncr={ncr} meId={me?.userId} />;
+  return <NcrDetailView ncr={ncr} meId={me?.userId} canManage={hasCapability(me, "ncr:manage")} />;
 }
 
-function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined }): React.ReactElement {
+function NcrDetailView({
+  ncr,
+  meId,
+  canManage,
+}: {
+  ncr: NcrDto;
+  meId: string | undefined;
+  canManage: boolean;
+}): React.ReactElement {
   const router = useRouter();
   const toast = useToast();
   const transition = useTransitionNcr();
   const verify = useVerifyNcr();
+  const assign = useAssignNcr();
   const [tab, setTab] = useState<Tab>("details");
 
   const busy = transition.isPending || verify.isPending;
+
+  const runAssign = (ownerId: string | null): void =>
+    assign.mutate(
+      { id: ncr.id, body: { version: ncr.lockVersion, ownerId } },
+      {
+        onSuccess: () => toast.success(ownerId === null ? "Unassigned" : "Owner updated"),
+        onError: (e) => toast.error(errorMessage(e)),
+      },
+    );
 
   const runTransition = (to: NcrTransition, needsOwner?: boolean): void => {
     const body =
@@ -165,7 +183,13 @@ function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined })
             <StatusBadge status={ncr.status} />
           </Meta>
           <Meta label="Owner">
-            <MemberCell userId={ncr.ownerId} meId={meId} />
+            <AssigneePicker
+              userId={ncr.ownerId}
+              meId={meId}
+              canManage={canManage}
+              busy={assign.isPending}
+              onAssign={runAssign}
+            />
           </Meta>
           <Meta label="Priority">
             <PriorityBadge priority={ncr.priority} />

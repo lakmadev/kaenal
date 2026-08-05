@@ -16,6 +16,7 @@ import {
 import type {
   AcknowledgeScarBody,
   AdvanceScarBody,
+  AssignScarBody,
   CreateScarBody,
   Page,
   ScarChargebackBody,
@@ -473,6 +474,57 @@ export class ScarService {
       },
       async (t) => this.writeAndReturn(t, sets, params),
     );
+  }
+
+  /**
+   * Assign, reassign, or clear the owner (P25). A dedicated, audited endpoint
+   * parallel to CAPA/NCR — distinct from the general `update` (which audits
+   * `updated` and skips member validation). `owner` is a uuid to assign or
+   * `null` to unassign; a non-null id must be an active member. Optimistic-
+   * concurrency guarded and audited (`assigned`, before/after) in one transaction.
+   */
+  async assign(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    id: string,
+    body: AssignScarBody,
+    context: AuditContext,
+  ): Promise<ScarDto> {
+    const row = await this.fetch(tx, id);
+    if (row === null) throw notFound();
+    this.assertVersion(row, body.version);
+
+    if (body.owner !== null) await this.assertMember(tx, body.owner);
+
+    const sets = ["owner = $3", "updated_by = $4"];
+    const params: unknown[] = [id, body.version, body.owner, actorId];
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "scar",
+        entityId: id,
+        action: "assigned",
+        before: { owner: row.owner },
+        after: { owner: body.owner },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => this.writeAndReturn(t, sets, params),
+    );
+  }
+
+  private async assertMember(tx: Tx, userId: string): Promise<void> {
+    const { rows } = await tx.query(
+      "SELECT 1 FROM memberships WHERE user_id = $1 AND status = 'active' AND deleted_at IS NULL",
+      [userId],
+    );
+    if (rows.length === 0) throw new ApiError("VALIDATION_FAILED", "That user is not an active member");
   }
 
   private assertVersion(row: ScarRow, version: number): void {

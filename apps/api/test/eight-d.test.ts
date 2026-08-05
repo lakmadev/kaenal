@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { Test } from "@nestjs/testing";
@@ -26,6 +27,7 @@ let mgrTok = "";
 let auditorTok = "";
 let viewerTok = "";
 let mgrUserId = "";
+let adminUserId = "";
 
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
@@ -116,7 +118,7 @@ async function ncrToVerified(): Promise<{ id: string; lockVersion: number }> {
 beforeAll(async () => {
   control = new pg.Pool({ connectionString: process.env["DATABASE_URL"] });
   acmeId = await tid(ACME);
-  await seedMember("8d-admin@acme.test", "admin");
+  adminUserId = await seedMember("8d-admin@acme.test", "admin");
   mgrUserId = await seedMember("8d-mgr@acme.test", "manager");
   await seedMember("8d-auditor@acme.test", "auditor");
   await seedMember("8d-viewer@acme.test", "viewer");
@@ -237,5 +239,104 @@ describe("RBAC + concurrency", () => {
     const res = await authed("post", `/v1/eight-ds/${ed.id}/steps/1`, mgrTok).send({ status: "complete", version: ed.lockVersion + 5 });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("STALE_WRITE");
+  });
+});
+
+interface Team {
+  teamLeadId: string | null;
+  championId: string | null;
+  status: string;
+  currentStep: number;
+  lockVersion: number;
+}
+
+describe("8D assignment (P25)", () => {
+  it("assigns lead + champion, then reassigns one and unassigns — each audited", async () => {
+    const ed = await createEightD();
+
+    // Assign both. Assignment is orthogonal to the step machine — currentStep
+    // and status stay put.
+    const assigned = await authed("post", `/v1/eight-ds/${ed.id}/assign`, mgrTok).send({
+      version: ed.lockVersion,
+      teamLeadId: mgrUserId,
+      championId: adminUserId,
+    });
+    expect(assigned.status).toBe(200);
+    const a = assigned.body as Team;
+    expect(a.teamLeadId).toBe(mgrUserId);
+    expect(a.championId).toBe(adminUserId);
+    expect(a.status).toBe("active");
+    expect(a.currentStep).toBe(ed.currentStep);
+
+    const { rows } = await control.query<{ before: unknown; after: unknown }>(
+      `SELECT before, after FROM audit_events
+        WHERE entity_kind = 'eight_d' AND entity_id = $1 AND action = 'assigned'
+        ORDER BY created_at DESC LIMIT 1`,
+      [ed.id],
+    );
+    expect(rows[0]?.before).toEqual({ teamLeadId: null, championId: null });
+    expect(rows[0]?.after).toEqual({ teamLeadId: mgrUserId, championId: adminUserId });
+
+    // Reassign only the champion (team lead untouched by omitting the key).
+    const reassigned = await authed("post", `/v1/eight-ds/${ed.id}/assign`, mgrTok).send({
+      version: a.lockVersion,
+      championId: mgrUserId,
+    });
+    expect(reassigned.status).toBe(200);
+    const r = reassigned.body as Team;
+    expect(r.championId).toBe(mgrUserId);
+    expect(r.teamLeadId).toBe(mgrUserId); // unchanged
+
+    // Unassign the team lead with an explicit null.
+    const cleared = await authed("post", `/v1/eight-ds/${ed.id}/assign`, mgrTok).send({
+      version: r.lockVersion,
+      teamLeadId: null,
+    });
+    expect(cleared.status).toBe(200);
+    expect((cleared.body as Team).teamLeadId).toBeNull();
+  });
+
+  it("rejects a non-member, an empty body, a stale version, and a viewer", async () => {
+    const ed = await createEightD();
+
+    const nonMember = await authed("post", `/v1/eight-ds/${ed.id}/assign`, mgrTok).send({
+      version: ed.lockVersion,
+      teamLeadId: randomUUID(),
+    });
+    expect(nonMember.status).toBe(422);
+    expect(nonMember.body.error.code).toBe("VALIDATION_FAILED");
+
+    const empty = await authed("post", `/v1/eight-ds/${ed.id}/assign`, mgrTok).send({ version: ed.lockVersion });
+    expect(empty.status).toBe(422);
+    expect(empty.body.error.code).toBe("VALIDATION_FAILED");
+
+    const stale = await authed("post", `/v1/eight-ds/${ed.id}/assign`, mgrTok).send({
+      version: ed.lockVersion + 5,
+      teamLeadId: mgrUserId,
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe("STALE_WRITE");
+
+    const viewer = await authed("post", `/v1/eight-ds/${ed.id}/assign`, viewerTok).send({
+      version: ed.lockVersion,
+      teamLeadId: mgrUserId,
+    });
+    expect(viewer.status).toBe(403);
+  });
+
+  it("refuses to re-form the team of a cancelled 8D", async () => {
+    const ed = await createEightD();
+    const cancelled = await authed("post", `/v1/eight-ds/${ed.id}/transition`, mgrTok).send({
+      to: "cancelled",
+      version: ed.lockVersion,
+    });
+    expect(cancelled.status).toBe(200);
+
+    const res = await authed("post", `/v1/eight-ds/${ed.id}/assign`, mgrTok).send({
+      version: cancelled.body.lockVersion,
+      teamLeadId: mgrUserId,
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("INVALID_TRANSITION");
   });
 });

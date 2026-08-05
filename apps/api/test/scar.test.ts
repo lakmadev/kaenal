@@ -30,6 +30,8 @@ let globexId = "";
 let managerTok = "";
 let viewerTok = "";
 let supplierId = "";
+let mgrUserId = "";
+let viewerUserId = "";
 
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
@@ -41,7 +43,7 @@ async function tid(slug: string): Promise<string> {
   return id;
 }
 
-async function seedMember(tenantId: string, email: string, role: string): Promise<void> {
+async function seedMember(tenantId: string, email: string, role: string): Promise<string> {
   const hash = await hashPassword(PASSWORD);
   const { rows } = await control.query<{ id: string }>(
     `INSERT INTO control.users (email, name, password_hash) VALUES ($1, $2, $3)
@@ -57,6 +59,7 @@ async function seedMember(tenantId: string, email: string, role: string): Promis
       [tenantId, userId, role],
     );
   });
+  return userId;
 }
 
 async function token(slug: string, email: string): Promise<string> {
@@ -93,8 +96,8 @@ beforeAll(async () => {
   acmeId = await tid(ACME);
   globexId = await tid(GLOBEX);
 
-  await seedMember(acmeId, "scar-mgr@acme.test", "manager");
-  await seedMember(acmeId, "scar-view@acme.test", "viewer");
+  mgrUserId = await seedMember(acmeId, "scar-mgr@acme.test", "manager");
+  viewerUserId = await seedMember(acmeId, "scar-view@acme.test", "viewer");
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication();
@@ -279,5 +282,53 @@ describe("SCAR & chargebacks", () => {
     const actions = rows.map((r) => r.action);
     expect(actions).toContain("created");
     expect(actions).toContain("status_changed");
+  });
+});
+
+describe("SCAR assignment (P25)", () => {
+  it("assigns, reassigns, and clears the owner — each an `assigned` audit event", async () => {
+    const created = await createScar({ title: "FIXT-assign" });
+    const id = created.body["id"] as string;
+    expect(created.body["owner"]).toBeNull();
+
+    const assigned = await authed("post", `/v1/scars/${id}/assign`, managerTok).send({ version: 0, owner: mgrUserId });
+    expect(assigned.status).toBe(200);
+    expect(assigned.body.owner).toBe(mgrUserId);
+
+    const { rows } = await control.query<{ before: { owner?: string | null }; after: { owner?: string | null } }>(
+      `SELECT before, after FROM audit_events
+        WHERE entity_kind = 'scar' AND entity_id = $1 AND action = 'assigned'
+        ORDER BY created_at DESC LIMIT 1`,
+      [id],
+    );
+    expect(rows[0]?.before).toEqual({ owner: null });
+    expect(rows[0]?.after).toEqual({ owner: mgrUserId });
+
+    // Reassign to another active member, then unassign with an explicit null.
+    const reassigned = await authed("post", `/v1/scars/${id}/assign`, managerTok)
+      .send({ version: assigned.body.lockVersion, owner: viewerUserId });
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.owner).toBe(viewerUserId);
+
+    const cleared = await authed("post", `/v1/scars/${id}/assign`, managerTok)
+      .send({ version: reassigned.body.lockVersion, owner: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.owner).toBeNull();
+  });
+
+  it("rejects a non-member, a stale version, and a viewer", async () => {
+    const created = await createScar({ title: "FIXT-assign-guard" });
+    const id = created.body["id"] as string;
+
+    const nonMember = await authed("post", `/v1/scars/${id}/assign`, managerTok).send({ version: 0, owner: randomUUID() });
+    expect(nonMember.status).toBe(422);
+    expect(nonMember.body.error.code).toBe("VALIDATION_FAILED");
+
+    const stale = await authed("post", `/v1/scars/${id}/assign`, managerTok).send({ version: 9, owner: mgrUserId });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe("STALE_WRITE");
+
+    const viewer = await authed("post", `/v1/scars/${id}/assign`, viewerTok).send({ version: 0, owner: mgrUserId });
+    expect(viewer.status).toBe(403);
   });
 });

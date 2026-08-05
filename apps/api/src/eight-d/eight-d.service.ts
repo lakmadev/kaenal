@@ -11,6 +11,7 @@ import {
   type StepStatuses,
 } from "@kaenal/core";
 import type {
+  AssignEightDBody,
   CreateEightDBody,
   EightDDto,
   EightDStatus,
@@ -332,6 +333,81 @@ export class EightDService {
           `UPDATE eight_ds SET status = $3, updated_by = $4 WHERE id = $1 AND lock_version = $2
             RETURNING ${EIGHT_D_COLUMNS}`,
           [id, body.version, body.to, actorId],
+        );
+        const updated = rows[0];
+        if (updated === undefined) throw new ApiError("STALE_WRITE", "The 8D changed since you loaded it");
+        return toDto(updated);
+      },
+    );
+  }
+
+  /**
+   * Assign, reassign, or clear the team lead and/or champion (P25). Orthogonal
+   * to the step machine — it never touches `status` or `current_step`, so an
+   * 8D's team can be re-formed at any point (a cancelled/completed 8D is frozen,
+   * so it is rejected). Each field is tri-state: a uuid assigns, `null`
+   * unassigns, an absent key leaves the column. Every non-null id must be an
+   * active member; optimistic-concurrency guarded and audited (`assigned`,
+   * before/after) in one transaction.
+   */
+  async assign(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    id: string,
+    body: AssignEightDBody,
+    context: AuditContext,
+  ): Promise<EightDDto> {
+    const row = await this.fetch(tx, id);
+    if (row === null) throw notFound();
+    if (row.status !== "active") {
+      throw new ApiError("INVALID_TRANSITION", `An 8D that is '${row.status}' cannot change its team`);
+    }
+    this.assertVersion(row.lock_version, body.version);
+
+    if (body.teamLeadId != null) await this.assertMember(tx, body.teamLeadId);
+    if (body.championId != null) await this.assertMember(tx, body.championId);
+
+    const sets: string[] = [];
+    const params: unknown[] = [id, body.version];
+    const before: Record<string, string | null> = {};
+    const after: Record<string, string | null> = {};
+    if (body.teamLeadId !== undefined) {
+      params.push(body.teamLeadId);
+      sets.push(`team_lead_id = $${params.length}`);
+      before["teamLeadId"] = row.team_lead_id;
+      after["teamLeadId"] = body.teamLeadId;
+    }
+    if (body.championId !== undefined) {
+      params.push(body.championId);
+      sets.push(`champion_id = $${params.length}`);
+      before["championId"] = row.champion_id;
+      after["championId"] = body.championId;
+    }
+    params.push(actorId);
+    const actorParam = params.length;
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "eight_d",
+        entityId: id,
+        action: "assigned",
+        before,
+        after,
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const { rows } = await t.query<EightDRow>(
+          `UPDATE eight_ds SET ${sets.join(", ")}, updated_by = $${actorParam}
+            WHERE id = $1 AND lock_version = $2
+            RETURNING ${EIGHT_D_COLUMNS}`,
+          params,
         );
         const updated = rows[0];
         if (updated === undefined) throw new ApiError("STALE_WRITE", "The 8D changed since you loaded it");

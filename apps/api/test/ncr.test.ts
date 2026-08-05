@@ -35,6 +35,7 @@ let auditorTok = "";
 let inspectorTok = ""; // scoped to plantA
 let viewerTok = "";
 let mgrUserId = "";
+let adminUserId = "";
 
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
@@ -160,7 +161,7 @@ beforeAll(async () => {
   plantB = await seedPlant("NCRTESTPB");
   await seedSla();
 
-  await seedMember("ncr-admin@acme.test", "admin", []);
+  adminUserId = await seedMember("ncr-admin@acme.test", "admin", []);
   mgrUserId = await seedMember("ncr-mgr@acme.test", "manager", []);
   await seedMember("ncr-auditor@acme.test", "auditor", []);
   await seedMember("ncr-inspector@acme.test", "inspector", [plantA]);
@@ -320,5 +321,76 @@ describe("RBAC + scoping", () => {
     const get = await authed("get", `/v1/ncrs/${ncr.id}`, inspectorTok);
     expect(get.status).toBe(404);
     expect(get.body.error.code).toBe("NOT_FOUND");
+  });
+});
+
+describe("NCR assignment (P25)", () => {
+  it("assigns, reassigns, and clears the owner without moving status — each audited", async () => {
+    let ncr = await raiseNcr("major");
+    expect(ncr.status).toBe("open");
+
+    // Assign the owner while still `open` — orthogonal to the lifecycle machine,
+    // so status must NOT change (unlike the open→assigned transition).
+    const assigned = await authed("post", `/v1/ncrs/${ncr.id}/assign`, mgrTok).send({
+      version: ncr.lockVersion,
+      ownerId: mgrUserId,
+    });
+    expect(assigned.status).toBe(200);
+    expect(assigned.body.ownerId).toBe(mgrUserId);
+    expect(assigned.body.status).toBe("open");
+    ncr = assigned.body as Ncr;
+
+    const { rows } = await control.query<{ before: { ownerId?: string | null }; after: { ownerId?: string | null } }>(
+      `SELECT before, after FROM audit_events
+        WHERE entity_kind = 'ncr' AND entity_id = $1 AND action = 'assigned'
+        ORDER BY created_at DESC LIMIT 1`,
+      [ncr.id],
+    );
+    expect(rows[0]?.before).toEqual({ ownerId: null });
+    expect(rows[0]?.after).toEqual({ ownerId: mgrUserId });
+
+    // Reassign to a different member.
+    const reassigned = await authed("post", `/v1/ncrs/${ncr.id}/assign`, mgrTok).send({
+      version: ncr.lockVersion,
+      ownerId: adminUserId,
+    });
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.ownerId).toBe(adminUserId);
+    ncr = reassigned.body as Ncr;
+
+    // Unassign with an explicit null.
+    const cleared = await authed("post", `/v1/ncrs/${ncr.id}/assign`, mgrTok).send({
+      version: ncr.lockVersion,
+      ownerId: null,
+    });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.ownerId).toBeNull();
+  });
+
+  it("rejects a non-member assignee (no cross-tenant existence leak)", async () => {
+    const ncr = await raiseNcr("minor");
+    const res = await authed("post", `/v1/ncrs/${ncr.id}/assign`, mgrTok).send({
+      version: ncr.lockVersion,
+      ownerId: randomUUID(),
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("rejects a stale assign (STALE_WRITE) and a viewer (403)", async () => {
+    const ncr = await raiseNcr("minor");
+
+    const stale = await authed("post", `/v1/ncrs/${ncr.id}/assign`, mgrTok).send({
+      version: ncr.lockVersion + 5,
+      ownerId: mgrUserId,
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe("STALE_WRITE");
+
+    const viewer = await authed("post", `/v1/ncrs/${ncr.id}/assign`, viewerTok).send({
+      version: ncr.lockVersion,
+      ownerId: mgrUserId,
+    });
+    expect(viewer.status).toBe(403);
   });
 });

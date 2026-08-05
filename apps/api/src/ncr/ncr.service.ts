@@ -13,6 +13,7 @@ import {
   type SlaConfigByPriority,
 } from "@kaenal/core";
 import type {
+  AssignNcrBody,
   CreateNcrActionBody,
   CreateNcrBody,
   NcrActionDto,
@@ -378,6 +379,49 @@ export class NcrService {
           "status = 'verified', verified_by = $3, verified_at = now()",
           [actorId],
         ),
+    );
+  }
+
+  /**
+   * Assign, reassign, or clear the owner (P25). Orthogonal to the lifecycle
+   * machine — it never moves `status`, so a manager can hand an in-progress NCR
+   * to someone else without pretending it re-entered "assigned". `ownerId` is a
+   * uuid to assign or `null` to unassign; a non-null id must be an active member.
+   * Optimistic-concurrency guarded and audited (`assigned`, before/after) in one
+   * transaction. Plant scope is enforced first (out-of-scope → 404, rule 8).
+   */
+  async assign(
+    tx: Tx,
+    tenantId: string,
+    membership: Membership,
+    actorId: string,
+    id: string,
+    body: AssignNcrBody,
+    context: AuditContext,
+  ): Promise<NcrDto> {
+    const row = await this.fetch(tx, id);
+    if (row === null) throw notFound();
+    this.assertInScope(membership, row.plant_id);
+    this.assertVersion(row.lock_version, body.version);
+
+    if (body.ownerId !== null) await this.assertMember(tx, body.ownerId);
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "ncr",
+        entityId: id,
+        action: "assigned",
+        before: { ownerId: row.owner_id },
+        after: { ownerId: body.ownerId },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      (t) => this.applyNcrUpdate(t, id, body.version, "owner_id = $3, updated_by = $4", [body.ownerId, actorId]),
     );
   }
 

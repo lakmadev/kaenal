@@ -1,6 +1,7 @@
 # P25 — User assignment (assign / reassign / unassign)
 
-**Status:** in progress (2026-08-04). CAPA slice = the reference; other entities follow.
+**Status:** complete (2026-08-05). All five assignee-bearing entities (CAPA, NCR, Inspection, 8D,
+SCAR) now have an audited assign/reassign/unassign endpoint + the shared `AssigneePicker` wired in.
 
 ## Problem
 
@@ -75,10 +76,15 @@ and an **Unassign** row. `onAssign(userId | null)` fires the entity's assign mut
 | # | Entity | Column(s) | Endpoint | Capability | Status |
 |---|--------|-----------|----------|-----------|--------|
 | 1 | CAPA | `owner_id`, `sponsor_id` | `POST /v1/capas/:id/assign` | `capa:manage` | **DONE** ✓ |
-| 2 | NCR | `owner_id` | `POST /v1/ncrs/:id/assign` | `ncr:manage` | planned |
-| 3 | Inspection | `inspector_id` | `POST /v1/inspections/:id/assign` | `inspection:manage` | planned |
-| 4 | 8D | `team_lead_id`, `champion_id` | `POST /v1/eight-ds/:id/assign` | `ncr:manage` | planned |
-| 5 | SCAR | `owner_id` | `POST /v1/scars/:id/assign` | `supplier:manage` | planned |
+| 2 | NCR | `owner_id` | `POST /v1/ncrs/:id/assign` | `ncr:manage` | **DONE** ✓ |
+| 3 | Inspection | `inspector_id` | `POST /v1/inspections/:id/assign` | `inspection:perform` | **DONE** ✓ |
+| 4 | 8D | `team_lead_id`, `champion_id` | `POST /v1/eight-ds/:id/assign` | `ncr:manage` | **DONE** ✓ |
+| 5 | SCAR | `owner` | `POST /v1/scars/:id/assign` | `scar:manage` | **DONE** ✓ |
+
+> Capability note: the actual RBAC catalogue (`packages/core/src/rbac.ts`) has no
+> `inspection:manage` or `supplier:manage` — inspections mutate under
+> `inspection:perform` and SCARs under `scar:manage`, so those are what the assign
+> routes use (updated from the initial plan's guesses).
 
 **Slice 1 (CAPA) shipped.** `AssignCapaBody` + `POST /v1/capas/:id/assign`; `CapaService.assign`
 (dynamic SET from provided keys, `assertMember`, optimistic concurrency, `withAudit` `assigned`
@@ -86,6 +92,20 @@ before/after); 4 new tests in `capa.test.ts` (assign+reassign+unassign audited /
 body 422 / stale 409 + viewer 403). FE: reusable `components/assignee-picker.tsx` (search + Unassign
 dropdown, read-only `MemberCell` for viewers) wired into the CAPA detail Owner + Sponsor rows via
 `useAssignCapa` (which `setQueryData`s the fresh row so rapid reassigns don't race the refetch).
+
+**Slices 2–5 shipped** (each mirrors CAPA). Bodies `AssignNcrBody` / `AssignInspectionBody` /
+`AssignEightDBody` / `AssignScarBody` in `packages/types`; the four `assign` service methods
+(each `assertMember` on non-null ids, optimistic-concurrency guarded, `withAudit('assigned',
+before/after)` in-transaction, never touching lifecycle `status`); controllers gated per the table.
+8D refuses to re-form the team of a completed/cancelled report (`INVALID_TRANSITION`); NCR/Inspection
+enforce plant scope (404) before assigning. Tests: `ncr.test.ts` (+3), `inspections.test.ts` (+2),
+`eight-d.test.ts` (+3), `scar.test.ts` (+2) — **44/44 across the four suites**. FE: hooks
+`useAssignNcr` / `useAssignInspection` / `useAssignEightD` / `useAssignScar` (all `setQueryData` the
+fresh row), the shared `AssigneePicker` wired into the NCR Owner row, the 8D D1 "Team & roles"
+lead/champion (managers only; viewers keep the read display), the SCAR detail Owner panel, and a new
+Inspection overview **metadata panel** (Status / Inspector-picker / Template / Scheduled / Started /
+Completed — restoring the designed `inspections.jsx` panel the build had omitted). Verified in-browser
+end-to-end for all four (assign lands, `status` unchanged, no console errors).
 
 ## Tests (per slice, mirroring `capa.test.ts`)
 

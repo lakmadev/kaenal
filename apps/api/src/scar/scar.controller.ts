@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   AcknowledgeScarBody,
   AdvanceScarBody,
+  AssignScarBody,
   CreateScarBody,
   PageQuery,
   ScarChargebackBody,
@@ -103,6 +104,21 @@ export class ScarController {
   async chargeback(@Param("id") id: string, @Body() body: unknown): Promise<ScarDto> {
     const input = parse(ScarChargebackBody, body);
     return this.scars.chargeback(
+      currentTx(),
+      currentContext().tenantId,
+      actorIdOf(),
+      parse(uuid, id),
+      input,
+      auditCtxOf(),
+    );
+  }
+
+  @Post("v1/scars/:id/assign")
+  @HttpCode(200)
+  @RequireCapability("scar:manage")
+  async assign(@Param("id") id: string, @Body() body: unknown): Promise<ScarDto> {
+    const input = parse(AssignScarBody, body);
+    return this.scars.assign(
       currentTx(),
       currentContext().tenantId,
       actorIdOf(),

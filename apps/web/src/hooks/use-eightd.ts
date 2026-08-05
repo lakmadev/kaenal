@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiQueries, queryKeys, unwrap } from "@kaenal/api-client";
 import type {
+  AssignEightDBody,
   CreateEightDBody,
   EightDDto,
   EightDStatus,
@@ -45,6 +46,21 @@ export function useUpdateEightDStep(id: string) {
   return useMutation({
     mutationFn: ({ step, body }: { step: number; body: UpdateEightDStepBody }) =>
       client.updateEightDStep({ params: { id, step }, body }).then((r) => unwrap<EightDDto>(r)),
+    onSuccess: (report) => {
+      qc.setQueryData(queryKeys.eightDs.detail(id), report);
+      void qc.invalidateQueries({ queryKey: queryKeys.eightDs.list() });
+    },
+  });
+}
+
+/** Assign / reassign / clear an 8D's team lead and/or champion (P25). Frozen
+ *  once the 8D is completed/cancelled (rejected server-side). */
+export function useAssignEightD(id: string) {
+  const client = getApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AssignEightDBody) =>
+      client.assignEightD({ params: { id }, body }).then((r) => unwrap<EightDDto>(r)),
     onSuccess: (report) => {
       qc.setQueryData(queryKeys.eightDs.detail(id), report);
       void qc.invalidateQueries({ queryKey: queryKeys.eightDs.list() });

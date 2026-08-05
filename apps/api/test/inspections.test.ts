@@ -113,6 +113,8 @@ function authed(method: "get" | "post", path: string, bearer: string) {
 let adminTok = "";
 let inspectorTok = ""; // scoped to plantA
 let viewerTok = "";
+let adminUserId = "";
+let inspectorUserId = "";
 
 beforeAll(async () => {
   control = new pg.Pool({ connectionString: process.env["DATABASE_URL"] });
@@ -120,8 +122,8 @@ beforeAll(async () => {
   plantA = await seedPlant(acmeId, "TESTPA");
   plantB = await seedPlant(acmeId, "TESTPB");
 
-  await seedMember(acmeId, "insp-admin@acme.test", "admin", []);
-  await seedMember(acmeId, "insp-scoped@acme.test", "inspector", [plantA]);
+  adminUserId = await seedMember(acmeId, "insp-admin@acme.test", "admin", []);
+  inspectorUserId = await seedMember(acmeId, "insp-scoped@acme.test", "inspector", [plantA]);
   await seedMember(acmeId, "insp-viewer@acme.test", "viewer", []);
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -324,6 +326,75 @@ describe("plant scoping (rule 8, one level down)", () => {
     const templateId = await publishedTemplate("TEST ViewerCreate");
     const res = await authed("post", "/v1/inspections", viewerTok).send({ title: "TEST nope", templateId });
     expect(res.status).toBe(403);
+  });
+});
+
+describe("inspector assignment (P25)", () => {
+  it("assigns, reassigns, and clears the inspector without moving status — each audited", async () => {
+    const templateId = await publishedTemplate("TEST Assign");
+    const created = await authed("post", "/v1/inspections", adminTok).send({ title: "TEST assignable", templateId });
+    expect(created.status).toBe(201);
+    let ins = created.body as { id: string; status: string; inspectorId: string | null; lockVersion: number };
+    expect(ins.status).toBe("scheduled");
+
+    const assigned = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion,
+      inspectorId: inspectorUserId,
+    });
+    expect(assigned.status).toBe(200);
+    expect(assigned.body.inspectorId).toBe(inspectorUserId);
+    expect(assigned.body.status).toBe("scheduled"); // orthogonal to the machine
+    ins = assigned.body as typeof ins;
+
+    const { rows } = await control.query<{ before: { inspectorId?: string | null }; after: { inspectorId?: string | null } }>(
+      `SELECT before, after FROM audit_events
+        WHERE entity_kind = 'inspection' AND entity_id = $1 AND action = 'assigned'
+        ORDER BY created_at DESC LIMIT 1`,
+      [ins.id],
+    );
+    expect(rows[0]?.before).toEqual({ inspectorId: null });
+    expect(rows[0]?.after).toEqual({ inspectorId: inspectorUserId });
+
+    const reassigned = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion,
+      inspectorId: adminUserId,
+    });
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.inspectorId).toBe(adminUserId);
+    ins = reassigned.body as typeof ins;
+
+    const cleared = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion,
+      inspectorId: null,
+    });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.inspectorId).toBeNull();
+  });
+
+  it("rejects a non-member, a stale version, and a viewer", async () => {
+    const templateId = await publishedTemplate("TEST AssignGuard");
+    const created = await authed("post", "/v1/inspections", adminTok).send({ title: "TEST guard", templateId });
+    const ins = created.body as { id: string; lockVersion: number };
+
+    const nonMember = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion,
+      inspectorId: randomUUID(),
+    });
+    expect(nonMember.status).toBe(422);
+    expect(nonMember.body.error.code).toBe("VALIDATION_FAILED");
+
+    const stale = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion + 5,
+      inspectorId: inspectorUserId,
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe("STALE_WRITE");
+
+    const viewer = await authed("post", `/v1/inspections/${ins.id}/assign`, viewerTok).send({
+      version: ins.lockVersion,
+      inspectorId: inspectorUserId,
+    });
+    expect(viewer.status).toBe(403);
   });
 });
 

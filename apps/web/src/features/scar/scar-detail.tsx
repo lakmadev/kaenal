@@ -7,8 +7,9 @@ import type { ChargebackStatus, ScarDto } from "@kaenal/types";
 import { longDate } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
 import { useMe, hasCapability } from "@/hooks/use-me";
-import { useScar, useAdvanceScar, useAcknowledgeScar, useChargebackScar } from "@/hooks/use-scar";
+import { useScar, useAdvanceScar, useAcknowledgeScar, useChargebackScar, useAssignScar } from "@/hooks/use-scar";
 import { PageHeader } from "@/components/page-header";
+import { AssigneePicker } from "@/components/assignee-picker";
 import { Button, Card, EmptyState, Skeleton, useToast } from "@/components/ui";
 import { SCAR_D_STEPS } from "@kaenal/core";
 import {
@@ -38,14 +39,32 @@ export function ScarDetail({ id }: { id: string }): React.ReactElement {
     );
   }
 
-  return <ScarDetailView scar={scar} canManage={hasCapability(me, "scar:manage")} />;
+  return <ScarDetailView scar={scar} meId={me?.userId} canManage={hasCapability(me, "scar:manage")} />;
 }
 
-function ScarDetailView({ scar, canManage }: { scar: ScarDto; canManage: boolean }): React.ReactElement {
+function ScarDetailView({
+  scar,
+  meId,
+  canManage,
+}: {
+  scar: ScarDto;
+  meId: string | undefined;
+  canManage: boolean;
+}): React.ReactElement {
   const router = useRouter();
   const toast = useToast();
   const advance = useAdvanceScar(scar.id);
   const acknowledge = useAcknowledgeScar(scar.id);
+  const assign = useAssignScar(scar.id);
+
+  const runAssign = (owner: string | null): void =>
+    assign.mutate(
+      { version: scar.lockVersion, owner },
+      {
+        onSuccess: () => toast.success(owner === null ? "Unassigned" : "Owner updated"),
+        onError: (err) => toast.error(errorMessage(err)),
+      },
+    );
 
   const active = scar.status === "draft" || scar.status === "open" || scar.status === "responded";
   const atFinalD = scar.currentD >= 8;
@@ -175,6 +194,16 @@ function ScarDetailView({ scar, canManage }: { scar: ScarDto; canManage: boolean
         </Card>
 
         <div className="flex flex-col gap-4">
+          <Card className="p-4">
+            <div className="k-overline mb-2.5">Owner</div>
+            <AssigneePicker
+              userId={scar.owner}
+              meId={meId}
+              canManage={canManage}
+              busy={assign.isPending}
+              onAssign={runAssign}
+            />
+          </Card>
           <ChargebackPanel scar={scar} canManage={canManage} />
           <LinksPanel scar={scar} onOpenNcr={(ncrId) => router.push(`/ncrs/${ncrId}`)} />
         </div>

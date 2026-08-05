@@ -26,7 +26,8 @@ import { longDate } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
 import { useMe, hasCapability } from "@/hooks/use-me";
 import { useMemberLookup } from "@/hooks/use-members";
-import { useEightD, useUpdateEightDStep, useTransitionEightD } from "@/hooks/use-eightd";
+import { useEightD, useUpdateEightDStep, useTransitionEightD, useAssignEightD } from "@/hooks/use-eightd";
+import type { AssignEightDBody } from "@kaenal/types";
 import { Avatar } from "@/components/avatar";
 import { Button, EmptyState, Skeleton, useToast } from "@/components/ui";
 import { EightDStatusBadge, stepData } from "./eightd-bits";
@@ -58,15 +59,24 @@ export function EightDDetail({ id }: { id: string }): React.ReactElement {
       </div>
     );
   }
-  return <DetailView report={report} canManage={hasCapability(me, "ncr:manage")} />;
+  return <DetailView report={report} meId={me?.userId} canManage={hasCapability(me, "ncr:manage")} />;
 }
 
-function DetailView({ report, canManage }: { report: EightDDto; canManage: boolean }): React.ReactElement {
+function DetailView({
+  report,
+  meId,
+  canManage,
+}: {
+  report: EightDDto;
+  meId: string | undefined;
+  canManage: boolean;
+}): React.ReactElement {
   const router = useRouter();
   const toast = useToast();
   const lookup = useMemberLookup();
   const update = useUpdateEightDStep(report.id);
   const transition = useTransitionEightD(report.id);
+  const assign = useAssignEightD(report.id);
   const ai = useAiReview((m) => toast.toast(m, "info"));
 
   const [active, setActive] = useState(report.currentStep);
@@ -116,6 +126,15 @@ function DetailView({ report, canManage }: { report: EightDDto; canManage: boole
       { to, version: report.lockVersion },
       { onSuccess: () => toast.success(to === "completed" ? "8D completed" : "8D cancelled"), onError: (e) => toast.error(errorMessage(e)) },
     );
+  };
+
+  const runAssign = (patch: { teamLeadId?: string | null; championId?: string | null }): void => {
+    const body: AssignEightDBody = { version: report.lockVersion, ...patch };
+    const cleared = patch.teamLeadId === null || patch.championId === null;
+    assign.mutate(body, {
+      onSuccess: () => toast.success(cleared ? "Unassigned" : "Team updated"),
+      onError: (e) => toast.error(errorMessage(e)),
+    });
   };
 
   return (
@@ -189,7 +208,17 @@ function DetailView({ report, canManage }: { report: EightDDto; canManage: boole
       <div className="grid items-start gap-4" style={{ gridTemplateColumns: "minmax(0, 1fr) 322px" }}>
         <div className="flex min-w-0 flex-col gap-4">
           <Stepper report={report} active={active} onSelect={setActive} />
-          {active === 1 && <D1Step report={report} lookup={lookup} ai={ai} />}
+          {active === 1 && (
+            <D1Step
+              report={report}
+              lookup={lookup}
+              ai={ai}
+              meId={meId}
+              canManage={canManage && !decided}
+              busy={assign.isPending}
+              onAssign={runAssign}
+            />
+          )}
           {active === 2 && <D2Step report={report} ai={ai} />}
           {active === 3 && <D3Step report={report} lookup={lookup} ai={ai} />}
           {active === 4 && (

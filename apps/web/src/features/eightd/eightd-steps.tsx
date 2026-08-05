@@ -4,6 +4,7 @@ import { Calendar, Check, Eye, Lock, Users } from "lucide-react";
 import type { EightDDto } from "@kaenal/types";
 import type { MemberLookup } from "@/hooks/use-members";
 import { Avatar } from "@/components/avatar";
+import { AssigneePicker } from "@/components/assignee-picker";
 import { DISCIPLINES, disciplineFor, fmtStepDate, stepData } from "./eightd-bits";
 import { AiCardHeader, type AiControls } from "./eightd-copilot";
 
@@ -136,11 +137,29 @@ const completeBadge = (
 );
 
 // ——————————————————————————————————— D1 team
-export function D1Step({ report, lookup, ai }: { report: EightDDto; lookup: MemberLookup; ai: AiControls }): React.ReactElement {
+export function D1Step({
+  report,
+  lookup,
+  ai,
+  meId,
+  canManage = false,
+  busy = false,
+  onAssign,
+}: {
+  report: EightDDto;
+  lookup: MemberLookup;
+  ai: AiControls;
+  meId?: string | undefined;
+  canManage?: boolean;
+  busy?: boolean;
+  onAssign?: (patch: { teamLeadId?: string | null; championId?: string | null }) => void;
+}): React.ReactElement {
   const roles = (stepData(report, "d1")["teamRoles"] ?? {}) as Record<string, string>;
   const lead = lookup.memberOf(report.teamLeadId);
   const champ = lookup.memberOf(report.championId);
   const members = report.memberIds;
+  // Managers get an inline assignee picker (P25); viewers keep the read display.
+  const editable = canManage && onAssign !== undefined;
   const personRow = (name: string, sub: string, teamRole?: string) => (
     <div className="flex items-center gap-2.5 rounded-[var(--r-md)] px-3 py-2" style={{ background: "var(--bg-subtle)" }}>
       <Avatar name={name} size={26} />
@@ -159,23 +178,44 @@ export function D1Step({ report, lookup, ai }: { report: EightDDto; lookup: Memb
         <div className="grid grid-cols-2 gap-6">
           <div>
             <div className="k-overline mb-2">Team Lead</div>
-            <div className="flex items-center gap-2.5">
-              <Avatar name={lead?.name} size={36} />
-              <div>
-                <div className="text-[14px] font-semibold">{lead?.name ?? "Unassigned"}</div>
-                <div className="text-[11px] capitalize text-muted">{lead?.role ?? ""}</div>
+            {editable ? (
+              <AssigneePicker
+                userId={report.teamLeadId}
+                meId={meId}
+                canManage
+                busy={busy}
+                onAssign={(v) => onAssign({ teamLeadId: v })}
+              />
+            ) : (
+              <div className="flex items-center gap-2.5">
+                <Avatar name={lead?.name} size={36} />
+                <div>
+                  <div className="text-[14px] font-semibold">{lead?.name ?? "Unassigned"}</div>
+                  <div className="text-[11px] capitalize text-muted">{lead?.role ?? ""}</div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
           <div>
             <div className="k-overline mb-2">Champion / Sponsor</div>
-            <div className="flex items-center gap-2.5">
-              <Avatar name={champ?.name} size={36} />
-              <div>
-                <div className="text-[14px] font-semibold">{champ?.name ?? "Unassigned"}</div>
-                <div className="text-[11px] capitalize text-muted">{champ?.role ?? ""}</div>
+            {editable ? (
+              <AssigneePicker
+                userId={report.championId}
+                meId={meId}
+                canManage
+                busy={busy}
+                emptyLabel="Unassigned"
+                onAssign={(v) => onAssign({ championId: v })}
+              />
+            ) : (
+              <div className="flex items-center gap-2.5">
+                <Avatar name={champ?.name} size={36} />
+                <div>
+                  <div className="text-[14px] font-semibold">{champ?.name ?? "Unassigned"}</div>
+                  <div className="text-[11px] capitalize text-muted">{champ?.role ?? ""}</div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
         <div className="mt-5">

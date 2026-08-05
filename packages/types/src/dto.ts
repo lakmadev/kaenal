@@ -139,6 +139,18 @@ export const CreateInspectionBody = z.object({
 });
 export type CreateInspectionBody = z.infer<typeof CreateInspectionBody>;
 
+/**
+ * Assign, reassign, or clear an inspection's inspector (P25). Orthogonal to the
+ * scheduled → in_progress → completed machine — it never touches status.
+ * `inspectorId` is a uuid to assign, `null` to unassign; `version` is the
+ * optimistic-concurrency token and a non-null id must be an active member.
+ */
+export const AssignInspectionBody = z.object({
+  version: z.number().int().nonnegative(),
+  inspectorId: z.string().uuid().nullable(),
+});
+export type AssignInspectionBody = z.infer<typeof AssignInspectionBody>;
+
 /** Set, change, or clear (null) the recurrence on a series head. */
 export const SetRecurrenceBody = z.object({
   recurrence: RecurrenceRule.nullable(),
@@ -255,6 +267,19 @@ export const VerifyNcrBody = z.object({
   reason: z.string().max(2000).optional(),
 });
 export type VerifyNcrBody = z.infer<typeof VerifyNcrBody>;
+
+/**
+ * Assign, reassign, or clear an NCR's owner (P25) — orthogonal to the lifecycle
+ * machine, so it is its own endpoint. The `open → assigned` transition still
+ * sets the *first* owner; this reassigns or clears at any state without moving
+ * status. `ownerId` is a uuid to assign, `null` to unassign; `version` is the
+ * optimistic-concurrency token and a non-null id must be an active member.
+ */
+export const AssignNcrBody = z.object({
+  version: z.number().int().nonnegative(),
+  ownerId: z.string().uuid().nullable(),
+});
+export type AssignNcrBody = z.infer<typeof AssignNcrBody>;
 
 // --- NCR corrective actions -------------------------------------------------
 
@@ -656,6 +681,25 @@ export const TransitionEightDBody = z.object({
   reason: z.string().max(2000).optional(),
 });
 export type TransitionEightDBody = z.infer<typeof TransitionEightDBody>;
+
+/**
+ * Assign, reassign, or clear an 8D's team lead and/or champion (P25) —
+ * orthogonal to the step machine, so it is its own endpoint and never touches
+ * `status` or `currentStep`. Each field is tri-state: a uuid assigns, an
+ * explicit `null` unassigns, and an absent key leaves that column untouched. At
+ * least one of the two must be provided; every non-null id must be an active
+ * member and `version` is the optimistic-concurrency token.
+ */
+export const AssignEightDBody = z
+  .object({
+    version: z.number().int().nonnegative(),
+    teamLeadId: z.string().uuid().nullable().optional(),
+    championId: z.string().uuid().nullable().optional(),
+  })
+  .refine((b) => b.teamLeadId !== undefined || b.championId !== undefined, {
+    message: "Provide teamLeadId and/or championId",
+  });
+export type AssignEightDBody = z.infer<typeof AssignEightDBody>;
 
 // --- Audits ------------------------------------------------------------------
 
@@ -1224,6 +1268,19 @@ export const ScarChargebackBody = z.object({
   version: z.number().int().nonnegative(),
 });
 export type ScarChargebackBody = z.infer<typeof ScarChargebackBody>;
+
+/**
+ * Assign, reassign, or clear a SCAR's owner (P25). A dedicated, audited
+ * (`assigned`) endpoint parallel to CAPA/NCR — distinct from the general
+ * `update` (which audits `updated` and does not check membership). `owner` is a
+ * uuid to assign, `null` to unassign; `version` is the optimistic-concurrency
+ * token and a non-null id must be an active member.
+ */
+export const AssignScarBody = z.object({
+  version: z.number().int().nonnegative(),
+  owner: z.string().uuid().nullable(),
+});
+export type AssignScarBody = z.infer<typeof AssignScarBody>;
 
 // --- Supplier portal — external, read-only projections (FEATURES §17, P11) --
 //

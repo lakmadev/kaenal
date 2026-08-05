@@ -5,6 +5,7 @@ import { apiQueries, queryKeys, unwrap } from "@kaenal/api-client";
 import type {
   AcknowledgeScarBody,
   AdvanceScarBody,
+  AssignScarBody,
   CreateScarBody,
   ScarChargebackBody,
   ScarDto,
@@ -80,5 +81,13 @@ export function useAcknowledgeScar(id: string) {
 export function useChargebackScar(id: string) {
   return useScarMutation<ScarChargebackBody>(id, (client, body) =>
     client.chargebackScar({ params: { id }, body }).then((r) => unwrap<ScarDto>(r)),
+  );
+}
+
+/** Assign / reassign / clear a SCAR's owner (P25) — a dedicated, audited action
+ *  distinct from the general update (which does not check membership). */
+export function useAssignScar(id: string) {
+  return useScarMutation<AssignScarBody>(id, (client, body) =>
+    client.assignScar({ params: { id }, body }).then((r) => unwrap<ScarDto>(r)),
   );
 }
