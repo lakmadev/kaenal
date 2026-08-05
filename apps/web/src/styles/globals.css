@@ -92,6 +92,24 @@
     text-decoration: none;
   }
 
+  /*
+   * Browsers default <button> (and role-based controls) to the arrow cursor; the
+   * visual spec shows a pointer on everything clickable. Apply it to every
+   * interactive element that isn't disabled — text inputs keep their own cursor,
+   * and disabled controls fall through to `not-allowed` where set.
+   */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  [role="option"],
+  [role="switch"],
+  summary,
+  label:has(> input[type="checkbox"]:not(:disabled)),
+  label:has(> input[type="radio"]:not(:disabled)),
+  select:not(:disabled) {
+    cursor: pointer;
+  }
+
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;

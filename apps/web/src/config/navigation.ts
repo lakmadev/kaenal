@@ -84,7 +84,6 @@ export const NAV: NavEntry[] = [
     label: "Inspections",
     href: "/inspections",
     icon: ClipboardCheck,
-    badge: 2,
     children: [
       { label: "All Inspections", href: "/inspections" },
       { label: "Templates", href: "/inspections/templates" },
@@ -97,8 +96,6 @@ export const NAV: NavEntry[] = [
     label: "Non-Conformities",
     href: "/ncrs",
     icon: TriangleAlert,
-    badge: 3,
-    badgeAccent: "danger",
     children: [
       { label: "All NCRs", href: "/ncrs" },
       { label: "My Assignments", href: "/ncrs?view=mine" },
@@ -132,8 +129,6 @@ export const NAV: NavEntry[] = [
     label: "CAPA",
     href: "/capa",
     icon: ShieldCheck,
-    badge: 2,
-    badgeAccent: "warn",
     children: [
       { label: "All CAPAs", href: "/capa" },
       { label: "My CAPAs", href: "/capa?view=mine" },
@@ -143,7 +138,7 @@ export const NAV: NavEntry[] = [
   { id: "documents", label: "Documents", href: "/documents", icon: FileText },
   { id: "graph", label: "Knowledge graph", href: "/graph", icon: Network },
   { id: "predictive", label: "Predictive risk", href: "/predictive", icon: TrendingUp },
-  { id: "pqe", label: "Quality Engine", href: "/pqe", icon: Sparkles, badge: 2, badgeAccent: "danger" },
+  { id: "pqe", label: "Quality Engine", href: "/pqe", icon: Sparkles },
 
   // ── Supply chain ────────────────────────────────────────────────────────
   { divider: true, label: "Supply chain" },
