@@ -2,8 +2,10 @@
 
 import { Suspense, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ApiRequestError } from "@kaenal/api-client";
+import { useQueryClient } from "@tanstack/react-query";
+import { ApiRequestError, apiQueries } from "@kaenal/api-client";
 import { useMe } from "@/hooks/use-me";
+import { getApiClient } from "@/lib/api";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { Skeleton } from "@/components/ui";
@@ -16,6 +18,7 @@ import { Skeleton } from "@/components/ui";
  */
 export function AppShell({ children }: { children: React.ReactNode }): React.ReactElement {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: me, error, isLoading } = useMe();
 
   const unauthenticated = error instanceof ApiRequestError && error.status === 401;
@@ -31,6 +34,16 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
     if (unauthenticated) router.replace("/sign-in");
     else if (portalOnly) router.replace("/portal");
   }, [unauthenticated, portalOnly, router]);
+
+  // Warm the members directory once the session is known (internal users only).
+  // Nearly every screen resolves an owner/inspector/author/assignee id → name
+  // through `/v1/members` (MemberCell, AssigneePicker, ActivityFeed); prefetching
+  // it here means those never render an id-fallback that flips to a name on the
+  // first paint of a page or tab — the pervasive "first-visit flicker".
+  useEffect(() => {
+    if (me === undefined || portalOnly) return;
+    void queryClient.prefetchQuery(apiQueries.members.list(getApiClient(), { query: { limit: 100 } }));
+  }, [me, portalOnly, queryClient]);
 
   if (unauthenticated || portalOnly) return <FullBleed />;
 

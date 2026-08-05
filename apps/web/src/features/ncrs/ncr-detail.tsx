@@ -4,10 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Clock, Calendar, MapPin, TriangleAlert } from "lucide-react";
 import type { NcrDto, NcrStatus, NcrTransition } from "@kaenal/types";
+import { apiQueries } from "@kaenal/api-client";
 import { cn } from "@/lib/cn";
 import { longDate, titleCase } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
+import { getApiClient } from "@/lib/api";
 import { useMe, hasCapability } from "@/hooks/use-me";
+import { usePrefetchQueries } from "@/hooks/use-prefetch";
 import { useNcr, useTransitionNcr, useVerifyNcr, useAssignNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, PriorityBadge, Skeleton, EmptyState, useToast } from "@/components/ui";
 import { AssigneePicker } from "@/components/assignee-picker";
@@ -84,6 +87,13 @@ function NcrDetailView({
   const verify = useVerifyNcr();
   const assign = useAssignNcr();
   const [tab, setTab] = useState<Tab>("details");
+
+  // Warm the data-fetching tabs so the first click doesn't flash a spinner.
+  const client = getApiClient();
+  usePrefetchQueries([
+    apiQueries.auditEvents.list(client, "ncr", ncr.id),
+    apiQueries.ncrs.actions(client, ncr.id),
+  ]);
 
   const busy = transition.isPending || verify.isPending;
 

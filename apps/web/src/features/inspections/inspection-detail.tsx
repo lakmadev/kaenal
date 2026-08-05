@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Calendar, Camera, ClipboardCheck, Clock, Play, TriangleAlert, Plus } from "lucide-react";
 import { FindingSeverity, type FindingDto, type FormResponses, type InspectionDto, type TemplateDto } from "@kaenal/types";
 import { scoreInspection, validateResponses } from "@kaenal/core";
+import { apiQueries } from "@kaenal/api-client";
 import { cn } from "@/lib/cn";
 import { longDate, titleCase } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
+import { getApiClient } from "@/lib/api";
+import { usePrefetchQueries } from "@/hooks/use-prefetch";
 import {
   useInspection,
   useTemplate,
@@ -55,6 +58,9 @@ function View({ inspection, template }: { inspection: InspectionDto; template: T
   const assign = useAssignInspection();
   const canManage = hasCapability(me, "inspection:perform");
   const [tab, setTab] = useState<Tab>("overview");
+
+  // Warm the History tab (audit-events) so its first open doesn't flash a spinner.
+  usePrefetchQueries([apiQueries.auditEvents.list(getApiClient(), "inspection", inspection.id)]);
 
   const runAssign = (inspectorId: string | null): void =>
     assign.mutate(

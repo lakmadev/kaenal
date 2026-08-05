@@ -19,10 +19,13 @@ import {
   Download,
 } from "lucide-react";
 import type { CapaDto, EntityKind } from "@kaenal/types";
+import { apiQueries } from "@kaenal/api-client";
 import { cn } from "@/lib/cn";
 import { longDate, titleCase } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
+import { getApiClient } from "@/lib/api";
 import { useMe, hasCapability } from "@/hooks/use-me";
+import { usePrefetchQueries } from "@/hooks/use-prefetch";
 import { useCapa, useAdvanceCapa, useRevertCapa, useCapaActions, useAssignCapa } from "@/hooks/use-capas";
 import { useEntityLinks } from "@/hooks/use-entity-links";
 import { AssigneePicker } from "@/components/assignee-picker";
@@ -114,6 +117,14 @@ function CapaDetailView({
   const assign = useAssignCapa();
   const [tab, setTab] = useState<Tab>("plan");
   const [revertOpen, setRevertOpen] = useState(false);
+
+  // Warm the RCA (entity-links) and Activity (audit-events) tabs so the first
+  // click doesn't flash a spinner; "plan" is the default tab and loads anyway.
+  const client = getApiClient();
+  usePrefetchQueries([
+    apiQueries.entityLinks.list(client, "capa", capa.id),
+    apiQueries.auditEvents.list(client, "capa", capa.id),
+  ]);
 
   const runAssign = (body: { version: number; ownerId?: string | null; sponsorId?: string | null }): void => {
     const cleared = body.ownerId === null || body.sponsorId === null;
