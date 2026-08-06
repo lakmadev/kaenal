@@ -222,6 +222,18 @@ describe("supplier portal — isolation (rule 8, one boundary out)", () => {
     }
   });
 
+  it("denies a partner the internal files routes (@Internal, no capability to gate on)", async () => {
+    const presign = await authed("post", "/v1/files/presign", partnerTok).send({
+      filename: "x.pdf",
+      mime: "application/pdf",
+      sizeBytes: 10,
+    });
+    expect(presign.status).toBe(403);
+    const get = await authed("get", `/v1/files/${randomUUID()}`, partnerTok);
+    expect(get.status).toBe(403);
+    // …while the partner's own portal upload path stays open (covered below).
+  });
+
   it("denies an internal viewer the portal (no portal capability)", async () => {
     const res = await authed("get", "/v1/portal/scars", viewerTok);
     expect(res.status).toBe(403);

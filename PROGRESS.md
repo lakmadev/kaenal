@@ -1774,10 +1774,17 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
   (the account-scope guard shows for a non-partner). *Note: a full in-browser upload click-through needs a
   partner+MFA session against a running API — not exercised here; the scoped-attach behaviour is covered by
   the integration tests instead.*
-  - **Known gap (pre-existing, NOT P11):** the internal `/v1/files/*` routes carry no capability, so a
-    partner session can still reach them (presign to any entity, download any clean tenant file). The
-    portal upload deliberately avoids them, but locking the generic files controller against partner-scoped
-    memberships is a separate hardening — logged for sign-off, not done here.
+  - **Files controller locked against partners ✅ (2026-08-06).** New `@Internal()` decorator (`IS_INTERNAL`
+    metadata) enforced in `lifecycle.interceptor.ts`: an internal-only route refuses an external `partner`
+    (via `isPartner`) with 403 even with a valid session — the role axis, orthogonal to `@RequireCapability`.
+    Applied class-level to `FilesController`, which carries no capability by design; a partner's only
+    sanctioned file path stays `/v1/portal/files/*`. Test: portal.test.ts asserts a partner gets 403 on
+    `/v1/files/presign` + `/v1/files/:id` (24 tests); files.test 11 green (internal file flows unaffected).
+  - **Still open — other capability-less routes a partner can reach (flagged, NOT locked):** an audit of the
+    controllers shows `/v1/search` (federated internal search — the notable one), `/v1/me`, `/v1/exports`,
+    `/v1/ai/*`, `/v1/me/workspaces|switch-workspace`, and `collab/audit-log` also have no capability guard.
+    `@Internal` is the ready mechanism, but each needs checking against any legitimate partner path before
+    locking — logged for sign-off.
 
 - **Web app (`apps/web`): foundation only; module screens + several cross-cutting systems pending.** The
   shell, design system, sign-in, and a dashboard slice are up and building, but most nav destinations are
