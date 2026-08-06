@@ -5,6 +5,7 @@
  */
 export const queryKeys = {
   me: () => ["me"] as const,
+  workspaces: () => ["workspaces"] as const,
 
   members: {
     all: ["members"] as const,

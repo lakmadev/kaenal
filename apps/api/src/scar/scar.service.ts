@@ -24,6 +24,7 @@ import type {
   UpdateScarBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { clampLimit, decodeCursor, keysetPredicate, toPage, type Cursor } from "../http/pagination.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
@@ -114,6 +115,8 @@ function toScarDto(row: ScarRow, now: Date = new Date()): ScarDto {
  */
 @Injectable()
 export class ScarService {
+  constructor(private readonly notifications: NotificationsService = new NotificationsService()) {}
+
   async list(
     tx: Tx,
     opts: {
@@ -515,7 +518,20 @@ export class ScarService {
         ip: context.ip,
         userAgent: context.userAgent,
       },
-      async (t) => this.writeAndReturn(t, sets, params),
+      async (t) => {
+        const dto = await this.writeAndReturn(t, sets, params);
+        if (body.owner !== null && body.owner !== actorId) {
+          await this.notifications.notify(t, tenantId, {
+            userId: body.owner,
+            actorId,
+            kind: "scar_assigned",
+            title: `${dto.code} was assigned to you`,
+            entityKind: "scar",
+            entityId: id,
+          });
+        }
+        return dto;
+      },
     );
   }
 

@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, PanelLeft, Search, Moon, Sun, Bell, LogOut, ChevronRight } from "lucide-react";
+import { Menu, PanelLeft, Search, Moon, Sun, Bell, ChevronRight } from "lucide-react";
 import type { MeDto } from "@kaenal/types";
 import { useTheme } from "@/lib/theme";
 import { useUiStore } from "@/lib/stores/ui";
-import { useSignOut } from "@/hooks/use-sign-out";
+import { useUnreadCount } from "@/hooks/use-notifications";
 import { ROUTE_LABELS } from "@/config/navigation";
-import { Button } from "@/components/ui";
+import { NotificationsPanel } from "@/features/notifications/notifications-panel";
+import { ProfileMenu } from "./profile-menu";
 
 function Breadcrumbs({ pathname }: { pathname: string }): React.ReactElement {
   const segments = pathname.split("/").filter(Boolean);
@@ -33,8 +34,10 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
   const { theme, toggleTheme } = useTheme();
   const setMobileOpen = useUiStore((s) => s.setMobileNavOpen);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const signOut = useSignOut();
+  const openCommand = useUiStore((s) => s.setCommandOpen);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const { data: unread } = useUnreadCount();
+  const unreadCount = unread?.count ?? 0;
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-surface px-4">
@@ -61,7 +64,8 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
       <div className="mx-auto hidden w-full max-w-[400px] md:block">
         <button
           type="button"
-          className="k-input flex items-center gap-2 text-left text-muted"
+          onClick={() => openCommand(true)}
+          className="k-input flex w-full items-center gap-2 text-left text-muted"
           aria-label="Search"
         >
           <Search size={15} />
@@ -71,9 +75,32 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
       </div>
 
       <div className="ml-auto flex items-center gap-1">
-        <button type="button" aria-label="Notifications" className="k-btn k-btn-plain k-btn-icon relative">
-          <Bell size={18} />
+        <button
+          type="button"
+          aria-label="Search"
+          onClick={() => openCommand(true)}
+          className="k-btn k-btn-plain k-btn-icon md:hidden"
+        >
+          <Search size={18} />
         </button>
+        <button
+          type="button"
+          aria-label="Notifications"
+          onClick={() => setNotifOpen((v) => !v)}
+          aria-expanded={notifOpen}
+          className="k-btn k-btn-plain k-btn-icon relative"
+        >
+          <Bell size={18} />
+          {unreadCount > 0 && (
+            <span
+              className="pointer-events-none absolute -right-1 -top-1 z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-[5px] text-[10px] font-bold leading-none text-white"
+              style={{ border: "2px solid var(--surface)" }}
+            >
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
+        </button>
+        {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} />}
         <button
           type="button"
           aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
@@ -84,49 +111,7 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
         </button>
 
         {/* Profile menu */}
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            className="ml-1 flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-semibold"
-            style={{ background: "var(--accent)", color: "var(--accent-fg)" }}
-          >
-            {(me?.tenantSlug ?? "K").slice(0, 2).toUpperCase()}
-          </button>
-          {menuOpen && (
-            <>
-              <button
-                type="button"
-                aria-hidden
-                tabIndex={-1}
-                className="fixed inset-0 z-40 cursor-default"
-                onClick={() => setMenuOpen(false)}
-              />
-              <div
-                role="menu"
-                className="k-surface fade-in absolute right-0 z-50 mt-2 w-56 p-1 shadow-lg"
-              >
-                <div className="px-3 py-2">
-                  <div className="text-[13px] font-semibold text-text">{me?.role ?? "—"}</div>
-                  <div className="mono text-[11px] text-muted">{me?.tenantSlug ?? ""}</div>
-                </div>
-                <div className="my-1 h-px bg-border" />
-                <Button
-                  variant="plain"
-                  className="w-full justify-start"
-                  loading={signOut.isPending}
-                  onClick={() => signOut.mutate()}
-                  role="menuitem"
-                >
-                  <LogOut size={15} />
-                  Sign out
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
+        <ProfileMenu me={me} />
       </div>
     </header>
   );

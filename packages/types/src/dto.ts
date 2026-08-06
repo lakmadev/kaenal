@@ -596,10 +596,19 @@ export const NotificationDto = z.object({
   body: z.string().nullable(),
   entityKind: z.string().nullable(),
   entityId: z.string().uuid().nullable(),
+  /** Who caused this notification (an assigner), for the row avatar. NULL for
+   *  system/job notifications with no actor (document_expiring, export_ready…). */
+  actorId: z.string().uuid().nullable(),
+  /** The user flagged this to find it later (the star toggle). */
+  starred: z.boolean(),
   readAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
 });
 export type NotificationDto = z.infer<typeof NotificationDto>;
+
+/** Toggle the star on one of the caller's notifications. */
+export const StarNotificationBody = z.object({ starred: z.boolean() });
+export type StarNotificationBody = z.infer<typeof StarNotificationBody>;
 
 export const UnreadCountDto = z.object({ count: z.number().int().nonnegative() });
 export type UnreadCountDto = z.infer<typeof UnreadCountDto>;
@@ -816,13 +825,51 @@ export type CreateExportBody = z.infer<typeof CreateExportBody>;
 
 // --- Me (session identity) --------------------------------------------------
 
+/** A plant the current member is scoped to (empty list = all plants). */
+export const MePlantDto = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  code: z.string(),
+});
+export type MePlantDto = z.infer<typeof MePlantDto>;
+
 export const MeDto = z.object({
   userId: z.string().uuid(),
   tenantSlug: z.string(),
+  /** Display name of the active workspace (control.tenants.name). */
+  tenantName: z.string(),
   role: z.string(),
   capabilities: z.array(z.string()),
+  /** Identity from the shared account (control.users). */
+  name: z.string(),
+  email: z.string(),
+  mfaEnabled: z.boolean(),
+  /** Plants this membership is scoped to; empty means all plants. */
+  plants: z.array(MePlantDto),
+  /** Open items owned by the caller — the dropdown's "N NCRs · M CAPAs". */
+  openNcrs: z.number().int().nonnegative(),
+  openCapas: z.number().int().nonnegative(),
 });
 export type MeDto = z.infer<typeof MeDto>;
+
+// --- Workspaces (the profile switcher, shell.jsx) ---------------------------
+
+/** One workspace the signed-in person belongs to (across tenants). */
+export const WorkspaceDto = z.object({
+  tenantSlug: z.string(),
+  tenantName: z.string(),
+  role: z.string(),
+  /** True for the workspace the current request is scoped to. */
+  active: z.boolean(),
+});
+export type WorkspaceDto = z.infer<typeof WorkspaceDto>;
+
+export const WorkspacesDto = z.object({ items: z.array(WorkspaceDto) });
+export type WorkspacesDto = z.infer<typeof WorkspacesDto>;
+
+/** Switch the active workspace to one the caller is already a member of. */
+export const SwitchWorkspaceBody = z.object({ slug: z.string().min(1).max(63) });
+export type SwitchWorkspaceBody = z.infer<typeof SwitchWorkspaceBody>;
 
 // --- AI gateway (06 §3) -----------------------------------------------------
 

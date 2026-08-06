@@ -14,6 +14,11 @@ interface UiState {
   /** Mobile off-canvas drawer (below 860px). Not persisted — session-only. */
   mobileNavOpen: boolean;
   setMobileNavOpen: (open: boolean) => void;
+
+  /** The ⌘K command palette / global search. Session-only. */
+  commandOpen: boolean;
+  setCommandOpen: (open: boolean) => void;
+  toggleCommand: () => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -24,6 +29,9 @@ export const useUiStore = create<UiState>()(
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       mobileNavOpen: false,
       setMobileNavOpen: (mobileNavOpen) => set({ mobileNavOpen }),
+      commandOpen: false,
+      setCommandOpen: (commandOpen) => set({ commandOpen }),
+      toggleCommand: () => set((s) => ({ commandOpen: !s.commandOpen })),
     }),
     {
       name: "kaenal-ui",

@@ -14,6 +14,7 @@ import { ShutdownService } from "./shutdown.service.js";
 import { AuthService } from "./auth/auth.service.js";
 import { SessionAuthenticator } from "./auth/session.authenticator.js";
 import { AuthController } from "./auth/auth.controller.js";
+import { WorkspaceController } from "./auth/workspace.controller.js";
 import { MeController } from "./me.controller.js";
 import { MembersController } from "./members/members.controller.js";
 import { MembersService } from "./members/members.service.js";
@@ -109,6 +110,7 @@ import {
     MeController,
     MembersController,
     AuthController,
+    WorkspaceController,
     OpenApiController,
     TemplatesController,
     InspectionsController,
@@ -197,11 +199,23 @@ import {
       inject: [REDIS],
     },
     { provide: TEMPLATES_SERVICE, useFactory: () => new TemplatesService() },
-    { provide: INSPECTIONS_SERVICE, useFactory: () => new InspectionsService() },
+    {
+      provide: INSPECTIONS_SERVICE,
+      useFactory: (n: NotificationsService) => new InspectionsService(n),
+      inject: [NOTIFICATIONS_SERVICE],
+    },
     { provide: FINDINGS_SERVICE, useFactory: () => new FindingsService() },
-    { provide: NCR_SERVICE, useFactory: () => new NcrService() },
+    {
+      provide: NCR_SERVICE,
+      useFactory: (n: NotificationsService) => new NcrService(n),
+      inject: [NOTIFICATIONS_SERVICE],
+    },
     { provide: CAPA_SERVICE, useFactory: () => new CapaService() },
-    { provide: EIGHT_D_SERVICE, useFactory: () => new EightDService() },
+    {
+      provide: EIGHT_D_SERVICE,
+      useFactory: (n: NotificationsService) => new EightDService(n),
+      inject: [NOTIFICATIONS_SERVICE],
+    },
     {
       provide: AUDITS_SERVICE,
       useFactory: (ncrs: NcrService, capas: CapaService) => new AuditsService(ncrs, capas),
@@ -210,7 +224,11 @@ import {
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
     { provide: SUPPLIERS_SERVICE, useFactory: () => new SuppliersService() },
     { provide: PPAP_SERVICE, useFactory: () => new PpapService() },
-    { provide: SCAR_SERVICE, useFactory: () => new ScarService() },
+    {
+      provide: SCAR_SERVICE,
+      useFactory: (n: NotificationsService) => new ScarService(n),
+      inject: [NOTIFICATIONS_SERVICE],
+    },
     {
       provide: PORTAL_SERVICE,
       useFactory: (scar: ScarService, ppap: PpapService) => new PortalService(scar, ppap),

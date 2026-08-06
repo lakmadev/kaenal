@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import { Bell } from "lucide-react";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { NotificationsCenter } from "@/features/notifications/notifications-center";
 
 export const metadata: Metadata = { title: "Notifications" };
 
 export default function Page(): React.ReactElement {
-  return <ModulePlaceholder title="Notifications" icon={Bell} />;
+  return <NotificationsCenter />;
 }

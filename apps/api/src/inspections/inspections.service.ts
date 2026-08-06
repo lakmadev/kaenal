@@ -25,6 +25,7 @@ import {
   type SetRecurrenceBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import {
   clampLimit,
   decodeCursor,
@@ -111,6 +112,8 @@ function toDto(row: InspectionRow): InspectionDto {
  */
 @Injectable()
 export class InspectionsService {
+  constructor(private readonly notifications: NotificationsService = new NotificationsService()) {}
+
   async list(
     tx: Tx,
     membership: Membership,
@@ -430,7 +433,23 @@ export class InspectionsService {
         ip: context.ip,
         userAgent: context.userAgent,
       },
-      (t) => this.applyUpdate(t, id, body.version, "inspector_id = $3, updated_by = $4", [body.inspectorId, actorId]),
+      async (t) => {
+        const dto = await this.applyUpdate(t, id, body.version, "inspector_id = $3, updated_by = $4", [
+          body.inspectorId,
+          actorId,
+        ]);
+        if (body.inspectorId !== null && body.inspectorId !== actorId) {
+          await this.notifications.notify(t, tenantId, {
+            userId: body.inspectorId,
+            actorId,
+            kind: "inspection_assigned",
+            title: `${dto.code} was assigned to you`,
+            entityKind: "inspection",
+            entityId: id,
+          });
+        }
+        return dto;
+      },
     );
   }
 

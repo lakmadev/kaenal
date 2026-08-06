@@ -22,6 +22,7 @@ import type {
   UpdateEightDStepBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import {
   clampLimit,
   decodeCursor,
@@ -109,6 +110,8 @@ function statusesOf(steps: Steps): StepStatuses {
  */
 @Injectable()
 export class EightDService {
+  constructor(private readonly notifications: NotificationsService = new NotificationsService()) {}
+
   async list(
     tx: Tx,
     opts: { status?: string; ncrId?: string; cursor?: string; limit: number },
@@ -411,7 +414,22 @@ export class EightDService {
         );
         const updated = rows[0];
         if (updated === undefined) throw new ApiError("STALE_WRITE", "The 8D changed since you loaded it");
-        return toDto(updated);
+        const dto = toDto(updated);
+        // Notify a newly named lead and/or champion (skip self and unassigns).
+        const named = new Set<string>();
+        if (body.teamLeadId != null && body.teamLeadId !== actorId) named.add(body.teamLeadId);
+        if (body.championId != null && body.championId !== actorId) named.add(body.championId);
+        for (const userId of named) {
+          await this.notifications.notify(t, tenantId, {
+            userId,
+            actorId,
+            kind: "eight_d_assigned",
+            title: `${dto.code} — you were added to the 8D team`,
+            entityKind: "eight_d",
+            entityId: id,
+          });
+        }
+        return dto;
       },
     );
   }

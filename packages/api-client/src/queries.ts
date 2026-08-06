@@ -24,6 +24,7 @@ import type {
   SearchResults,
   SupplierDto,
   UnreadCountDto,
+  WorkspacesDto,
 } from "@kaenal/types";
 import type { ApiClient } from "./client.js";
 import { queryKeys } from "./query-keys.js";
@@ -76,6 +77,11 @@ export const apiQueries = {
   me: (client: ApiClient): QueryOption<MeDto> => ({
     queryKey: queryKeys.me(),
     queryFn: () => client.getMe().then((r) => unwrap<MeDto>(r)),
+  }),
+
+  workspaces: (client: ApiClient): QueryOption<WorkspacesDto> => ({
+    queryKey: queryKeys.workspaces(),
+    queryFn: () => client.myWorkspaces().then((r) => unwrap<WorkspacesDto>(r)),
   }),
 
   members: {

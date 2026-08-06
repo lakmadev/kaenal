@@ -104,7 +104,7 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
         </div>
 
         {/* Nav */}
-        <nav className={cn("flex-1 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")}>
+        <nav className={cn("scrollbar-slim flex-1 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")}>
           {sections.map((section, si) => (
             <div key={section.label ?? `top-${si}`}>
               {section.label !== null &&

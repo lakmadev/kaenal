@@ -134,6 +134,39 @@
 }
 
 /**
+ * Slim, auto-hiding scrollbar — for the dark sidebar rail (and any overlay that
+ * wants an unobtrusive scroller). Non-layered so it overrides the base
+ * `::-webkit-scrollbar` above. The thumb is transparent until the area is
+ * hovered, so it disappears when idle; on the dark sidebar it reads as a faint
+ * light track rather than the chunky default.
+ */
+.scrollbar-slim {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.scrollbar-slim:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.scrollbar-slim::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-slim::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: none;
+  border-radius: 9999px;
+}
+.scrollbar-slim:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+}
+.scrollbar-slim::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/**
  * Component classes ported from the visual spec. These live here (not scattered
  * in components) so a restyle is one edit. React components in `components/ui`
  * compose these; ad-hoc screens may use them directly.

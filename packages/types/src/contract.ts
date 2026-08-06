@@ -40,6 +40,9 @@ import {
   FindingDto,
   InspectionDto,
   MeDto,
+  WorkspacesDto,
+  WorkspaceDto,
+  SwitchWorkspaceBody,
   MemberDto,
   NcrActionDto,
   NcrDto,
@@ -47,6 +50,7 @@ import {
   NewDocumentVersionBody,
   NotificationDto,
   NotificationPrefsDto,
+  StarNotificationBody,
   PresignFileBody,
   PresignFileResult,
   AuditEventDto,
@@ -143,6 +147,19 @@ export const contract = c.router(
       path: "/v1/me",
       responses: { 200: MeDto, 401: ErrorBody },
       summary: "The current session's identity and capabilities",
+    },
+    myWorkspaces: {
+      method: "GET",
+      path: "/v1/me/workspaces",
+      responses: { 200: WorkspacesDto, ...commonErrors },
+      summary: "Every workspace the signed-in person belongs to (the switcher)",
+    },
+    switchWorkspace: {
+      method: "POST",
+      path: "/v1/me/switch-workspace",
+      body: SwitchWorkspaceBody,
+      responses: { 200: WorkspaceDto, ...commonErrors },
+      summary: "Switch the active workspace (mints a session in the target tenant)",
     },
 
     // --- Members directory -------------------------------------------------
@@ -930,9 +947,13 @@ export const contract = c.router(
     listNotifications: {
       method: "GET",
       path: "/v1/notifications",
-      query: PageQuery.extend({ unread: z.coerce.boolean().optional() }),
+      query: PageQuery.extend({
+        unread: z.coerce.boolean().optional(),
+        starred: z.coerce.boolean().optional(),
+        entityKind: z.string().max(40).optional(),
+      }),
       responses: { 200: page(NotificationDto), ...commonErrors },
-      summary: "List the current user's notifications (cursor-paginated; unread filter)",
+      summary: "List the current user's notifications (cursor-paginated; unread/starred/type filters)",
     },
     unreadCount: {
       method: "GET",
@@ -954,6 +975,22 @@ export const contract = c.router(
       body: z.object({}),
       responses: { 200: CountDto, ...commonErrors },
       summary: "Mark all of the current user's notifications read",
+    },
+    starNotification: {
+      method: "POST",
+      path: "/v1/notifications/:id/star",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: StarNotificationBody,
+      responses: { 200: NotificationDto, ...commonErrors },
+      summary: "Star or un-star one of the current user's notifications",
+    },
+    dismissNotification: {
+      method: "POST",
+      path: "/v1/notifications/:id/dismiss",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: z.object({}),
+      responses: { 200: CountDto, ...commonErrors },
+      summary: "Dismiss (soft-delete) one of the current user's notifications",
     },
     getNotificationPrefs: {
       method: "GET",

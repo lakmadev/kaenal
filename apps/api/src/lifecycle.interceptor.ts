@@ -17,7 +17,7 @@ import { slugFromHost, TenantRegistry } from "./tenant/registry.js";
 import type { TenantPoolManager } from "./tenant/pool-manager.js";
 import { IS_ANONYMOUS, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
 import { AUTHENTICATOR, ENV, RATE_LIMITER, TENANT_POOLS, TENANT_REGISTRY } from "./tokens.js";
-import type { Authenticator } from "./auth/authenticator.js";
+import type { Authenticator, Session } from "./auth/authenticator.js";
 import { USER_LIMIT, type RateLimiter } from "./http/rate-limit.js";
 import type { Env } from "./env.js";
 
@@ -111,7 +111,21 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     // RLS applies on the dedicated pool exactly as on the shared one.
     return withTenant(tenant.id, null, async (tx) => {
       // --- 2. Authenticate ------------------------------------------------
-      const session = await this.authenticator.authenticate(req, tx);
+      // On an explicitly-anonymous route (sign-in, accept-invite) a stale or
+      // otherwise unresolvable session cookie must NOT block the request: there
+      // is no protected resource to downgrade, and a user whose session expired
+      // has to be able to sign in again while the old cookie is still in the jar.
+      // Authenticated routes still surface the error (default-deny below).
+      let session: Session | null;
+      try {
+        session = await this.authenticator.authenticate(req, tx);
+      } catch (err) {
+        if (allowAnonymous && err instanceof ApiError && err.code === "UNAUTHENTICATED") {
+          session = null;
+        } else {
+          throw err;
+        }
+      }
 
       // Default-deny. Anything not marked @Public or @AllowAnonymous requires
       // a session, whether or not it declares a capability — so forgetting

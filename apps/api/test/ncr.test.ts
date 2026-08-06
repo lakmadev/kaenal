@@ -189,6 +189,9 @@ afterAll(async () => {
   await control.query("DELETE FROM inspection_templates WHERE name LIKE 'NCRTEST%'");
   await control.query("DELETE FROM plants WHERE code LIKE 'NCRTESTP%'");
   if (ids.length > 0) {
+    // Assigning an NCR now notifies the new owner; those rows carry the
+    // composite (tenant_id, user_id) member FK, so clear them before memberships.
+    await control.query("DELETE FROM notifications WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM sessions WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM memberships WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM control.users WHERE id = ANY($1)", [ids]);
@@ -357,6 +360,21 @@ describe("NCR assignment (P25)", () => {
     expect(reassigned.status).toBe(200);
     expect(reassigned.body.ownerId).toBe(adminUserId);
     ncr = reassigned.body as Ncr;
+
+    // The reassignment notifies the NEW owner (admin) with the assigner (mgr) as
+    // actor. The earlier self-assign (mgr→mgr) did not notify anyone.
+    const notif = await control.query<{ actor_id: string | null; kind: string }>(
+      `SELECT actor_id, kind FROM notifications
+        WHERE user_id = $1 AND entity_kind = 'ncr' AND entity_id = $2 AND kind = 'ncr_assigned'`,
+      [adminUserId, ncr.id],
+    );
+    expect(notif.rows.length).toBe(1);
+    expect(notif.rows[0]?.actor_id).toBe(mgrUserId);
+    const selfNotif = await control.query(
+      `SELECT 1 FROM notifications WHERE user_id = $1 AND entity_id = $2 AND kind = 'ncr_assigned'`,
+      [mgrUserId, ncr.id],
+    );
+    expect(selfNotif.rows.length).toBe(0);
 
     // Unassign with an explicit null.
     const cleared = await authed("post", `/v1/ncrs/${ncr.id}/assign`, mgrTok).send({

@@ -180,6 +180,106 @@ export class AuthService {
   }
 
   /**
+   * Every workspace the signed-in person can enter (the profile switcher). This
+   * is a control-plane lookup — "which tenants may this identity enter" — so it
+   * reads through the control pool, strictly filtered by the caller's own
+   * user_id. It returns only the caller's memberships (never another person's),
+   * so it is not a cross-tenant oracle: it discloses nothing about tenants the
+   * caller is not already a member of. Only slug/name/role are returned, never
+   * tenant business data (which always flows through the RLS-scoped app pool).
+   */
+  async listWorkspaces(
+    userId: string,
+    activeSlug: string,
+  ): Promise<{ tenantSlug: string; tenantName: string; role: string; active: boolean }[]> {
+    const { rows } = await this.control.query<{ slug: string; name: string; role: string }>(
+      `SELECT t.slug, t.name, m.role
+         FROM memberships m
+         JOIN control.tenants t ON t.id = m.tenant_id
+        WHERE m.user_id = $1 AND m.status = 'active' AND m.deleted_at IS NULL
+          AND t.status = 'active'
+        ORDER BY t.name`,
+      [userId],
+    );
+    return rows.map((r) => ({
+      tenantSlug: r.slug,
+      tenantName: r.name,
+      role: r.role,
+      active: r.slug === activeSlug,
+    }));
+  }
+
+  /**
+   * Switch the active workspace: mint a session for a target tenant the caller
+   * is ALREADY a member of. The caller is authenticated in their current
+   * workspace (the request went through the normal chain), and the password is
+   * global (control.users), so no re-entry of credentials is needed — but
+   * membership in the target is verified before any session is issued. A target
+   * the caller does not belong to is a 404 (never a 403), so this cannot probe
+   * for workspaces the caller has no access to (rule 8).
+   */
+  async switchWorkspace(
+    userId: string,
+    slug: string,
+    context: { ip: string | null; userAgent: string | null; requestId: string | null },
+  ): Promise<{
+    sessionToken: string;
+    expiresAt: Date;
+    workspace: { tenantSlug: string; tenantName: string; role: string; active: boolean };
+  }> {
+    const notFound = (): ApiError => new ApiError("NOT_FOUND", "Workspace not found");
+
+    // Resolve the target tenant and verify active membership — both through the
+    // control pool, in one query, so a non-member and an unknown slug are
+    // indistinguishable (no existence leak).
+    const { rows } = await this.control.query<{ tenant_id: string; name: string; role: Role }>(
+      `SELECT t.id AS tenant_id, t.name, m.role
+         FROM control.tenants t
+         JOIN memberships m ON m.tenant_id = t.id AND m.user_id = $2
+        WHERE t.slug = $1 AND t.status = 'active'
+          AND m.status = 'active' AND m.deleted_at IS NULL`,
+      [slug, userId],
+    );
+    const target = rows[0];
+    if (target === undefined) throw notFound();
+
+    const sessionToken = generateToken();
+    const expiresAt = slideSessionExpiry(new Date(), target.role);
+
+    // Mint the session INSIDE the target tenant's scoped transaction, so RLS and
+    // the audit event are written against the workspace being entered.
+    await withTenant(target.tenant_id, userId, async (t) => {
+      await withAudit(
+        t,
+        target.tenant_id,
+        {
+          actorId: userId,
+          actorKind: "user",
+          entityKind: "session",
+          entityId: userId,
+          action: "signed_in",
+          requestId: context.requestId,
+          ip: context.ip,
+          userAgent: context.userAgent,
+        },
+        async (tt) => {
+          await tt.query(
+            `INSERT INTO sessions (tenant_id, user_id, refresh_token_hash, expires_at, ip, user_agent)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [target.tenant_id, userId, hashToken(sessionToken), expiresAt, context.ip, context.userAgent],
+          );
+        },
+      );
+    });
+
+    return {
+      sessionToken,
+      expiresAt,
+      workspace: { tenantSlug: slug, tenantName: target.name, role: target.role, active: true },
+    };
+  }
+
+  /**
    * Resolves a session token to its member. Returns null for anything that
    * does not resolve — expired, revoked, unknown, or belonging to a membership
    * that has since been deactivated.

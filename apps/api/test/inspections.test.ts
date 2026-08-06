@@ -151,6 +151,7 @@ afterAll(async () => {
   await control.query("DELETE FROM plants WHERE code LIKE 'TESTP%'");
   if (ids.length > 0) {
     await control.query("DELETE FROM sessions WHERE user_id = ANY($1)", [ids]);
+    await control.query("DELETE FROM notifications WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM memberships WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM control.users WHERE id = ANY($1)", [ids]);
   }

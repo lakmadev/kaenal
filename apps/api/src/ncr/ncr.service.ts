@@ -32,6 +32,7 @@ import {
   type Cursor,
 } from "../http/pagination.js";
 import type { AuditContext } from "./audit-context.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 
 interface NcrRow {
   id: string;
@@ -131,6 +132,10 @@ function toActionDto(row: ActionRow): NcrActionDto {
  */
 @Injectable()
 export class NcrService {
+  /** Defaults to a standalone service so seeds/tests can `new NcrService()`;
+   *  the DI container passes the app's producer-backed instance. */
+  constructor(private readonly notifications: NotificationsService = new NotificationsService()) {}
+
   async list(
     tx: Tx,
     membership: Membership,
@@ -421,7 +426,26 @@ export class NcrService {
         ip: context.ip,
         userAgent: context.userAgent,
       },
-      (t) => this.applyNcrUpdate(t, id, body.version, "owner_id = $3, updated_by = $4", [body.ownerId, actorId]),
+      async (t) => {
+        const dto = await this.applyNcrUpdate(t, id, body.version, "owner_id = $3, updated_by = $4", [
+          body.ownerId,
+          actorId,
+        ]);
+        // Tell the new owner they've been assigned — but never notify someone of
+        // their own action, and skip an unassign (ownerId = null). Runs in the
+        // same transaction, so the notification commits with the assignment.
+        if (body.ownerId !== null && body.ownerId !== actorId) {
+          await this.notifications.notify(t, tenantId, {
+            userId: body.ownerId,
+            actorId,
+            kind: "ncr_assigned",
+            title: `${dto.code} was assigned to you`,
+            entityKind: "ncr",
+            entityId: id,
+          });
+        }
+        return dto;
+      },
     );
   }
 

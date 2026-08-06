@@ -32,6 +32,45 @@ roadmap index + 24 per-feature phase docs (P01–P24), each specifying backend�
 to the `src/*.jsx` visual spec. Tier-2 modules (SPC/FMEA/Risk/MSA/Training/Calibration/Complaints/ECN)
 carry a `PROPOSED` backend flagged for sign-off; mock-only admin screens are explicitly out of scope.
 
+**Shell interactivity — search, notifications, profile (2026-08-06):** the three topbar affordances,
+all end-to-end with backend extensions where the design needed data the API didn't serve. Verified
+in-browser (Demo Admin @ acme).
+- **Search / ⌘K command palette** — frontend only (`GET /v1/search` already federated inspections/
+  NCRs/CAPAs/documents). New `command-palette.tsx` (mounted once in `AppShell`, global ⌘K toggle +
+  topbar button + mobile icon), `use-search.ts` (debounced, `enabled` on non-empty), shared
+  `lib/entity-routes.ts` (kind→route/icon/label, reused by notifications). Records + matched nav
+  shortcuts, keyboard nav, click-through to detail. NOTE: physical ⌘K/Ctrl-K is swallowed by the
+  in-app Chromium's own omnibox shortcut; the listener is correct (verified via synthetic dispatch)
+  and free in a normal browser — the button + mobile icon cover it regardless.
+- **Notifications — full-stack.** Migration `0024_notification_ext.sql` adds `starred`, `actor_id`,
+  `deleted_at` (columns on the already-RLS-forced table; `actor_id` is an unconstrained uuid like
+  `entity_id`, resolved to a name client-side via `/members`). `NotificationDto` gains `actorId` +
+  `starred`; new `POST /:id/star`, `POST /:id/dismiss` (soft-delete), and `unread`/`starred`/
+  `entityKind` list filters. **Assignment notifications now fire**: NCR/inspection/8D/SCAR `assign`
+  flows call `NotificationsService.notify` (kind `<entity>_assigned`, `actorId` = assigner) inside
+  the same audited transaction — skipping self-assign and unassigns. This is what makes a member's
+  inbox real and the "Assigned" filter meaningful (assignments produced nothing before). FE: bell
+  badge (`unread-count`, polled), `notifications-panel.tsx` dropdown (All/Unread/Assigned, mark-all-
+  read, click-through), full `notifications-center.tsx` page (type rail + counts, star/mark-read/
+  dismiss/bulk/search) replacing the placeholder. Tests: +4 notification cases (star/dismiss/filters/
+  actor) and an NCR assign→notify assertion; the four assign suites' teardown now clears notifications
+  before memberships (assignment rows carry the composite member FK). **Mentions filter dropped** —
+  no @mention producer exists; comment-mention notifications are a separate slice (flagged, not built).
+- **Profile dropdown — full-stack.** `/v1/me` extended (name/email/mfaEnabled from `control.users`,
+  `tenantName`, scoped `plants[]`, `openNcrs`/`openCapas` counts) — all queries run in the request tx
+  (sequentially: one pg connection). New `GET /v1/me/workspaces` (control-pool lookup, strictly
+  own-`user_id`-scoped — control-plane identity, not tenant data) and `POST /v1/me/switch-workspace`
+  (mints a session in a target tenant the caller already belongs to, via `withTenant` + audited
+  `signed_in`; a non-member/unknown slug is 404, no leak — rule 8). FE `profile-menu.tsx` rebuilds
+  the `shell.jsx` dropdown on real data (identity header, quick facts, links, workspace switcher,
+  sign-out). Tests: `workspaces.test.ts` (list + cross-tenant switch + two 404 no-leak cases).
+  **Dev data:** demo user added to `globex` (manager) so the switcher is demonstrable locally.
+- **Known local-DB gotcha (pre-existing, not a regression):** `auth.test.ts`'s teardown deletes users
+  `WHERE email LIKE '%@acme.test'`, which sweeps up the *demo seed* user (`demo@acme.test`) when the
+  local DB has the demo seed loaded; its `resolved_by` FK on a seeded resolved NCR then blocks the
+  delete. All 16 auth tests pass — only the over-broad teardown trips, and only locally (CI has no demo
+  seed). Latent test-hygiene bug in a file this work didn't touch.
+
 **Suppliers backend — entity slice (P08, 2026-07-29):** first vertical of the Supply-chain block.
 `suppliers`/`ppap_submissions`/`scars` turned out to **already exist** (thin) since `0001_core.sql`,
 and `codes.ts` already registers `supplier`/`scar` — so this EXTENDED rather than created. Migration
@@ -679,10 +718,10 @@ was NOT redone; the audit verified the built screens against their `src/*.jsx` i
       (`linear-gradient(135deg,#0f1d35,#1e3a8a,#312e81)`, `#93c5fd`) is the prototype's ONE
       decorative-blue spot and is reproduced faithfully; per-tenant logo colours are mock data.
 - [x] **Topbar** (`topbar.tsx` vs `shell.jsx`) — **fixed**: search placeholder copy
-      `"Search…"` → `"Search inspections, NCRs, 8Ds…"` (verbatim, §4.4). The richer topbar
-      affordances (quick-create, live-mode, AI button, and the profile menu's quick-facts
-      grid + workspace switcher) remain deferred — they are either later slices or backed by
-      fabricated mock data (open-item counts, plants, MFA state) the API does not serve.
+      `"Search…"` → `"Search inspections, NCRs, 8Ds…"` (verbatim, §4.4). Search, notifications,
+      and the profile menu (incl. quick-facts + workspace switcher) are now **built and backed
+      by real data** — see "Shell interactivity (2026-08-06)" below. Quick-create, live-mode,
+      and the AI button remain deferred (later slices).
 - [x] **Inspections / NCRs list headers** — `PageHeader` title/description/actions copy
       matches the prototype verbatim; `rounded-xl` = `--r-xl` = 7px (within the tight scale,
       not a defect); EmptyState/Skeleton states present.

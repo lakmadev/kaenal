@@ -8,6 +8,7 @@ import { useMe } from "@/hooks/use-me";
 import { getApiClient } from "@/lib/api";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
+import { CommandPalette } from "./command-palette";
 import { Skeleton } from "@/components/ui";
 
 /**
@@ -58,6 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
           {isLoading ? <ShellSkeleton /> : children}
         </main>
       </div>
+      <CommandPalette />
     </div>
   );
 }
