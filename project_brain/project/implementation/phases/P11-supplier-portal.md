@@ -1,6 +1,6 @@
 # P11 — Supplier Portal (external) (end-to-end)
 
-**Status:** Backend ✅ (security foundation + audited writes) · FE ✅ (portal shell + screens) — **both delivered**; only the AV-gated evidence *upload* is deferred
+**Status:** Backend ✅ (security foundation + audited writes + AV-gated evidence upload) · FE ✅ (portal shell + screens + evidence attach) — **complete** (2026-08-06)
 **Design jsx:** `supplier-portal.jsx`
 **Spec:** FEATURES §17 (External) · 07 (security)
 **Value:** lets suppliers respond to SCARs / re-submit PPAP directly — closes the loop without email.
@@ -37,7 +37,8 @@
 ## 4. Definition of Done
 - [x] `partner` role + supplier-scope enforced (auth layer, inside the tenant tx), isolation-tested (foreign supplier → 404, internal endpoints → 403, admin-without-scope → 403). *(17-test suite `apps/api/test/portal.test.ts`.)*
 - [x] Portal shell + SCAR-respond + PPAP re-submit per `supplier-portal.jsx` *(teal top-nav shell, Overview/Corrective-actions/PPAP; verified in-browser end-to-end)*.
-- [x] Portal writes audited (`actor_kind=partner`). *(Evidence UPLOAD via the AV-gated presign flow is the one deferred piece — see Known issues.)*
+- [x] Portal writes audited (`actor_kind=partner`).
+- [x] AV-gated evidence UPLOAD — partner-scoped `/v1/portal/files/{presign,:id/complete}` (file created unlinked; attached to the partner's own SCAR/PPAP via `fileIds` on respond/re-submit), teal `PortalEvidenceAttach` on both forms. *(portal.test.ts 23 tests; 2026-08-06.)*
 - [x] Security sign-off recorded in PROGRESS Decisions log.
 
 ## Delivered this branch (slice 1 — the security foundation, read-only)

@@ -1401,17 +1401,38 @@ export const PortalPpapDto = z.object({
 });
 export type PortalPpapDto = z.infer<typeof PortalPpapDto>;
 
-/** The supplier's response to a SCAR — a note, optionally acknowledging it. The
- *  note is recorded as a comment on the SCAR (visible to internal staff too). */
+/** Evidence the partner attaches to their own SCAR / PPAP. `fileIds` are the ids
+ *  of files the partner has already uploaded through the portal presign flow
+ *  (`/v1/portal/files/*`); the server links only the caller's own, still-unlinked
+ *  uploads to the record — a foreign or already-attached id is rejected. */
+const PortalFileIds = z.array(z.string().uuid()).max(20).optional();
+
+/** The supplier's response to a SCAR — a note, optionally acknowledging it, and
+ *  optionally attaching evidence files. The note is recorded as a comment on the
+ *  SCAR (visible to internal staff too); the files are linked to the SCAR. */
 export const PortalScarRespondBody = z.object({
   note: z.string().min(1, "A response is required").max(4000),
   acknowledge: z.boolean().optional(),
+  fileIds: PortalFileIds,
 });
 export type PortalScarRespondBody = z.infer<typeof PortalScarRespondBody>;
 
 /** The supplier re-submits a PPAP package after changes-requested feedback,
- *  optionally with a note (recorded on the audit event). */
+ *  optionally with a note (recorded on the audit event) and evidence files. */
 export const PortalPpapResubmitBody = z.object({
   note: z.string().max(4000).nullable().optional(),
+  fileIds: PortalFileIds,
 });
 export type PortalPpapResubmitBody = z.infer<typeof PortalPpapResubmitBody>;
+
+/** Presign a portal evidence upload. Unlike the internal `PresignFileBody`, the
+ *  partner does NOT choose the target entity — the file is created unlinked and
+ *  owned by the caller, then linked to one of the partner's own records only when
+ *  they respond/re-submit. This is what keeps a partner from attaching to (or
+ *  even naming) any entity but their own. */
+export const PortalEvidencePresignBody = z.object({
+  filename: z.string().min(1).max(255),
+  mime: z.string().min(1).max(255),
+  sizeBytes: z.number().int().positive(),
+});
+export type PortalEvidencePresignBody = z.infer<typeof PortalEvidencePresignBody>;

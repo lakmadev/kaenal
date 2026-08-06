@@ -2,12 +2,15 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@ne
 import { z } from "zod";
 import {
   PageQuery,
+  PortalEvidencePresignBody,
   PortalPpapResubmitBody,
   PortalScarRespondBody,
+  type FileDto,
   type Page,
   type PortalIdentityDto,
   type PortalPpapDto,
   type PortalScarDto,
+  type PresignFileResult,
 } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
@@ -99,6 +102,34 @@ export class PortalController {
       actorIdOf(),
       parse(uuid, id),
       input,
+      auditCtxOf(),
+    );
+  }
+
+  @Post("v1/portal/files/presign")
+  @RequireCapability("portal:respond")
+  async presignEvidence(@Body() body: unknown): Promise<PresignFileResult> {
+    const input = parse(PortalEvidencePresignBody, body);
+    return this.portal.presignEvidence(
+      currentTx(),
+      currentContext().tenantId,
+      this.scope(),
+      actorIdOf(),
+      input,
+      auditCtxOf(),
+    );
+  }
+
+  @Post("v1/portal/files/:id/complete")
+  @HttpCode(200)
+  @RequireCapability("portal:respond")
+  async completeEvidence(@Param("id") id: string): Promise<FileDto> {
+    return this.portal.completeEvidence(
+      currentTx(),
+      currentContext().tenantId,
+      this.scope(),
+      actorIdOf(),
+      parse(uuid, id),
       auditCtxOf(),
     );
   }

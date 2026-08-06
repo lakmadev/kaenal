@@ -89,6 +89,7 @@ import {
   PortalPpapDto,
   PortalScarRespondBody,
   PortalPpapResubmitBody,
+  PortalEvidencePresignBody,
   TemplateDto,
   TransitionDocumentBody,
   TransitionEightDBody,
@@ -941,6 +942,25 @@ export const contract = c.router(
       body: PortalPpapResubmitBody,
       responses: { 200: PortalPpapDto, ...commonErrors },
       summary: "Supplier re-submits a PPAP package after feedback (audited actor_kind=partner)",
+    },
+    // Evidence upload (P11): a partner-scoped mirror of the internal presign flow.
+    // The file is created UNLINKED and owned by the caller; it is attached to one
+    // of the partner's own records only via respond/re-submit `fileIds`, so a
+    // partner never reaches the internal `/v1/files/*` routes or names an entity.
+    presignPortalEvidence: {
+      method: "POST",
+      path: "/v1/portal/files/presign",
+      body: PortalEvidencePresignBody,
+      responses: { 201: PresignFileResult, ...commonErrors },
+      summary: "Presign a portal evidence upload (partner-scoped; file created unlinked)",
+    },
+    completePortalEvidence: {
+      method: "POST",
+      path: "/v1/portal/files/:id/complete",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: z.object({}),
+      responses: { 200: FileDto, ...commonErrors },
+      summary: "Finalise a portal evidence upload and hand it to the AV scan",
     },
 
     // --- Notifications -----------------------------------------------------

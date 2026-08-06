@@ -231,8 +231,9 @@ import {
     },
     {
       provide: PORTAL_SERVICE,
-      useFactory: (scar: ScarService, ppap: PpapService) => new PortalService(scar, ppap),
-      inject: [SCAR_SERVICE, PPAP_SERVICE],
+      useFactory: (scar: ScarService, ppap: PpapService, files: FilesService) =>
+        new PortalService(scar, ppap, files),
+      inject: [SCAR_SERVICE, PPAP_SERVICE, FILES_SERVICE],
     },
 
     // Object storage (03 §7). One S3 client for the process; MinIO locally.

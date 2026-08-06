@@ -37,6 +37,7 @@ let scarB = "";
 let ppapA = "";
 let ppapB = "";
 let partnerUserId = "";
+let adminUserId = "";
 
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
@@ -126,7 +127,7 @@ beforeAll(async () => {
   });
 
   partnerUserId = await seedUser(acmeId, "portal-partner@a.test", "partner", { partnerScope: supplierA, mfa: true });
-  await seedUser(acmeId, "portal-admin@acme.test", "admin");
+  adminUserId = await seedUser(acmeId, "portal-admin@acme.test", "admin");
   await seedUser(acmeId, "portal-viewer@acme.test", "viewer");
   // A partner with NO MFA configured — must be refused at sign-in.
   await seedUser(acmeId, "portal-nomfa@a.test", "partner", { partnerScope: supplierA, mfa: false });
@@ -154,6 +155,8 @@ afterAll(async () => {
     await control.query<{ id: string }>("SELECT id FROM control.users WHERE email = ANY($1)", [emails])
   ).rows.map((r) => r.id);
   if (ids.length > 0) {
+    // Evidence files reference the uploader (ON DELETE RESTRICT) — clear before users.
+    await control.query("DELETE FROM files WHERE uploaded_by = ANY($1)", [ids]);
     await control.query("DELETE FROM sessions WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM memberships WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM control.users WHERE id = ANY($1)", [ids]);
@@ -320,5 +323,109 @@ describe("supplier portal — audited writes (P11 slice 2)", () => {
   it("404s a re-submit of another supplier's PPAP", async () => {
     const res = await authed("post", `/v1/portal/ppap/${ppapB}/resubmit`, partnerTok).send({});
     expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * A completed, still-unlinked evidence upload owned by `uploadedBy`. Seeds the
+ * `files` row directly rather than round-tripping through MinIO — the storage
+ * PUT/stat is the internal FilesService's, exercised in files.test; here we only
+ * prove the partner-scoped ATTACH links the right file to the right record.
+ */
+async function seedFile(uploadedBy: string, tag: string): Promise<string> {
+  const id = randomUUID();
+  await withTenant(acmeId, null, async (tx) => {
+    await tx.query(
+      `INSERT INTO files
+         (id, tenant_id, bucket, key, filename, mime, size_bytes, scan_status, uploaded_by, created_by, updated_by)
+       VALUES ($1,$2,'test',$3,$4,'application/pdf',1024,'clean',$5,$5,$5)`,
+      [id, acmeId, `fixt/${id}`, `FIXT-ev-${tag}.pdf`, uploadedBy],
+    );
+  });
+  return id;
+}
+
+async function fileEntity(id: string): Promise<{ kind: string | null; entity: string | null }> {
+  const { rows } = await control.query<{ entity_kind: string | null; entity_id: string | null }>(
+    "SELECT entity_kind, entity_id FROM files WHERE id = $1",
+    [id],
+  );
+  return { kind: rows[0]?.entity_kind ?? null, entity: rows[0]?.entity_id ?? null };
+}
+
+describe("supplier portal — evidence upload (P11)", () => {
+  it("presigns a partner-scoped upload (201, no entity, audited as partner)", async () => {
+    const res = await authed("post", "/v1/portal/files/presign", partnerTok).send({
+      filename: "8d-evidence.pdf",
+      mime: "application/pdf",
+      sizeBytes: 2048,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.fileId).toBeDefined();
+    expect(typeof res.body.uploadUrl).toBe("string");
+
+    // The upload starts UNLINKED and is audited to an external actor.
+    const { kind, entity } = await fileEntity(res.body.fileId);
+    expect(kind).toBeNull();
+    expect(entity).toBeNull();
+    const audit = await control.query<{ actor_kind: string }>(
+      `SELECT actor_kind FROM audit_events WHERE entity_kind = 'file' AND entity_id = $1 AND action = 'created'`,
+      [res.body.fileId],
+    );
+    expect(audit.rows.some((a) => a.actor_kind === "partner")).toBe(true);
+  });
+
+  it("denies presign without portal:respond (viewer) and without a scope (admin)", async () => {
+    const body = { filename: "x.pdf", mime: "application/pdf", sizeBytes: 10 };
+    const viewer = await authed("post", "/v1/portal/files/presign", viewerTok).send(body);
+    expect(viewer.status).toBe(403);
+    const admin = await authed("post", "/v1/portal/files/presign", adminTok).send(body);
+    expect(admin.status).toBe(403); // has the capability, but no supplier scope
+  });
+
+  it("attaches the partner's own upload to their SCAR on respond", async () => {
+    const fileId = await seedFile(partnerUserId, "scar-own");
+    const res = await authed("post", `/v1/portal/scars/${scarA}/respond`, partnerTok).send({
+      note: "Containment photos attached.",
+      fileIds: [fileId],
+    });
+    expect(res.status).toBe(200);
+    const { kind, entity } = await fileEntity(fileId);
+    expect(kind).toBe("scar");
+    expect(entity).toBe(scarA);
+  });
+
+  it("rejects attaching a file the partner did not upload, leaving it unlinked", async () => {
+    const foreign = await seedFile(adminUserId, "not-mine");
+    const res = await authed("post", `/v1/portal/scars/${scarA}/respond`, partnerTok).send({
+      note: "Trying to attach someone else's file.",
+      fileIds: [foreign],
+    });
+    expect(res.status).toBe(422);
+    const { kind } = await fileEntity(foreign);
+    expect(kind).toBeNull(); // untouched
+  });
+
+  it("does not attach to another supplier's SCAR (404, file untouched)", async () => {
+    const fileId = await seedFile(partnerUserId, "foreign-scar");
+    const res = await authed("post", `/v1/portal/scars/${scarB}/respond`, partnerTok).send({
+      note: "nope",
+      fileIds: [fileId],
+    });
+    expect(res.status).toBe(404);
+    const { kind } = await fileEntity(fileId);
+    expect(kind).toBeNull();
+  });
+
+  it("attaches evidence on a PPAP re-submit", async () => {
+    const fileId = await seedFile(partnerUserId, "ppap");
+    const res = await authed("post", `/v1/portal/ppap/${ppapA}/resubmit`, partnerTok).send({
+      note: "Updated dimensional report attached.",
+      fileIds: [fileId],
+    });
+    expect(res.status).toBe(200);
+    const { kind, entity } = await fileEntity(fileId);
+    expect(kind).toBe("ppap_submission");
+    expect(entity).toBe(ppapA);
   });
 });

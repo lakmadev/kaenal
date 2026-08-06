@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, Send, TriangleAlert } from "lucide-react";
-import type { PortalScarDto } from "@kaenal/types";
+import type { FileDto, PortalScarDto } from "@kaenal/types";
 import { longDate } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
 import { Button, EmptyState, Skeleton, useToast } from "@/components/ui";
 import { SCAR_D_STEPS } from "@kaenal/core";
 import { usePortalScar, useRespondScar } from "@/hooks/use-portal";
+import { PortalEvidenceAttach } from "./portal-evidence-attach";
 import { PortalScarStatus, PortalSeverity, stageLabel, TEAL, TEAL_DARK } from "./portal-bits";
 
 const RESPONDABLE = new Set(["draft", "open", "responded"]);
@@ -37,6 +38,7 @@ function View({ scar }: { scar: PortalScarDto }): React.ReactElement {
   const toast = useToast();
   const respond = useRespondScar(scar.id);
   const [note, setNote] = useState("");
+  const [evidence, setEvidence] = useState<FileDto[]>([]);
   const canRespond = RESPONDABLE.has(scar.status);
 
   const submit = (acknowledge: boolean): void => {
@@ -45,11 +47,16 @@ function View({ scar }: { scar: PortalScarDto }): React.ReactElement {
       return;
     }
     respond.mutate(
-      { note: note.trim(), acknowledge },
+      {
+        note: note.trim(),
+        acknowledge,
+        ...(evidence.length > 0 ? { fileIds: evidence.map((f) => f.id) } : {}),
+      },
       {
         onSuccess: () => {
           toast.success(acknowledge ? "Response submitted and acknowledged" : "Response submitted");
           setNote("");
+          setEvidence([]);
         },
         onError: (err) => toast.error(errorMessage(err)),
       },
@@ -134,20 +141,23 @@ function View({ scar }: { scar: PortalScarDto }): React.ReactElement {
               onChange={(e) => setNote(e.target.value)}
               style={{ resize: "vertical", minHeight: 92 }}
             />
-            <div className="mt-3 flex justify-end gap-2">
-              <Button onClick={() => submit(false)} loading={respond.isPending}>
-                <Send size={14} /> Submit response
-              </Button>
-              {!scar.supplierAcknowledged && (
-                <button
-                  onClick={() => submit(true)}
-                  disabled={respond.isPending}
-                  className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
-                  style={{ background: TEAL }}
-                >
-                  <Check size={14} /> Submit & acknowledge
-                </button>
-              )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <PortalEvidenceAttach files={evidence} onChange={setEvidence} disabled={respond.isPending} />
+              <div className="ml-auto flex gap-2">
+                <Button onClick={() => submit(false)} loading={respond.isPending}>
+                  <Send size={14} /> Submit response
+                </Button>
+                {!scar.supplierAcknowledged && (
+                  <button
+                    onClick={() => submit(true)}
+                    disabled={respond.isPending}
+                    className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
+                    style={{ background: TEAL }}
+                  >
+                    <Check size={14} /> Submit & acknowledge
+                  </button>
+                )}
+              </div>
             </div>
           </>
         ) : (

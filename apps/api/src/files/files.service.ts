@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { withAudit, type Tx } from "@kaenal/db";
 import { MAX_FILE_BYTES, validateUpload } from "@kaenal/core";
-import type { DownloadFileResult, FileDto, PresignFileBody, PresignFileResult } from "@kaenal/types";
+import type { ActorKind, DownloadFileResult, FileDto, PresignFileBody, PresignFileResult } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 import { NoopProducer, type JobProducer } from "../jobs/producer.js";
@@ -73,6 +73,7 @@ export class FilesService {
     actorId: string,
     body: PresignFileBody,
     context: AuditContext,
+    actorKind: ActorKind = "user",
   ): Promise<PresignFileResult> {
     const decision = validateUpload({ mime: body.mime, sizeBytes: body.sizeBytes });
     if (!decision.ok) throw ApiError.from(decision);
@@ -85,7 +86,7 @@ export class FilesService {
       tenantId,
       {
         actorId,
-        actorKind: "user",
+        actorKind,
         entityKind: "file",
         entityId: id,
         action: "created",
@@ -126,6 +127,7 @@ export class FilesService {
     actorId: string,
     id: string,
     context: AuditContext,
+    actorKind: ActorKind = "user",
   ): Promise<FileDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
@@ -154,7 +156,7 @@ export class FilesService {
       tenantId,
       {
         actorId,
-        actorKind: "user",
+        actorKind,
         entityKind: "file",
         entityId: id,
         action: "file_attached",

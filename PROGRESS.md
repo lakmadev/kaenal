@@ -1756,11 +1756,28 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
   (a supplier-scoped variant of the staff invite — deferred) mints the `partner` membership + drives
   enrolment. The read-only portal backend + isolation model are done and proven; these are the gates on
   turning it on. See P11 Decisions log entry.
-- **P11 Supplier Portal — remaining piece: AV-gated evidence UPLOAD.** Slice 2 delivered the portal FE
-  and the audited writes (SCAR respond, PPAP re-submit). The one deferred write is letting a partner
-  UPLOAD 8D evidence / a re-submitted PPAP file through the presign + AV-scan flow made partner-safe (a
-  portal presign endpoint scoped to the partner's supplier, then attach on scan-clean). The respond form
-  currently takes a text note only; wiring the upload is the follow-up.
+- **P11 Supplier Portal — evidence UPLOAD ✅ (2026-08-06).** The last deferred write. A partner-scoped
+  mirror of the internal presign flow that never touches `/v1/files/*`: `POST /v1/portal/files/presign`
+  (`portal:respond`) creates the file **unlinked and owned by the caller** — the partner supplies only
+  name/type/size, never a target entity (`PortalEvidencePresignBody`) — then `POST /v1/portal/files/:id/
+  complete` finalises + hands off to the AV scan. The file is attached to a record only when the partner
+  responds/re-submits: `PortalScarRespondBody`/`PortalPpapResubmitBody` gained `fileIds[]`, and
+  `PortalService.attachEvidence` links inside the audited tx via `UPDATE files … WHERE uploaded_by = actor
+  AND entity_kind IS NULL` — a file the partner didn't upload, one already attached, or a foreign record
+  can't be linked (mismatch → 422; foreign SCAR/PPAP → 404 before any attach). `FilesService.presign/
+  complete` gained an `actorKind` param so these audit as `actor_kind='partner'`; the not-clean download
+  gate is the internal FilesService's, reused as-is. **FE:** `PortalEvidenceAttach` (teal paperclip + chips,
+  `supplier-portal.jsx`) on the SCAR respond + PPAP re-submit cards; `uploadPortalEvidence` runs presign →
+  PUT → complete. Tests: portal.test.ts +6 (presign scoped/201/actor=partner, denied to viewer & admin-no-
+  scope, own-file attach to SCAR, foreign-file 422 untouched, foreign-record 404 untouched, PPAP attach) —
+  23 green; files.test 11 green; repo typecheck 7/7; lint clean. Verified the portal route compiles/renders
+  (the account-scope guard shows for a non-partner). *Note: a full in-browser upload click-through needs a
+  partner+MFA session against a running API — not exercised here; the scoped-attach behaviour is covered by
+  the integration tests instead.*
+  - **Known gap (pre-existing, NOT P11):** the internal `/v1/files/*` routes carry no capability, so a
+    partner session can still reach them (presign to any entity, download any clean tenant file). The
+    portal upload deliberately avoids them, but locking the generic files controller against partner-scoped
+    memberships is a separate hardening — logged for sign-off, not done here.
 
 - **Web app (`apps/web`): foundation only; module screens + several cross-cutting systems pending.** The
   shell, design system, sign-in, and a dashboard slice are up and building, but most nav destinations are

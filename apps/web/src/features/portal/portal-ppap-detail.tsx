@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, RefreshCw, TriangleAlert } from "lucide-react";
-import type { PortalPpapDto } from "@kaenal/types";
+import type { FileDto, PortalPpapDto } from "@kaenal/types";
 import { longDate } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
 import { EmptyState, Skeleton, useToast } from "@/components/ui";
 import { usePortalPpap, useResubmitPpap } from "@/hooks/use-portal";
+import { PortalEvidenceAttach } from "./portal-evidence-attach";
 import { PortalElementBadge, PortalPpapStatus, TEAL } from "./portal-bits";
 
 const RESUBMITTABLE = new Set(["pending", "in_review", "interim"]);
@@ -35,17 +36,22 @@ function View({ ppap }: { ppap: PortalPpapDto }): React.ReactElement {
   const toast = useToast();
   const resubmit = useResubmitPpap(ppap.id);
   const [note, setNote] = useState("");
+  const [evidence, setEvidence] = useState<FileDto[]>([]);
 
   const canResubmit = RESUBMITTABLE.has(ppap.status);
   const changesRequested = ppap.elements.filter((e) => e.status === "changes_requested").length;
 
   const submit = (): void => {
     resubmit.mutate(
-      { note: note.trim() === "" ? null : note.trim() },
+      {
+        note: note.trim() === "" ? null : note.trim(),
+        ...(evidence.length > 0 ? { fileIds: evidence.map((f) => f.id) } : {}),
+      },
       {
         onSuccess: () => {
           toast.success("Package re-submitted for review");
           setNote("");
+          setEvidence([]);
         },
         onError: (err) => toast.error(errorMessage(err)),
       },
@@ -100,11 +106,12 @@ function View({ ppap }: { ppap: PortalPpapDto }): React.ReactElement {
             onChange={(e) => setNote(e.target.value)}
             style={{ resize: "vertical", minHeight: 72 }}
           />
-          <div className="mt-3 flex justify-end">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <PortalEvidenceAttach files={evidence} onChange={setEvidence} disabled={resubmit.isPending} />
             <button
               onClick={submit}
               disabled={resubmit.isPending}
-              className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
               style={{ background: TEAL }}
             >
               <RefreshCw size={14} /> Re-submit for review

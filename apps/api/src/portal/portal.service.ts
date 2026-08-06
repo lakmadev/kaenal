@@ -2,19 +2,23 @@ import { randomUUID } from "node:crypto";
 import { Injectable, Inject } from "@nestjs/common";
 import { withAudit, type Tx } from "@kaenal/db";
 import type {
+  FileDto,
   Page,
+  PortalEvidencePresignBody,
   PortalIdentityDto,
   PortalPpapDto,
   PortalPpapResubmitBody,
   PortalScarDto,
   PortalScarRespondBody,
   PpapSubmissionDto,
+  PresignFileResult,
   ScarDto,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
-import { PPAP_SERVICE, SCAR_SERVICE } from "../tokens.js";
+import { FILES_SERVICE, PPAP_SERVICE, SCAR_SERVICE } from "../tokens.js";
 import type { ScarService } from "../scar/scar.service.js";
 import type { PpapService } from "../ppap/ppap.service.js";
+import type { FilesService } from "../files/files.service.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
 /** SCAR lifecycle states that still invite a supplier response. */
@@ -41,6 +45,7 @@ export class PortalService {
   constructor(
     @Inject(SCAR_SERVICE) private readonly scars: ScarService,
     @Inject(PPAP_SERVICE) private readonly ppap: PpapService,
+    @Inject(FILES_SERVICE) private readonly files: FilesService,
   ) {}
 
   /**
@@ -113,6 +118,80 @@ export class PortalService {
   }
 
   /**
+   * Presign an evidence upload for the partner (P11). This is a deliberately
+   * narrow mirror of the internal `/v1/files/presign`: the partner supplies only
+   * the file's name/type/size — never a target entity — so the created row is
+   * UNLINKED and owned by the caller. It is attached to one of the partner's own
+   * records only later, through `respondScar` / `resubmitPpap` `fileIds`. The AV
+   * scan and the not-clean download gate are the internal FilesService's, reused
+   * as-is; the audit records `actor_kind='partner'`.
+   */
+  async presignEvidence(
+    tx: Tx,
+    tenantId: string,
+    supplierScope: string | null | undefined,
+    actorId: string,
+    body: PortalEvidencePresignBody,
+    context: AuditContext,
+  ): Promise<PresignFileResult> {
+    this.scopeOf(supplierScope); // partner-only; an unscoped account is FORBIDDEN
+    return this.files.presign(
+      tx,
+      tenantId,
+      actorId,
+      { filename: body.filename, mime: body.mime, sizeBytes: body.sizeBytes },
+      context,
+      "partner",
+    );
+  }
+
+  /**
+   * Finalise a portal evidence upload. FilesService.complete already refuses any
+   * file not uploaded by this actor, so a partner can only complete their own
+   * presign — no extra scope check is needed. Hands the object to the AV scan.
+   */
+  async completeEvidence(
+    tx: Tx,
+    tenantId: string,
+    supplierScope: string | null | undefined,
+    actorId: string,
+    fileId: string,
+    context: AuditContext,
+  ): Promise<FileDto> {
+    this.scopeOf(supplierScope);
+    return this.files.complete(tx, tenantId, actorId, fileId, context, "partner");
+  }
+
+  /**
+   * Link the partner's own, still-unlinked uploads to one of their records. A
+   * file the caller did not upload, one already attached to something, or a
+   * soft-deleted one simply does not match the guard — if any requested id fails
+   * to link, the whole response is rejected rather than silently dropping it.
+   * Runs inside the caller's audited transaction.
+   */
+  private async attachEvidence(
+    t: Tx,
+    entityKind: "scar" | "ppap_submission",
+    entityId: string,
+    actorId: string,
+    fileIds: readonly string[],
+  ): Promise<void> {
+    if (fileIds.length === 0) return;
+    const { rows } = await t.query<{ id: string }>(
+      `UPDATE files SET entity_kind = $2, entity_id = $3, updated_by = $4
+        WHERE id = ANY($1::uuid[])
+          AND uploaded_by = $4
+          AND entity_kind IS NULL
+          AND deleted_at IS NULL
+        RETURNING id`,
+      [[...fileIds], entityKind, entityId, actorId],
+    );
+    if (rows.length !== fileIds.length) {
+      throw new ApiError("VALIDATION_FAILED", "One or more attachments are not available to attach");
+    }
+  }
+
+  /**
    * The supplier's response to a SCAR: a note (recorded as a comment on the
    * SCAR, so internal staff see it too) plus an optional acknowledgement. This
    * is a partner input into the 8D — it does NOT move the internal D-step
@@ -137,6 +216,7 @@ export class PortalService {
 
     const acknowledged = body.acknowledge === true && !scar.supplierAcknowledged;
     const commentId = randomUUID();
+    const fileIds = body.fileIds ?? [];
 
     await withAudit(
       tx,
@@ -147,7 +227,7 @@ export class PortalService {
         entityKind: "scar",
         entityId: id,
         action: "commented",
-        after: { commentId, acknowledged },
+        after: { commentId, acknowledged, ...(fileIds.length > 0 ? { fileIds } : {}) },
         requestId: context.requestId,
         ip: context.ip,
         userAgent: context.userAgent,
@@ -165,6 +245,7 @@ export class PortalService {
             [id, actorId],
           );
         }
+        await this.attachEvidence(t, "scar", id, actorId, fileIds);
       },
     );
 
@@ -194,6 +275,8 @@ export class PortalService {
       throw new ApiError("VALIDATION_FAILED", "A decided PPAP package cannot be re-submitted");
     }
 
+    const fileIds = body.fileIds ?? [];
+
     await withAudit(
       tx,
       tenantId,
@@ -204,7 +287,7 @@ export class PortalService {
         entityId: id,
         action: "status_changed",
         before: { status: ppap.status },
-        after: { status: "in_review" },
+        after: { status: "in_review", ...(fileIds.length > 0 ? { fileIds } : {}) },
         ...(body.note != null && body.note !== "" ? { reason: body.note } : {}),
         requestId: context.requestId,
         ip: context.ip,
@@ -217,6 +300,7 @@ export class PortalService {
             WHERE id = $1`,
           [id, actorId],
         );
+        await this.attachEvidence(t, "ppap_submission", id, actorId, fileIds);
       },
     );
 
