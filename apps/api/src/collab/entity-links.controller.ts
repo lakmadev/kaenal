@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@ne
 import { z } from "zod";
 import { CreateEntityLinkBody, EntityRefQuery, type EntityLinkDto, type Page } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
+import { Internal } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
 import { ENTITY_LINKS_SERVICE } from "../tokens.js";
@@ -14,7 +15,9 @@ const uuid = z.string().uuid();
  * relates records the caller can already see (the service resolves both
  * endpoints in-tenant, 404 otherwise), and every link/unlink is audited on the
  * `from` record. Session-gated by default-deny like the other collab routes.
+ * `@Internal`: cross-linking records is not a supplier-portal capability.
  */
+@Internal()
 @Controller()
 export class EntityLinksController {
   constructor(@Inject(ENTITY_LINKS_SERVICE) private readonly links: EntityLinksService) {}

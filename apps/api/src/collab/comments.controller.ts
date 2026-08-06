@@ -8,6 +8,7 @@ import {
   type Page,
 } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
+import { Internal } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
 import { COMMENTS_SERVICE } from "../tokens.js";
@@ -21,8 +22,10 @@ const ListQuery = EntityRefQuery.merge(PageQuery);
  * these are collaboration on records the caller can already see — every method
  * runs in the tenant-scoped transaction (default-deny requires a session) and
  * the service re-checks that the parent record is visible, so isolation holds
- * without a bespoke capability.
+ * without a bespoke capability. `@Internal`: a `partner` records a SCAR comment
+ * only through the portal's respond flow (PortalService), never this controller.
  */
+@Internal()
 @Controller()
 export class CommentsController {
   constructor(@Inject(COMMENTS_SERVICE) private readonly comments: CommentsService) {}

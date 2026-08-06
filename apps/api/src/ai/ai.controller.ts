@@ -6,6 +6,7 @@ import {
   type AiSummaryDto,
 } from "@kaenal/types";
 import { currentContext, currentPool, currentTx } from "../context.js";
+import { Internal } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
 import { AI_SERVICE } from "../tokens.js";
@@ -16,7 +17,9 @@ import type { AiService } from "./ai.service.js";
  * the gateway itself enforces entitlement, data controls, and budget, so no
  * capability decorator is needed. `draft` runs the gateway (which manages its
  * own transactions); `accept` is a document mutation in the request transaction.
+ * `@Internal`: the AI gateway is an internal-staff tool, not a portal feature.
  */
+@Internal()
 @Controller()
 export class AiController {
   constructor(@Inject(AI_SERVICE) private readonly ai: AiService) {}

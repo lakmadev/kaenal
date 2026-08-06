@@ -2,6 +2,7 @@ import { Controller, Get } from "@nestjs/common";
 import { capabilitiesFor } from "@kaenal/core";
 import type { MeDto, MePlantDto } from "@kaenal/types";
 import { currentContext, currentTx } from "./context.js";
+import { Internal } from "./decorators.js";
 import { ApiError } from "./errors.js";
 
 /**
@@ -16,7 +17,12 @@ import { ApiError } from "./errors.js";
  * `control.users`/`control.tenants` are readable by the app role (03 §2), and
  * the plant/NCR/CAPA reads run inside the request's tenant transaction, so RLS
  * confines them to the caller's workspace.
+ *
+ * `@Internal`: the external portal has its own identity endpoint
+ * (`/v1/portal/me`); a `partner` never gets the internal MeDto (plants, open
+ * NCR/CAPA counts, internal capabilities).
  */
+@Internal()
 @Controller("v1")
 export class MeController {
   @Get("me")

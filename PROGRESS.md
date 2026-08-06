@@ -1780,11 +1780,15 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
     Applied class-level to `FilesController`, which carries no capability by design; a partner's only
     sanctioned file path stays `/v1/portal/files/*`. Test: portal.test.ts asserts a partner gets 403 on
     `/v1/files/presign` + `/v1/files/:id` (24 tests); files.test 11 green (internal file flows unaffected).
-  - **Still open — other capability-less routes a partner can reach (flagged, NOT locked):** an audit of the
-    controllers shows `/v1/search` (federated internal search — the notable one), `/v1/me`, `/v1/exports`,
-    `/v1/ai/*`, `/v1/me/workspaces|switch-workspace`, and `collab/audit-log` also have no capability guard.
-    `@Internal` is the ready mechanism, but each needs checking against any legitimate partner path before
-    locking — logged for sign-off.
+  - **All internal capability-less routes now locked against partners ✅ (2026-08-06).** Extended `@Internal`
+    to every authenticated route that carries no capability and is not part of the portal: `/v1/search`
+    (federated internal search — the notable one), `/v1/me`, `/v1/exports/*`, `/v1/ai/*`, `/v1/me/workspaces`
+    + `/switch-workspace`, `/v1/audit-events`, and `/v1/comments` + `/v1/entity-links` (a partner records a
+    SCAR comment only through `PortalService`, never the collab controller). Confirmed the portal FE is
+    self-contained (only `/v1/portal/*` + sign-out) so nothing legitimate breaks. **Deliberately NOT locked:**
+    `/v1/notifications` (per-user/self-scoped by RLS, and the P11 spec lists supplier notifications) and the
+    `@Public` `health`/`openapi`. Test: portal.test.ts iterates all of these → 403 for a partner (25 tests);
+    the internal-access suites (search/exports/ai/collab/workspaces) stay green.
 
 - **Web app (`apps/web`): foundation only; module screens + several cross-cutting systems pending.** The
   shell, design system, sign-in, and a dashboard slice are up and building, but most nav destinations are

@@ -3,6 +3,7 @@ import type { Response } from "express";
 import { WEB_SESSION_TTL_MS } from "@kaenal/core";
 import { SwitchWorkspaceBody, type WorkspaceDto, type WorkspacesDto } from "@kaenal/types";
 import { currentContext } from "../context.js";
+import { Internal } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { AUTH_SERVICE, ENV } from "../tokens.js";
 import type { Env } from "../env.js";
@@ -14,8 +15,10 @@ import { actorIdOf } from "../ncr/handler-ctx.js";
 /**
  * The workspace switcher (shell.jsx profile menu). Both routes are authenticated
  * — the caller must have a valid session in their current workspace — and both
- * scope strictly to that caller's own memberships.
+ * scope strictly to that caller's own memberships. `@Internal`: the multi-
+ * workspace switcher is internal-app chrome; the portal is single-supplier.
  */
+@Internal()
 @Controller("v1/me")
 export class WorkspaceController {
   constructor(

@@ -234,6 +234,30 @@ describe("supplier portal — isolation (rule 8, one boundary out)", () => {
     // …while the partner's own portal upload path stays open (covered below).
   });
 
+  it("denies a partner every internal capability-LESS route (@Internal)", async () => {
+    // These carry no @RequireCapability (access is governed by RLS + service
+    // scoping, not by role), so RBAC alone would let a partner in — @Internal is
+    // what refuses them. The interceptor runs the internal check before the
+    // handler, so a bare request still 403s regardless of body/query validity.
+    const cases: ["get" | "post", string][] = [
+      ["get", "/v1/search?q=weld"],
+      ["get", "/v1/me"],
+      ["get", "/v1/me/workspaces"],
+      ["post", "/v1/me/switch-workspace"],
+      ["get", "/v1/exports"],
+      ["post", "/v1/ai/drafts"],
+      ["get", `/v1/audit-events?entityKind=scar&entityId=${scarA}`],
+      ["get", `/v1/comments?entityKind=scar&entityId=${scarA}`],
+      ["post", "/v1/comments"],
+      ["get", `/v1/entity-links?entityKind=scar&entityId=${scarA}`],
+      ["post", "/v1/entity-links"],
+    ];
+    for (const [method, path] of cases) {
+      const res = await authed(method, path, partnerTok).send({});
+      expect(res.status, `${method.toUpperCase()} ${path} should be 403`).toBe(403);
+    }
+  });
+
   it("denies an internal viewer the portal (no portal capability)", async () => {
     const res = await authed("get", "/v1/portal/scars", viewerTok);
     expect(res.status).toBe(403);
