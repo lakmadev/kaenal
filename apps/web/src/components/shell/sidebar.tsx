@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { useUiStore } from "@/lib/stores/ui";
 import { hasCapability } from "@/hooks/use-me";
 import { NAV, SETTINGS_ITEM, isDivider, type NavItem } from "@/config/navigation";
+import { roleSeesNavRoot } from "@/config/rbac";
 
 /** A parent item is active when the current path is it or a child route of it. */
 function isParentActive(pathname: string, href: string): boolean {
@@ -33,6 +34,10 @@ function buildSections(me: MeDto | undefined): Section[] {
       sections.push({ label: entry.label, items: [] });
       continue;
     }
+    // Role curation first (which modules this role's UI surfaces), then the
+    // capability gate (never show a control that would 403). Empty sections are
+    // dropped below, so a divider whose whole group is hidden disappears too.
+    if (!roleSeesNavRoot(me?.role, entry.id)) continue;
     if (entry.capability !== undefined && !hasCapability(me, entry.capability)) continue;
     sections[sections.length - 1]!.items.push(entry);
   }

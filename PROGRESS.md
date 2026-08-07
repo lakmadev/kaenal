@@ -5,6 +5,33 @@
 
 ## Current status
 
+**RBAC — role-based UI (web, 2026-08-06).** Pulled the Claude Design "RBAC" change
+(`src/rbac.jsx` NEW, `src/shell.jsx`, `Kaenal.html`) into `project_brain/project/` via the
+DesignSync MCP (+ `RBAC_HANDOFF.md`). Implemented the REAL feature against our existing
+server-enforced RBAC rather than porting the localStorage demo (CLAUDE.md forbids copying
+prototype code; the handoff's "critical" server-enforcement TODO was already done via
+`@RequireCapability`/`@Internal`). Role comes strictly from the session (`/me`) — **no client
+"view as role" switcher** (user decision: omit it; a client toggle would desync from the
+server-enforced role). Deltas built, all driven by the real `me.role`/`me.capabilities`:
+- **`apps/web/src/config/rbac.ts`** (NEW) — `roleSeesNavRoot`/`roleSeesRoute`/`settingsFull`,
+  mirroring the design's per-role nav (admin=all, manager=all-minus-platform, auditor/
+  inspector/viewer explicit allow-lists; PLATFORM_ROOTS). Nav ids mapped to ours (ncr→ncrs,
+  scar→scars; dev-platform→/developer, pdf-designer→/pdf-templates).
+- **Sidebar** now filters by role AND capability (empty divider groups drop out).
+- **Route guard** in `app-shell.tsx` — a role deep-linking a module its UI doesn't surface is
+  bounced to `/dashboard` (belt-and-suspenders with the server 403).
+- **Settings rail** — only admin sees the Workspace/Security/Compliance/Platform/Process groups
+  (`settingsFull`); Personal is visible to all.
+- **Action gating** — `useCan(cap)` hook added; gated the gaps (NCR-list New NCR, NCR-detail
+  Verify=`ncr:verify`/transitions=`ncr:manage`, inspection-list New Inspection, inspection-detail
+  Raise NCR). CAPA/SCAR/documents/suppliers/PPAP list creates + detail approves were already
+  capability-gated.
+Verify: `apps/web/test/rbac.test.ts` (11 tests) proves the per-role nav/route/settings logic;
+web typecheck + 14 web unit tests green; admin browser check confirms full nav (all 30 modules)
++ dashboard, no route-guard misfire, no regression. *Known minor gap:* a non-admin deep-linking
+a hidden `/settings/<section>` still renders the section's placeholder (server enforces data);
+rail hides it. Follow-up if needed.
+
 **Phase 0 done; Phase 1 backend COMPLETE; Phase 2 nearly done; FRONTEND STARTED — `apps/web` foundation
 is up (Next.js App Router + Tailwind v4 on the ported design tokens, shell, sign-in, dashboard).** Data
 plane, business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all

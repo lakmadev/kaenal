@@ -1,10 +1,11 @@
 "use client";
 
 import { Suspense, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiRequestError, apiQueries } from "@kaenal/api-client";
 import { useMe } from "@/hooks/use-me";
+import { roleSeesRoute } from "@/config/rbac";
 import { getApiClient } from "@/lib/api";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
@@ -19,10 +20,18 @@ import { Skeleton } from "@/components/ui";
  */
 export function AppShell({ children }: { children: React.ReactNode }): React.ReactElement {
   const router = useRouter();
+  const pathname = usePathname();
   const queryClient = useQueryClient();
   const { data: me, error, isLoading } = useMe();
 
   const unauthenticated = error instanceof ApiRequestError && error.status === 401;
+
+  // Role route guard (RBAC): a role that deep-links a module its UI doesn't
+  // surface is bounced to the dashboard. Belt-and-suspenders — the server still
+  // 403s the underlying data — but it avoids rendering a shell around an empty
+  // or forbidden page. `dashboard`/`settings` are always allowed, so no loop.
+  const blockedByRole =
+    me !== undefined && !roleSeesRoute(me.role, pathname);
 
   // An external partner has only portal:* capabilities and nothing internal to
   // render here — send them to their own surface (P11) rather than an empty shell.
@@ -34,7 +43,8 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
   useEffect(() => {
     if (unauthenticated) router.replace("/sign-in");
     else if (portalOnly) router.replace("/portal");
-  }, [unauthenticated, portalOnly, router]);
+    else if (blockedByRole) router.replace("/dashboard");
+  }, [unauthenticated, portalOnly, blockedByRole, router]);
 
   // Warm the members directory once the session is known (internal users only).
   // Nearly every screen resolves an owner/inspector/author/assignee id → name

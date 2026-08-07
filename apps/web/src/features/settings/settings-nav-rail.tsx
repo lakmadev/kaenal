@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
+import { useMe } from "@/hooks/use-me";
+import { settingsFull } from "@/config/rbac";
 import { SETTINGS_NAV, DEFAULT_SETTINGS_SECTION, settingsItem } from "./settings-nav";
 
 /**
@@ -12,10 +14,14 @@ import { SETTINGS_NAV, DEFAULT_SETTINGS_SECTION, settingsItem } from "./settings
  */
 export function SettingsNavRail(): React.ReactElement {
   const pathname = usePathname();
+  const { data: me } = useMe();
   const slug = pathname.split("/")[2];
   const active = slug !== undefined && settingsItem(slug) !== undefined ? slug : DEFAULT_SETTINGS_SECTION;
 
-  const allItems = SETTINGS_NAV.flatMap((grp) => grp.items);
+  // Only an admin sees the workspace/security/compliance/platform groups
+  // (the design's `settingsFull`); everyone sees the Personal group.
+  const groups = SETTINGS_NAV.filter((grp) => grp.group === "Personal" || settingsFull(me?.role));
+  const allItems = groups.flatMap((grp) => grp.items);
 
   return (
     <>
@@ -51,7 +57,7 @@ export function SettingsNavRail(): React.ReactElement {
         aria-label="Settings sections"
       >
         <div className="px-2 pb-3.5 text-[17px] font-bold">Settings</div>
-        {SETTINGS_NAV.map((grp) => (
+        {groups.map((grp) => (
           <div key={grp.group} className="mb-[18px]">
             <div className="k-overline px-2 pb-1.5">{grp.group}</div>
             {grp.items.map((it) => {

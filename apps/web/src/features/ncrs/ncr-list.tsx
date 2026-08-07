@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { List, LayoutGrid, Plus, Download, Search, Filter, Link2, TriangleAlert } from "lucide-react";
 import type { NcrDto, NcrStatus, NcrPriority, NcrSource } from "@kaenal/types";
 import { shortDate, titleCase } from "@/lib/format";
-import { useMe } from "@/hooks/use-me";
+import { useMe, hasCapability } from "@/hooks/use-me";
 import { useNcrs } from "@/hooks/use-ncrs";
 import { useMemberLookup } from "@/hooks/use-members";
 import { PageHeader } from "@/components/page-header";
@@ -46,6 +46,7 @@ export function NcrList(): React.ReactElement {
   const view_ = searchParams.get("view");
   const savedView = view_ === "mine" || view_ === "overdue" ? view_ : null;
 
+  const canCreate = hasCapability(me, "ncr:create");
   const [view, setView] = useState<View>("list");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
@@ -135,9 +136,11 @@ export function NcrList(): React.ReactElement {
             <Button onClick={() => exportCsv(rows)}>
               <Download size={14} /> Export
             </Button>
-            <Button variant="primary" onClick={() => setCreateOpen(true)}>
-              <Plus size={14} /> New NCR
-            </Button>
+            {canCreate && (
+              <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                <Plus size={14} /> New NCR
+              </Button>
+            )}
           </>
         }
       />
@@ -173,9 +176,11 @@ export function NcrList(): React.ReactElement {
             title={search !== "" || activeFilterCount > 0 || status !== "all" ? "No matching NCRs" : "No NCRs yet"}
             body="Raise a non-conformity to start tracking it."
             action={
-              <Button variant="primary" onClick={() => setCreateOpen(true)}>
-                <Plus size={14} /> New NCR
-              </Button>
+              canCreate ? (
+                <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                  <Plus size={14} /> New NCR
+                </Button>
+              ) : undefined
             }
           />
         </div>

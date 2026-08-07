@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { List, LayoutGrid, Plus, Download, Search, Filter, TriangleAlert, Calendar, ClipboardCheck } from "lucide-react";
 import type { InspectionDto, InspectionStatus, RiskLevel } from "@kaenal/types";
 import { shortDate } from "@/lib/format";
-import { useMe } from "@/hooks/use-me";
+import { useMe, hasCapability } from "@/hooks/use-me";
 import { useInspections } from "@/hooks/use-inspections";
 import { useMemberLookup } from "@/hooks/use-members";
 import { PageHeader } from "@/components/page-header";
@@ -38,6 +38,7 @@ function findingsCount(i: InspectionDto): number {
 export function InspectionList(): React.ReactElement {
   const router = useRouter();
   const { data: me } = useMe();
+  const canCreate = hasCapability(me, "inspection:perform");
   const lookup = useMemberLookup();
   const [view, setView] = useState<View>("list");
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -129,9 +130,11 @@ export function InspectionList(): React.ReactElement {
             <Button onClick={() => exportCsv(rows)}>
               <Download size={14} /> Export
             </Button>
-            <Button variant="primary" onClick={() => setCreateOpen(true)}>
-              <Plus size={14} /> New Inspection
-            </Button>
+            {canCreate && (
+              <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                <Plus size={14} /> New Inspection
+              </Button>
+            )}
           </>
         }
       />
@@ -172,7 +175,7 @@ export function InspectionList(): React.ReactElement {
             icon={ClipboardCheck}
             title={search !== "" || activeFilterCount > 0 || status !== "all" ? "No matching inspections" : "No inspections yet"}
             body="Schedule an inspection from a published template."
-            action={<Button variant="primary" onClick={() => setCreateOpen(true)}><Plus size={14} /> New Inspection</Button>}
+            action={canCreate ? <Button variant="primary" onClick={() => setCreateOpen(true)}><Plus size={14} /> New Inspection</Button> : undefined}
           />
         </div>
       ) : view === "list" ? (

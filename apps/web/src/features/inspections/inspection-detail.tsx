@@ -22,7 +22,7 @@ import {
 } from "@/hooks/use-inspections";
 import { useCreateNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, RiskBadge, Skeleton, EmptyState, Input, useToast } from "@/components/ui";
-import { useMe, hasCapability } from "@/hooks/use-me";
+import { useMe, useCan, hasCapability } from "@/hooks/use-me";
 import { AssigneePicker } from "@/components/assignee-picker";
 import { ActivityFeed } from "@/components/activity-feed";
 import { InspectionForm } from "./form-renderer";
@@ -245,6 +245,7 @@ function FindingsTab({ inspection }: { inspection: InspectionDto }): React.React
   const findings = useInspectionFindings(inspection.id);
   const createFinding = useCreateFinding(inspection.id);
   const createNcr = useCreateNcr();
+  const canRaiseNcr = useCan("ncr:create");
   const [adding, setAdding] = useState(false);
   const [itemRef, setItemRef] = useState("");
   const [severity, setSeverity] = useState<FindingDto["severity"]>("major");
@@ -338,11 +339,11 @@ function FindingsTab({ inspection }: { inspection: InspectionDto }): React.React
                   <button onClick={() => router.push(`/ncrs/${f.ncrId!}`)} className="k-link mono text-[12px]">
                     → NCR
                   </button>
-                ) : (
+                ) : canRaiseNcr ? (
                   <Button size="sm" loading={createNcr.isPending} onClick={() => raiseNcr(f)}>
                     Raise NCR
                   </Button>
-                )}
+                ) : null}
               </div>
             </div>
           </div>

@@ -69,17 +69,26 @@ export function NcrDetail({ id }: { id: string }): React.ReactElement {
     );
   }
 
-  return <NcrDetailView ncr={ncr} meId={me?.userId} canManage={hasCapability(me, "ncr:manage")} />;
+  return (
+    <NcrDetailView
+      ncr={ncr}
+      meId={me?.userId}
+      canManage={hasCapability(me, "ncr:manage")}
+      canVerify={hasCapability(me, "ncr:verify")}
+    />
+  );
 }
 
 function NcrDetailView({
   ncr,
   meId,
   canManage,
+  canVerify,
 }: {
   ncr: NcrDto;
   meId: string | undefined;
   canManage: boolean;
+  canVerify: boolean;
 }): React.ReactElement {
   const router = useRouter();
   const toast = useToast();
@@ -153,21 +162,22 @@ function NcrDetailView({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {ncr.status === "resolved" && (
+            {ncr.status === "resolved" && canVerify && (
               <Button variant="primary" loading={busy} onClick={runVerify}>
                 Verify
               </Button>
             )}
-            {transitionsFor(ncr.status).map((t, i) => (
-              <Button
-                key={t.to}
-                variant={i === 0 && ncr.status !== "resolved" ? "primary" : "ghost"}
-                loading={busy}
-                onClick={() => runTransition(t.to, t.needsOwner)}
-              >
-                {t.label}
-              </Button>
-            ))}
+            {canManage &&
+              transitionsFor(ncr.status).map((t, i) => (
+                <Button
+                  key={t.to}
+                  variant={i === 0 && ncr.status !== "resolved" ? "primary" : "ghost"}
+                  loading={busy}
+                  onClick={() => runTransition(t.to, t.needsOwner)}
+                >
+                  {t.label}
+                </Button>
+              ))}
           </div>
         </div>
       </div>
