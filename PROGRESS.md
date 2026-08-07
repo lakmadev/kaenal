@@ -27,10 +27,20 @@ server-enforced role). Deltas built, all driven by the real `me.role`/`me.capabi
   Raise NCR). CAPA/SCAR/documents/suppliers/PPAP list creates + detail approves were already
   capability-gated.
 Verify: `apps/web/test/rbac.test.ts` (11 tests) proves the per-role nav/route/settings logic;
-web typecheck + 14 web unit tests green; admin browser check confirms full nav (all 30 modules)
-+ dashboard, no route-guard misfire, no regression. *Known minor gap:* a non-admin deep-linking
-a hidden `/settings/<section>` still renders the section's placeholder (server enforces data);
-rail hides it. Follow-up if needed.
+web typecheck + 14 web unit tests green. **Browser-verified both an admin** (full nav, 30 modules,
+no route-guard misfire) **and a seeded inspector** (`inspector@acme.test`, via the new
+`apps/api/scripts/seed-role-user.ts` dev helper): nav restricted to the inspector set; `/8d`
+deep-link → redirect to `/dashboard`; settings shows only the Personal group; Documents Upload
+hidden (no `document:manage`) while `/ncrs` New NCR shows (has `ncr:create`). *Known minor gap:*
+a non-admin deep-linking a hidden `/settings/<section>` still renders the section's placeholder
+(server enforces data); rail hides it.
+
+**CI fix (2026-08-06).** CI had been red: (1) **lint** failed because `ecosystem.config.cjs`
+wasn't lint-ignored (`eslint.config.js` ignored `*.config.{js,ts,mjs}` but not `.cjs`) → added
+`**/*.config.cjs` to `ignores`; (2) an earlier run hit the **known flaky**
+`scoped-transaction.test.ts` ECONNRESET (re-run, not a regression). Added `CI.md` — the pre-push
+gate (`pnpm typecheck && pnpm lint`) + full-pipeline reference + the flaky-test / local-only-
+teardown caveats, so CI is checked locally before every push.
 
 **Phase 0 done; Phase 1 backend COMPLETE; Phase 2 nearly done; FRONTEND STARTED — `apps/web` foundation
 is up (Next.js App Router + Tailwind v4 on the ported design tokens, shell, sign-in, dashboard).** Data
