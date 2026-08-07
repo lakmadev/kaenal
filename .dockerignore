@@ -1,0 +1,22 @@
+# Build context excludes — keep images small and free of secrets/local state.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+.git
+.github
+**/*.log
+**/coverage
+**/.vitest
+# Never ship env files into an image — secrets come from the platform at runtime.
+.env
+.env.*
+!.env.example
+# Local-only / design assets — not needed at runtime.
+project_brain
+Kaenal.html
+scratchpad
+**/.DS_Store
+# Local process/dev helpers
+ecosystem.config.cjs
+docker-compose.yml

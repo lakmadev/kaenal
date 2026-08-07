@@ -1,0 +1,61 @@
+# syntax=docker/dockerfile:1.7
+# ==============================================================================
+# Kaenal API (NestJS + ts-rest). Build context = repo root:
+#     docker build -f Dockerfile.api -t kaenal-api .
+#
+# WHY tsx and not `node dist/`: the workspace packages (@kaenal/core|db|types|
+# api-client) ship RAW TypeScript — their package.json `main` points at
+# `src/index.ts` with no build step. So a compiled `dist/main.js` cannot resolve
+# them at runtime. The app is designed to run from TS source via `tsx` (exactly
+# as in dev and CI). This is the correct, consistent entrypoint — do not swap it
+# for `node dist/...` without also giving every package a real build + dist.
+#
+# Base is glibc (bookworm), NOT alpine: `argon2` (password hashing) is a native
+# module whose prebuilt binaries are glibc; alpine/musl would force a slow source
+# compile. Build tools live only in the `deps` stage.
+# ==============================================================================
+
+FROM node:22-bookworm-slim AS base
+# NOTE: NODE_ENV is deliberately NOT set to production here — that would make
+# `pnpm install` skip devDependencies, and `tsx` (the API runtime) is a devDep.
+# NODE_ENV=production is set in the runtime stage instead.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH
+RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
+WORKDIR /app
+
+# --- deps: install only the API's slice of the workspace (+ its native builds) -
+FROM base AS deps
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
+# Copy every workspace manifest first so the dependency graph resolves and this
+# layer caches across source-only changes. `--filter @kaenal/api...` installs the
+# API plus the packages it depends on (core/db/types) — including its devDep tsx,
+# which is the runtime — and skips web-only deps.
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY packages/api-client/package.json packages/api-client/
+COPY packages/config/package.json packages/config/
+COPY packages/core/package.json packages/core/
+COPY packages/db/package.json packages/db/
+COPY packages/types/package.json packages/types/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter "@kaenal/api..."
+
+# --- runtime ------------------------------------------------------------------
+FROM base AS runtime
+ENV NODE_ENV=production
+# tini = PID 1 that forwards SIGTERM so Nest's shutdown hooks + the DB pool drain
+# run cleanly on deploy/scale-down.
+RUN apt-get update && apt-get install -y --no-install-recommends tini \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=deps --chown=node:node /app/ ./
+COPY --chown=node:node . .
+USER node
+WORKDIR /app/apps/api
+EXPOSE 3001
+# Liveness: GET /healthz · Readiness: GET /readyz (checks DB + Redis).
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node_modules/.bin/tsx", "src/main.ts"]
