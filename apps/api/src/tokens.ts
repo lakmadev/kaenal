@@ -41,5 +41,6 @@ export const SETTINGS_SERVICE = Symbol("SETTINGS_SERVICE");
 export const NCR_RULES_SERVICE = Symbol("NCR_RULES_SERVICE");
 export const LEGAL_HOLDS_SERVICE = Symbol("LEGAL_HOLDS_SERVICE");
 export const DLP_POLICIES_SERVICE = Symbol("DLP_POLICIES_SERVICE");
+export const COST_CENTERS_SERVICE = Symbol("COST_CENTERS_SERVICE");
 export const JOB_PRODUCER = Symbol("JOB_PRODUCER");
 export const RATE_LIMITER = Symbol("RATE_LIMITER");

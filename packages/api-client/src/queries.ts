@@ -5,6 +5,10 @@ import type {
   NcrValidationRuleDto,
   LegalHoldDto,
   DlpPolicyDto,
+  CostCenterDto,
+  CostCenterAssignmentDto,
+  ChargebackSettingsDto,
+  ChargebackReportDto,
   CapaDto,
   CommentDto,
   DocumentDto,
@@ -290,6 +294,22 @@ export const apiQueries = {
     dlpPolicies: (client: ApiClient): QueryOption<Page<DlpPolicyDto>> => ({
       queryKey: queryKeys.settings.dlpPolicies(),
       queryFn: () => client.listDlpPolicies().then((r) => unwrap<Page<DlpPolicyDto>>(r)),
+    }),
+    costCenters: (client: ApiClient): QueryOption<Page<CostCenterDto>> => ({
+      queryKey: queryKeys.settings.costCenters(),
+      queryFn: () => client.listCostCenters().then((r) => unwrap<Page<CostCenterDto>>(r)),
+    }),
+    costCenterAssignments: (client: ApiClient): QueryOption<Page<CostCenterAssignmentDto>> => ({
+      queryKey: queryKeys.settings.costCenterAssignments(),
+      queryFn: () => client.listCostCenterAssignments().then((r) => unwrap<Page<CostCenterAssignmentDto>>(r)),
+    }),
+    chargebackSettings: (client: ApiClient): QueryOption<ChargebackSettingsDto> => ({
+      queryKey: queryKeys.settings.chargebackSettings(),
+      queryFn: () => client.getChargebackSettings().then((r) => unwrap<ChargebackSettingsDto>(r)),
+    }),
+    chargebackReport: (client: ApiClient): QueryOption<ChargebackReportDto> => ({
+      queryKey: queryKeys.settings.chargebackReport(),
+      queryFn: () => client.getChargebackReport().then((r) => unwrap<ChargebackReportDto>(r)),
     }),
   },
 } as const;

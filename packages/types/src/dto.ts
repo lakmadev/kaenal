@@ -1717,3 +1717,110 @@ export const UpdateDlpPolicyBody = DlpPolicyShape.extend({
   version: z.number().int().nonnegative(),
 });
 export type UpdateDlpPolicyBody = z.infer<typeof UpdateDlpPolicyBody>;
+
+// --- Settings: cost centers + chargeback (04 §Settings > Multi-tenancy) --------
+// A tenant-scoped cost-center hierarchy (table 0029) that memberships are
+// assigned to. `seats` per centre is a REAL count of active memberships — the
+// one usage signal we meter today; the chargeback report multiplies it by a
+// configurable rate and splits a shared platform fee with a conserved-total
+// apportionment (`packages/core/chargeback.ts`). AI + storage costs need a
+// metering pipeline that doesn't exist yet and report as 0 (flagged, not faked).
+// Managed under settings:manage; optimistic + audited.
+
+export const CostCenterDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  parentId: z.string().uuid().nullable(),
+  /** Active memberships assigned to this centre (read-derived). */
+  seats: z.number().int().nonnegative(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type CostCenterDto = z.infer<typeof CostCenterDto>;
+
+const CostCenterShape = z.object({
+  code: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(1).max(120),
+  parentId: z.string().uuid().nullable().default(null),
+});
+
+export const CreateCostCenterBody = CostCenterShape;
+export type CreateCostCenterBody = z.infer<typeof CreateCostCenterBody>;
+
+export const UpdateCostCenterBody = CostCenterShape.extend({
+  version: z.number().int().nonnegative(),
+});
+export type UpdateCostCenterBody = z.infer<typeof UpdateCostCenterBody>;
+
+/** A tenant member and the cost centre they're assigned to (for the assignment panel). */
+export const CostCenterAssignmentDto = z.object({
+  userId: z.string().uuid(),
+  name: z.string(),
+  email: z.string(),
+  role: z.string(),
+  costCenterId: z.string().uuid().nullable(),
+});
+export type CostCenterAssignmentDto = z.infer<typeof CostCenterAssignmentDto>;
+
+export const AssignCostCenterBody = z.object({
+  userId: z.string().uuid(),
+  costCenterId: z.string().uuid().nullable(),
+});
+export type AssignCostCenterBody = z.infer<typeof AssignCostCenterBody>;
+
+/** How shared platform costs split across cost centers (stored; the report honours
+ *  `seatRateCents` + `platformMonthlyFeeCents`, the rest are stored policy). */
+export const SeatAllocation = z.enum(["user-cc", "usage", "corp"]);
+export const AiAllocation = z.enum(["user-cc", "record-cc", "split"]);
+export const StorageAllocation = z.enum(["record-cc", "corp"]);
+
+export const ChargebackSettings = z.object({
+  currency: z.string().trim().min(1).max(8).default("USD"),
+  /** Per-seat monthly licence cost, in cents. */
+  seatRateCents: z.number().int().min(0).max(1_000_000).default(3000),
+  /** A shared monthly platform fee split across centres by seats (conserved). */
+  platformMonthlyFeeCents: z.number().int().min(0).max(100_000_000).default(0),
+  seatAllocation: SeatAllocation.default("user-cc"),
+  aiAllocation: AiAllocation.default("user-cc"),
+  storageAllocation: StorageAllocation.default("record-cc"),
+  showBudgetToManagers: z.boolean().default(true),
+});
+export type ChargebackSettings = z.infer<typeof ChargebackSettings>;
+
+export const CHARGEBACK_DEFAULTS: ChargebackSettings = ChargebackSettings.parse({});
+
+export const ChargebackSettingsDto = ChargebackSettings.extend({
+  lockVersion: z.number().int().nonnegative(),
+});
+export type ChargebackSettingsDto = z.infer<typeof ChargebackSettingsDto>;
+
+export const UpdateChargebackSettingsBody = ChargebackSettings.extend({
+  version: z.number().int().nonnegative(),
+});
+export type UpdateChargebackSettingsBody = z.infer<typeof UpdateChargebackSettingsBody>;
+
+/** One row of the computed monthly chargeback. `costCenterId` is null for the
+ *  Unallocated bucket (members with no centre). All money is in cents. */
+export const ChargebackRowDto = z.object({
+  costCenterId: z.string().uuid().nullable(),
+  code: z.string(),
+  name: z.string(),
+  seats: z.number().int().nonnegative(),
+  seatCostCents: z.number().int().nonnegative(),
+  platformShareCents: z.number().int().nonnegative(),
+  aiCostCents: z.number().int().nonnegative(),
+  storageCostCents: z.number().int().nonnegative(),
+  totalCents: z.number().int().nonnegative(),
+});
+export type ChargebackRowDto = z.infer<typeof ChargebackRowDto>;
+
+export const ChargebackReportDto = z.object({
+  /** Current-month snapshot label, e.g. "2026-08". */
+  period: z.string(),
+  currency: z.string(),
+  rows: z.array(ChargebackRowDto),
+  totalCents: z.number().int().nonnegative(),
+  /** True while AI + storage costs are un-metered (reported as 0). */
+  meteringPending: z.boolean(),
+});
+export type ChargebackReportDto = z.infer<typeof ChargebackReportDto>;

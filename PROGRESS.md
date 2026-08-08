@@ -132,6 +132,41 @@ port. Sequenced as Phases A–F (tasks #30–35), backend-first, one at a time. 
     dedicated task; NOT fixed inline (refactoring the codebase's most critical mutation-tested suite
     deserves its own reviewed change).
 
+- **Phase E — Cost centers & chargeback: DONE, browser-verified.**
+  - **DB** `0029_cost_centers.sql` — new `cost_centers` (self-referencing tenant tree: code, name,
+    parent_id via composite FK `(tenant_id, parent_id)`, `UNIQUE(tenant_id,id)` as the FK target,
+    partial-unique code per tenant, forced RLS + bump + member FKs) + `memberships.cost_center_id`
+    (composite FK, ON DELETE SET NULL) so **seats are a real count**; widens the tenant_settings
+    namespace CHECK to admit `'chargeback'`. `db:check` **41 tables**.
+  - **Core** `packages/core/chargeback.ts` — pure `allocateConserved(totalCents, weights)`, integer-
+    cent largest-remainder (Hamilton) apportionment: the parts sum EXACTLY to the whole (no rounding
+    drift), so a finance export reconciles. 6 unit tests (conservation, proportional split, zero-
+    weight, empty).
+  - **Types/contract** `CostCenterDto` (+ seats) / Create/Update; `CostCenterAssignmentDto` +
+    `AssignCostCenterBody`; `ChargebackSettings` (currency, seatRateCents, platformMonthlyFeeCents,
+    seat/AI/storage allocation, showBudgetToManagers) + Dto/UpdateBody; `ChargebackReportDto`
+    (rows + conserved total + `meteringPending`). Endpoints under `/v1/settings/cost-centers`
+    (list/create/update/delete + `/assignments` + `/assign`) and `/v1/settings/chargeback`
+    (settings get/put + `/report`), all `settings:manage`, `@Internal`.
+  - **API** `cost-centers.service.ts` (CRUD; delete refuses a CC with children + unassigns its
+    members since soft-delete doesn't fire the FK SET NULL; unique-code → clean 409; assignment via
+    control-pool names like MembersService; **report** = real seats × rate + `allocateConserved`
+    platform-fee split, AI/storage 0, Unallocated bucket for unassigned members so the grand total
+    reconciles). Chargeback settings reuse the generalised `SettingsService.writeDoc` (namespace
+    'chargeback') + standalone `loadChargebackSettings`. Audited, optimistic.
+  - **Web** `sections/cost-centers.tsx` (built:true) — hierarchy tree (create/edit/delete + reparent),
+    member-assignment panel (per-member CC select), COMPUTED monthly-chargeback table (seats/seats$/
+    platform$/AI$/storage$/total + conserved total), and an allocation-rules card (currency, seat
+    rate, platform fee, seat/AI/storage strategy, budget-visibility toggle). AI/Storage render as
+    "—" with a "metering not wired" note; the design's Export-GL/NetSuite/Finalize actions are
+    omitted (need the metering pipeline + a GL integration), not faked.
+  - **Tests** `settings.test.ts` now **25** (+5): cost-center CRUD/optimistic/duplicate-409/children-
+    409, real-seat assignment + foreign-CC 404 + viewer 403 + RLS, chargeback settings CRUD/409/403,
+    and a report test asserting real seats × rate, an EXACTLY conserved platform-fee split ($9.99 →
+    parts sum to 999¢), and un-metered AI/storage. Plus 6 core `chargeback` tests. typecheck 6/6,
+    lint clean, build green. Browser-verified end-to-end (signed-in admin: created CC-4101, assigned a
+    member → 1 seat → chargeback US$30.00 conserved).
+
 **RBAC — role-based UI (web, 2026-08-06).** Pulled the Claude Design "RBAC" change
 (`src/rbac.jsx` NEW, `src/shell.jsx`, `Kaenal.html`) into `project_brain/project/` via the
 DesignSync MCP (+ `RBAC_HANDOFF.md`). Implemented the REAL feature against our existing

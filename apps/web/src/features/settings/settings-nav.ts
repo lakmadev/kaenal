@@ -101,7 +101,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { id: "white-label", label: "White-label branding", icon: Palette, built: true },
       { id: "cross-tenant", label: "Cross-tenant analytics", icon: BarChart3 },
       { id: "lifecycle", label: "Clone / migrate / export", icon: RefreshCw },
-      { id: "cost-centers", label: "Cost centers & chargeback", icon: FileText },
+      { id: "cost-centers", label: "Cost centers & chargeback", icon: FileText, built: true },
     ],
   },
   {

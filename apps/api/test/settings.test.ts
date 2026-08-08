@@ -32,6 +32,7 @@ let mgrTok = ""; // manager — holds settings:manage
 let viewerTok = ""; // viewer — no settings:manage
 let globexMgrTok = ""; // manager in the other tenant
 let concUserId = ""; // dedicated user for the concurrent-session enforcement test
+let mgrUserId = ""; // the manager's user id (for cost-center seat assignment)
 
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
@@ -106,8 +107,11 @@ beforeAll(async () => {
   // Phase D: clean only test-created holds (fixtures seed real ones) + all DLP.
   await control.query("DELETE FROM legal_holds WHERE name LIKE 'PHASED%'");
   await control.query("DELETE FROM dlp_policies WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
+  // Phase E: clear cost-center assignments then centers (created_by → memberships).
+  await control.query("UPDATE memberships SET cost_center_id = NULL WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
+  await control.query("DELETE FROM cost_centers WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
 
-  await seedMember(acmeId, "settings-mgr@acme.test", "manager");
+  mgrUserId = await seedMember(acmeId, "settings-mgr@acme.test", "manager");
   await seedMember(acmeId, "settings-viewer@acme.test", "viewer");
   concUserId = await seedMember(acmeId, "settings-conc@acme.test", "viewer");
   await seedMember(globexId, "settings-mgr@globex.test", "manager");
@@ -129,6 +133,8 @@ afterAll(async () => {
   await control.query("DELETE FROM tenant_settings WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
   await control.query("DELETE FROM legal_holds WHERE name LIKE 'PHASED%'");
   await control.query("DELETE FROM dlp_policies WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
+  await control.query("UPDATE memberships SET cost_center_id = NULL WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
+  await control.query("DELETE FROM cost_centers WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
   const ids = (
     await control.query<{ id: string }>("SELECT id FROM control.users WHERE email LIKE 'settings-%@%.test'")
   ).rows.map((r) => r.id);
@@ -570,5 +576,182 @@ describe("DLP policy register", () => {
     const other = await authed("get", "/v1/settings/dlp-policies", GLOBEX, globexMgrTok);
     expect(other.status).toBe(200);
     expect((other.body.items as { name: string }[]).some((p) => p.name === "PHASED acme-only policy")).toBe(false);
+  });
+});
+
+interface CcRow {
+  id: string;
+  code: string;
+  name: string;
+  parentId: string | null;
+  seats: number;
+  lockVersion: number;
+}
+interface CbRow {
+  costCenterId: string | null;
+  seats: number;
+  seatCostCents: number;
+  platformShareCents: number;
+  aiCostCents: number;
+  storageCostCents: number;
+  totalCents: number;
+}
+
+describe("cost centers", () => {
+  it("CRUD: create/list(seats)/update(optimistic)/duplicate-409/children-409/delete", async () => {
+    const parent = await authed("post", "/v1/settings/cost-centers", ACME, mgrTok).send({
+      code: "CC-9000",
+      name: "PHASEE Manufacturing",
+    });
+    expect(parent.status).toBe(201);
+    const parentId = parent.body.id as string;
+    expect(parent.body.seats).toBe(0);
+    expect(parent.body.lockVersion).toBe(0);
+
+    const child = await authed("post", "/v1/settings/cost-centers", ACME, mgrTok).send({
+      code: "CC-9101",
+      name: "PHASEE Quality",
+      parentId,
+    });
+    expect(child.status).toBe(201);
+
+    // Duplicate code → 409.
+    const dup = await authed("post", "/v1/settings/cost-centers", ACME, mgrTok).send({ code: "CC-9000", name: "dup" });
+    expect(dup.status).toBe(409);
+
+    // Optimistic rename.
+    const upd = await authed("put", `/v1/settings/cost-centers/${parentId}`, ACME, mgrTok).send({
+      code: "CC-9000",
+      name: "PHASEE Manufacturing (Global)",
+      parentId: null,
+      version: 0,
+    });
+    expect(upd.status).toBe(200);
+    expect(upd.body.lockVersion).toBe(1);
+    const stale = await authed("put", `/v1/settings/cost-centers/${parentId}`, ACME, mgrTok).send({
+      code: "CC-9000",
+      name: "x",
+      parentId: null,
+      version: 0,
+    });
+    expect(stale.status).toBe(409);
+
+    // Can't delete a parent that still has a child.
+    const blocked = await authed("post", `/v1/settings/cost-centers/${parentId}/delete`, ACME, mgrTok).send({});
+    expect(blocked.status).toBe(409);
+
+    // Remove child then parent.
+    expect((await authed("post", `/v1/settings/cost-centers/${child.body.id}/delete`, ACME, mgrTok).send({})).status).toBe(200);
+    expect((await authed("post", `/v1/settings/cost-centers/${parentId}/delete`, ACME, mgrTok).send({})).status).toBe(200);
+    const list = await authed("get", "/v1/settings/cost-centers", ACME, mgrTok);
+    expect((list.body.items as CcRow[]).some((c) => c.id === parentId)).toBe(false);
+  });
+
+  it("assigns a member to a cost center (real seats) and rejects a foreign CC", async () => {
+    const cc = await authed("post", "/v1/settings/cost-centers", ACME, mgrTok).send({ code: "CC-9200", name: "PHASEE Seats" });
+    const ccId = cc.body.id as string;
+
+    const assigned = await authed("post", "/v1/settings/cost-centers/assign", ACME, mgrTok).send({
+      userId: mgrUserId,
+      costCenterId: ccId,
+    });
+    expect(assigned.status).toBe(200);
+    expect(assigned.body.costCenterId).toBe(ccId);
+
+    const list = await authed("get", "/v1/settings/cost-centers", ACME, mgrTok);
+    expect((list.body.items as CcRow[]).find((c) => c.id === ccId)?.seats).toBe(1);
+
+    // Assigning to another tenant's CC → 404 (composite FK / RLS).
+    const globexCc = await authed("post", "/v1/settings/cost-centers", GLOBEX, globexMgrTok).send({
+      code: "CC-FOREIGN",
+      name: "globex only",
+    });
+    const foreign = await authed("post", "/v1/settings/cost-centers/assign", ACME, mgrTok).send({
+      userId: mgrUserId,
+      costCenterId: globexCc.body.id,
+    });
+    expect(foreign.status).toBe(404);
+
+    // Unassign (back to Unallocated).
+    const clear = await authed("post", "/v1/settings/cost-centers/assign", ACME, mgrTok).send({
+      userId: mgrUserId,
+      costCenterId: null,
+    });
+    expect(clear.body.costCenterId).toBeNull();
+
+    await authed("post", `/v1/settings/cost-centers/${ccId}/delete`, ACME, mgrTok).send({});
+  });
+
+  it("refuses reads and writes to a viewer, and does not leak across tenants (RLS)", async () => {
+    const read = await authed("get", "/v1/settings/cost-centers", ACME, viewerTok);
+    expect(read.status).toBe(403);
+    const write = await authed("post", "/v1/settings/cost-centers", ACME, viewerTok).send({ code: "CC-NO", name: "no" });
+    expect(write.status).toBe(403);
+
+    await authed("post", "/v1/settings/cost-centers", ACME, mgrTok).send({ code: "CC-ACME1", name: "PHASEE acme-only" });
+    const other = await authed("get", "/v1/settings/cost-centers", GLOBEX, globexMgrTok);
+    expect((other.body.items as CcRow[]).some((c) => c.code === "CC-ACME1")).toBe(false);
+  });
+});
+
+describe("chargeback", () => {
+  it("settings: defaults, optimistic save, viewer 403", async () => {
+    const def = await authed("get", "/v1/settings/chargeback", ACME, mgrTok);
+    expect(def.status).toBe(200);
+    expect(def.body.seatRateCents).toBe(3000);
+    expect(def.body.lockVersion).toBe(0);
+
+    const save = await authed("put", "/v1/settings/chargeback", ACME, mgrTok).send({
+      ...def.body,
+      seatRateCents: 1000,
+      platformMonthlyFeeCents: 0,
+      version: 0,
+    });
+    expect(save.status).toBe(200);
+    expect(save.body.seatRateCents).toBe(1000);
+    expect(save.body.lockVersion).toBe(1);
+
+    const stale = await authed("put", "/v1/settings/chargeback", ACME, mgrTok).send({ ...def.body, version: 0 });
+    expect(stale.status).toBe(409);
+
+    const viewer = await authed("put", "/v1/settings/chargeback", ACME, viewerTok).send({ ...def.body, version: 1 });
+    expect(viewer.status).toBe(403);
+  });
+
+  it("report: real seats × rate, a conserved platform-fee split, and un-metered AI/storage", async () => {
+    // Rate $10/seat, an awkward platform fee that must split without drift.
+    const cur = await authed("get", "/v1/settings/chargeback", ACME, mgrTok);
+    await authed("put", "/v1/settings/chargeback", ACME, mgrTok).send({
+      ...cur.body,
+      seatRateCents: 1000,
+      platformMonthlyFeeCents: 999,
+      version: cur.body.lockVersion,
+    });
+
+    const cc = await authed("post", "/v1/settings/cost-centers", ACME, mgrTok).send({ code: "CC-9300", name: "PHASEE Billing" });
+    const ccId = cc.body.id as string;
+    await authed("post", "/v1/settings/cost-centers/assign", ACME, mgrTok).send({ userId: mgrUserId, costCenterId: ccId });
+
+    const rep = await authed("get", "/v1/settings/chargeback/report", ACME, mgrTok);
+    expect(rep.status).toBe(200);
+    expect(rep.body.meteringPending).toBe(true);
+    const rows = rep.body.rows as CbRow[];
+
+    const mine = rows.find((r) => r.costCenterId === ccId);
+    expect(mine?.seats).toBe(1);
+    expect(mine?.seatCostCents).toBe(1000); // 1 seat × $10
+    expect(mine?.aiCostCents).toBe(0);
+    expect(mine?.storageCostCents).toBe(0);
+
+    // The platform fee is fully + exactly distributed across the seated buckets.
+    const platformSum = rows.reduce((s, r) => s + r.platformShareCents, 0);
+    expect(platformSum).toBe(999);
+    // Every row's total is its own parts; the grand total is the sum of rows.
+    for (const r of rows) expect(r.totalCents).toBe(r.seatCostCents + r.platformShareCents);
+    expect(rep.body.totalCents).toBe(rows.reduce((s, r) => s + r.totalCents, 0));
+
+    // cleanup
+    await authed("post", "/v1/settings/cost-centers/assign", ACME, mgrTok).send({ userId: mgrUserId, costCenterId: null });
+    await authed("post", `/v1/settings/cost-centers/${ccId}/delete`, ACME, mgrTok).send({});
   });
 });

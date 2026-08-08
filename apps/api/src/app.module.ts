@@ -71,6 +71,7 @@ import { SettingsService } from "./settings/settings.service.js";
 import { NcrRulesService } from "./settings/ncr-rules.service.js";
 import { LegalHoldsService } from "./settings/legal-holds.service.js";
 import { DlpPoliciesService } from "./settings/dlp-policies.service.js";
+import { CostCentersService } from "./settings/cost-centers.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -108,6 +109,7 @@ import {
   NCR_RULES_SERVICE,
   LEGAL_HOLDS_SERVICE,
   DLP_POLICIES_SERVICE,
+  COST_CENTERS_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -303,6 +305,11 @@ import {
     { provide: NCR_RULES_SERVICE, useFactory: () => new NcrRulesService() },
     { provide: LEGAL_HOLDS_SERVICE, useFactory: () => new LegalHoldsService() },
     { provide: DLP_POLICIES_SERVICE, useFactory: () => new DlpPoliciesService() },
+    {
+      provide: COST_CENTERS_SERVICE,
+      useFactory: (control: pg.Pool) => new CostCentersService(control),
+      inject: [CONTROL_POOL],
+    },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

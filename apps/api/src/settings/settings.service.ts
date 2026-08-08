@@ -3,11 +3,15 @@ import { withAudit, type Tx } from "@kaenal/db";
 import {
   BRANDING_DEFAULTS,
   BrandingSettings,
+  CHARGEBACK_DEFAULTS,
+  ChargebackSettings,
   SESSION_POLICY_DEFAULTS,
   SessionPolicy,
   type BrandingDto,
+  type ChargebackSettingsDto,
   type SessionPolicyDto,
   type UpdateBrandingBody,
+  type UpdateChargebackSettingsBody,
   type UpdateSessionPolicyBody,
 } from "@kaenal/types";
 import { ApiError } from "../errors.js";
@@ -21,6 +25,7 @@ interface SettingsRow {
 
 const BRANDING_NS = "branding";
 const SESSION_NS = "session";
+const CHARGEBACK_NS = "chargeback";
 // Tenant-wide settings aren't a per-record entity; audit them against the tenant
 // so the change shows in the workspace-level access log under `settings_changed`.
 const SETTINGS_ENTITY_KIND = "settings";
@@ -43,6 +48,17 @@ export async function loadSessionPolicy(tx: Tx): Promise<SessionPolicy> {
   const row = await readRow(tx, SESSION_NS);
   const stored = row?.doc ?? {};
   return SessionPolicy.parse({ ...SESSION_POLICY_DEFAULTS, ...stored });
+}
+
+/**
+ * Load the tenant's chargeback settings (namespace 'chargeback') merged over
+ * defaults. Standalone so the cost-centers service can compute a report without
+ * depending on the settings module.
+ */
+export async function loadChargebackSettings(tx: Tx): Promise<ChargebackSettings> {
+  const row = await readRow(tx, CHARGEBACK_NS);
+  const stored = row?.doc ?? {};
+  return ChargebackSettings.parse({ ...CHARGEBACK_DEFAULTS, ...stored });
 }
 
 /**
@@ -144,5 +160,25 @@ export class SettingsService {
     const row = await this.writeDoc(tx, tenantId, actorId, SESSION_NS, version, settings, context);
     const policy = SessionPolicy.parse({ ...SESSION_POLICY_DEFAULTS, ...row.doc });
     return { ...policy, lockVersion: row.lock_version };
+  }
+
+  // --- Chargeback settings -------------------------------------------------
+  async getChargebackSettings(tx: Tx): Promise<ChargebackSettingsDto> {
+    const row = await readRow(tx, CHARGEBACK_NS);
+    const settings = ChargebackSettings.parse({ ...CHARGEBACK_DEFAULTS, ...(row?.doc ?? {}) });
+    return { ...settings, lockVersion: row?.lock_version ?? 0 };
+  }
+
+  async updateChargebackSettings(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    body: UpdateChargebackSettingsBody,
+    context: AuditContext,
+  ): Promise<ChargebackSettingsDto> {
+    const { version, ...settings } = body;
+    const row = await this.writeDoc(tx, tenantId, actorId, CHARGEBACK_NS, version, settings, context);
+    const doc = ChargebackSettings.parse({ ...CHARGEBACK_DEFAULTS, ...row.doc });
+    return { ...doc, lockVersion: row.lock_version };
   }
 }

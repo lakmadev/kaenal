@@ -13,6 +13,7 @@ import { ValidationRulesSection } from "./sections/validation-rules";
 import { SessionPoliciesSection } from "./sections/session-policies";
 import { LegalHoldSection } from "./sections/legal-hold";
 import { DlpPoliciesSection } from "./sections/dlp-policies";
+import { CostCentersSection } from "./sections/cost-centers";
 
 /**
  * The active settings section's content. The section rail lives in the settings
@@ -42,6 +43,8 @@ export function SettingsContent({ section }: { section: string }): React.ReactEl
       return <LegalHoldSection />;
     case "dlp":
       return <DlpPoliciesSection />;
+    case "cost-centers":
+      return <CostCentersSection />;
     default:
       return <ComingSoon section={section} />;
   }

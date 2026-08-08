@@ -1,15 +1,23 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put } from "@nestjs/common";
 import { z } from "zod";
 import {
+  AssignCostCenterBody,
+  CreateCostCenterBody,
   CreateDlpPolicyBody,
   CreateLegalHoldBody,
   CreateNcrValidationRuleBody,
   UpdateBrandingBody,
+  UpdateChargebackSettingsBody,
+  UpdateCostCenterBody,
   UpdateDlpPolicyBody,
   UpdateLegalHoldBody,
   UpdateNcrValidationRuleBody,
   UpdateSessionPolicyBody,
   type BrandingDto,
+  type ChargebackReportDto,
+  type ChargebackSettingsDto,
+  type CostCenterAssignmentDto,
+  type CostCenterDto,
   type DlpPolicyDto,
   type LegalHoldDto,
   type NcrValidationRuleDto,
@@ -21,6 +29,7 @@ import { Internal, RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
 import {
+  COST_CENTERS_SERVICE,
   DLP_POLICIES_SERVICE,
   LEGAL_HOLDS_SERVICE,
   NCR_RULES_SERVICE,
@@ -30,6 +39,7 @@ import type { SettingsService } from "./settings.service.js";
 import type { NcrRulesService } from "./ncr-rules.service.js";
 import type { LegalHoldsService } from "./legal-holds.service.js";
 import type { DlpPoliciesService } from "./dlp-policies.service.js";
+import type { CostCentersService } from "./cost-centers.service.js";
 
 const uuid = z.string().uuid();
 const versionBody = z.object({ version: z.number().int().nonnegative() });
@@ -48,6 +58,7 @@ export class SettingsController {
     @Inject(NCR_RULES_SERVICE) private readonly ncrRules: NcrRulesService,
     @Inject(LEGAL_HOLDS_SERVICE) private readonly legalHolds: LegalHoldsService,
     @Inject(DLP_POLICIES_SERVICE) private readonly dlpPolicies: DlpPoliciesService,
+    @Inject(COST_CENTERS_SERVICE) private readonly costCenters: CostCentersService,
   ) {}
 
   @Get("v1/settings/branding")
@@ -176,5 +187,67 @@ export class SettingsController {
   @RequireCapability("settings:manage")
   async deleteDlpPolicy(@Param("id") id: string): Promise<DlpPolicyDto> {
     return this.dlpPolicies.remove(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
+  }
+
+  // --- Cost centers --------------------------------------------------------
+  @Get("v1/settings/cost-centers")
+  @RequireCapability("settings:manage")
+  async listCostCenters(): Promise<Page<CostCenterDto>> {
+    return this.costCenters.list(currentTx());
+  }
+
+  @Post("v1/settings/cost-centers")
+  @RequireCapability("settings:manage")
+  async createCostCenter(@Body() body: unknown): Promise<CostCenterDto> {
+    const input = parse(CreateCostCenterBody, body);
+    return this.costCenters.create(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+  }
+
+  @Get("v1/settings/cost-centers/assignments")
+  @RequireCapability("settings:manage")
+  async listCostCenterAssignments(): Promise<Page<CostCenterAssignmentDto>> {
+    return this.costCenters.listAssignments(currentTx());
+  }
+
+  @Post("v1/settings/cost-centers/assign")
+  @HttpCode(200)
+  @RequireCapability("settings:manage")
+  async assignCostCenter(@Body() body: unknown): Promise<CostCenterAssignmentDto> {
+    const input = parse(AssignCostCenterBody, body);
+    return this.costCenters.assign(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+  }
+
+  @Put("v1/settings/cost-centers/:id")
+  @RequireCapability("settings:manage")
+  async updateCostCenter(@Param("id") id: string, @Body() body: unknown): Promise<CostCenterDto> {
+    const input = parse(UpdateCostCenterBody, body);
+    return this.costCenters.update(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), input, auditCtxOf());
+  }
+
+  @Post("v1/settings/cost-centers/:id/delete")
+  @HttpCode(200)
+  @RequireCapability("settings:manage")
+  async deleteCostCenter(@Param("id") id: string): Promise<CostCenterDto> {
+    return this.costCenters.remove(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
+  }
+
+  // --- Chargeback ----------------------------------------------------------
+  @Get("v1/settings/chargeback")
+  @RequireCapability("settings:manage")
+  async getChargebackSettings(): Promise<ChargebackSettingsDto> {
+    return this.settings.getChargebackSettings(currentTx());
+  }
+
+  @Put("v1/settings/chargeback")
+  @RequireCapability("settings:manage")
+  async updateChargebackSettings(@Body() body: unknown): Promise<ChargebackSettingsDto> {
+    const input = parse(UpdateChargebackSettingsBody, body);
+    return this.settings.updateChargebackSettings(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+  }
+
+  @Get("v1/settings/chargeback/report")
+  @RequireCapability("settings:manage")
+  async getChargebackReport(): Promise<ChargebackReportDto> {
+    return this.costCenters.report(currentTx());
   }
 }

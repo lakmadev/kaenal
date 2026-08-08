@@ -108,5 +108,9 @@ export const queryKeys = {
     ncrRules: () => ["settings", "ncr-validation-rules"] as const,
     legalHolds: () => ["settings", "legal-holds"] as const,
     dlpPolicies: () => ["settings", "dlp-policies"] as const,
+    costCenters: () => ["settings", "cost-centers"] as const,
+    costCenterAssignments: () => ["settings", "cost-center-assignments"] as const,
+    chargebackSettings: () => ["settings", "chargeback"] as const,
+    chargebackReport: () => ["settings", "chargeback-report"] as const,
   },
 } as const;

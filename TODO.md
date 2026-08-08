@@ -87,7 +87,17 @@ time. Tasks #30–35.
         composite-PK clone WITH-CHECK vs unique-violation ordering) + add `test:rls` to the gate.
         Phase D isolation is independently proven: `db:check` forced-RLS lint (40 tables) +
         cross-tenant API tests in `settings.test.ts` for both new tables.
-- [ ] **Phase E** — Cost centers & chargeback (needs usage metering — stub/flag).
+- [x] **Phase E** — Cost centers & chargeback. Real tenant cost-center hierarchy (0029) that
+      memberships are assigned to; seats are a live count. Chargeback is COMPUTED server-side —
+      seats × rate + a shared platform fee split with a conserved-total apportionment
+      (`packages/core/chargeback.ts`, unit-tested). Browser-verified end-to-end (create CC → assign
+      member → chargeback computed, conserved).
+  - [ ] Follow-up: meter real AI + storage usage (attribute `ai_invocations` / `files` to the
+        member/record cost center per the stored allocation strategy) — reported as 0 today, flagged
+        in the UI. Then the AI/Storage columns + the design's Export-GL / Send-to-NetSuite / Finalize
+        actions become real (omitted for now, not faked).
+  - [ ] Follow-up: cycle-safe reparenting (only direct self-parent is blocked today; a deep cycle via
+        a chain of parents is possible in the API — the 2-level admin UI doesn't create them).
 - [ ] **Phase F** — FMEA workbench (new QMS module; overlaps P13 below).
 
 ---
