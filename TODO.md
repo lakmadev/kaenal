@@ -68,7 +68,25 @@ time. Tasks #30–35.
         (per-operation challenge) — stored today, not enforced.
   - [ ] Follow-up: the design's workforce-safety detections (off-hours, impossible-travel,
         suspicious-pattern lockout, managed-device-only) + biometric/wipe are UI-only stubs.
-- [ ] **Phase D** — Legal hold + DLP policies (compliance).
+- [x] **Phase D** — Legal hold + DLP policies (compliance). Legal hold is built on the enforced
+      `legal_holds` table (0001) with a structured scope (workspace / entity-kinds / one-record),
+      so active holds genuinely block the nightly purge; DLP is a new stored register.
+      Browser-verified end-to-end (create → list) on both.
+  - [ ] Follow-up (DLP): wire real pre-egress interception + hit metrics + a "recent events" log
+        (the design's stat cards + events table were omitted, not faked — no interception layer yet).
+  - [ ] Follow-up (Legal hold): custodian-acknowledgment sub-entity + notify flow, and frozen-record
+        / storage counters (need metering) — omitted from the design, not faked.
+  - [ ] **HIGH — pre-existing, surfaced during Phase D:** the RLS tenancy suite
+        (`packages/db/test/rls.test.ts`, `pnpm test:rls`) — the codebase's highest-priority,
+        mutation-tested safety net — has been RED since **Phase A** and isn't in the `pnpm test`
+        gate, so it went unnoticed. Root cause: it assumes every tenant table has a single-column
+        `id`; `tenant_settings` (0025, composite PK `(tenant_id, namespace)`, no `id`) makes
+        `SELECT id FROM tenant_settings` throw in `beforeAll`, aborting the suite. Also
+        `ncr_validation_rules` (0026) + `dlp_policies` (0028) lack `seedTenant()` fixtures.
+        Fix = generalize the id-probes to primary-key columns + seed those tables (watch the
+        composite-PK clone WITH-CHECK vs unique-violation ordering) + add `test:rls` to the gate.
+        Phase D isolation is independently proven: `db:check` forced-RLS lint (40 tables) +
+        cross-tenant API tests in `settings.test.ts` for both new tables.
 - [ ] **Phase E** — Cost centers & chargeback (needs usage metering — stub/flag).
 - [ ] **Phase F** — FMEA workbench (new QMS module; overlaps P13 below).
 

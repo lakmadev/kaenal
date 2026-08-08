@@ -92,6 +92,46 @@ port. Sequenced as Phases A–F (tasks #30–35), backend-first, one at a time. 
     sign-in). typecheck 6/6, lint clean, build green. Browser-verified editor→save→personal-page
     reflection.
 
+- **Phase D — Compliance: Legal hold + DLP policies: DONE, browser-verified.**
+  - **Key discovery:** `legal_holds` is NOT a placeholder — it's a foundational table (0001) already
+    ENFORCED by the nightly purge job (`packages/core/purge.ts`, 07 §5): an active hold
+    (`released_at IS NULL`) refuses permanent erasure of any soft-deleted row its `scope` covers. So
+    Phase D's legal-hold slice was built ON that table (a genuinely enforced feature), NOT as a
+    flagged register. `scope` is the structured jsonb purge understands (`{}` tenant-wide /
+    `{entityKinds}` / `{entityKind,entityId?}`).
+  - **DB** `0028_compliance_legal_hold_dlp.sql` — (a) EXTENDS `legal_holds` with register fields
+    (`name`, `matter`, `reference`, `lock_version`, `deleted_at`; `reason` default '') + bump trigger;
+    status is DERIVED from `released_at` (no `status` column — single source of truth, keeps the purge
+    index meaningful). (b) NEW `dlp_policies` register (name, pattern, action
+    block/warn/watermark/quarantine/notify, surface, note, enabled) + forced RLS + bump + member FKs.
+    `db:check` **40 tables**.
+  - **Types/contract** `LegalHoldDto` + `LegalHoldScopeInput` (tagged union tenant/kinds/record over a
+    curated `LegalHoldEntityKind` enum) + Create/Update; `DlpPolicyDto` + Create/Update. Endpoints
+    under `/v1/settings/legal-holds` (list/create/update/release/delete) + `/v1/settings/dlp-policies`
+    (list/create/update/delete), all `settings:manage` (reads gated too — sensitive), `@Internal`.
+  - **API** `legal-holds.service.ts` (scope map to/from stored jsonb via core's `isTenantWideScope`;
+    `release` stamps `released_at`; `remove` soft-deletes AND releases so a hidden row can't keep
+    blocking purge; best-effort `LH-YYYY-NNN` reference) + `dlp-policies.service.ts` (CRUD mirror of
+    ncr-rules). Both audited `settings_changed`, optimistic.
+  - **Web** `sections/legal-hold.tsx` + `sections/dlp-policies.tsx` (both built:true). Legal hold:
+    active/released register with real scope editor (workspace / entity-kinds checkboxes / one-record),
+    Release + Remove behind confirm dialogs, Active/Released stat cards. DLP: policy register with
+    action-coloured rows, toggle, action filter, DETECT/ON/THEN builder. Honestly OMITTED (not faked,
+    flagged in TODO): DLP hit-metric stat cards + "recent events" table (no interception layer/event
+    log), legal-hold custodian-ack table + frozen-record counters (no sub-entity/metering).
+  - **Tests** `settings.test.ts` now **20** (+8): legal-hold CRUD/optimistic/release/derived-status +
+    an ENFORCEMENT test (an active kinds-hold makes core's `isBlockedByHolds` refuse a covered row;
+    releasing lifts it) + reads/writes 403 for viewer + cross-tenant RLS; DLP CRUD/optimistic + invalid
+    action 422 + viewer 403 + RLS. typecheck 6/6, lint clean, build green. Browser-verified end-to-end
+    (signed in as a seeded acme admin): opened `LH-2026-001` freezing NCRs+Inspections (register +
+    stat updated), added a BLOCK DLP policy (toast + row).
+  - **⚠ Surfaced a pre-existing RED test (see Known issues + TODO):** the RLS tenancy suite
+    (`pnpm test:rls`) has been broken since **Phase A** — `tenant_settings` (composite PK, no `id`)
+    crashes its single-`id` probe; it's not in the `pnpm test` gate so it went unnoticed. Phase D
+    isolation is independently proven via `db:check` + API-level cross-tenant tests. Filed as a
+    dedicated task; NOT fixed inline (refactoring the codebase's most critical mutation-tested suite
+    deserves its own reviewed change).
+
 **RBAC — role-based UI (web, 2026-08-06).** Pulled the Claude Design "RBAC" change
 (`src/rbac.jsx` NEW, `src/shell.jsx`, `Kaenal.html`) into `project_brain/project/` via the
 DesignSync MCP (+ `RBAC_HANDOFF.md`). Implemented the REAL feature against our existing

@@ -11,6 +11,8 @@ import { MembersSection } from "./sections/members";
 import { WhiteLabelSection } from "./sections/white-label";
 import { ValidationRulesSection } from "./sections/validation-rules";
 import { SessionPoliciesSection } from "./sections/session-policies";
+import { LegalHoldSection } from "./sections/legal-hold";
+import { DlpPoliciesSection } from "./sections/dlp-policies";
 
 /**
  * The active settings section's content. The section rail lives in the settings
@@ -36,6 +38,10 @@ export function SettingsContent({ section }: { section: string }): React.ReactEl
       return <ValidationRulesSection />;
     case "sessions":
       return <SessionPoliciesSection />;
+    case "legal-hold":
+      return <LegalHoldSection />;
+    case "dlp":
+      return <DlpPoliciesSection />;
     default:
       return <ComingSoon section={section} />;
   }

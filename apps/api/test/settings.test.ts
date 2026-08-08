@@ -6,6 +6,7 @@ import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import pg from "pg";
 import { withTenant } from "@kaenal/db";
+import { isBlockedByHolds, type LegalHoldScope } from "@kaenal/core";
 import { AppModule } from "../src/app.module.js";
 import { hashPassword } from "../src/auth/passwords.js";
 
@@ -102,6 +103,9 @@ beforeAll(async () => {
   await control.query("DELETE FROM ncrs WHERE title LIKE 'PHASEB%'");
   await control.query("DELETE FROM ncr_validation_rules WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
   await control.query("DELETE FROM tenant_settings WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
+  // Phase D: clean only test-created holds (fixtures seed real ones) + all DLP.
+  await control.query("DELETE FROM legal_holds WHERE name LIKE 'PHASED%'");
+  await control.query("DELETE FROM dlp_policies WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
 
   await seedMember(acmeId, "settings-mgr@acme.test", "manager");
   await seedMember(acmeId, "settings-viewer@acme.test", "viewer");
@@ -123,6 +127,8 @@ afterAll(async () => {
   await control.query("DELETE FROM ncrs WHERE title LIKE 'PHASEB%'");
   await control.query("DELETE FROM ncr_validation_rules WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
   await control.query("DELETE FROM tenant_settings WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
+  await control.query("DELETE FROM legal_holds WHERE name LIKE 'PHASED%'");
+  await control.query("DELETE FROM dlp_policies WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
   const ids = (
     await control.query<{ id: string }>("SELECT id FROM control.users WHERE email LIKE 'settings-%@%.test'")
   ).rows.map((r) => r.id);
@@ -372,5 +378,197 @@ describe("session policy", () => {
     // Second sign-in: the cap of 1 revokes the older session.
     await token(ACME, "settings-conc@acme.test");
     expect(await activeSessionCount(concUserId)).toBe(1);
+  });
+});
+
+/** Read active-hold scopes exactly as the purge job does (RLS scopes to tenant). */
+async function activeHoldScopes(tenantId: string): Promise<LegalHoldScope[]> {
+  return withTenant(tenantId, null, async (tx) => {
+    const { rows } = await tx.query<{ scope: LegalHoldScope }>(
+      "SELECT scope FROM legal_holds WHERE released_at IS NULL",
+    );
+    return rows.map((r) => r.scope);
+  });
+}
+
+describe("legal hold register", () => {
+  it("CRUD: create/list/update(optimistic)/release/remove; status derives from released_at", async () => {
+    const created = await authed("post", "/v1/settings/legal-holds", ACME, mgrTok).send({
+      name: "PHASED Volvo field failure",
+      matter: "External counsel: Khaitan & Co.",
+      scope: { mode: "kinds", entityKinds: ["ncr", "inspection"] },
+      notes: "Potential litigation",
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.id as string;
+    expect(created.body.status).toBe("active");
+    expect(created.body.reference).toMatch(/^LH-\d{4}-\d{3}$/);
+    expect(created.body.scope).toEqual({ mode: "kinds", entityKinds: ["ncr", "inspection"] });
+    expect(created.body.lockVersion).toBe(0);
+
+    const list = await authed("get", "/v1/settings/legal-holds", ACME, mgrTok);
+    expect(list.status).toBe(200);
+    expect((list.body.items as { id: string }[]).some((h) => h.id === id)).toBe(true);
+
+    // Optimistic rename + re-scope to the whole workspace; version bumps.
+    const upd = await authed("put", `/v1/settings/legal-holds/${id}`, ACME, mgrTok).send({
+      name: "PHASED Volvo field failure",
+      matter: "External counsel: Khaitan & Co.",
+      scope: { mode: "tenant" },
+      notes: "Escalated — freeze everything",
+      version: 0,
+    });
+    expect(upd.status).toBe(200);
+    expect(upd.body.scope).toEqual({ mode: "tenant" });
+    expect(upd.body.lockVersion).toBe(1);
+
+    // Stale update → 409.
+    const stale = await authed("put", `/v1/settings/legal-holds/${id}`, ACME, mgrTok).send({
+      name: "PHASED x",
+      scope: { mode: "tenant" },
+      version: 0,
+    });
+    expect(stale.status).toBe(409);
+
+    // Release → status flips, releasedAt stamped.
+    const released = await authed("post", `/v1/settings/legal-holds/${id}/release`, ACME, mgrTok).send({ version: 1 });
+    expect(released.status).toBe(200);
+    expect(released.body.status).toBe("released");
+    expect(released.body.releasedAt).not.toBeNull();
+
+    // Releasing again → 409 (already released; version also moved).
+    const twice = await authed("post", `/v1/settings/legal-holds/${id}/release`, ACME, mgrTok).send({ version: 1 });
+    expect(twice.status).toBe(409);
+
+    // Remove → gone from the register.
+    const removed = await authed("post", `/v1/settings/legal-holds/${id}/delete`, ACME, mgrTok).send({});
+    expect(removed.status).toBe(200);
+    const after = await authed("get", "/v1/settings/legal-holds", ACME, mgrTok);
+    expect((after.body.items as { id: string }[]).some((h) => h.id === id)).toBe(false);
+  });
+
+  it("an active hold actually blocks purge of its scope; releasing it lifts the block", async () => {
+    const created = await authed("post", "/v1/settings/legal-holds", ACME, mgrTok).send({
+      name: "PHASED audit preservation",
+      scope: { mode: "kinds", entityKinds: ["audit"] },
+      notes: "IATF audit evidence",
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.id as string;
+    const candidate = { entityKind: "audit", entityId: randomUUID() };
+
+    // While active, the purge decision function (fed the exact active-hold read)
+    // refuses to purge a covered row.
+    const whileActive = await activeHoldScopes(acmeId);
+    expect(isBlockedByHolds(whileActive, candidate)).toBe(true);
+    expect(whileActive.some((s) => Array.isArray(s.entityKinds) && s.entityKinds.includes("audit"))).toBe(true);
+
+    // Releasing removes it from the active set, so the block lifts.
+    await authed("post", `/v1/settings/legal-holds/${id}/release`, ACME, mgrTok).send({
+      version: created.body.lockVersion,
+    });
+    const afterRelease = await activeHoldScopes(acmeId);
+    expect(afterRelease.some((s) => Array.isArray(s.entityKinds) && s.entityKinds.includes("audit"))).toBe(false);
+
+    await authed("post", `/v1/settings/legal-holds/${id}/delete`, ACME, mgrTok).send({});
+  });
+
+  it("refuses hold reads and writes to a viewer (no settings:manage)", async () => {
+    const read = await authed("get", "/v1/settings/legal-holds", ACME, viewerTok);
+    expect(read.status).toBe(403);
+    const write = await authed("post", "/v1/settings/legal-holds", ACME, viewerTok).send({
+      name: "PHASED nope",
+      scope: { mode: "tenant" },
+    });
+    expect(write.status).toBe(403);
+  });
+
+  it("does not leak one tenant's holds into another (RLS)", async () => {
+    await authed("post", "/v1/settings/legal-holds", ACME, mgrTok).send({
+      name: "PHASED acme-only hold",
+      scope: { mode: "tenant" },
+    });
+    const other = await authed("get", "/v1/settings/legal-holds", GLOBEX, globexMgrTok);
+    expect(other.status).toBe(200);
+    expect((other.body.items as { name: string }[]).some((h) => h.name === "PHASED acme-only hold")).toBe(false);
+  });
+});
+
+describe("DLP policy register", () => {
+  it("CRUD: create/list/update(optimistic)/delete under settings:manage", async () => {
+    const created = await authed("post", "/v1/settings/dlp-policies", ACME, mgrTok).send({
+      name: "PHASED Block Aadhaar uploads",
+      pattern: "PII patterns",
+      action: "block",
+      surface: "All upload surfaces",
+      note: "",
+      enabled: true,
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.id as string;
+    expect(created.body.action).toBe("block");
+    expect(created.body.lockVersion).toBe(0);
+
+    const list = await authed("get", "/v1/settings/dlp-policies", ACME, mgrTok);
+    expect(list.status).toBe(200);
+    expect((list.body.items as { id: string }[]).some((p) => p.id === id)).toBe(true);
+
+    // Optimistic toggle off; version bumps.
+    const upd = await authed("put", `/v1/settings/dlp-policies/${id}`, ACME, mgrTok).send({
+      name: "PHASED Block Aadhaar uploads",
+      pattern: "PII patterns",
+      action: "block",
+      surface: "All upload surfaces",
+      note: "",
+      enabled: false,
+      version: 0,
+    });
+    expect(upd.status).toBe(200);
+    expect(upd.body.enabled).toBe(false);
+    expect(upd.body.lockVersion).toBe(1);
+
+    const stale = await authed("put", `/v1/settings/dlp-policies/${id}`, ACME, mgrTok).send({
+      name: "x",
+      action: "warn",
+      enabled: true,
+      version: 0,
+    });
+    expect(stale.status).toBe(409);
+
+    const removed = await authed("post", `/v1/settings/dlp-policies/${id}/delete`, ACME, mgrTok).send({});
+    expect(removed.status).toBe(200);
+    const after = await authed("get", "/v1/settings/dlp-policies", ACME, mgrTok);
+    expect((after.body.items as { id: string }[]).some((p) => p.id === id)).toBe(false);
+  });
+
+  it("rejects an invalid action with 422", async () => {
+    const bad = await authed("post", "/v1/settings/dlp-policies", ACME, mgrTok).send({
+      name: "PHASED bad action",
+      action: "encrypt",
+      enabled: true,
+    });
+    expect(bad.status).toBe(422);
+  });
+
+  it("refuses reads and writes to a viewer (no settings:manage)", async () => {
+    const read = await authed("get", "/v1/settings/dlp-policies", ACME, viewerTok);
+    expect(read.status).toBe(403);
+    const write = await authed("post", "/v1/settings/dlp-policies", ACME, viewerTok).send({
+      name: "PHASED nope",
+      action: "warn",
+      enabled: true,
+    });
+    expect(write.status).toBe(403);
+  });
+
+  it("does not leak one tenant's policies into another (RLS)", async () => {
+    await authed("post", "/v1/settings/dlp-policies", ACME, mgrTok).send({
+      name: "PHASED acme-only policy",
+      action: "warn",
+      enabled: true,
+    });
+    const other = await authed("get", "/v1/settings/dlp-policies", GLOBEX, globexMgrTok);
+    expect(other.status).toBe(200);
+    expect((other.body.items as { name: string }[]).some((p) => p.name === "PHASED acme-only policy")).toBe(false);
   });
 });

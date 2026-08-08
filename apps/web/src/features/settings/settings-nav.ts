@@ -85,8 +85,8 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     group: "Compliance & Privacy",
     items: [
       { id: "dsar", label: "Data subject requests", icon: User },
-      { id: "legal-hold", label: "Legal hold", icon: Lock },
-      { id: "dlp", label: "DLP policies", icon: Shield },
+      { id: "legal-hold", label: "Legal hold", icon: Lock, built: true },
+      { id: "dlp", label: "DLP policies", icon: Shield, built: true },
       { id: "byok", label: "Customer-managed keys", icon: KeyRound },
     ],
   },

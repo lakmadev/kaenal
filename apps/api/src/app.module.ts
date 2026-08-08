@@ -69,6 +69,8 @@ import { EntityLinksService } from "./collab/entity-links.service.js";
 import { SettingsController } from "./settings/settings.controller.js";
 import { SettingsService } from "./settings/settings.service.js";
 import { NcrRulesService } from "./settings/ncr-rules.service.js";
+import { LegalHoldsService } from "./settings/legal-holds.service.js";
+import { DlpPoliciesService } from "./settings/dlp-policies.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -104,6 +106,8 @@ import {
   SEARCH_SERVICE,
   SETTINGS_SERVICE,
   NCR_RULES_SERVICE,
+  LEGAL_HOLDS_SERVICE,
+  DLP_POLICIES_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -297,6 +301,8 @@ import {
     { provide: ENTITY_LINKS_SERVICE, useFactory: () => new EntityLinksService() },
     { provide: SETTINGS_SERVICE, useFactory: () => new SettingsService() },
     { provide: NCR_RULES_SERVICE, useFactory: () => new NcrRulesService() },
+    { provide: LEGAL_HOLDS_SERVICE, useFactory: () => new LegalHoldsService() },
+    { provide: DLP_POLICIES_SERVICE, useFactory: () => new DlpPoliciesService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

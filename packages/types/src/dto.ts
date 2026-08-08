@@ -1606,3 +1606,114 @@ export const UpdateSessionPolicyBody = SessionPolicy.extend({
   version: z.number().int().nonnegative(),
 });
 export type UpdateSessionPolicyBody = z.infer<typeof UpdateSessionPolicyBody>;
+
+// --- Settings: legal hold register (04 §Settings > Compliance & Privacy) ------
+// The litigation/audit hold register, on the foundational `legal_holds` table
+// (0001, extended in 0028). A hold is `active` while `released_at IS NULL` and
+// `released` once released — the one domain transition in the design. Holds are
+// genuinely ENFORCED: the nightly purge job (`packages/core/purge.ts`) refuses
+// to permanently erase any soft-deleted row an active hold's `scope` covers.
+//
+// `scope` is therefore the structured shape purge understands, exposed as a
+// small tagged union: `tenant` (freeze everything), `kinds` (freeze whole entity
+// kinds), or `record` (freeze one kind, optionally one row). Managed under
+// settings:manage; audited + optimistic.
+
+export const LegalHoldStatus = z.enum(["active", "released"]);
+export type LegalHoldStatus = z.infer<typeof LegalHoldStatus>;
+
+/** The entity kinds a scoped hold can target — the vocabulary the purge job maps
+ *  soft-deleted rows to (a curated, user-meaningful subset). */
+export const LegalHoldEntityKind = z.enum([
+  "ncr",
+  "inspection",
+  "document",
+  "capa",
+  "scar",
+  "eight_d",
+  "audit",
+  "supplier",
+]);
+export type LegalHoldEntityKind = z.infer<typeof LegalHoldEntityKind>;
+
+/** API-facing scope. Maps to/from the stored jsonb: `tenant`→`{}`,
+ *  `kinds`→`{entityKinds}`, `record`→`{entityKind, entityId?}`. */
+export const LegalHoldScopeInput = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("tenant") }),
+  z.object({ mode: z.literal("kinds"), entityKinds: z.array(LegalHoldEntityKind).min(1).max(20) }),
+  z.object({
+    mode: z.literal("record"),
+    entityKind: LegalHoldEntityKind,
+    entityId: z.string().uuid().optional(),
+  }),
+]);
+export type LegalHoldScopeInput = z.infer<typeof LegalHoldScopeInput>;
+
+export const LegalHoldDto = z.object({
+  id: z.string().uuid(),
+  reference: z.string(),
+  name: z.string(),
+  matter: z.string(),
+  scope: LegalHoldScopeInput,
+  status: LegalHoldStatus,
+  notes: z.string(),
+  openedAt: z.string(),
+  releasedAt: z.string().nullable(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type LegalHoldDto = z.infer<typeof LegalHoldDto>;
+
+/** The editable shape. */
+const LegalHoldShape = z.object({
+  name: z.string().trim().min(1).max(200),
+  matter: z.string().trim().max(300).default(""),
+  scope: LegalHoldScopeInput,
+  notes: z.string().trim().max(2000).default(""),
+});
+
+export const CreateLegalHoldBody = LegalHoldShape;
+export type CreateLegalHoldBody = z.infer<typeof CreateLegalHoldBody>;
+
+export const UpdateLegalHoldBody = LegalHoldShape.extend({
+  version: z.number().int().nonnegative(),
+});
+export type UpdateLegalHoldBody = z.infer<typeof UpdateLegalHoldBody>;
+
+// --- Settings: DLP policy register (04 §Settings > Compliance & Privacy) -------
+// A data-loss-prevention policy register (table 0028). Pattern + action +
+// surface, toggleable. Pre-egress interception, hit metrics, and the design's
+// "recent events" table need an interception layer + event log that don't exist
+// yet — stored + listed + audited only, enforcement flagged in TODO. Managed
+// under settings:manage.
+
+export const DlpAction = z.enum(["block", "warn", "watermark", "quarantine", "notify"]);
+export type DlpAction = z.infer<typeof DlpAction>;
+
+export const DlpPolicyDto = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  pattern: z.string(),
+  action: DlpAction,
+  surface: z.string(),
+  note: z.string(),
+  enabled: z.boolean(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type DlpPolicyDto = z.infer<typeof DlpPolicyDto>;
+
+const DlpPolicyShape = z.object({
+  name: z.string().trim().min(1).max(200),
+  pattern: z.string().trim().max(400).default(""),
+  action: DlpAction,
+  surface: z.string().trim().max(200).default(""),
+  note: z.string().trim().max(400).default(""),
+  enabled: z.boolean().default(true),
+});
+
+export const CreateDlpPolicyBody = DlpPolicyShape;
+export type CreateDlpPolicyBody = z.infer<typeof CreateDlpPolicyBody>;
+
+export const UpdateDlpPolicyBody = DlpPolicyShape.extend({
+  version: z.number().int().nonnegative(),
+});
+export type UpdateDlpPolicyBody = z.infer<typeof UpdateDlpPolicyBody>;

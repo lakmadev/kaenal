@@ -3,6 +3,8 @@ import type {
   BrandingDto,
   SessionPolicyDto,
   NcrValidationRuleDto,
+  LegalHoldDto,
+  DlpPolicyDto,
   CapaDto,
   CommentDto,
   DocumentDto,
@@ -280,6 +282,14 @@ export const apiQueries = {
     ncrRules: (client: ApiClient): QueryOption<Page<NcrValidationRuleDto>> => ({
       queryKey: queryKeys.settings.ncrRules(),
       queryFn: () => client.listNcrValidationRules().then((r) => unwrap<Page<NcrValidationRuleDto>>(r)),
+    }),
+    legalHolds: (client: ApiClient): QueryOption<Page<LegalHoldDto>> => ({
+      queryKey: queryKeys.settings.legalHolds(),
+      queryFn: () => client.listLegalHolds().then((r) => unwrap<Page<LegalHoldDto>>(r)),
+    }),
+    dlpPolicies: (client: ApiClient): QueryOption<Page<DlpPolicyDto>> => ({
+      queryKey: queryKeys.settings.dlpPolicies(),
+      queryFn: () => client.listDlpPolicies().then((r) => unwrap<Page<DlpPolicyDto>>(r)),
     }),
   },
 } as const;

@@ -1,11 +1,17 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put } from "@nestjs/common";
 import { z } from "zod";
 import {
+  CreateDlpPolicyBody,
+  CreateLegalHoldBody,
   CreateNcrValidationRuleBody,
   UpdateBrandingBody,
+  UpdateDlpPolicyBody,
+  UpdateLegalHoldBody,
   UpdateNcrValidationRuleBody,
   UpdateSessionPolicyBody,
   type BrandingDto,
+  type DlpPolicyDto,
+  type LegalHoldDto,
   type NcrValidationRuleDto,
   type Page,
   type SessionPolicyDto,
@@ -14,11 +20,19 @@ import { currentContext, currentTx } from "../context.js";
 import { Internal, RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
-import { NCR_RULES_SERVICE, SETTINGS_SERVICE } from "../tokens.js";
+import {
+  DLP_POLICIES_SERVICE,
+  LEGAL_HOLDS_SERVICE,
+  NCR_RULES_SERVICE,
+  SETTINGS_SERVICE,
+} from "../tokens.js";
 import type { SettingsService } from "./settings.service.js";
 import type { NcrRulesService } from "./ncr-rules.service.js";
+import type { LegalHoldsService } from "./legal-holds.service.js";
+import type { DlpPoliciesService } from "./dlp-policies.service.js";
 
 const uuid = z.string().uuid();
+const versionBody = z.object({ version: z.number().int().nonnegative() });
 
 /**
  * Workspace settings routes. `@Internal`: a supplier-portal partner has no
@@ -32,6 +46,8 @@ export class SettingsController {
   constructor(
     @Inject(SETTINGS_SERVICE) private readonly settings: SettingsService,
     @Inject(NCR_RULES_SERVICE) private readonly ncrRules: NcrRulesService,
+    @Inject(LEGAL_HOLDS_SERVICE) private readonly legalHolds: LegalHoldsService,
+    @Inject(DLP_POLICIES_SERVICE) private readonly dlpPolicies: DlpPoliciesService,
   ) {}
 
   @Get("v1/settings/branding")
@@ -96,5 +112,69 @@ export class SettingsController {
   @RequireCapability("settings:manage")
   async deleteNcrRule(@Param("id") id: string): Promise<NcrValidationRuleDto> {
     return this.ncrRules.remove(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
+  }
+
+  // --- Legal holds ---------------------------------------------------------
+  @Get("v1/settings/legal-holds")
+  @RequireCapability("settings:manage")
+  async listLegalHolds(): Promise<Page<LegalHoldDto>> {
+    return this.legalHolds.list(currentTx());
+  }
+
+  @Post("v1/settings/legal-holds")
+  @RequireCapability("settings:manage")
+  async createLegalHold(@Body() body: unknown): Promise<LegalHoldDto> {
+    const input = parse(CreateLegalHoldBody, body);
+    return this.legalHolds.create(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+  }
+
+  @Put("v1/settings/legal-holds/:id")
+  @RequireCapability("settings:manage")
+  async updateLegalHold(@Param("id") id: string, @Body() body: unknown): Promise<LegalHoldDto> {
+    const input = parse(UpdateLegalHoldBody, body);
+    return this.legalHolds.update(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), input, auditCtxOf());
+  }
+
+  @Post("v1/settings/legal-holds/:id/release")
+  @HttpCode(200)
+  @RequireCapability("settings:manage")
+  async releaseLegalHold(@Param("id") id: string, @Body() body: unknown): Promise<LegalHoldDto> {
+    const { version } = parse(versionBody, body);
+    return this.legalHolds.release(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), version, auditCtxOf());
+  }
+
+  @Post("v1/settings/legal-holds/:id/delete")
+  @HttpCode(200)
+  @RequireCapability("settings:manage")
+  async deleteLegalHold(@Param("id") id: string): Promise<LegalHoldDto> {
+    return this.legalHolds.remove(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
+  }
+
+  // --- DLP policies --------------------------------------------------------
+  @Get("v1/settings/dlp-policies")
+  @RequireCapability("settings:manage")
+  async listDlpPolicies(): Promise<Page<DlpPolicyDto>> {
+    return this.dlpPolicies.list(currentTx());
+  }
+
+  @Post("v1/settings/dlp-policies")
+  @RequireCapability("settings:manage")
+  async createDlpPolicy(@Body() body: unknown): Promise<DlpPolicyDto> {
+    const input = parse(CreateDlpPolicyBody, body);
+    return this.dlpPolicies.create(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+  }
+
+  @Put("v1/settings/dlp-policies/:id")
+  @RequireCapability("settings:manage")
+  async updateDlpPolicy(@Param("id") id: string, @Body() body: unknown): Promise<DlpPolicyDto> {
+    const input = parse(UpdateDlpPolicyBody, body);
+    return this.dlpPolicies.update(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), input, auditCtxOf());
+  }
+
+  @Post("v1/settings/dlp-policies/:id/delete")
+  @HttpCode(200)
+  @RequireCapability("settings:manage")
+  async deleteDlpPolicy(@Param("id") id: string): Promise<DlpPolicyDto> {
+    return this.dlpPolicies.remove(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
   }
 }
