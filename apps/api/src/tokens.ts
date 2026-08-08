@@ -37,5 +37,6 @@ export const NOTIFICATIONS_SERVICE = Symbol("NOTIFICATIONS_SERVICE");
 export const COMMENTS_SERVICE = Symbol("COMMENTS_SERVICE");
 export const AUDIT_LOG_SERVICE = Symbol("AUDIT_LOG_SERVICE");
 export const ENTITY_LINKS_SERVICE = Symbol("ENTITY_LINKS_SERVICE");
+export const SETTINGS_SERVICE = Symbol("SETTINGS_SERVICE");
 export const JOB_PRODUCER = Symbol("JOB_PRODUCER");
 export const RATE_LIMITER = Symbol("RATE_LIMITER");

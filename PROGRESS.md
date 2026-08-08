@@ -5,6 +5,40 @@
 
 ## Current status
 
+**Admin/platform functional slices — program kickoff + Phase A (2026-08-08).** Pulled the Claude
+Design "5 functional phases" handoff (`PHASES_HANDOFF.md`, `IMPLEMENTATION_PROGRESS.md`) into
+`project_brain/project/` via DesignSync. Key reframe recorded in `ADMIN_PLATFORM_PLAN.md`: those
+five prototype phases (session policy, branding, cost-centers, filters, confirms, validation)
+target screens that in the REAL app are all **placeholders with no backend** — so each is a
+**net-new vertical slice** (migration+RLS+contract+service+tests+audit+UI), not a localStorage
+port. Sequenced as Phases A–F (tasks #30–35), backend-first, one at a time. User directive:
+"implement everything in phases".
+
+- **Phase A — `tenant_settings` foundation + White-label branding: DONE, browser-verified.**
+  - **DB** `0025_tenant_settings.sql` — ONE reusable table keyed `(tenant_id, namespace)` holding a
+    JSONB `doc` (namespace `branding` now; `session` etc. widen the CHECK per later phase), forced
+    RLS + PK-as-leading-tenant_id-index, `lock_version` + bump trigger, composite member FKs.
+    `db:check` passes (38 tenant tables).
+  - **Types** `BrandingSettings` Zod + `BRANDING_DEFAULTS` (ink `#18181b`/`#f4f4f5`/Archivo — tokens
+    supersede the prototype's Precision-Auto/red seed data), `BrandingDto`, `UpdateBrandingBody`
+    (optimistic `version`). Contract `getBranding` (GET) + `updateBranding` (PUT), `@Internal`.
+  - **API** `settings/` module: GET merges stored doc over defaults (unbranded → version 0); PUT is
+    `settings:manage`, upserts with optimistic concurrency (first INSERT seeds `lock_version=1` so a
+    racing first-writer loses cleanly — found + fixed via test), audits `settings_changed`.
+  - **Web** `sections/white-label.tsx` (built:true) — faithful reproduction of the `WhiteLabelEditor`
+    design (brand/colour/login-copy/email cards + live login+sidebar preview + Reset/Save), wired to
+    `use-branding` hook. Saved display name flows to the **sidebar wordmark** (shell reflection,
+    handoff Phase 4). Logo/favicon upload, domain-verify + SPF/DKIM chips, PDF/mobile toggles are
+    presentational (no upload/DNS backend yet — flagged).
+  - **Tests** `apps/api/test/settings.test.ts` (6): defaults@v0, save+bumped-version reflect, stale
+    409, viewer 403-write/200-read, invalid-colour 422, cross-tenant RLS isolation. typecheck 6/6 +
+    lint clean. Browser-verified: editor renders, live preview reactive, Save persists, dashboard
+    sidebar shows the branded name after a full navigation.
+  - **Deferred (flagged):** apply branding COLOURS to the live runtime theme; branded pre-auth login
+    page (needs a public-by-slug read — rule-8 existence-leak care); logo/favicon upload backend.
+  - *Note:* the pre-existing shell hydration warning (theme toggle Moon/Sun SSR mismatch in
+    `ThemeProvider.readInitialTheme`) is unrelated to this slice.
+
 **RBAC — role-based UI (web, 2026-08-06).** Pulled the Claude Design "RBAC" change
 (`src/rbac.jsx` NEW, `src/shell.jsx`, `Kaenal.html`) into `project_brain/project/` via the
 DesignSync MCP (+ `RBAC_HANDOFF.md`). Implemented the REAL feature against our existing

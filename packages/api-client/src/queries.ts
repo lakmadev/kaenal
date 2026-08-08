@@ -1,5 +1,6 @@
 import type {
   AuditEventDto,
+  BrandingDto,
   CapaDto,
   CommentDto,
   DocumentDto,
@@ -262,6 +263,13 @@ export const apiQueries = {
     prefs: (client: ApiClient): QueryOption<NotificationPrefsDto> => ({
       queryKey: queryKeys.notifications.prefs(),
       queryFn: () => client.getNotificationPrefs().then((r) => unwrap<NotificationPrefsDto>(r)),
+    }),
+  },
+
+  settings: {
+    branding: (client: ApiClient): QueryOption<BrandingDto> => ({
+      queryKey: queryKeys.settings.branding(),
+      queryFn: () => client.getBranding().then((r) => unwrap<BrandingDto>(r)),
     }),
   },
 } as const;

@@ -8,6 +8,7 @@ import { NotificationsSection } from "./sections/notifications";
 import { SecuritySection } from "./sections/security";
 import { PreferencesSection } from "./sections/preferences";
 import { MembersSection } from "./sections/members";
+import { WhiteLabelSection } from "./sections/white-label";
 
 /**
  * The active settings section's content. The section rail lives in the settings
@@ -27,6 +28,8 @@ export function SettingsContent({ section }: { section: string }): React.ReactEl
       return <PreferencesSection />;
     case "members":
       return <MembersSection />;
+    case "white-label":
+      return <WhiteLabelSection />;
     default:
       return <ComingSoon section={section} />;
   }

@@ -46,6 +46,25 @@ seams, not domain logic.
 
 ---
 
+## Admin/platform functional slices (Claude Design 5-phase handoff → `ADMIN_PLATFORM_PLAN.md`)
+
+Net-new vertical slices (migration+RLS+contract+service+tests+audit+UI), backend-first, one at a
+time. Tasks #30–35.
+- [x] **Phase A — `tenant_settings` foundation + White-label branding.** Reusable settings table;
+      branding editor (settings:manage) reflected in the shell wordmark. Browser-verified.
+  - [ ] Follow-up: apply branding **colours** to the live runtime theme (currently stored + previewed).
+  - [ ] Follow-up: branded **pre-auth login page** (needs a public-by-slug branding read — rule-8
+        existence-leak care) + wire `loginTagline`/`footer`/`domain`.
+  - [ ] Follow-up: **logo/favicon upload** backend (file storage + render); domain-verify + SPF/DKIM
+        chips are presentational until a DNS/verify service exists.
+- [ ] **Phase B** — NCR validation rules (gate NCR create/transition).
+- [ ] **Phase C** — Session policies (config in `tenant_settings` + real enforcement).
+- [ ] **Phase D** — Legal hold + DLP policies (compliance).
+- [ ] **Phase E** — Cost centers & chargeback (needs usage metering — stub/flag).
+- [ ] **Phase F** — FMEA workbench (new QMS module; overlaps P13 below).
+
+---
+
 ## Product backlog (from PROGRESS.md roadmap)
 
 - [ ] **P11 finish:** seed a demo `partner` account so the supplier portal is viewable in dev

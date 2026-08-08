@@ -66,6 +66,8 @@ import { AuditLogController } from "./collab/audit-log.controller.js";
 import { AuditLogService } from "./collab/audit-log.service.js";
 import { EntityLinksController } from "./collab/entity-links.controller.js";
 import { EntityLinksService } from "./collab/entity-links.service.js";
+import { SettingsController } from "./settings/settings.controller.js";
+import { SettingsService } from "./settings/settings.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -99,6 +101,7 @@ import {
   RATE_LIMITER,
   REDIS,
   SEARCH_SERVICE,
+  SETTINGS_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -132,6 +135,7 @@ import {
     CommentsController,
     AuditLogController,
     EntityLinksController,
+    SettingsController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -289,6 +293,7 @@ import {
     { provide: COMMENTS_SERVICE, useFactory: () => new CommentsService() },
     { provide: AUDIT_LOG_SERVICE, useFactory: () => new AuditLogService() },
     { provide: ENTITY_LINKS_SERVICE, useFactory: () => new EntityLinksService() },
+    { provide: SETTINGS_SERVICE, useFactory: () => new SettingsService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

@@ -90,6 +90,8 @@ import {
   PortalScarRespondBody,
   PortalPpapResubmitBody,
   PortalEvidencePresignBody,
+  BrandingDto,
+  UpdateBrandingBody,
   TemplateDto,
   TransitionDocumentBody,
   TransitionEightDBody,
@@ -720,6 +722,21 @@ export const contract = c.router(
       body: z.object({}),
       responses: { 200: EntityLinkDto, ...commonErrors },
       summary: "Remove a link between two records",
+    },
+
+    // --- Settings: white-label branding ------------------------------------
+    getBranding: {
+      method: "GET",
+      path: "/v1/settings/branding",
+      responses: { 200: BrandingDto, ...commonErrors },
+      summary: "This workspace's white-label branding (defaults-merged, read by the shell)",
+    },
+    updateBranding: {
+      method: "PUT",
+      path: "/v1/settings/branding",
+      body: UpdateBrandingBody,
+      responses: { 200: BrandingDto, ...commonErrors },
+      summary: "Save this workspace's white-label branding (settings:manage; optimistic)",
     },
 
     // --- Suppliers (FEATURES §11.1) ----------------------------------------

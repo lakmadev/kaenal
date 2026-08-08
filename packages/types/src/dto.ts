@@ -1436,3 +1436,63 @@ export const PortalEvidencePresignBody = z.object({
   sizeBytes: z.number().int().positive(),
 });
 export type PortalEvidencePresignBody = z.infer<typeof PortalEvidencePresignBody>;
+
+// --- Settings: white-label branding (04 §Settings > Multi-tenancy) -----------
+// One `tenant_settings` row (namespace 'branding', 0025). The display name is
+// reflected in the app shell (an empty `displayName` inherits the workspace
+// name, so an unbranded tenant is unchanged); the colours, login copy and sender
+// fields are stored + previewed in the editor. Applying the colours to the live
+// runtime theme, and the branded pre-auth login page, are follow-ups (a runtime
+// theme is a global concern; a public-by-slug branding read has rule-8
+// existence-leak implications) — tracked in TODO.md.
+
+/** A 6-digit hex colour (`#18181b`). Empty is not allowed — the editor always
+ *  has a concrete colour, falling back to {@link BRANDING_DEFAULTS}. */
+const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Use a 6-digit hex colour, e.g. #18181B");
+
+/** An email address, or the empty string meaning "unset". */
+const OptionalEmail = z.union([z.string().trim().max(254).email(), z.literal("")]);
+
+export const BrandingSettings = z.object({
+  /** Workspace display name in the shell + login. Empty = inherit the workspace
+   *  name (so an unbranded tenant looks exactly as it did before branding). */
+  displayName: z.string().trim().max(60).default(""),
+  /** Short monogram for compact spots (sidebar rail, favicon alt). */
+  shortName: z.string().trim().max(6).default(""),
+  /** Accent colour — buttons, active nav. Stored; not yet applied to the theme. */
+  primaryColor: HexColor.default("#18181b"),
+  /** App canvas / background colour. Stored; not yet applied to the theme. */
+  bgColor: HexColor.default("#f4f4f5"),
+  /** Custom domain the workspace is served on (display only for now). */
+  domain: z.string().trim().max(253).default(""),
+  /** Login-screen tagline under the "Sign in to {name}" headline (which is
+   *  derived from displayName, so there is no separate headline field). */
+  loginTagline: z.string().trim().max(240).default(""),
+  /** Font family name (must be one the app bundles; defaults to the token font). */
+  font: z.string().trim().max(40).default("Archivo"),
+  /** Support address shown in the footer / help. */
+  supportEmail: OptionalEmail.default(""),
+  /** Footer text under the login/app chrome. */
+  footer: z.string().trim().max(160).default(""),
+  /** Sender identity for notification emails. */
+  fromName: z.string().trim().max(60).default(""),
+  fromEmail: OptionalEmail.default(""),
+});
+export type BrandingSettings = z.infer<typeof BrandingSettings>;
+
+/** The canonical unbranded defaults — every field at its schema default. The GET
+ *  merges the stored `doc` over these, so a partial/legacy doc still validates. */
+export const BRANDING_DEFAULTS: BrandingSettings = BrandingSettings.parse({});
+
+/** GET response: the resolved branding plus its optimistic-concurrency token. */
+export const BrandingDto = BrandingSettings.extend({
+  lockVersion: z.number().int().nonnegative(),
+});
+export type BrandingDto = z.infer<typeof BrandingDto>;
+
+/** PUT body: the full branding doc plus the version the editor loaded (rule 6 —
+ *  a stale write is rejected with STALE_WRITE, never a silent clobber). */
+export const UpdateBrandingBody = BrandingSettings.extend({
+  version: z.number().int().nonnegative(),
+});
+export type UpdateBrandingBody = z.infer<typeof UpdateBrandingBody>;

@@ -100,4 +100,9 @@ export const queryKeys = {
     unreadCount: () => ["notifications", "unread-count"] as const,
     prefs: () => ["notification-prefs"] as const,
   },
+
+  settings: {
+    all: ["settings"] as const,
+    branding: () => ["settings", "branding"] as const,
+  },
 } as const;

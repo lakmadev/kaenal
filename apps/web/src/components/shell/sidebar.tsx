@@ -8,6 +8,7 @@ import type { MeDto } from "@kaenal/types";
 import { cn } from "@/lib/cn";
 import { useUiStore } from "@/lib/stores/ui";
 import { hasCapability } from "@/hooks/use-me";
+import { useBranding } from "@/hooks/use-branding";
 import { NAV, SETTINGS_ITEM, isDivider, type NavItem } from "@/config/navigation";
 import { roleSeesNavRoot } from "@/config/rbac";
 
@@ -60,6 +61,11 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
   const collapsed = useUiStore((s) => s.sidebarCollapsed);
   const mobileOpen = useUiStore((s) => s.mobileNavOpen);
   const setMobileOpen = useUiStore((s) => s.setMobileNavOpen);
+  // White-label: a saved display name replaces the KAENAL wordmark for everyone
+  // in the workspace; unbranded tenants keep the default (design rule #9 — the
+  // shell.jsx TopBar/brand reflects readBrandCfg).
+  const { data: branding } = useBranding();
+  const brandName = branding?.displayName?.trim();
 
   // Manual expand overrides; a section defaults to open per DEFAULT_OPEN.
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
@@ -95,9 +101,12 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
           )}
         >
           <Logo />
-          {!collapsed && (
-            <span className="text-[16px] font-bold tracking-[0.08em] text-white">KAENAL</span>
-          )}
+          {!collapsed &&
+            (brandName !== undefined && brandName !== "" ? (
+              <span className="truncate text-[16px] font-bold text-white">{brandName}</span>
+            ) : (
+              <span className="text-[16px] font-bold tracking-[0.08em] text-white">KAENAL</span>
+            ))}
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
