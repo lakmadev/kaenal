@@ -57,7 +57,10 @@ time. Tasks #30–35.
         existence-leak care) + wire `loginTagline`/`footer`/`domain`.
   - [ ] Follow-up: **logo/favicon upload** backend (file storage + render); domain-verify + SPF/DKIM
         chips are presentational until a DNS/verify service exists.
-- [ ] **Phase B** — NCR validation rules (gate NCR create/transition).
+- [x] **Phase B** — NCR validation rules (enforced on NCR create). Browser-verified.
+  - [ ] Follow-up: enforce `warn`/`escalate` actions (warning channel + escalation job) and add
+        `transition`/`disposition`/`close` triggers (only create-time `block` is enforced today).
+  - [ ] Follow-up: "recent validation events" table (needs a validation-event log — omitted, not faked).
 - [ ] **Phase C** — Session policies (config in `tenant_settings` + real enforcement).
 - [ ] **Phase D** — Legal hold + DLP policies (compliance).
 - [ ] **Phase E** — Cost centers & chargeback (needs usage metering — stub/flag).

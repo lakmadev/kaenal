@@ -39,6 +39,35 @@ port. Sequenced as Phases A–F (tasks #30–35), backend-first, one at a time. 
   - *Note:* the pre-existing shell hydration warning (theme toggle Moon/Sun SSR mismatch in
     `ThemeProvider.readInitialTheme`) is unrelated to this slice.
 
+- **Phase B — NCR validation rules: DONE, browser-verified.**
+  - **DB** `0026_ncr_validation_rules.sql` — tenant table (name, field, operator, value, action,
+    message, enabled) + RLS + `lock_version`/bump trigger + composite member FKs. A rule FIRES when
+    `field <operator> value` holds; `field` is the closed set of CreateNcrBody fields
+    (priority/source/title/description/plant/area). `db:check` 39 tables.
+  - **Core** `packages/core/ncr-validation.ts` — pure `ruleFires` / `firingBlockRules(rules, facts)`
+    (rule 5: evaluation in core, throw in the service).
+  - **Types/contract** `NcrRuleField|Operator|Action` enums + `NcrValidationRuleDto` +
+    create/update bodies (refined so `equals`/`in` require a value); CRUD under
+    `/v1/settings/ncr-validation-rules` (`settings:manage`, optimistic, `@Internal`).
+  - **API** `settings/ncr-rules.service.ts` (audited CRUD) + enforcement wired into
+    `NcrService.create` (`enforceValidationRules` loads enabled `block` rules and rejects with the
+    rule's message before any row/counter is written). `warn`/`escalate` are stored, not yet
+    enforced (no warning channel / escalation job) — flagged.
+  - **Web** `sections/validation-rules.tsx` (built:true) — faithful `ValidationRules` reproduction:
+    list (search + Block/Warn/Escalate filter + empty state), per-rule action chip + enabled toggle
+    + delete-with-confirm (Radix Dialog), and the WHEN/FOR/IF/THEN rule builder with inline form
+    validation. `use-ncr-rules` hook. The design's "recent validation events" table is **omitted**
+    (needs a validation-event log that doesn't exist — flagged, not faked).
+  - **Fix found in-browser:** the delete confirm blanked the settings content — conditionally
+    unmounting `DialogContent` on the same state that drives Radix `open` throws during close.
+    Fixed to the controlled pattern (DialogContent always mounted; Radix gates its portal by `open`).
+  - **Tests** extended `settings.test.ts` (now 10): rules CRUD + optimistic 409 + viewer 403 +
+    **create-enforcement** (a block rule rejects a matching NCR create, allows once disabled) +
+    cross-tenant RLS. typecheck 6/6, lint clean, build green. Browser-verified create/toggle/delete.
+  - *Note:* verifying with `pnpm build` while `next dev` shares `apps/web/.next` corrupts the dev
+    cache (`Cannot find module './vendor-chunks/…'`) — clear `.next` + restart the dev server, and
+    don't run a production build against a live dev server (see TROUBLESHOOTING.md).
+
 **RBAC — role-based UI (web, 2026-08-06).** Pulled the Claude Design "RBAC" change
 (`src/rbac.jsx` NEW, `src/shell.jsx`, `Kaenal.html`) into `project_brain/project/` via the
 DesignSync MCP (+ `RBAC_HANDOFF.md`). Implemented the REAL feature against our existing

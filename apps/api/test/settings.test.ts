@@ -68,7 +68,7 @@ async function token(slug: string, email: string): Promise<string> {
   return decodeURIComponent(session?.split("=")[1]?.split(";")[0] ?? "");
 }
 
-function authed(method: "get" | "put", path: string, slug: string, bearer: string) {
+function authed(method: "get" | "put" | "post", path: string, slug: string, bearer: string) {
   return request(server())[method](path).set("X-Tenant-Id", slug).set("Authorization", `Bearer ${bearer}`);
 }
 
@@ -96,6 +96,12 @@ beforeAll(async () => {
   acmeId = await tid(ACME);
   globexId = await tid(GLOBEX);
 
+  // Start from a clean, unbranded slate (a prior run — or manual dev use — may
+  // have left branding/rules behind; the branding tests assume version 0).
+  await control.query("DELETE FROM ncrs WHERE title LIKE 'PHASEB%'");
+  await control.query("DELETE FROM ncr_validation_rules WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
+  await control.query("DELETE FROM tenant_settings WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
+
   await seedMember(acmeId, "settings-mgr@acme.test", "manager");
   await seedMember(acmeId, "settings-viewer@acme.test", "viewer");
   await seedMember(globexId, "settings-mgr@globex.test", "manager");
@@ -110,8 +116,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // tenant_settings.updated_by → memberships is ON DELETE RESTRICT, so drop the
-  // settings rows before the memberships that stamped them.
+  // Composite (tenant_id, updated_by/created_by) → memberships FKs are ON DELETE
+  // RESTRICT, so drop the settings rows + test NCRs before the memberships.
+  await control.query("DELETE FROM ncrs WHERE title LIKE 'PHASEB%'");
+  await control.query("DELETE FROM ncr_validation_rules WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
   await control.query("DELETE FROM tenant_settings WHERE tenant_id = ANY($1)", [[acmeId, globexId]]);
   const ids = (
     await control.query<{ id: string }>("SELECT id FROM control.users WHERE email LIKE 'settings-%@%.test'")
@@ -181,5 +189,119 @@ describe("white-label branding", () => {
     expect(other.status).toBe(200);
     expect(other.body.displayName).toBe("");
     expect(other.body.lockVersion).toBe(0);
+  });
+});
+
+describe("NCR validation rules", () => {
+  it("CRUD: create/list/update(optimistic)/delete under settings:manage", async () => {
+    const created = await authed("post", "/v1/settings/ncr-validation-rules", ACME, mgrTok).send({
+      name: "Description required",
+      field: "description",
+      operator: "is_empty",
+      action: "block",
+      message: "A description is required",
+      enabled: true,
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.id as string;
+    expect(created.body.lockVersion).toBe(0);
+
+    const list = await authed("get", "/v1/settings/ncr-validation-rules", ACME, viewerTok);
+    expect(list.status).toBe(200);
+    expect((list.body.items as { id: string }[]).some((r) => r.id === id)).toBe(true);
+
+    // Optimistic update (disable it); version bumps.
+    const upd = await authed("put", `/v1/settings/ncr-validation-rules/${id}`, ACME, mgrTok).send({
+      name: "Description required",
+      field: "description",
+      operator: "is_empty",
+      action: "block",
+      message: "A description is required",
+      enabled: false,
+      version: 0,
+    });
+    expect(upd.status).toBe(200);
+    expect(upd.body.enabled).toBe(false);
+    expect(upd.body.lockVersion).toBe(1);
+
+    // Stale update → 409.
+    const stale = await authed("put", `/v1/settings/ncr-validation-rules/${id}`, ACME, mgrTok).send({
+      name: "x",
+      field: "description",
+      operator: "is_empty",
+      action: "block",
+      message: "x",
+      enabled: true,
+      version: 0,
+    });
+    expect(stale.status).toBe(409);
+
+    const removed = await authed("post", `/v1/settings/ncr-validation-rules/${id}/delete`, ACME, mgrTok).send({});
+    expect(removed.status).toBe(200);
+    const after = await authed("get", "/v1/settings/ncr-validation-rules", ACME, mgrTok);
+    expect((after.body.items as { id: string }[]).some((r) => r.id === id)).toBe(false);
+  });
+
+  it("refuses rule writes to a viewer (no settings:manage)", async () => {
+    const res = await authed("post", "/v1/settings/ncr-validation-rules", ACME, viewerTok).send({
+      name: "nope",
+      field: "title",
+      operator: "is_not_empty",
+      action: "warn",
+      message: "nope",
+      enabled: true,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("enforces an enabled block rule on NCR create, and allows once satisfied", async () => {
+    const rule = await authed("post", "/v1/settings/ncr-validation-rules", ACME, mgrTok).send({
+      name: "Title cannot be the banned token",
+      field: "title",
+      operator: "equals",
+      value: "PHASEB_BLOCK",
+      action: "block",
+      message: "That title is not allowed",
+      enabled: true,
+    });
+    expect(rule.status).toBe(201);
+
+    // A matching create is blocked with the rule's message.
+    const blocked = await authed("post", "/v1/ncrs", ACME, mgrTok).send({ title: "PHASEB_BLOCK", priority: "major" });
+    expect(blocked.status).toBe(422);
+    expect(JSON.stringify(blocked.body)).toContain("not allowed");
+
+    // A non-matching create succeeds.
+    const ok = await authed("post", "/v1/ncrs", ACME, mgrTok).send({ title: "PHASEB_OK", priority: "major" });
+    expect(ok.status).toBe(201);
+
+    // Disabling the rule lets the previously-blocked title through.
+    const disable = await authed("put", `/v1/settings/ncr-validation-rules/${rule.body.id}`, ACME, mgrTok).send({
+      name: "Title cannot be the banned token",
+      field: "title",
+      operator: "equals",
+      value: "PHASEB_BLOCK",
+      action: "block",
+      message: "That title is not allowed",
+      enabled: false,
+      version: 0,
+    });
+    expect(disable.status).toBe(200);
+    const nowOk = await authed("post", "/v1/ncrs", ACME, mgrTok).send({ title: "PHASEB_BLOCK", priority: "major" });
+    expect(nowOk.status).toBe(201);
+  });
+
+  it("does not leak one tenant's rules into another (RLS)", async () => {
+    await authed("post", "/v1/settings/ncr-validation-rules", ACME, mgrTok).send({
+      name: "acme-only rule",
+      field: "title",
+      operator: "is_not_empty",
+      action: "warn",
+      message: "x",
+      enabled: true,
+    });
+    const other = await authed("get", "/v1/settings/ncr-validation-rules", GLOBEX, globexMgrTok);
+    expect(other.status).toBe(200);
+    expect((other.body.items as { name: string }[]).some((r) => r.name === "acme-only rule")).toBe(false);
   });
 });

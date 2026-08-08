@@ -4,12 +4,15 @@ import { withAudit, type Tx } from "@kaenal/db";
 import {
   computeDueAt,
   counterYear,
+  firingBlockRules,
   formatCode,
   isPlantScoped,
   ncrMachine,
   type BusinessHours,
   type Membership,
   type NcrAction,
+  type NcrFacts,
+  type NcrRule,
   type SlaConfigByPriority,
 } from "@kaenal/core";
 import type {
@@ -207,6 +210,17 @@ export class NcrService {
     // A plant-scoped author can only raise NCRs inside their plants.
     this.assertInScope(membership, plantId);
 
+    // Configurable NCR validation rules (Settings > Process): a firing `block`
+    // rule rejects the create before any row/counter is written.
+    await this.enforceValidationRules(tx, {
+      priority: body.priority,
+      source,
+      title: body.title,
+      description: body.description ?? null,
+      plant: plantId,
+      area: body.areaId ?? null,
+    });
+
     const now = new Date();
     const tz = await this.plantTimezone(tx, plantId);
     const slaConfig = await this.loadSlaConfig(tx);
@@ -282,6 +296,19 @@ export class NcrService {
   }
 
   /** Manager-side transitions (everything except verify). */
+  /** Load the tenant's enabled block rules and reject on the first that fires.
+   *  The evaluation itself is the pure `firingBlockRules` in core (rule 5). */
+  private async enforceValidationRules(tx: Tx, facts: NcrFacts): Promise<void> {
+    const { rows } = await tx.query<NcrRule>(
+      `SELECT field, operator, value, action, message, enabled
+         FROM ncr_validation_rules
+        WHERE deleted_at IS NULL AND enabled = true AND action = 'block'`,
+    );
+    const firing = firingBlockRules(rows, facts);
+    const first = firing[0];
+    if (first !== undefined) throw new ApiError("VALIDATION_FAILED", first.message);
+  }
+
   async transition(
     tx: Tx,
     tenantId: string,

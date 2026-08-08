@@ -68,6 +68,7 @@ import { EntityLinksController } from "./collab/entity-links.controller.js";
 import { EntityLinksService } from "./collab/entity-links.service.js";
 import { SettingsController } from "./settings/settings.controller.js";
 import { SettingsService } from "./settings/settings.service.js";
+import { NcrRulesService } from "./settings/ncr-rules.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -102,6 +103,7 @@ import {
   REDIS,
   SEARCH_SERVICE,
   SETTINGS_SERVICE,
+  NCR_RULES_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -294,6 +296,7 @@ import {
     { provide: AUDIT_LOG_SERVICE, useFactory: () => new AuditLogService() },
     { provide: ENTITY_LINKS_SERVICE, useFactory: () => new EntityLinksService() },
     { provide: SETTINGS_SERVICE, useFactory: () => new SettingsService() },
+    { provide: NCR_RULES_SERVICE, useFactory: () => new NcrRulesService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

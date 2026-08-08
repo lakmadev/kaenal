@@ -1496,3 +1496,74 @@ export const UpdateBrandingBody = BrandingSettings.extend({
   version: z.number().int().nonnegative(),
 });
 export type UpdateBrandingBody = z.infer<typeof UpdateBrandingBody>;
+
+// --- Settings: NCR validation rules (04 §Settings > Process) -----------------
+// A rule gates NCR creation: it FIRES when `field <operator> value` holds and
+// applies `action` with `message`. `field` is the closed set of CreateNcrBody
+// fields the API can actually evaluate at create time; `block` rejects the
+// create, `warn`/`escalate` are stored for later enforcement. Rules are managed
+// under settings:manage and enforced in NcrService.create (table 0026).
+
+/** The NCR create-payload fields a rule can test. */
+export const NcrRuleField = z.enum(["priority", "source", "title", "description", "plant", "area"]);
+export type NcrRuleField = z.infer<typeof NcrRuleField>;
+
+/** `is_empty`/`is_not_empty` ignore `value`; `equals` matches one token; `in`
+ *  matches any of a comma-separated set. */
+export const NcrRuleOperator = z.enum(["is_empty", "is_not_empty", "equals", "in"]);
+export type NcrRuleOperator = z.infer<typeof NcrRuleOperator>;
+
+/** `block` rejects the create; `warn`/`escalate` are advisory (stored, not yet
+ *  enforced at runtime — no warning channel / escalation job yet). */
+export const NcrRuleAction = z.enum(["block", "warn", "escalate"]);
+export type NcrRuleAction = z.infer<typeof NcrRuleAction>;
+
+export const NcrValidationRuleDto = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  field: NcrRuleField,
+  operator: NcrRuleOperator,
+  value: z.string(),
+  action: NcrRuleAction,
+  message: z.string(),
+  enabled: z.boolean(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type NcrValidationRuleDto = z.infer<typeof NcrValidationRuleDto>;
+
+/** The editable shape; `value` is required only for `equals`/`in` (refined so an
+ *  emptiness operator needn't carry a value). */
+const NcrValidationRuleShape = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    field: NcrRuleField,
+    operator: NcrRuleOperator,
+    value: z.string().trim().max(400).default(""),
+    action: NcrRuleAction,
+    message: z.string().trim().min(1).max(400),
+    enabled: z.boolean().default(true),
+  })
+  .refine((r) => r.operator === "is_empty" || r.operator === "is_not_empty" || r.value.length > 0, {
+    message: "A value is required for the 'equals' and 'in' operators",
+    path: ["value"],
+  });
+
+export const CreateNcrValidationRuleBody = NcrValidationRuleShape;
+export type CreateNcrValidationRuleBody = z.infer<typeof CreateNcrValidationRuleBody>;
+
+export const UpdateNcrValidationRuleBody = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    field: NcrRuleField,
+    operator: NcrRuleOperator,
+    value: z.string().trim().max(400).default(""),
+    action: NcrRuleAction,
+    message: z.string().trim().min(1).max(400),
+    enabled: z.boolean().default(true),
+    version: z.number().int().nonnegative(),
+  })
+  .refine((r) => r.operator === "is_empty" || r.operator === "is_not_empty" || r.value.length > 0, {
+    message: "A value is required for the 'equals' and 'in' operators",
+    path: ["value"],
+  });
+export type UpdateNcrValidationRuleBody = z.infer<typeof UpdateNcrValidationRuleBody>;

@@ -109,7 +109,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     items: [
       { id: "sla", label: "SLA configuration", icon: Clock },
       { id: "categories", label: "Categories", icon: List },
-      { id: "validation", label: "Validation rules", icon: Shield },
+      { id: "validation", label: "Validation rules", icon: Shield, built: true },
       { id: "email-templates", label: "Email templates", icon: Mail },
       { id: "pdf-templates", label: "PDF templates", icon: FileText },
       { id: "insp-templates", label: "Inspection templates", icon: ClipboardCheck },

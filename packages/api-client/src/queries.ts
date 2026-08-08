@@ -1,6 +1,7 @@
 import type {
   AuditEventDto,
   BrandingDto,
+  NcrValidationRuleDto,
   CapaDto,
   CommentDto,
   DocumentDto,
@@ -270,6 +271,10 @@ export const apiQueries = {
     branding: (client: ApiClient): QueryOption<BrandingDto> => ({
       queryKey: queryKeys.settings.branding(),
       queryFn: () => client.getBranding().then((r) => unwrap<BrandingDto>(r)),
+    }),
+    ncrRules: (client: ApiClient): QueryOption<Page<NcrValidationRuleDto>> => ({
+      queryKey: queryKeys.settings.ncrRules(),
+      queryFn: () => client.listNcrValidationRules().then((r) => unwrap<Page<NcrValidationRuleDto>>(r)),
     }),
   },
 } as const;

@@ -92,6 +92,9 @@ import {
   PortalEvidencePresignBody,
   BrandingDto,
   UpdateBrandingBody,
+  NcrValidationRuleDto,
+  CreateNcrValidationRuleBody,
+  UpdateNcrValidationRuleBody,
   TemplateDto,
   TransitionDocumentBody,
   TransitionEightDBody,
@@ -737,6 +740,37 @@ export const contract = c.router(
       body: UpdateBrandingBody,
       responses: { 200: BrandingDto, ...commonErrors },
       summary: "Save this workspace's white-label branding (settings:manage; optimistic)",
+    },
+
+    // --- Settings: NCR validation rules ------------------------------------
+    listNcrValidationRules: {
+      method: "GET",
+      path: "/v1/settings/ncr-validation-rules",
+      responses: { 200: page(NcrValidationRuleDto), ...commonErrors },
+      summary: "The NCR validation rules enforced on NCR create",
+    },
+    createNcrValidationRule: {
+      method: "POST",
+      path: "/v1/settings/ncr-validation-rules",
+      body: CreateNcrValidationRuleBody,
+      responses: { 201: NcrValidationRuleDto, ...commonErrors },
+      summary: "Add an NCR validation rule (settings:manage)",
+    },
+    updateNcrValidationRule: {
+      method: "PUT",
+      path: "/v1/settings/ncr-validation-rules/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UpdateNcrValidationRuleBody,
+      responses: { 200: NcrValidationRuleDto, ...commonErrors },
+      summary: "Edit an NCR validation rule (settings:manage; optimistic)",
+    },
+    deleteNcrValidationRule: {
+      method: "POST",
+      path: "/v1/settings/ncr-validation-rules/:id/delete",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: z.object({}),
+      responses: { 200: NcrValidationRuleDto, ...commonErrors },
+      summary: "Remove an NCR validation rule (settings:manage)",
     },
 
     // --- Suppliers (FEATURES §11.1) ----------------------------------------
