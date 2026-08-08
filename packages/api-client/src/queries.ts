@@ -1,6 +1,7 @@
 import type {
   AuditEventDto,
   BrandingDto,
+  SessionPolicyDto,
   NcrValidationRuleDto,
   CapaDto,
   CommentDto,
@@ -271,6 +272,10 @@ export const apiQueries = {
     branding: (client: ApiClient): QueryOption<BrandingDto> => ({
       queryKey: queryKeys.settings.branding(),
       queryFn: () => client.getBranding().then((r) => unwrap<BrandingDto>(r)),
+    }),
+    sessionPolicy: (client: ApiClient): QueryOption<SessionPolicyDto> => ({
+      queryKey: queryKeys.settings.sessionPolicy(),
+      queryFn: () => client.getSessionPolicy().then((r) => unwrap<SessionPolicyDto>(r)),
     }),
     ncrRules: (client: ApiClient): QueryOption<Page<NcrValidationRuleDto>> => ({
       queryKey: queryKeys.settings.ncrRules(),

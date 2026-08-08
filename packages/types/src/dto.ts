@@ -1567,3 +1567,42 @@ export const UpdateNcrValidationRuleBody = z
     path: ["value"],
   });
 export type UpdateNcrValidationRuleBody = z.infer<typeof UpdateNcrValidationRuleBody>;
+
+// --- Settings: session policy (04 §Settings > Security > Session policies) ----
+// One `tenant_settings` row (namespace 'session', 0027). The enforced fields are
+// the absolute timeout (drives session expires_at at sign-in) and max concurrent
+// (revoke oldest at sign-in); the remaining fields are stored policy the app
+// reads back (idle timeouts, remember-device, step-up window) whose runtime
+// enforcement is a later slice. The design's decorative toggles (biometric,
+// impossible-travel, off-hours…) are UI-only and not persisted here.
+
+export const SessionPolicy = z.object({
+  /** Web idle timeout in minutes (stored; per-request idle enforcement is later). */
+  webIdleMinutes: z.number().int().min(5).max(1440).default(30),
+  /** Web absolute timeout in hours — the hard session lifetime (ENFORCED). */
+  webAbsoluteHours: z.number().int().min(1).max(168).default(12),
+  /** Mobile idle timeout in hours (stored). */
+  mobileIdleHours: z.number().int().min(1).max(72).default(8),
+  /** Max concurrent sessions per user; 0 = unlimited (ENFORCED — revoke oldest). */
+  maxConcurrentSessions: z.number().int().min(0).max(50).default(3),
+  /** "Trust this device" duration in days; 0 = off (stored). */
+  rememberDeviceDays: z.number().int().min(0).max(365).default(30),
+  /** Step-up re-auth window in minutes (stored). */
+  stepUpMinutes: z.number().int().min(1).max(1440).default(15),
+  /** Notify the user when a new device signs in (stored). */
+  notifyNewDevice: z.boolean().default(true),
+});
+export type SessionPolicy = z.infer<typeof SessionPolicy>;
+
+/** The canonical defaults — every field at its schema default. */
+export const SESSION_POLICY_DEFAULTS: SessionPolicy = SessionPolicy.parse({});
+
+export const SessionPolicyDto = SessionPolicy.extend({
+  lockVersion: z.number().int().nonnegative(),
+});
+export type SessionPolicyDto = z.infer<typeof SessionPolicyDto>;
+
+export const UpdateSessionPolicyBody = SessionPolicy.extend({
+  version: z.number().int().nonnegative(),
+});
+export type UpdateSessionPolicyBody = z.infer<typeof UpdateSessionPolicyBody>;

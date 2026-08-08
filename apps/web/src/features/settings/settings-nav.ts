@@ -76,7 +76,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { id: "sso", label: "Single Sign-On", icon: KeyRound },
       { id: "scim", label: "SCIM provisioning", icon: Users },
       { id: "network", label: "Network policy", icon: Shield },
-      { id: "sessions", label: "Session policies", icon: Clock },
+      { id: "sessions", label: "Session policies", icon: Clock, built: true },
       { id: "service-accounts", label: "Service accounts", icon: Bot },
       { id: "delegated", label: "Delegated admin", icon: KeyRound },
     ],

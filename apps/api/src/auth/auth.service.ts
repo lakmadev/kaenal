@@ -15,6 +15,7 @@ import {
   slideSessionExpiry,
 } from "@kaenal/core";
 import { ApiError } from "../errors.js";
+import { loadSessionPolicy } from "../settings/settings.service.js";
 import { CONTROL_POOL } from "../tokens.js";
 import { generateToken, hashPassword, hashToken, verifyPassword, equalizeTiming } from "./passwords.js";
 
@@ -138,8 +139,13 @@ export class AuthService {
     );
 
     const sessionToken = generateToken();
-    // Partners get a short-lived session (P11); staff get the standard 12h.
-    const expiresAt = slideSessionExpiry(now, membership.role);
+    // Session-policy enforcement (Phase C): partners keep the short-lived P11
+    // session; staff sessions live for the tenant's configured absolute timeout.
+    const policy = await loadSessionPolicy(tx);
+    const expiresAt =
+      membership.role === "partner"
+        ? slideSessionExpiry(now, "partner")
+        : new Date(now.getTime() + policy.webAbsoluteHours * 60 * 60 * 1000);
 
     await withAudit(
       tx,
@@ -169,6 +175,21 @@ export class AuthService {
         );
       },
     );
+
+    // Max-concurrent enforcement: keep the newest N live sessions, revoke the
+    // rest (the just-minted one is newest, so it survives). 0 = unlimited.
+    if (policy.maxConcurrentSessions > 0) {
+      await tx.query(
+        `UPDATE sessions SET revoked_at = now()
+          WHERE id IN (
+            SELECT id FROM sessions
+             WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+             ORDER BY created_at DESC, id DESC
+             OFFSET $2
+          )`,
+        [user.id, policy.maxConcurrentSessions],
+      );
+    }
 
     return {
       userId: user.id,

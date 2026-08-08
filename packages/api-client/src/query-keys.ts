@@ -104,6 +104,7 @@ export const queryKeys = {
   settings: {
     all: ["settings"] as const,
     branding: () => ["settings", "branding"] as const,
+    sessionPolicy: () => ["settings", "session-policy"] as const,
     ncrRules: () => ["settings", "ncr-validation-rules"] as const,
   },
 } as const;

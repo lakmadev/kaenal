@@ -10,6 +10,7 @@ import { PreferencesSection } from "./sections/preferences";
 import { MembersSection } from "./sections/members";
 import { WhiteLabelSection } from "./sections/white-label";
 import { ValidationRulesSection } from "./sections/validation-rules";
+import { SessionPoliciesSection } from "./sections/session-policies";
 
 /**
  * The active settings section's content. The section rail lives in the settings
@@ -33,6 +34,8 @@ export function SettingsContent({ section }: { section: string }): React.ReactEl
       return <WhiteLabelSection />;
     case "validation":
       return <ValidationRulesSection />;
+    case "sessions":
+      return <SessionPoliciesSection />;
     default:
       return <ComingSoon section={section} />;
   }

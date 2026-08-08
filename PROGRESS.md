@@ -68,6 +68,30 @@ port. Sequenced as Phases A–F (tasks #30–35), backend-first, one at a time. 
     cache (`Cannot find module './vendor-chunks/…'`) — clear `.next` + restart the dev server, and
     don't run a production build against a live dev server (see TROUBLESHOOTING.md).
 
+- **Phase C — Session policies (config + enforcement): DONE, browser-verified.**
+  - **DB** `0027_session_settings.sql` — widens the `tenant_settings` namespace CHECK to admit
+    `'session'` (reuses the 0025 store; no new table). `db:check` 39 tables.
+  - **Types/contract** `SessionPolicy` Zod + `SESSION_POLICY_DEFAULTS` (web idle/absolute, mobile
+    idle, max concurrent [0=unlimited], remember-device days, step-up minutes, notify-new-device) +
+    `SessionPolicyDto`/`UpdateSessionPolicyBody`; GET/PUT `/v1/settings/session-policy`
+    (`settings:manage` on PUT, member-readable GET, `@Internal`).
+  - **API** generalised `SettingsService` to a `writeDoc(namespace,…)` core reused by branding +
+    session (branding behaviour unchanged, still tested). Exported standalone `loadSessionPolicy(tx)`
+    so **`AuthService.signIn` enforces** it: staff session `expires_at = now + webAbsoluteHours`
+    (partners keep the P11 short TTL), and after minting, `maxConcurrentSessions > 0` revokes the
+    oldest live sessions beyond the cap (per-user). Idle/remember/step-up are stored, not yet
+    enforced (idle needs per-request `last_seen`; step-up needs a per-op challenge) — flagged.
+  - **Web** `sections/session-policies.tsx` (built:true) — faithful 5-card `SessionPolicies`
+    reproduction (web/mobile lifetime, concurrent, step-up, workforce-safety) with a
+    minutes/hours `DurationMinutes` control; enforced/stored fields wired, decorative safety toggles
+    labelled "UI only — not yet enforced" (not persisted). `use-session-policy` hook. Personal
+    **Security** page (`sections/security.tsx`) now shows a **read-only Session-policy summary card**
+    and the active-sessions caption reflects the max-concurrent limit (handoff Phase 4).
+  - **Tests** `settings.test.ts` now **12**: policy defaults/save/stale-409/viewer-403 + enforcement
+    (absolute timeout drives `expires_at` ≈ now+1h; max=1 revokes the older session on the second
+    sign-in). typecheck 6/6, lint clean, build green. Browser-verified editor→save→personal-page
+    reflection.
+
 **RBAC — role-based UI (web, 2026-08-06).** Pulled the Claude Design "RBAC" change
 (`src/rbac.jsx` NEW, `src/shell.jsx`, `Kaenal.html`) into `project_brain/project/` via the
 DesignSync MCP (+ `RBAC_HANDOFF.md`). Implemented the REAL feature against our existing

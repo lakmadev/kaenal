@@ -92,6 +92,8 @@ import {
   PortalEvidencePresignBody,
   BrandingDto,
   UpdateBrandingBody,
+  SessionPolicyDto,
+  UpdateSessionPolicyBody,
   NcrValidationRuleDto,
   CreateNcrValidationRuleBody,
   UpdateNcrValidationRuleBody,
@@ -740,6 +742,21 @@ export const contract = c.router(
       body: UpdateBrandingBody,
       responses: { 200: BrandingDto, ...commonErrors },
       summary: "Save this workspace's white-label branding (settings:manage; optimistic)",
+    },
+
+    // --- Settings: session policy ------------------------------------------
+    getSessionPolicy: {
+      method: "GET",
+      path: "/v1/settings/session-policy",
+      responses: { 200: SessionPolicyDto, ...commonErrors },
+      summary: "This workspace's session policy (defaults-merged)",
+    },
+    updateSessionPolicy: {
+      method: "PUT",
+      path: "/v1/settings/session-policy",
+      body: UpdateSessionPolicyBody,
+      responses: { 200: SessionPolicyDto, ...commonErrors },
+      summary: "Save this workspace's session policy (settings:manage; optimistic)",
     },
 
     // --- Settings: NCR validation rules ------------------------------------

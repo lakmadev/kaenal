@@ -61,7 +61,13 @@ time. Tasks #30–35.
   - [ ] Follow-up: enforce `warn`/`escalate` actions (warning channel + escalation job) and add
         `transition`/`disposition`/`close` triggers (only create-time `block` is enforced today).
   - [ ] Follow-up: "recent validation events" table (needs a validation-event log — omitted, not faked).
-- [ ] **Phase C** — Session policies (config in `tenant_settings` + real enforcement).
+- [x] **Phase C** — Session policies (absolute timeout + max-concurrent enforced at sign-in).
+      Browser-verified.
+  - [ ] Follow-up: enforce **web idle timeout** (per-request `last_seen_at` on sessions) and
+        **mobile idle**; wire **remember-device** ("trust this device" flow) and **step-up re-auth**
+        (per-operation challenge) — stored today, not enforced.
+  - [ ] Follow-up: the design's workforce-safety detections (off-hours, impossible-travel,
+        suspicious-pattern lockout, managed-device-only) + biometric/wipe are UI-only stubs.
 - [ ] **Phase D** — Legal hold + DLP policies (compliance).
 - [ ] **Phase E** — Cost centers & chargeback (needs usage metering — stub/flag).
 - [ ] **Phase F** — FMEA workbench (new QMS module; overlaps P13 below).

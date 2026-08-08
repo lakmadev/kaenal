@@ -4,9 +4,11 @@ import {
   CreateNcrValidationRuleBody,
   UpdateBrandingBody,
   UpdateNcrValidationRuleBody,
+  UpdateSessionPolicyBody,
   type BrandingDto,
   type NcrValidationRuleDto,
   type Page,
+  type SessionPolicyDto,
 } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
 import { Internal, RequireCapability } from "../decorators.js";
@@ -42,6 +44,25 @@ export class SettingsController {
   async updateBranding(@Body() body: unknown): Promise<BrandingDto> {
     const input = parse(UpdateBrandingBody, body);
     return this.settings.updateBranding(
+      currentTx(),
+      currentContext().tenantId,
+      actorIdOf(),
+      input,
+      auditCtxOf(),
+    );
+  }
+
+  // --- Session policy ------------------------------------------------------
+  @Get("v1/settings/session-policy")
+  async getSessionPolicy(): Promise<SessionPolicyDto> {
+    return this.settings.getSessionPolicy(currentTx());
+  }
+
+  @Put("v1/settings/session-policy")
+  @RequireCapability("settings:manage")
+  async updateSessionPolicy(@Body() body: unknown): Promise<SessionPolicyDto> {
+    const input = parse(UpdateSessionPolicyBody, body);
+    return this.settings.updateSessionPolicy(
       currentTx(),
       currentContext().tenantId,
       actorIdOf(),

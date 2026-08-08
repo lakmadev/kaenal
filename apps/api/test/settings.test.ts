@@ -30,6 +30,7 @@ let globexId = "";
 let mgrTok = ""; // manager — holds settings:manage
 let viewerTok = ""; // viewer — no settings:manage
 let globexMgrTok = ""; // manager in the other tenant
+let concUserId = ""; // dedicated user for the concurrent-session enforcement test
 
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
@@ -104,6 +105,7 @@ beforeAll(async () => {
 
   await seedMember(acmeId, "settings-mgr@acme.test", "manager");
   await seedMember(acmeId, "settings-viewer@acme.test", "viewer");
+  concUserId = await seedMember(acmeId, "settings-conc@acme.test", "viewer");
   await seedMember(globexId, "settings-mgr@globex.test", "manager");
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -303,5 +305,72 @@ describe("NCR validation rules", () => {
     const other = await authed("get", "/v1/settings/ncr-validation-rules", GLOBEX, globexMgrTok);
     expect(other.status).toBe(200);
     expect((other.body.items as { name: string }[]).some((r) => r.name === "acme-only rule")).toBe(false);
+  });
+});
+
+async function activeSessionCount(userId: string): Promise<number> {
+  const { rows } = await control.query<{ n: string }>(
+    "SELECT count(*)::text AS n FROM sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()",
+    [userId],
+  );
+  return Number(rows[0]?.n ?? "0");
+}
+
+describe("session policy", () => {
+  it("reads defaults, saves (settings:manage), and rejects a stale write", async () => {
+    const def = await authed("get", "/v1/settings/session-policy", ACME, viewerTok);
+    expect(def.status).toBe(200);
+    expect(def.body.maxConcurrentSessions).toBe(3);
+    expect(def.body.webAbsoluteHours).toBe(12);
+    expect(def.body.lockVersion).toBe(0);
+
+    const save = await authed("put", "/v1/settings/session-policy", ACME, mgrTok).send({
+      ...def.body,
+      maxConcurrentSessions: 1,
+      webAbsoluteHours: 1,
+      version: 0,
+    });
+    expect(save.status).toBe(200);
+    expect(save.body.maxConcurrentSessions).toBe(1);
+    expect(save.body.lockVersion).toBe(1);
+
+    const stale = await authed("put", "/v1/settings/session-policy", ACME, mgrTok).send({
+      ...def.body,
+      version: 0,
+    });
+    expect(stale.status).toBe(409);
+
+    const viewerWrite = await authed("put", "/v1/settings/session-policy", ACME, viewerTok).send({
+      ...def.body,
+      version: 1,
+    });
+    expect(viewerWrite.status).toBe(403);
+  });
+
+  it("enforces the absolute timeout and the max-concurrent cap at sign-in", async () => {
+    // Ensure the policy is max 1 session / 1h absolute (the CRUD test above set
+    // it, but read the live version to be order-independent).
+    const cur = await authed("get", "/v1/settings/session-policy", ACME, mgrTok);
+    await authed("put", "/v1/settings/session-policy", ACME, mgrTok).send({
+      ...cur.body,
+      maxConcurrentSessions: 1,
+      webAbsoluteHours: 1,
+      version: cur.body.lockVersion,
+    });
+
+    // First sign-in: session lifetime follows the 1h absolute timeout.
+    await token(ACME, "settings-conc@acme.test");
+    const { rows } = await control.query<{ expires_at: Date }>(
+      "SELECT expires_at FROM sessions WHERE user_id = $1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
+      [concUserId],
+    );
+    const ttlMs = (rows[0]?.expires_at.getTime() ?? 0) - Date.now();
+    expect(ttlMs).toBeGreaterThan(55 * 60_000);
+    expect(ttlMs).toBeLessThan(65 * 60_000);
+    expect(await activeSessionCount(concUserId)).toBe(1);
+
+    // Second sign-in: the cap of 1 revokes the older session.
+    await token(ACME, "settings-conc@acme.test");
+    expect(await activeSessionCount(concUserId)).toBe(1);
   });
 });

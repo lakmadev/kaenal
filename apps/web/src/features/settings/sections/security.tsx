@@ -1,7 +1,8 @@
 "use client";
 
-import { ShieldCheck, KeyRound, Smartphone, Phone, Mail, PanelLeft, X } from "lucide-react";
+import { ShieldCheck, KeyRound, Smartphone, Phone, Mail, PanelLeft, X, Clock } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useSessionPolicy } from "@/hooks/use-session-policy";
 import { SettingsPage, SettingsCard, SettingsRow, Toggle } from "../settings-bits";
 
 /** Security & devices (settings.jsx `Security`): sign-in method, MFA methods, and
@@ -22,6 +23,14 @@ const SESSIONS: { icon: LucideIcon; label: string; loc: string; when: string; cu
 ];
 
 export function SecuritySection(): React.ReactElement {
+  const { data: policy } = useSessionPolicy();
+  const maxLabel =
+    policy === undefined
+      ? ""
+      : policy.maxConcurrentSessions === 0
+        ? "unlimited concurrent sessions"
+        : `up to ${policy.maxConcurrentSessions} concurrent session${policy.maxConcurrentSessions === 1 ? "" : "s"}`;
+
   return (
     <SettingsPage title="Security & devices" subtitle="Multi-factor auth, sessions, and security keys">
       <SettingsCard title="Sign-in method">
@@ -71,9 +80,38 @@ export function SecuritySection(): React.ReactElement {
         </div>
       </SettingsCard>
 
+      {policy !== undefined && (
+        <SettingsCard title="Session policy" desc="Set by your workspace administrator (read-only)">
+          <SettingsRow label="Web idle timeout" hint="Inactivity sign-out">
+            <span className="flex items-center gap-1.5 text-[13px] text-muted">
+              <Clock size={13} /> {policy.webIdleMinutes} minutes
+            </span>
+          </SettingsRow>
+          <SettingsRow label="Web absolute timeout" hint="Hard session lifetime (enforced)">
+            <span className="text-[13px] text-muted">{policy.webAbsoluteHours} hours</span>
+          </SettingsRow>
+          <SettingsRow label="Mobile idle timeout">
+            <span className="text-[13px] text-muted">{policy.mobileIdleHours} hours</span>
+          </SettingsRow>
+          <SettingsRow label="Max concurrent sessions" hint="Oldest is signed out when exceeded (enforced)">
+            <span className="text-[13px] text-muted">
+              {policy.maxConcurrentSessions === 0 ? "Unlimited" : policy.maxConcurrentSessions}
+            </span>
+          </SettingsRow>
+          <SettingsRow label="Remember device">
+            <span className="text-[13px] text-muted">
+              {policy.rememberDeviceDays === 0 ? "Off" : `${policy.rememberDeviceDays} days`}
+            </span>
+          </SettingsRow>
+          <SettingsRow label="Step-up re-auth window">
+            <span className="text-[13px] text-muted">{policy.stepUpMinutes} minutes</span>
+          </SettingsRow>
+        </SettingsCard>
+      )}
+
       <SettingsCard
         title="Active sessions"
-        desc="Devices currently signed in to your account"
+        desc={`Devices currently signed in to your account${maxLabel === "" ? "" : ` — workspace policy allows ${maxLabel}`}`}
         footer={
           <button className="k-btn k-btn-ghost" style={{ color: "var(--danger-600)" }}>
             <X size={13} /> Sign out all other sessions
