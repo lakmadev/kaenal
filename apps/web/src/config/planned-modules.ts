@@ -7,7 +7,6 @@ import {
   MessageSquare,
   GitBranch,
   Shield,
-  Grid3x3,
   BarChart3,
   Target,
   Code,
@@ -39,7 +38,8 @@ export const PLANNED_MODULES: Record<string, PlannedModule> = {
   complaints: { title: "Customer complaints", icon: MessageSquare },
   ecn: { title: "Engineering changes", icon: GitBranch },
   risk: { title: "Risk register", icon: Shield },
-  fmea: { title: "FMEA workbench", icon: Grid3x3 },
+  // fmea is built — see app/(app)/fmea (Phase F). Left out of PLANNED_MODULES so
+  // the real route serves instead of the "coming soon" placeholder.
   spc: { title: "SPC charts", icon: BarChart3 },
   msa: { title: "MSA / Gauge R&R", icon: Target },
   "ai-governance": { title: "AI Governance", icon: Sparkles },

@@ -14,6 +14,13 @@ target screens that in the REAL app are all **placeholders with no backend** —
 port. Sequenced as Phases A–F (tasks #30–35), backend-first, one at a time. User directive:
 "implement everything in phases".
 
+**STATUS: all six phases A–F are DONE + browser-verified** (branding, NCR validation rules, session
+policies, legal-hold + DLP, cost-centers + chargeback, FMEA workbench). Details per-phase below.
+Not yet pushed — six phase commits stacked on `feat/admin-platform-settings`, ready for a PR.
+**Carry-over (not a Phase-F defect):** the RLS tenancy suite (`pnpm test:rls`) has been red since
+Phase A (`tenant_settings` composite PK crashes its single-`id` probe) — a dedicated task is filed;
+isolation is proven per-slice via `db:check` + API-level cross-tenant tests.
+
 - **Phase A — `tenant_settings` foundation + White-label branding: DONE, browser-verified.**
   - **DB** `0025_tenant_settings.sql` — ONE reusable table keyed `(tenant_id, namespace)` holding a
     JSONB `doc` (namespace `branding` now; `session` etc. widen the CHECK per later phase), forced
@@ -166,6 +173,36 @@ port. Sequenced as Phases A–F (tasks #30–35), backend-first, one at a time. 
     parts sum to 999¢), and un-metered AI/storage. Plus 6 core `chargeback` tests. typecheck 6/6,
     lint clean, build green. Browser-verified end-to-end (signed-in admin: created CC-4101, assigned a
     member → 1 seat → chargeback US$30.00 conserved).
+
+- **Phase F — FMEA workbench: DONE, browser-verified. (Admin/platform program A–F COMPLETE.)**
+  - **DB** `0030_fmea.sql` — two new tenant tables: `fmeas` (per-part PFMEA/DFMEA header, revision,
+    `UNIQUE(tenant_id,id)` FK target) + `fmea_items` (failure modes: process function, failure mode,
+    effect, S/O/D each CHECK 1–10, cause, prevention/detection controls, recommended action). Composite
+    `(tenant_id,fmea_id)` FK ON DELETE CASCADE, forced RLS + bump + member FKs. `db:check` **43 tables**.
+  - **RBAC** added `fmea:view` / `fmea:manage` capabilities to `packages/core/rbac.ts` (view: all
+    internal roles + auditor/manager also manage; partner none) and the rbac test's EXPECTED matrix
+    (rbac suite now 186 cells green).
+  - **Core** `packages/core/fmea.ts` — pure `rpn(s,o,d)` (S×O×D, clamped 1–10) + `actionPriority` +
+    `apDistribution`. AP is the SIMPLIFIED rule the design states in its own UI note (Sev 9–10 & Occ≥2 →
+    H; Sev 7–8 & Occ×Det≥6 → H; else RPN≥100 or Sev 9–10 → M; else L), clearly labelled — the full
+    certified AIAG/VDA (S,O,D) table is a flagged follow-up (reconstructing it from memory would be
+    worse than an honest approximation). 9 unit tests (incl. the design's own mock AP labels being
+    inconsistent with its stated rule — we follow the rule).
+  - **API** `fmea/` module — `FmeaService` (FMEA CRUD + item CRUD; RPN/AP derived on read via core so a
+    rating edit always re-scores; delete cascades soft-delete to items; item `seq` auto-assigned) +
+    `FmeaController` (`@Internal`, reads `fmea:view`, writes `fmea:manage`). Audited (`created`/
+    `updated`/`deleted`), optimistic.
+  - **Web** real `/fmea` route (removed from `PLANNED_MODULES` so it serves instead of the placeholder):
+    `features/fmea/fmea-workbench.tsx` — FMEA part selector, worksheet table (ScoreBoxes + AP badge),
+    Action-Priority distribution card (client tally of the server-computed AP), recommended-actions
+    detail panel, and a failure-mode editor dialog with a LIVE RPN/AP preview (same `@kaenal/core`
+    functions the API scores with). The design's Export-AIAG-form action is omitted (needs an XLSX
+    exporter) — flagged, not faked.
+  - **Tests** new `apps/api/test/fmea.test.ts` (5): FMEA CRUD + itemCount + optimistic + cascade delete;
+    scoring (S9×O4×D3 → RPN 108 / AP H; drop Occ→1 re-scores to M) + stale-409 + rating-422; viewer can
+    read but not write; cross-tenant RLS (foreign FMEA → 404, foreign item add → 404). Plus 9 core fmea
+    tests. typecheck 6/6, lint clean, build green, core suite 625. Browser-verified end-to-end (signed-in
+    admin: created VBR-3041 PFMEA, added a failure mode → RPN 108 / HIGH → distribution 1 High).
 
 **RBAC — role-based UI (web, 2026-08-06).** Pulled the Claude Design "RBAC" change
 (`src/rbac.jsx` NEW, `src/shell.jsx`, `Kaenal.html`) into `project_brain/project/` via the

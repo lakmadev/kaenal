@@ -72,6 +72,8 @@ import { NcrRulesService } from "./settings/ncr-rules.service.js";
 import { LegalHoldsService } from "./settings/legal-holds.service.js";
 import { DlpPoliciesService } from "./settings/dlp-policies.service.js";
 import { CostCentersService } from "./settings/cost-centers.service.js";
+import { FmeaController } from "./fmea/fmea.controller.js";
+import { FmeaService } from "./fmea/fmea.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -110,6 +112,7 @@ import {
   LEGAL_HOLDS_SERVICE,
   DLP_POLICIES_SERVICE,
   COST_CENTERS_SERVICE,
+  FMEA_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -144,6 +147,7 @@ import {
     AuditLogController,
     EntityLinksController,
     SettingsController,
+    FmeaController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -310,6 +314,7 @@ import {
       useFactory: (control: pg.Pool) => new CostCentersService(control),
       inject: [CONTROL_POOL],
     },
+    { provide: FMEA_SERVICE, useFactory: () => new FmeaService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

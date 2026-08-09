@@ -98,7 +98,17 @@ time. Tasks #30–35.
         actions become real (omitted for now, not faked).
   - [ ] Follow-up: cycle-safe reparenting (only direct self-parent is blocked today; a deep cycle via
         a chain of parents is possible in the API — the 2-level admin UI doesn't create them).
-- [ ] **Phase F** — FMEA workbench (new QMS module; overlaps P13 below).
+- [x] **Phase F** — FMEA workbench (new QMS module; closes P13). New `fmeas` + `fmea_items` tables,
+      `fmea:view`/`fmea:manage` capabilities, full CRUD, and a real `/fmea` route (out of the
+      placeholder). RPN (S×O×D) + Action Priority (H/M/L) derived in `packages/core/fmea.ts` and
+      previewed live in the editor via the same functions. Browser-verified end-to-end (create FMEA →
+      add failure mode → S9×O4×D3 → RPN 108 / HIGH → distribution 1 High).
+  - [ ] Follow-up: replace the SIMPLIFIED Action-Priority rule with the full certified AIAG/VDA 2019
+        (S,O,D) lookup table (the current rule is the one the design states in its own UI note, clearly
+        labelled — the full table is a larger, verification-heavy transcription).
+  - [ ] Follow-up: the design's **Export AIAG form** (XLSX) action — needs an FMEA XLSX exporter
+        (omitted, not faked). Also DFMEA-specific columns, recommended-action completion tracking with
+        after-action re-scoring / risk-reduction %, and control linking to SPC/inspections.
 
 ---
 

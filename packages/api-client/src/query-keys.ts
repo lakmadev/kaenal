@@ -113,4 +113,10 @@ export const queryKeys = {
     chargebackSettings: () => ["settings", "chargeback"] as const,
     chargebackReport: () => ["settings", "chargeback-report"] as const,
   },
+
+  fmea: {
+    all: ["fmea"] as const,
+    list: () => ["fmea", "list"] as const,
+    items: (fmeaId: string) => ["fmea", "items", fmeaId] as const,
+  },
 } as const;

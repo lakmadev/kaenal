@@ -24,3 +24,4 @@ export * from "./ppap.js";
 export * from "./scar.js";
 export * from "./ncr-validation.js";
 export * from "./chargeback.js";
+export * from "./fmea.js";

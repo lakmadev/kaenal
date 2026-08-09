@@ -35,6 +35,8 @@ export const CAPABILITIES = [
   "ppap:manage",
   "scar:view",
   "scar:manage",
+  "fmea:view",
+  "fmea:manage",
   "settings:manage",
   "members:manage",
   "apikeys:manage",
@@ -79,6 +81,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ppap:manage",
     "scar:view",
     "scar:manage",
+    "fmea:view",
+    "fmea:manage",
     "settings:manage",
   ],
 
@@ -97,6 +101,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ppap:manage",
     "scar:view",
     "scar:manage",
+    "fmea:view",
+    "fmea:manage",
   ],
 
   inspector: [
@@ -110,6 +116,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "supplier:view",
     "ppap:view",
     "scar:view",
+    "fmea:view",
   ],
 
   viewer: [
@@ -121,6 +128,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "supplier:view",
     "ppap:view",
     "scar:view",
+    "fmea:view",
   ],
 
   // External supplier contact — the read-only portal, nothing internal. Every

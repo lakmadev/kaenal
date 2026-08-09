@@ -46,6 +46,8 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ppap:manage",
     "scar:view",
     "scar:manage",
+    "fmea:view",
+    "fmea:manage",
     "settings:manage",
     "members:manage",
     "apikeys:manage",
@@ -73,6 +75,8 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ppap:manage",
     "scar:view",
     "scar:manage",
+    "fmea:view",
+    "fmea:manage",
     "settings:manage",
   ],
   auditor: [
@@ -90,6 +94,8 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ppap:manage",
     "scar:view",
     "scar:manage",
+    "fmea:view",
+    "fmea:manage",
   ],
   inspector: [
     "inspection:view",
@@ -102,6 +108,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "supplier:view",
     "ppap:view",
     "scar:view",
+    "fmea:view",
   ],
   viewer: [
     "inspection:view",
@@ -112,6 +119,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "supplier:view",
     "ppap:view",
     "scar:view",
+    "fmea:view",
   ],
   partner: ["portal:view", "portal:respond"],
 };

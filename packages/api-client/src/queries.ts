@@ -9,6 +9,8 @@ import type {
   CostCenterAssignmentDto,
   ChargebackSettingsDto,
   ChargebackReportDto,
+  FmeaDto,
+  FmeaItemDto,
   CapaDto,
   CommentDto,
   DocumentDto,
@@ -310,6 +312,17 @@ export const apiQueries = {
     chargebackReport: (client: ApiClient): QueryOption<ChargebackReportDto> => ({
       queryKey: queryKeys.settings.chargebackReport(),
       queryFn: () => client.getChargebackReport().then((r) => unwrap<ChargebackReportDto>(r)),
+    }),
+  },
+
+  fmea: {
+    list: (client: ApiClient): QueryOption<Page<FmeaDto>> => ({
+      queryKey: queryKeys.fmea.list(),
+      queryFn: () => client.listFmeas().then((r) => unwrap<Page<FmeaDto>>(r)),
+    }),
+    items: (client: ApiClient, fmeaId: string): QueryOption<Page<FmeaItemDto>> => ({
+      queryKey: queryKeys.fmea.items(fmeaId),
+      queryFn: () => client.listFmeaItems({ params: { id: fmeaId } }).then((r) => unwrap<Page<FmeaItemDto>>(r)),
     }),
   },
 } as const;

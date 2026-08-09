@@ -1824,3 +1824,79 @@ export const ChargebackReportDto = z.object({
   meteringPending: z.boolean(),
 });
 export type ChargebackReportDto = z.infer<typeof ChargebackReportDto>;
+
+// --- FMEA workbench (04 §FMEA; qms-risk-spc.jsx) ------------------------------
+// An FMEA is a per-part worksheet (PFMEA/DFMEA, tables 0030); its items are
+// failure modes scored on Severity/Occurrence/Detection (1–10). RPN (S×O×D) and
+// Action Priority (H/M/L) are DERIVED server-side via `@kaenal/core` and returned
+// on each item, so a rating edit always re-scores consistently. Managed under
+// `fmea:manage`, read under `fmea:view`; optimistic + audited.
+
+export const FmeaType = z.enum(["pfmea", "dfmea"]);
+export type FmeaType = z.infer<typeof FmeaType>;
+
+export const ActionPriority = z.enum(["H", "M", "L"]);
+export type ActionPriority = z.infer<typeof ActionPriority>;
+
+export const FmeaDto = z.object({
+  id: z.string().uuid(),
+  type: FmeaType,
+  partCode: z.string(),
+  partName: z.string(),
+  revision: z.number().int().positive(),
+  itemCount: z.number().int().nonnegative(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type FmeaDto = z.infer<typeof FmeaDto>;
+
+const FmeaShape = z.object({
+  type: FmeaType.default("pfmea"),
+  partCode: z.string().trim().min(1).max(60),
+  partName: z.string().trim().min(1).max(200),
+  revision: z.number().int().min(1).max(9999).default(1),
+});
+export const CreateFmeaBody = FmeaShape;
+export type CreateFmeaBody = z.infer<typeof CreateFmeaBody>;
+export const UpdateFmeaBody = FmeaShape.extend({ version: z.number().int().nonnegative() });
+export type UpdateFmeaBody = z.infer<typeof UpdateFmeaBody>;
+
+const Rating = z.number().int().min(1).max(10);
+
+export const FmeaItemDto = z.object({
+  id: z.string().uuid(),
+  fmeaId: z.string().uuid(),
+  seq: z.number().int().nonnegative(),
+  processFunction: z.string(),
+  failureMode: z.string(),
+  effect: z.string(),
+  severity: Rating,
+  cause: z.string(),
+  occurrence: Rating,
+  preventionControl: z.string(),
+  detectionControl: z.string(),
+  detection: Rating,
+  recommendedAction: z.string(),
+  /** Derived S×O×D (1–1000). */
+  rpn: z.number().int(),
+  /** Derived Action Priority (High/Medium/Low). */
+  actionPriority: ActionPriority,
+  lockVersion: z.number().int().nonnegative(),
+});
+export type FmeaItemDto = z.infer<typeof FmeaItemDto>;
+
+const FmeaItemShape = z.object({
+  processFunction: z.string().trim().max(300).default(""),
+  failureMode: z.string().trim().min(1).max(300),
+  effect: z.string().trim().max(400).default(""),
+  severity: Rating.default(1),
+  cause: z.string().trim().max(400).default(""),
+  occurrence: Rating.default(1),
+  preventionControl: z.string().trim().max(400).default(""),
+  detectionControl: z.string().trim().max(400).default(""),
+  detection: Rating.default(1),
+  recommendedAction: z.string().trim().max(600).default(""),
+});
+export const CreateFmeaItemBody = FmeaItemShape;
+export type CreateFmeaItemBody = z.infer<typeof CreateFmeaItemBody>;
+export const UpdateFmeaItemBody = FmeaItemShape.extend({ version: z.number().int().nonnegative() });
+export type UpdateFmeaItemBody = z.infer<typeof UpdateFmeaItemBody>;
