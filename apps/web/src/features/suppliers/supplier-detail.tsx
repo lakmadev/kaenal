@@ -202,27 +202,29 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
         ))}
       </div>
 
-      {tab === "overview" && <OverviewTab s={s} />}
-      {tab === "scorecard" && <ScorecardTab s={s} />}
-      {tab === "ppap" && <PpapTab query={ppap} onOpenPpap={(pid) => router.push(`/ppap/${pid}`)} />}
-      {tab === "events" && <EventsTab scars={scars} linked={groups.events} onOpen={onOpen} />}
-      {tab === "audits" && (
-        <LinkList
-          query={links}
-          rows={groups.audits}
-          onOpen={onOpen}
-          empty={{ icon: ShieldCheck, title: "No audits linked", body: "Audits and inspections of this supplier will appear here." }}
-        />
-      )}
-      {tab === "parts" && <PartsTab s={s} />}
-      {tab === "docs" && (
-        <LinkList
-          query={links}
-          rows={groups.docs}
-          onOpen={onOpen}
-          empty={{ icon: FileText, title: "No documents linked", body: "Documents referencing this supplier will appear here." }}
-        />
-      )}
+      <div key={tab} className="fade-in">
+        {tab === "overview" && <OverviewTab s={s} />}
+        {tab === "scorecard" && <ScorecardTab s={s} />}
+        {tab === "ppap" && <PpapTab query={ppap} onOpenPpap={(pid) => router.push(`/ppap/${pid}`)} />}
+        {tab === "events" && <EventsTab scars={scars} linked={groups.events} onOpen={onOpen} />}
+        {tab === "audits" && (
+          <LinkList
+            query={links}
+            rows={groups.audits}
+            onOpen={onOpen}
+            empty={{ icon: ShieldCheck, title: "No audits linked", body: "Audits and inspections of this supplier will appear here." }}
+          />
+        )}
+        {tab === "parts" && <PartsTab s={s} />}
+        {tab === "docs" && (
+          <LinkList
+            query={links}
+            rows={groups.docs}
+            onOpen={onOpen}
+            empty={{ icon: FileText, title: "No documents linked", body: "Documents referencing this supplier will appear here." }}
+          />
+        )}
+      </div>
     </div>
   );
 }

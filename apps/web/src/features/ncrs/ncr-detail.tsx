@@ -191,7 +191,7 @@ function NcrDetailView({
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_280px]">
-        <div>
+        <div key={tab} className="fade-in">
           {tab === "details" && <DetailsTab ncr={ncr} />}
           {tab === "investigation" && <NcrInvestigationTab ncr={ncr} />}
           {tab === "actions" && <NcrActionsTab ncrId={ncr.id} />}

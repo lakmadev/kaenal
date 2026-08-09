@@ -271,10 +271,12 @@ function CapaDetailView({
             })}
           </div>
 
-          {tab === "plan" && <CapaActionPlan capaId={capa.id} canManage={canManage} />}
-          {tab === "rca" && <CapaRcaTab capa={capa} onOpen={openEntity} />}
-          {tab === "effectiveness" && <CapaEffectivenessTab capa={capa} />}
-          {tab === "history" && <ActivityFeed entityKind="capa" entityId={capa.id} meId={meId} noun="CAPA" />}
+          <div key={tab} className="fade-in">
+            {tab === "plan" && <CapaActionPlan capaId={capa.id} canManage={canManage} />}
+            {tab === "rca" && <CapaRcaTab capa={capa} onOpen={openEntity} />}
+            {tab === "effectiveness" && <CapaEffectivenessTab capa={capa} />}
+            {tab === "history" && <ActivityFeed entityKind="capa" entityId={capa.id} meId={meId} noun="CAPA" />}
+          </div>
         </div>
 
         {/* Sidebar */}

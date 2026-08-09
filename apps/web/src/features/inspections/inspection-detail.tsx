@@ -163,6 +163,7 @@ function View({ inspection, template }: { inspection: InspectionDto; template: T
         ))}
       </div>
 
+      <div key={tab} className="fade-in">
       {tab === "overview" && (
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
           <div className="min-w-0 flex-1">
@@ -235,6 +236,7 @@ function View({ inspection, template }: { inspection: InspectionDto; template: T
       {tab === "history" && (
         <ActivityFeed entityKind="inspection" entityId={inspection.id} meId={me?.userId} noun="inspection" />
       )}
+      </div>
     </div>
   );
 }

@@ -266,10 +266,12 @@ function DocumentDetailView({
             </button>
           </div>
 
-          {tab === "preview" && <PreviewTab doc={doc} />}
-          {tab === "versions" && <VersionsTab id={doc.id} currentVersion={doc.version} meId={meId} />}
-          {tab === "approvals" && <ApprovalsTab doc={doc} meId={meId} />}
-          {tab === "links" && <LinkedTab docId={doc.id} onOpen={(kind, id) => router.push(`/${ENTITY_ROUTE[kind]}/${id}`)} />}
+          <div key={tab} className="fade-in">
+            {tab === "preview" && <PreviewTab doc={doc} />}
+            {tab === "versions" && <VersionsTab id={doc.id} currentVersion={doc.version} meId={meId} />}
+            {tab === "approvals" && <ApprovalsTab doc={doc} meId={meId} />}
+            {tab === "links" && <LinkedTab docId={doc.id} onOpen={(kind, id) => router.push(`/${ENTITY_ROUTE[kind]}/${id}`)} />}
+          </div>
         </div>
 
         {/* Sidebar */}
