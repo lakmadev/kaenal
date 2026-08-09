@@ -106,7 +106,7 @@ async function token(email: string): Promise<string> {
   return decodeURIComponent(session?.split("=")[1]?.split(";")[0] ?? "");
 }
 
-function authed(method: "get" | "post", path: string, bearer: string) {
+function authed(method: "get" | "post" | "put", path: string, bearer: string) {
   return request(server())[method](path).set("X-Tenant-Id", ACME).set("Authorization", `Bearer ${bearer}`);
 }
 
@@ -198,6 +198,55 @@ describe("templates", () => {
     });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe("FORBIDDEN");
+  });
+
+  it("edits a DRAFT in place (no duplicate) and refuses to edit a published one", async () => {
+    const created = await authed("post", "/v1/inspection-templates", adminTok).send({ name: "TEST Draft Edit", schema: SCHEMA });
+    const { id, lockVersion } = created.body as { id: string; lockVersion: number };
+
+    const renamed = { ...SCHEMA, sections: [{ ...SCHEMA.sections[0], title: "Renamed section" }] };
+    const upd = await authed("put", `/v1/inspection-templates/${id}`, adminTok).send({
+      name: "TEST Draft Edit v2",
+      schema: renamed,
+      version: lockVersion,
+    });
+    expect(upd.status).toBe(200);
+    expect(upd.body.id).toBe(id); // SAME row — not a duplicate
+    expect(upd.body.name).toBe("TEST Draft Edit v2");
+
+    // Publish it, then editing the published one in place is a CONFLICT.
+    const pub = await authed("post", `/v1/inspection-templates/${id}/publish`, adminTok).send({ version: upd.body.lockVersion });
+    expect(pub.status).toBe(200);
+    const blocked = await authed("put", `/v1/inspection-templates/${id}`, adminTok).send({
+      name: "TEST Draft Edit v3",
+      schema: SCHEMA,
+      version: pub.body.lockVersion,
+    });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.code).toBe("CONFLICT");
+  });
+
+  it("versions a published template and supersedes it via archive", async () => {
+    const id = await publishedTemplate("TEST Versioned");
+    const src = await authed("get", `/v1/inspection-templates/${id}`, adminTok);
+    expect(src.body.version).toBe(1);
+
+    // New version (same lineage/name) → version 2, its own draft row.
+    const next = await authed("post", `/v1/inspection-templates/${id}/version`, adminTok).send({ name: "TEST Versioned", schema: SCHEMA });
+    expect(next.status).toBe(201);
+    expect(next.body.id).not.toBe(id);
+    expect(next.body.version).toBe(2);
+    expect(next.body.status).toBe("draft");
+
+    // Publish the new version, archive the old one — the old drops out of the list.
+    await authed("post", `/v1/inspection-templates/${next.body.id}/publish`, adminTok).send({ version: next.body.lockVersion });
+    const arch = await authed("post", `/v1/inspection-templates/${id}/archive`, adminTok).send({ version: src.body.lockVersion });
+    expect(arch.status).toBe(200);
+    expect(arch.body.status).toBe("archived");
+    // Archive is idempotent.
+    const again = await authed("post", `/v1/inspection-templates/${id}/archive`, adminTok).send({ version: arch.body.lockVersion });
+    expect(again.status).toBe(200);
+    expect(again.body.status).toBe("archived");
   });
 });
 

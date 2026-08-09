@@ -59,15 +59,52 @@ export function usePublishedTemplates() {
   });
 }
 
-/** Create a draft template, then publish it (its schema becomes immutable). */
-export function usePublishTemplate() {
+/** The template the editor started from (null = a brand-new template). */
+export interface TemplateSource {
+  id: string;
+  status: string;
+  lockVersion: number;
+}
+
+/**
+ * Save & publish from the editor. Editing must NOT spawn a duplicate:
+ *  - new (no source)        → create a draft, then publish it.
+ *  - editing a DRAFT        → update that draft in place, then publish it (same row).
+ *  - editing a PUBLISHED one → its schema is immutable, so publish the NEXT version
+ *    (same lineage) and archive the old one, which drops out of the list.
+ */
+export function useSaveTemplate() {
   const client = getApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: CreateTemplateBody): Promise<TemplateDto> => {
-      const draft = await client.createTemplate({ body }).then((r) => unwrap<TemplateDto>(r));
+    mutationFn: async ({ body, source }: { body: CreateTemplateBody; source: TemplateSource | null }): Promise<TemplateDto> => {
+      if (source !== null && source.status === "draft") {
+        const updated = await client
+          .updateTemplate({ params: { id: source.id }, body: { ...body, version: source.lockVersion } })
+          .then((r) => unwrap<TemplateDto>(r));
+        return client
+          .publishTemplate({ params: { id: updated.id }, body: { version: updated.lockVersion } })
+          .then((r) => unwrap<TemplateDto>(r));
+      }
+
+      if (source !== null) {
+        // Existing published/archived template → version it, then supersede.
+        const draft = await client
+          .versionTemplate({ params: { id: source.id }, body })
+          .then((r) => unwrap<TemplateDto>(r));
+        const published = await client
+          .publishTemplate({ params: { id: draft.id }, body: { version: draft.lockVersion } })
+          .then((r) => unwrap<TemplateDto>(r));
+        if (source.status === "published") {
+          // Best-effort: publishing the new version already succeeded.
+          await client.archiveTemplate({ params: { id: source.id }, body: { version: source.lockVersion } }).catch(() => {});
+        }
+        return published;
+      }
+
+      const created = await client.createTemplate({ body }).then((r) => unwrap<TemplateDto>(r));
       return client
-        .publishTemplate({ params: { id: draft.id }, body: { version: draft.lockVersion } })
+        .publishTemplate({ params: { id: created.id }, body: { version: created.lockVersion } })
         .then((r) => unwrap<TemplateDto>(r));
     },
     onSuccess: () => {

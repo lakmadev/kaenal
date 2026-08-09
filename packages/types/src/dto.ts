@@ -81,6 +81,19 @@ export const CreateTemplateBody = z.object({
 });
 export type CreateTemplateBody = z.infer<typeof CreateTemplateBody>;
 
+/** Edit a DRAFT template's name + schema in place (optimistic). Published
+ *  templates are immutable — version them instead. */
+export const UpdateTemplateBody = z.object({
+  name: z.string().min(1).max(200),
+  schema: FormSchema,
+  version: z.number().int().nonnegative(),
+});
+export type UpdateTemplateBody = z.infer<typeof UpdateTemplateBody>;
+
+/** Optimistic-concurrency body for a status transition (publish/archive). */
+export const TemplateVersionBody = z.object({ version: z.number().int().nonnegative() });
+export type TemplateVersionBody = z.infer<typeof TemplateVersionBody>;
+
 // --- Inspections ------------------------------------------------------------
 
 /**

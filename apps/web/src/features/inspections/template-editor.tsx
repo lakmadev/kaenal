@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { FormItem, FormItemType, FormSchema, FormResponses } from "@kaenal/types";
-import { usePublishTemplate } from "@/hooks/use-inspections";
+import { useSaveTemplate, type TemplateSource } from "@/hooks/use-inspections";
 import { Button, Segmented } from "@/components/ui";
 import { useToast } from "@/components/ui/toast";
 import { errorMessage } from "@/lib/api-error";
@@ -118,10 +118,10 @@ function blankDraft(): Draft {
   };
 }
 
-export function TemplateEditor({ initial }: { initial?: Draft }): React.ReactElement {
+export function TemplateEditor({ initial, source }: { initial?: Draft; source?: TemplateSource }): React.ReactElement {
   const router = useRouter();
   const toast = useToast();
-  const publish = usePublishTemplate();
+  const publish = useSaveTemplate();
 
   const [draft, setDraft] = useState<Draft>(() => initial ?? importedDraft() ?? blankDraft());
   const [mode, setMode] = useState<"edit" | "preview">("edit");
@@ -224,7 +224,7 @@ export function TemplateEditor({ initial }: { initial?: Draft }): React.ReactEle
       return;
     }
     publish.mutate(
-      { name: draft.name.trim(), schema },
+      { body: { name: draft.name.trim(), schema }, source: source ?? null },
       {
         onSuccess: (t) => {
           toast.success(`"${t.name}" published — v${t.version} live`);
@@ -626,21 +626,7 @@ function PropertiesPanel({
         </>
       )}
 
-      {isChoice && (
-        <Prop label="Options (one per line)">
-          <textarea
-            value={(item.options ?? []).map((o) => o.label).join("\n")}
-            onChange={(e) => {
-              const labels = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
-              onPatch({ options: labels.map((label) => ({ value: slug(label), label })) });
-            }}
-            rows={4}
-            placeholder={"Option 1\nOption 2\nOption 3"}
-            className="k-input min-h-[70px] resize-y p-2 text-[12.5px]"
-            style={{ height: "auto" }}
-          />
-        </Prop>
-      )}
+      {isChoice && <OptionsEditor key={item.id} item={item} onPatch={onPatch} />}
 
       {isNumeric && (
         <div className="grid grid-cols-2 gap-2.5">
@@ -772,6 +758,39 @@ function triggerValues(item: FormItem | undefined): { value: string; label: stri
   if (item.type === "yes_no") return [{ value: "yes", label: "Yes" }, { value: "no", label: "No" }];
   if (item.type === "select") return (item.options ?? []).map((o) => ({ value: o.value, label: o.label }));
   return [];
+}
+
+/** Dropdown / multi-select options editor. Keeps its own raw text so the
+ *  newlines and in-progress blank lines the user types survive re-render — the
+ *  previous version derived `value` from the parsed (filtered) options, so
+ *  pressing Enter for a second option was immediately stripped and never stuck.
+ *  Options are re-derived from the text (blank lines ignored, values de-duped).
+ *  Keyed by the field id upstream, so switching fields re-seeds the text. */
+function OptionsEditor({ item, onPatch }: { item: FormItem; onPatch: (patch: Partial<FormItem>) => void }): React.ReactElement {
+  const [raw, setRaw] = useState<string>(() => (item.options ?? []).map((o) => o.label).join("\n"));
+  return (
+    <Prop label="Options (one per line — press Enter for a new option)">
+      <textarea
+        value={raw}
+        onChange={(e) => {
+          setRaw(e.target.value);
+          const labels = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
+          const seen = new Set<string>();
+          const options = labels.map((label) => {
+            let value = slug(label);
+            while (seen.has(value)) value = `${value}_`;
+            seen.add(value);
+            return { value, label };
+          });
+          onPatch({ options });
+        }}
+        rows={4}
+        placeholder={"Option 1\nOption 2\nOption 3"}
+        className="k-input min-h-[70px] resize-y p-2 text-[12.5px]"
+        style={{ height: "auto" }}
+      />
+    </Prop>
+  );
 }
 
 function slug(s: string): string {

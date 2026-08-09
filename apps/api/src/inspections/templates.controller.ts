@@ -1,8 +1,10 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query } from "@nestjs/common";
 import {
   CreateTemplateBody,
   PageQuery,
   TemplateStatus,
+  TemplateVersionBody,
+  UpdateTemplateBody,
   type Page,
   type TemplateDto,
 } from "@kaenal/types";
@@ -14,7 +16,6 @@ import { TEMPLATES_SERVICE } from "../tokens.js";
 import type { TemplatesService } from "./templates.service.js";
 
 const ListQuery = PageQuery.extend({ status: TemplateStatus.optional() });
-const PublishBody = z.object({ version: z.number().int().nonnegative() });
 
 /**
  * Inspection template routes (03 §1). Authoring a template is a
@@ -52,14 +53,42 @@ export class TemplatesController {
     return this.templates.create(currentTx(), ctx.tenantId, actorId(ctx), input, auditCtx(ctx));
   }
 
+  @Put("v1/inspection-templates/:id")
+  @RequireCapability("settings:manage")
+  async update(@Param("id") id: string, @Body() body: unknown): Promise<TemplateDto> {
+    const input = parse(UpdateTemplateBody, body);
+    const uuid = parse(z.string().uuid(), id);
+    const ctx = currentContext();
+    return this.templates.update(currentTx(), ctx.tenantId, actorId(ctx), uuid, input, auditCtx(ctx));
+  }
+
+  @Post("v1/inspection-templates/:id/version")
+  @RequireCapability("settings:manage")
+  async version(@Param("id") id: string, @Body() body: unknown): Promise<TemplateDto> {
+    const input = parse(CreateTemplateBody, body);
+    const uuid = parse(z.string().uuid(), id);
+    const ctx = currentContext();
+    return this.templates.newVersion(currentTx(), ctx.tenantId, actorId(ctx), uuid, input, auditCtx(ctx));
+  }
+
   @Post("v1/inspection-templates/:id/publish")
   @HttpCode(200)
   @RequireCapability("settings:manage")
   async publish(@Param("id") id: string, @Body() body: unknown): Promise<TemplateDto> {
-    const { version } = parse(PublishBody, body);
+    const { version } = parse(TemplateVersionBody, body);
     const uuid = parse(z.string().uuid(), id);
     const ctx = currentContext();
     return this.templates.publish(currentTx(), ctx.tenantId, actorId(ctx), uuid, version, auditCtx(ctx));
+  }
+
+  @Post("v1/inspection-templates/:id/archive")
+  @HttpCode(200)
+  @RequireCapability("settings:manage")
+  async archive(@Param("id") id: string, @Body() body: unknown): Promise<TemplateDto> {
+    const { version } = parse(TemplateVersionBody, body);
+    const uuid = parse(z.string().uuid(), id);
+    const ctx = currentContext();
+    return this.templates.archive(currentTx(), ctx.tenantId, actorId(ctx), uuid, version, auditCtx(ctx));
   }
 }
 
