@@ -1,6 +1,5 @@
 import {
   LayoutDashboard,
-  Zap,
   ClipboardCheck,
   TriangleAlert,
   Brain,
@@ -77,8 +76,9 @@ export function isDivider(e: NavEntry): e is NavDivider {
 
 export const NAV: NavEntry[] = [
   // ── Top cluster (ungrouped, no section header) ──────────────────────────
+  // Quick-Log and Inspections › Mobile App are intentionally excluded — see
+  // apps/web/src/config/excluded.md.
   { id: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { id: "quicklog", label: "Quick-Log", href: "/quicklog", icon: Zap },
   {
     id: "inspections",
     label: "Inspections",
@@ -88,7 +88,6 @@ export const NAV: NavEntry[] = [
       { label: "All Inspections", href: "/inspections" },
       { label: "Templates", href: "/inspections/templates" },
       { label: "Schedule", href: "/inspections/schedule" },
-      { label: "Mobile App", href: "/mobile" },
     ],
   },
   {

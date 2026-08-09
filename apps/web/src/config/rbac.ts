@@ -42,7 +42,7 @@ const ROLE_NAV: Record<string, NavVisibility> = {
     "reports",
     "notifications",
   ]),
-  inspector: new Set(["dashboard", "quicklog", "inspections", "ncrs", "documents", "notifications"]),
+  inspector: new Set(["dashboard", "inspections", "ncrs", "documents", "notifications"]),
   viewer: new Set(["dashboard", "documents", "reports", "notifications"]),
   partner: new Set<string>(), // external — routed to /portal, never this shell
 };
@@ -67,7 +67,7 @@ for (const e of NAV) {
 
 // Always reachable regardless of role-nav curation (settings hosts Personal
 // sections for everyone; dashboard is every role's home).
-const ALWAYS_ROUTES: ReadonlySet<string> = new Set(["", "dashboard", "settings", "mobile"]);
+const ALWAYS_ROUTES: ReadonlySet<string> = new Set(["", "dashboard", "settings"]);
 
 /** Route guard: may this role open `pathname`? Unknown non-module routes pass. */
 export function roleSeesRoute(role: string | undefined, pathname: string): boolean {

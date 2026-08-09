@@ -1,6 +1,4 @@
 import {
-  Zap,
-  Smartphone,
   Sparkles,
   Award,
   Wrench,
@@ -30,8 +28,7 @@ export interface PlannedModule {
 }
 
 export const PLANNED_MODULES: Record<string, PlannedModule> = {
-  quicklog: { title: "Quick-Log", icon: Zap, description: "Fast mobile-first defect capture is next on the build plan." },
-  mobile: { title: "Mobile App", icon: Smartphone, description: "The Expo inspector app ships alongside the web build." },
+  // Quick-Log and Mobile App are intentionally excluded — see config/excluded.md.
   pqe: { title: "Quality Engine", icon: Sparkles, description: "The AI-driven quality engine is next on the build plan." },
   training: { title: "Training & competency", icon: Award },
   calibration: { title: "Calibration", icon: Wrench },
