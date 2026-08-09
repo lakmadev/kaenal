@@ -130,14 +130,23 @@ export function FmeaWorkbench(): React.ReactElement {
   const [editor, setEditor] = useState<{ mode: "create" } | { mode: "edit"; item: FmeaItemDto } | null>(null);
   const [toDeleteFmea, setToDeleteFmea] = useState(false);
 
-  // Default to the first FMEA once loaded.
-  const firstFmeaId = fmeas[0]?.id ?? null;
-  useEffect(() => {
-    if (selectedFmea === null && firstFmeaId !== null) setSelectedFmea(firstFmeaId);
-  }, [firstFmeaId, selectedFmea]);
-
   const fmea = fmeas.find((f) => f.id === selectedFmea) ?? null;
-  const itemsQ = useFmeaItems(selectedFmea);
+  // Only query items for an FMEA that actually exists — during the brief window
+  // after a create/delete the id may not be in the (refetching) list yet, and
+  // asking for a gone FMEA's items 404s.
+  const itemsQ = useFmeaItems(fmea !== null ? selectedFmea : null);
+
+  // Auto-pick the first FMEA when nothing valid is selected — but only once the
+  // list has SETTLED, so a just-created id (not in the stale list yet) isn't
+  // wrongly reset before the refetch lands, and a deleted id is corrected after.
+  const listSettled = !fmeasQ.isPending && !fmeasQ.isFetching;
+  useEffect(() => {
+    if (!listSettled) return;
+    const list = fmeasQ.data?.items ?? [];
+    if (selectedFmea === null || !list.some((f) => f.id === selectedFmea)) {
+      setSelectedFmea(list[0]?.id ?? null);
+    }
+  }, [listSettled, selectedFmea, fmeasQ.data]);
   const items = itemsQ.data?.items ?? [];
   const deleteFmea = useDeleteFmea();
 
