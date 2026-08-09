@@ -148,7 +148,7 @@ export function FmeaWorkbench(): React.ReactElement {
   const detail = items.find((i) => i.id === selectedItem) ?? items[0] ?? null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex max-w-7xl flex-col gap-4 p-6">
       <PageHeader
         title="FMEA workbench"
         description="AIAG / VDA harmonized PFMEA — Action Priority scoring and live re-scoring as ratings change."
