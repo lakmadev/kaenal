@@ -1,9 +1,12 @@
 "use client";
 
-import { Check, X, Camera, PenLine } from "lucide-react";
+import { useRef, useState } from "react";
+import { Check, X, Camera, PenLine, ImagePlus, ImageIcon, Loader2 } from "lucide-react";
 import { NOT_APPLICABLE, type FormItem, type FormResponses, type FormSchema } from "@kaenal/types";
 import { isVisible } from "@kaenal/core";
 import { cn } from "@/lib/cn";
+import { uploadFile, usePreviewUrl } from "@/hooks/use-files";
+import { useToast } from "@/components/ui/toast";
 
 /**
  * The dynamic inspection-form renderer (04 §5, 02 §2). It walks the template
@@ -237,7 +240,7 @@ function Control({
       );
     }
     case "photo":
-      return <Placeholder icon={Camera} label="Photo capture — mobile / upload" />;
+      return <PhotoControl value={value} set={set} readOnly={readOnly} />;
     case "signature":
       return <Placeholder icon={PenLine} label="Signature — mobile capture" />;
     default:
@@ -290,6 +293,115 @@ function BinaryControl({
       >
         {isNo && <X size={12} strokeWidth={3} />} {noLabel}
       </button>
+    </div>
+  );
+}
+
+/** Photo field: real web upload (any image format), not just mobile capture.
+ *  The response value is an array of uploaded file ids (the engine accepts a
+ *  string or a list of file references and never scores photos). Thumbnails
+ *  render via the presigned inline-preview url. */
+function toFileIds(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string" && v !== "");
+  if (typeof value === "string" && value !== "") return [value];
+  return [];
+}
+
+function PhotoControl({ value, set, readOnly }: { value: unknown; set: (v: unknown) => void; readOnly: boolean }): React.ReactElement {
+  const toast = useToast();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const ids = toFileIds(value);
+
+  const onFiles = async (files: FileList | null): Promise<void> => {
+    if (files === null || files.length === 0) return;
+    setBusy(true);
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) {
+          toast.error(`${file.name} isn't an image`);
+          continue;
+        }
+        const f = await uploadFile(file);
+        uploaded.push(f.id);
+      }
+      if (uploaded.length > 0) set([...ids, ...uploaded]);
+    } catch {
+      toast.error("Couldn't upload the photo");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (readOnly) {
+    return ids.length === 0 ? (
+      <span className="text-[13px] text-muted">—</span>
+    ) : (
+      <div className="flex max-w-[260px] flex-wrap justify-end gap-1.5">
+        {ids.map((id) => (
+          <PhotoThumb key={id} fileId={id} />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          void onFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      {ids.length > 0 && (
+        <div className="flex max-w-[260px] flex-wrap justify-end gap-1.5">
+          {ids.map((id) => (
+            <PhotoThumb key={id} fileId={id} onRemove={() => set(ids.filter((x) => x !== id))} />
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border-strong px-2.5 py-1.5 text-[11px] text-muted hover:text-text disabled:opacity-60"
+      >
+        {busy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+        {busy ? "Uploading…" : ids.length > 0 ? "Add photo" : "Upload photo"}
+      </button>
+    </div>
+  );
+}
+
+function PhotoThumb({ fileId, onRemove }: { fileId: string; onRemove?: () => void }): React.ReactElement {
+  const { data } = usePreviewUrl(fileId);
+  return (
+    <div className="relative">
+      {data?.url !== undefined ? (
+        // eslint-disable-next-line @next/next/no-img-element -- presigned storage URL, next/image can't optimise it
+        <img src={data.url} alt="Inspection photo" className="h-12 w-12 rounded border border-border object-cover" />
+      ) : (
+        <div className="flex h-12 w-12 items-center justify-center rounded border border-border bg-bg-subtle">
+          <ImageIcon size={14} className="text-muted" />
+        </div>
+      )}
+      {onRemove !== undefined && (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label="Remove photo"
+          className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full text-white"
+          style={{ background: "var(--danger-600)" }}
+        >
+          <X size={10} />
+        </button>
+      )}
     </div>
   );
 }
