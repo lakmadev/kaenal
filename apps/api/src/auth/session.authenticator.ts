@@ -29,19 +29,29 @@ export class SessionAuthenticator implements Authenticator {
     const token = this.extractToken(req);
     if (token === null) return null;
 
-    // CSRF applies to cookie auth only. A bearer token is not attached
-    // automatically by the browser, so it is not forgeable cross-site — and
-    // demanding a CSRF header from the mobile app would be theatre.
-    if (this.isCookieAuth(req) && !SAFE_METHODS.has(req.method)) {
-      this.requireCsrf(req);
-    }
-
     const resolved = await this.auth.resolveSession(tx, token);
     if (resolved === null) {
       // A token that does not resolve is indistinguishable from no token at
       // all in what it reveals, but it must NOT fall through to "anonymous" —
       // that would silently downgrade an expired session to a public request.
+      //
+      // It also must NOT be turned into a CSRF failure first (the check moved
+      // below for exactly this reason): a stale `kaenal_session` still in the
+      // browser jar would otherwise make sign-in — an @AllowAnonymous route —
+      // throw FORBIDDEN, which the lifecycle interceptor does not forgive, so
+      // the user is locked out of the one page that recovers the situation.
+      // Raising UNAUTHENTICATED lets that route fall through to anonymous.
       throw new ApiError("UNAUTHENTICATED", "Your session has expired");
+    }
+
+    // CSRF applies to a *valid* cookie session on an unsafe method: the resolved
+    // session is precisely the protected context double-submit CSRF exists to
+    // guard, so enforcing it only once the session resolves does not weaken any
+    // real authenticated mutation. A bearer token is not attached automatically
+    // by the browser, so it is not forgeable cross-site — demanding a CSRF
+    // header from the mobile app would be theatre.
+    if (this.isCookieAuth(req) && !SAFE_METHODS.has(req.method)) {
+      this.requireCsrf(req);
     }
 
     return {
