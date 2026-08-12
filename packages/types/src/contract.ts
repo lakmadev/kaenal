@@ -156,6 +156,14 @@ import {
   QuerySeriesResult,
 } from "./query.js";
 import { ReportDefinitionDto, CreateReportBody, UpdateReportBody } from "./report.js";
+import {
+  IntegrationDto,
+  IntegrationEventDto,
+  ConnectorSchemaResult,
+  CreateIntegrationBody,
+  UpdateIntegrationBody,
+  ConnectIntegrationBody,
+} from "./integration.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -1111,6 +1119,74 @@ export const contract = c.router(
       body: z.object({}),
       responses: { 200: ReportDefinitionDto, ...commonErrors },
       summary: "Delete a report definition (report:manage)",
+    },
+
+    // --- Data platform: connector registry (09 §1) -------------------------
+    listIntegrations: {
+      method: "GET",
+      path: "/v1/integrations",
+      responses: { 200: page(IntegrationDto), ...commonErrors },
+      summary: "The workspace's connectors (integration:manage)",
+    },
+    createIntegration: {
+      method: "POST",
+      path: "/v1/integrations",
+      body: CreateIntegrationBody,
+      responses: { 201: IntegrationDto, ...commonErrors },
+      summary: "Register a connector (integration:manage)",
+    },
+    getIntegration: {
+      method: "GET",
+      path: "/v1/integrations/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: IntegrationDto, ...commonErrors },
+      summary: "One connector (integration:manage)",
+    },
+    getIntegrationSchema: {
+      method: "GET",
+      path: "/v1/integrations/:id/schema",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: ConnectorSchemaResult, ...commonErrors },
+      summary: "A connector's declared field schema (integration:manage)",
+    },
+    listIntegrationEvents: {
+      method: "GET",
+      path: "/v1/integrations/:id/events",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: page(IntegrationEventDto), ...commonErrors },
+      summary: "A connector's delivery log (integration:manage)",
+    },
+    updateIntegration: {
+      method: "PUT",
+      path: "/v1/integrations/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UpdateIntegrationBody,
+      responses: { 200: IntegrationDto, ...commonErrors },
+      summary: "Edit a connector's name/config (integration:manage; optimistic)",
+    },
+    connectIntegration: {
+      method: "POST",
+      path: "/v1/integrations/:id/connect",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: ConnectIntegrationBody,
+      responses: { 200: IntegrationDto, ...commonErrors },
+      summary: "Connect a connector — records a credential pointer (integration:manage)",
+    },
+    disconnectIntegration: {
+      method: "POST",
+      path: "/v1/integrations/:id/disconnect",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: z.object({}),
+      responses: { 200: IntegrationDto, ...commonErrors },
+      summary: "Disconnect a connector — purges the credential (integration:manage)",
+    },
+    deleteIntegration: {
+      method: "POST",
+      path: "/v1/integrations/:id/delete",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: z.object({}),
+      responses: { 200: IntegrationDto, ...commonErrors },
+      summary: "Remove a connector — purges secrets (integration:manage)",
     },
 
     // --- Suppliers (FEATURES §11.1) ----------------------------------------

@@ -43,6 +43,10 @@ export const CAPABILITIES = [
   // viewer could reach the report builder.
   "report:view",
   "report:manage",
+  // Connector registry (09 §1 / B6). Connect/disconnect an external system is a
+  // platform-tier action, so only admin holds it — a manager configures reports
+  // but does not wire the workspace to SAP/Snowflake/Slack.
+  "integration:manage",
   "settings:manage",
   "members:manage",
   "apikeys:manage",

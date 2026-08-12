@@ -78,6 +78,8 @@ import { QueryController } from "./query/query.controller.js";
 import { QueryService } from "./query/query.service.js";
 import { ReportsController } from "./reports/reports.controller.js";
 import { ReportsService } from "./reports/reports.service.js";
+import { IntegrationsController } from "./integrations/integrations.controller.js";
+import { IntegrationsService } from "./integrations/integrations.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -119,6 +121,7 @@ import {
   FMEA_SERVICE,
   QUERY_SERVICE,
   REPORTS_SERVICE,
+  INTEGRATIONS_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -156,6 +159,7 @@ import {
     FmeaController,
     QueryController,
     ReportsController,
+    IntegrationsController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -325,6 +329,7 @@ import {
     { provide: FMEA_SERVICE, useFactory: () => new FmeaService() },
     { provide: QUERY_SERVICE, useFactory: () => new QueryService() },
     { provide: REPORTS_SERVICE, useFactory: () => new ReportsService() },
+    { provide: INTEGRATIONS_SERVICE, useFactory: () => new IntegrationsService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

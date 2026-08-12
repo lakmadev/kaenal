@@ -102,6 +102,34 @@ per-field detail) ride along with the phase that introduces them. Plan approved;
   - **Deferred (flagged):** drag-to-reposition tile layout (tiles use their seeded 24-col spans; the builder
     edits queries, not geometry) and report scheduling/export (reuses 06-JOBS, a later slice).
 
+- **Phase I — Connector / integrations registry: BACKEND DONE (settings UI is the next commit).**
+  - **DB** `0032_integrations.sql` — the ONE connector substrate (09 §1): `integrations` (provider CHECK over
+    13 providers, status, `config` jsonb [non-secret only], `credentials_ref` [pointer, NEVER a token],
+    last_error/connected_at/last_ok_at/connected_by) + `integration_events` (per-delivery log, powers the
+    settings UI) — forced RLS, member FKs, bump trigger. `db:check` **46 tables**.
+  - **RBAC** `integration:manage` added (admin only — connect/disconnect is platform-tier; a manager configures
+    reports but doesn't wire the workspace to SAP/Slack). rbac matrix 198→**204 cells**.
+  - **Types** `packages/types/src/integration.ts` — provider/status enums, `IntegrationDto`
+    (`hasCredentials` boolean, never the ref), `IntegrationEventDto`, `ConnectorSchemaResult`, Create/Update/
+    Connect bodies.
+  - **Core** `packages/core/src/connectors.ts` — `CONNECTOR_META` (label/origin/category/external/dataSource per
+    provider, from report-data.jsx `RB_CONNECTORS`), `connectorSchema(provider)` (declared field shapes for
+    the data-source connectors — SAP/Snowflake/Oracle/generic, from `RB_CONNECTOR_DATA`), and the
+    `ConnectorAdapter` interface (`listSchema`/`fetchRows`).
+  - **API** `apps/api/src/integrations/` — `IntegrationsService` (CRUD + connect/disconnect + events + schema;
+    **secrets never cross the boundary** — DTO exposes only `hasCredentials`, connect stores a `secret://…`
+    pointer, disconnect/delete purge it; a connect writes an `integration_events` row) + `IntegrationsController`
+    (`@Internal`, whole surface `integration:manage`). Registered (+ `INTEGRATIONS_SERVICE`). Contract routes
+    added (list/create/get/schema/events/update/connect/disconnect/delete).
+  - **Tests** `apps/api/test/integrations.test.ts` (4): create→schema→connect(pointer-only, ref never
+    returned)→events→disconnect→delete lifecycle; optimistic 409; admin-only (manager 403 read+write);
+    cross-tenant RLS. typecheck 4/4 (types/core/api-client/api), rbac 204, repo lint clean.
+  - **Per 09 §6 (substrate, not point connectors):** external providers declare their shape but live
+    `fetchRows`/OAuth is stubbed/flagged — the registry, adapter interface, and event log are the deliverable.
+  - **Next (Phase I FE):** the Integrations settings screen (provider-card grid + status + connect/disconnect +
+    event log) from `settings.jsx`/`dev-platform.jsx`, and surfacing external sources in the report builder's
+    source picker via the adapter path.
+
 - **Phase A — `tenant_settings` foundation + White-label branding: DONE, browser-verified.**
   - **DB** `0025_tenant_settings.sql` — ONE reusable table keyed `(tenant_id, namespace)` holding a
     JSONB `doc` (namespace `branding` now; `session` etc. widen the CHECK per later phase), forced

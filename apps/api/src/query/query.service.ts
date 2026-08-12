@@ -33,7 +33,7 @@ export class QueryService {
     const rowsRes = await tx.query<Record<string, unknown>>(compiled.text, compiled.params);
     const totalRes = await tx.query<{ total: number }>(total.text, total.params);
     const rows = rowsRes.rows.map((row) => shapeRow(row, compiled));
-    return { fields: compiled.fields, rows, total: Number(totalRes.rows[0]?.total ?? 0) };
+    return { fields: [...compiled.fields], rows, total: Number(totalRes.rows[0]?.total ?? 0) };
   }
 
   async runMetric(tx: Tx, query: Query): Promise<QueryMetricResult> {

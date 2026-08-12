@@ -50,6 +50,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "fmea:manage",
     "report:view",
     "report:manage",
+    "integration:manage",
     "settings:manage",
     "members:manage",
     "apikeys:manage",

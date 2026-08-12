@@ -27,3 +27,4 @@ export * from "./chargeback.js";
 export * from "./fmea.js";
 export * from "./query.js";
 export * from "./report-dashboards.js";
+export * from "./connectors.js";
