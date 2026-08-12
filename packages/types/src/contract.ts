@@ -172,6 +172,11 @@ import {
   CreateImportRunBody,
   CommitImportRunBody,
 } from "./import.js";
+import {
+  SpcCharacteristicsResult,
+  SpcChartDto,
+  IngestMeasurementsBody,
+} from "./spc.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -1252,6 +1257,28 @@ export const contract = c.router(
       body: CommitImportRunBody,
       responses: { 200: ImportRunDto, ...commonErrors },
       summary: "Commit a validated run — idempotent by natural key (import:run; optimistic)",
+    },
+
+    // --- SPC analytics (B5; qms-risk-spc.jsx) ------------------------------
+    listSpcCharacteristics: {
+      method: "GET",
+      path: "/v1/spc/characteristics",
+      responses: { 200: SpcCharacteristicsResult, ...commonErrors },
+      summary: "Characteristics that have measurement data (spc:view)",
+    },
+    getSpcChart: {
+      method: "GET",
+      path: "/v1/spc/chart",
+      query: z.object({ part: z.string(), characteristic: z.string() }),
+      responses: { 200: SpcChartDto, ...commonErrors },
+      summary: "X̄/R chart + Western-Electric rules + capability (spc:view)",
+    },
+    ingestMeasurements: {
+      method: "POST",
+      path: "/v1/spc/measurements",
+      body: IngestMeasurementsBody,
+      responses: { 201: z.object({ inserted: z.number() }), ...commonErrors },
+      summary: "Ingest measurements for a characteristic (measurement:manage)",
     },
 
     // --- Suppliers (FEATURES §11.1) ----------------------------------------

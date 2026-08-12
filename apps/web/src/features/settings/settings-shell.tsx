@@ -16,6 +16,7 @@ import { DlpPoliciesSection } from "./sections/dlp-policies";
 import { CostCentersSection } from "./sections/cost-centers";
 import { IntegrationsSection } from "./sections/integrations";
 import { BulkImportSection } from "./sections/bulk-import";
+import { CrossTenantSection } from "./sections/cross-tenant";
 
 /**
  * The active settings section's content. The section rail lives in the settings
@@ -51,6 +52,8 @@ export function SettingsContent({ section }: { section: string }): React.ReactEl
       return <IntegrationsSection />;
     case "bulk-import":
       return <BulkImportSection />;
+    case "cross-tenant":
+      return <CrossTenantSection />;
     default:
       return <ComingSoon section={section} />;
   }

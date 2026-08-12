@@ -142,6 +142,12 @@ export const queryKeys = {
     run: (id: string) => ["import", "run", id] as const,
   },
 
+  spc: {
+    all: ["spc"] as const,
+    characteristics: () => ["spc", "characteristics"] as const,
+    chart: (part: string, characteristic: string) => ["spc", "chart", part, characteristic] as const,
+  },
+
   query: {
     all: ["query"] as const,
     sources: () => ["query", "sources"] as const,

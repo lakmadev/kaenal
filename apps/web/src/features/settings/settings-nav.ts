@@ -99,7 +99,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     items: [
       { id: "org-hierarchy", label: "Org hierarchy", icon: Building2 },
       { id: "white-label", label: "White-label branding", icon: Palette, built: true },
-      { id: "cross-tenant", label: "Cross-tenant analytics", icon: BarChart3 },
+      { id: "cross-tenant", label: "Cross-tenant analytics", icon: BarChart3, built: true },
       { id: "lifecycle", label: "Clone / migrate / export", icon: RefreshCw },
       { id: "cost-centers", label: "Cost centers & chargeback", icon: FileText, built: true },
     ],

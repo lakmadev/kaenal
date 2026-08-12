@@ -31,6 +31,11 @@ definitions+builder+dashboards, I) integrations/connector registry, J) bulk-impo
 convention (do NOT port `rbac.jsx`'s `view.scope` strings — PROGRESS/CLAUDE.md already settled this); SPC
 gets a real `measurements` table; RBAC "gaps" (report-builder authoring gate, connector/import gates,
 per-field detail) ride along with the phase that introduces them. Plan approved; full rollout, phase by phase.
+**STATUS: G–K ALL COMPLETE + browser-verified (2026-08-12).** Query engine (G), report builder + live
+dashboards (H), connector registry (I), bulk-import pipeline (J), SPC + cross-tenant KPIs (K). 5 new tables
+(0031–0034 + integrations), 6 new capabilities (report:view/manage, integration:manage, import:run, spc:view,
+measurement:manage), all injection-safe / RLS-scoped / audited, with per-phase tests. Remaining deferrals are
+flagged (external OAuth/live fetch, corporate cross-tenant roll-ups, async-at-scale import commit) — never faked.
 
 - **Phase G — Query engine core + `/v1/query*`: DONE (backend-first; no UI yet).**
   - **Types** `packages/types/src/query.ts` — the shared `Query` Zod (sourceId/columns/sort/groupBy/limit +
@@ -101,6 +106,41 @@ per-field detail) ride along with the phase that introduces them. Plan approved;
     401 replays). typecheck 6/6 (types/core/api-client/api/web) + repo lint clean. **Phase H COMPLETE.**
   - **Deferred (flagged):** drag-to-reposition tile layout (tiles use their seeded 24-col spans; the builder
     edits queries, not geometry) and report scheduling/export (reuses 06-JOBS, a later slice).
+
+- **Phase K — SPC analytics + cross-tenant KPIs: DONE (backend + FE), browser-verified. Data Platform (G–K) COMPLETE.**
+  - **DB** `0034_measurements.sql` — the canonical SPC source (per the settled decision: a real table, not a
+    projection of inspection responses): `measurements` (part, characteristic, value numeric, subgroup, unit,
+    optional usl/lsl/target, source, taken_at). Full isolation contract — forced RLS, leading index
+    `(tenant_id, characteristic, subgroup, taken_at)`, lock_version + bump trigger, member FKs. `db:check`
+    **49 tables**.
+  - **RBAC** `spc:view` (all internal roles — quality analytics) + `measurement:manage` (admin/manager/
+    inspector — the roles that record on the floor). rbac matrix now **222 cells**.
+  - **Types** `packages/types/src/spc.ts` — `IngestMeasurementsBody`, `SpcCharacteristicDto`, `SpcChartDto`
+    (points + limits + `SpcCapabilityDto` + `SpcViolationDto`).
+  - **Core** `packages/core/src/spc.ts` — pure `computeXbarR`: X̄/R limits via the standard A2/D3/D4 table
+    (n=2–10) + d2-unbiased σ̂, Western-Electric rules 1–4 on the ±1σ/±2σ/±3σ zones, and Cp/Cpk (one- or
+    two-sided) from spec limits. 16 unit tests — pinned against the **Montgomery flow-width worked example**
+    (grand mean/R̄/limits recovered), capability from a known σ, and each WE rule.
+  - **API** `apps/api/src/spc/` — `SpcService`: `characteristics` (series picker), `chart` (groups by subgroup
+    → `computeXbarR` → DTO; ragged/empty → 422/404), `ingest` (audited batch). `@Internal`, class
+    `spc:view` with a **method-level `measurement:manage`** override on ingest (getAllAndOverride). Registered
+    (+ `SPC_SERVICE`); contract routes (characteristics/chart/measurements).
+  - **FE** `apiQueries.spc.*` + `queryKeys.spc`; `use-spc.ts`; `features/spc/spc-charts.tsx` — the
+    qms-risk-spc.jsx `SPCCharts` reproduced (X̄ + R SVG control charts with CL/UCL/LCL + USL/LSL, red-flagged
+    out-of-control points, the WE alarm banner, the WE-rules panel with per-rule point counts, and the Cp/Cpk
+    capability panel), all plotted from the engine's output. `manager+` can seed a sample drifting series.
+    Route `/spc` (was a placeholder). **Cross-tenant analytics** (`settings/sections/cross-tenant.tsx`) —
+    current-workspace KPIs computed LIVE via the Phase G engine (`/query/metric`), with corporate roll-ups
+    honestly flagged as needing an org-hierarchy that isn't modelled yet. Wired into `settings-shell` + nav.
+  - **Tests** `apps/api/test/spc.test.ts` (5): ingest RBAC (auditor has spc:view but not measurement:manage →
+    403 ingest / 200 chart; manager ingests), computed chart returns limits + capability + a WE-1 violation
+    for a drifting series, 404 on no data, cross-tenant RLS. typecheck 6/6, lint clean, core 222 rbac + 16 spc,
+    api spc 5/5.
+  - **Browser-verified** as acme admin: `/spc` empty → Load sample → X̄/R charts render with the drift flagged
+    (WE-1–4, Cp 2.15 / Cpk 1.86 / σ̂ 0.16), all `/spc*` 200/201; cross-tenant KPIs render live (NCRs=1). Demo
+    measurements purged after.
+  - **Flagged (not faked):** corporate cross-tenant roll-ups across child tenants (needs a tenant hierarchy);
+    the AIAG-VDA certified capability table beyond Cp/Cpk; feeding SPC from numeric inspection responses.
 
 - **Phase J — Bulk-import pipeline: DONE (backend + FE), browser-verified.**
   - **DB** `0033_import.sql` — `import_profiles` (reusable mapping: target + `mapping`/`transform` jsonb +

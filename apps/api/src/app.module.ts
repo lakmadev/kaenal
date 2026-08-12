@@ -82,6 +82,8 @@ import { IntegrationsController } from "./integrations/integrations.controller.j
 import { IntegrationsService } from "./integrations/integrations.service.js";
 import { ImportController } from "./import/import.controller.js";
 import { ImportService } from "./import/import.service.js";
+import { SpcController } from "./spc/spc.controller.js";
+import { SpcService } from "./spc/spc.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -125,6 +127,7 @@ import {
   REPORTS_SERVICE,
   INTEGRATIONS_SERVICE,
   IMPORT_SERVICE,
+  SPC_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -164,6 +167,7 @@ import {
     ReportsController,
     IntegrationsController,
     ImportController,
+    SpcController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -335,6 +339,7 @@ import {
     { provide: REPORTS_SERVICE, useFactory: () => new ReportsService() },
     { provide: INTEGRATIONS_SERVICE, useFactory: () => new IntegrationsService() },
     { provide: IMPORT_SERVICE, useFactory: () => new ImportService() },
+    { provide: SPC_SERVICE, useFactory: () => new SpcService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

@@ -17,6 +17,8 @@ import type {
   ImportTargetsResult,
   ImportProfileDto,
   ImportRunDto,
+  SpcCharacteristicsResult,
+  SpcChartDto,
   ReportDefinitionDto,
   Query,
   QuerySourcesResult,
@@ -388,6 +390,19 @@ export const apiQueries = {
     run: (client: ApiClient, id: string): QueryOption<ImportRunDto> => ({
       queryKey: queryKeys.import.run(id),
       queryFn: () => client.getImportRun({ params: { id } }).then((r) => unwrap<ImportRunDto>(r)),
+    }),
+  },
+
+  // SPC analytics (B5). Characteristics + the computed X̄/R chart. Read-only
+  // (spc:view); ingest is a mutation composed inline in the hook.
+  spc: {
+    characteristics: (client: ApiClient): QueryOption<SpcCharacteristicsResult> => ({
+      queryKey: queryKeys.spc.characteristics(),
+      queryFn: () => client.listSpcCharacteristics().then((r) => unwrap<SpcCharacteristicsResult>(r)),
+    }),
+    chart: (client: ApiClient, part: string, characteristic: string): QueryOption<SpcChartDto> => ({
+      queryKey: queryKeys.spc.chart(part, characteristic),
+      queryFn: () => client.getSpcChart({ query: { part, characteristic } }).then((r) => unwrap<SpcChartDto>(r)),
     }),
   },
 

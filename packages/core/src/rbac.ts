@@ -37,6 +37,11 @@ export const CAPABILITIES = [
   "scar:manage",
   "fmea:view",
   "fmea:manage",
+  // SPC analytics (B5). `spc:view` reads the control charts + capability (every
+  // internal role sees quality analytics); `measurement:manage` gates ingesting
+  // the measurement data the charts run on (the roles that record on the floor).
+  "spc:view",
+  "measurement:manage",
   // Data platform (B6). `report:view` renders reports + dashboards through the
   // query engine; `report:manage` gates the *authoring* surface (create / edit /
   // delete a report definition) — this split is what closes the A3 gap where a
@@ -98,6 +103,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "scar:manage",
     "fmea:view",
     "fmea:manage",
+    "spc:view",
+    "measurement:manage",
     "report:view",
     "report:manage",
     "import:run",
@@ -121,6 +128,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "scar:manage",
     "fmea:view",
     "fmea:manage",
+    "spc:view",
     "report:view",
   ],
 
@@ -136,6 +144,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ppap:view",
     "scar:view",
     "fmea:view",
+    "spc:view",
+    "measurement:manage",
   ],
 
   viewer: [
@@ -148,6 +158,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ppap:view",
     "scar:view",
     "fmea:view",
+    "spc:view",
     "report:view",
   ],
 

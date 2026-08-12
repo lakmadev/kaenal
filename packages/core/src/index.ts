@@ -29,3 +29,4 @@ export * from "./query.js";
 export * from "./report-dashboards.js";
 export * from "./connectors.js";
 export * from "./import.js";
+export * from "./spc.js";
