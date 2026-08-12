@@ -80,6 +80,8 @@ import { ReportsController } from "./reports/reports.controller.js";
 import { ReportsService } from "./reports/reports.service.js";
 import { IntegrationsController } from "./integrations/integrations.controller.js";
 import { IntegrationsService } from "./integrations/integrations.service.js";
+import { ImportController } from "./import/import.controller.js";
+import { ImportService } from "./import/import.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -122,6 +124,7 @@ import {
   QUERY_SERVICE,
   REPORTS_SERVICE,
   INTEGRATIONS_SERVICE,
+  IMPORT_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -160,6 +163,7 @@ import {
     QueryController,
     ReportsController,
     IntegrationsController,
+    ImportController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -330,6 +334,7 @@ import {
     { provide: QUERY_SERVICE, useFactory: () => new QueryService() },
     { provide: REPORTS_SERVICE, useFactory: () => new ReportsService() },
     { provide: INTEGRATIONS_SERVICE, useFactory: () => new IntegrationsService() },
+    { provide: IMPORT_SERVICE, useFactory: () => new ImportService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

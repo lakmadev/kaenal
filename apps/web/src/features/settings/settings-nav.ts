@@ -130,7 +130,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { id: "status-page", label: "System status", icon: Sparkles },
       { id: "backup-restore", label: "Backup & restore", icon: RefreshCw },
       { id: "warehouse", label: "Data warehouse sync", icon: Package },
-      { id: "bulk-import", label: "Bulk import", icon: Upload },
+      { id: "bulk-import", label: "Bulk import", icon: Upload, built: true },
     ],
   },
   {

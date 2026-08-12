@@ -15,6 +15,7 @@ import { LegalHoldSection } from "./sections/legal-hold";
 import { DlpPoliciesSection } from "./sections/dlp-policies";
 import { CostCentersSection } from "./sections/cost-centers";
 import { IntegrationsSection } from "./sections/integrations";
+import { BulkImportSection } from "./sections/bulk-import";
 
 /**
  * The active settings section's content. The section rail lives in the settings
@@ -48,6 +49,8 @@ export function SettingsContent({ section }: { section: string }): React.ReactEl
       return <CostCentersSection />;
     case "integrations":
       return <IntegrationsSection />;
+    case "bulk-import":
+      return <BulkImportSection />;
     default:
       return <ComingSoon section={section} />;
   }

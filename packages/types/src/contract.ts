@@ -164,6 +164,14 @@ import {
   UpdateIntegrationBody,
   ConnectIntegrationBody,
 } from "./integration.js";
+import {
+  ImportTargetsResult,
+  ImportProfileDto,
+  ImportRunDto,
+  CreateImportProfileBody,
+  CreateImportRunBody,
+  CommitImportRunBody,
+} from "./import.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -1187,6 +1195,63 @@ export const contract = c.router(
       body: z.object({}),
       responses: { 200: IntegrationDto, ...commonErrors },
       summary: "Remove a connector — purges secrets (integration:manage)",
+    },
+
+    // --- Bulk import (09 §6; operations.jsx BulkImport) --------------------
+    listImportTargets: {
+      method: "GET",
+      path: "/v1/import/targets",
+      responses: { 200: ImportTargetsResult, ...commonErrors },
+      summary: "Importable entities + their field schema (import:run)",
+    },
+    listImportProfiles: {
+      method: "GET",
+      path: "/v1/import/profiles",
+      responses: { 200: page(ImportProfileDto), ...commonErrors },
+      summary: "Saved import mappings (import:run)",
+    },
+    createImportProfile: {
+      method: "POST",
+      path: "/v1/import/profiles",
+      body: CreateImportProfileBody,
+      responses: { 201: ImportProfileDto, ...commonErrors },
+      summary: "Save a reusable import mapping (import:run)",
+    },
+    deleteImportProfile: {
+      method: "POST",
+      path: "/v1/import/profiles/:id/delete",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: z.object({}),
+      responses: { 200: ImportProfileDto, ...commonErrors },
+      summary: "Remove an import profile (import:run)",
+    },
+    listImportRuns: {
+      method: "GET",
+      path: "/v1/import/runs",
+      responses: { 200: page(ImportRunDto), ...commonErrors },
+      summary: "Import runs (import:run)",
+    },
+    createImportRun: {
+      method: "POST",
+      path: "/v1/import/runs",
+      body: CreateImportRunBody,
+      responses: { 201: ImportRunDto, ...commonErrors },
+      summary: "Stage + validate + dry-run rows — nothing written (import:run)",
+    },
+    getImportRun: {
+      method: "GET",
+      path: "/v1/import/runs/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: ImportRunDto, ...commonErrors },
+      summary: "One import run with counts + row results (import:run)",
+    },
+    commitImportRun: {
+      method: "POST",
+      path: "/v1/import/runs/:id/commit",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: CommitImportRunBody,
+      responses: { 200: ImportRunDto, ...commonErrors },
+      summary: "Commit a validated run — idempotent by natural key (import:run; optimistic)",
     },
 
     // --- Suppliers (FEATURES §11.1) ----------------------------------------

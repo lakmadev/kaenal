@@ -47,6 +47,11 @@ export const CAPABILITIES = [
   // platform-tier action, so only admin holds it — a manager configures reports
   // but does not wire the workspace to SAP/Snowflake/Slack.
   "integration:manage",
+  // Bulk-import pipeline (09 §6 / B6). Committing a masters-data import writes
+  // rows across the workspace, so it is held by the roles that already author
+  // masters data (admin + manager); a validate/dry-run never writes but is gated
+  // by the same capability — the whole wizard is one permission.
+  "import:run",
   "settings:manage",
   "members:manage",
   "apikeys:manage",
@@ -95,6 +100,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "fmea:manage",
     "report:view",
     "report:manage",
+    "import:run",
     "settings:manage",
   ],
 

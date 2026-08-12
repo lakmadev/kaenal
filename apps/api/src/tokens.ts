@@ -46,5 +46,6 @@ export const FMEA_SERVICE = Symbol("FMEA_SERVICE");
 export const QUERY_SERVICE = Symbol("QUERY_SERVICE");
 export const REPORTS_SERVICE = Symbol("REPORTS_SERVICE");
 export const INTEGRATIONS_SERVICE = Symbol("INTEGRATIONS_SERVICE");
+export const IMPORT_SERVICE = Symbol("IMPORT_SERVICE");
 export const JOB_PRODUCER = Symbol("JOB_PRODUCER");
 export const RATE_LIMITER = Symbol("RATE_LIMITER");

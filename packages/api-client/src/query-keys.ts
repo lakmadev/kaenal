@@ -134,6 +134,14 @@ export const queryKeys = {
     events: (id: string) => ["integrations", "events", id] as const,
   },
 
+  import: {
+    all: ["import"] as const,
+    targets: () => ["import", "targets"] as const,
+    profiles: () => ["import", "profiles"] as const,
+    runs: () => ["import", "runs"] as const,
+    run: (id: string) => ["import", "run", id] as const,
+  },
+
   query: {
     all: ["query"] as const,
     sources: () => ["query", "sources"] as const,

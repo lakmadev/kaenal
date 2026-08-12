@@ -102,6 +102,44 @@ per-field detail) ride along with the phase that introduces them. Plan approved;
   - **Deferred (flagged):** drag-to-reposition tile layout (tiles use their seeded 24-col spans; the builder
     edits queries, not geometry) and report scheduling/export (reuses 06-JOBS, a later slice).
 
+- **Phase J — Bulk-import pipeline: DONE (backend + FE), browser-verified.**
+  - **DB** `0033_import.sql` — `import_profiles` (reusable mapping: target + `mapping`/`transform` jsonb +
+    dedupe policy + `source_ref`) and `import_runs` (one execution: staged `source_rows`, mapping snapshot,
+    roll-up `counts`, capped row-level `result`, status pending→validated→committing→completed/failed). Both
+    full isolation contract — forced RLS, leading index, lock_version + bump trigger, composite member FKs;
+    `import_runs.profile_id` a composite FK (ON DELETE SET NULL). `db:check` **48 tables**.
+  - **RBAC** `import:run` added (admin + manager — the masters-data authors); rbac matrix now **210 cells**.
+  - **Types** `packages/types/src/import.ts` — target/dedupe/status enums, `ImportTargetDto`+field schema,
+    `ImportProfileDto`, `ImportRunDto` (+`ImportCounts`, `ImportRowResult`), Create/Commit bodies. 50k row cap.
+  - **Core** `packages/core/src/import.ts` — `IMPORT_TARGETS` registry (suppliers, natural key `code`) is the
+    identifier whitelist (like the query engine's source registry); pure `applyMapping` / `validateMappedRow`
+    / `planImport` — the last computes the exact create/update/skip plan `commit` executes, so a dry run and
+    the real commit can never diverge. 16 unit tests (whitelist, mapping, enum/number/required validation,
+    dedupe policies, within-file dup, purity).
+  - **API** `apps/api/src/import/` — `ImportService`: profiles CRUD; `createRun` = Validate + Dry-run (writes
+    NOTHING, lands `validated` with counts + sample); `commit` re-plans against current keys and upserts each
+    non-error row **idempotently by natural key** (`ON CONFLICT (tenant_id, code) DO UPDATE`), audited +
+    optimistic. Columns come only from the registry, values are bound params. `@Internal`, class-level
+    `@RequireCapability("import:run")`. Registered (+ `IMPORT_SERVICE`); contract routes (targets/profiles/
+    runs/commit).
+  - **DECISION — commit runs synchronously in the request tx** (idempotent by natural key, 50k cap), not on
+    the BullMQ `imports` queue. Rationale: the slice must be browser-verifiable without standing up a separate
+    worker+Redis, and `commit` is already a self-contained tenant-tx step (`ImportService.commit`) ready to
+    move behind a job for very large migrations — a wiring change, not a rewrite. Logged in Decisions.
+  - **FE** `apiQueries.import.*` + `queryKeys.import`; `use-import.ts` (targets + createRun/commitRun);
+    `settings/sections/bulk-import.tsx` — the operations.jsx `BulkImport` 5-step wizard (Source → Map →
+    Validate → Dry run → Commit) wired live: CSV paste + auto-map, real validate/dry-run counts +
+    aggregated errors/warnings + sample preview, dedupe-policy select, idempotent commit. Admin/manager only
+    (viewer 403 → restricted state). Wired into `settings-shell` + nav `built`.
+  - **Tests** `apps/api/test/import.test.ts` (7): targets schema; validate/dry-run writes nothing; natural-key
+    422; commit creates then a re-import updates-not-duplicates (idempotent); optimistic 409 + state guard 422;
+    viewer 403; cross-tenant RLS (globex 404 on acme's run, no row leakage). typecheck 6/6, lint clean,
+    core 210 rbac + 16 import, api import 7/7.
+  - **Browser-verified** as acme admin: sample CSV → auto-map → Validate (4 total / 2 will-import / 2 errors /
+    4 warnings, exact messages) → Dry run (create 2) → Commit ("2 created", all calls 200/201); demo rows
+    purged after. (Pre-existing `housekeeping` purge test is flaky on the shared DB — fails on the clean tree
+    too — unrelated to this phase.)
+
 - **Phase I — Connector / integrations registry: DONE (backend + FE), browser-verified.**
   - **DB** `0032_integrations.sql` — the ONE connector substrate (09 §1): `integrations` (provider CHECK over
     13 providers, status, `config` jsonb [non-secret only], `credentials_ref` [pointer, NEVER a token],
@@ -1449,6 +1487,17 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 ---
 
 ## Decisions log
+
+- [x] Bulk-import commit runs synchronously in the request transaction (2026-08-12, Phase J) — the plan
+      called for a BullMQ `imports` job, but the commit is implemented as a self-contained tenant-tx step
+      (`ImportService.commit`: re-plan against current keys → upsert each non-error row idempotently by
+      natural key → flip run to completed, all under RLS + audit, 50k cap). Chose synchronous because the
+      vertical slice must be browser-verifiable without standing up a separate worker + Redis, and the
+      idempotent-by-natural-key guarantee (the tests' core assertion) holds identically whether the body runs
+      in-request or in a worker. Moving it behind the `imports` queue for very large migrations is a wiring
+      change (add a queue/job/producer method + a processor that calls the same `commit` body), not a
+      rewrite — flagged as the async-at-scale follow-up, consistent with prior "flag, don't fake" phases.
+
 
 - **2026-07-29 — Supplier Portal (P11): partner role + supplier-scope within the ONE identity plane;
     MFA-required + short sessions; read-only v1 (SECURITY SIGN-OFF).** The one phase that crosses the

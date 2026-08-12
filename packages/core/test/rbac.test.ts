@@ -51,6 +51,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "report:view",
     "report:manage",
     "integration:manage",
+    "import:run",
     "settings:manage",
     "members:manage",
     "apikeys:manage",
@@ -82,6 +83,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "fmea:manage",
     "report:view",
     "report:manage",
+    "import:run",
     "settings:manage",
   ],
   auditor: [

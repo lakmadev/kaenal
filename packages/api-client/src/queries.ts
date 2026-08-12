@@ -14,6 +14,9 @@ import type {
   IntegrationDto,
   IntegrationEventDto,
   ConnectorSchemaResult,
+  ImportTargetsResult,
+  ImportProfileDto,
+  ImportRunDto,
   ReportDefinitionDto,
   Query,
   QuerySourcesResult,
@@ -364,6 +367,27 @@ export const apiQueries = {
     events: (client: ApiClient, id: string): QueryOption<Page<IntegrationEventDto>> => ({
       queryKey: queryKeys.integrations.events(id),
       queryFn: () => client.listIntegrationEvents({ params: { id } }).then((r) => unwrap<Page<IntegrationEventDto>>(r)),
+    }),
+  },
+
+  // Bulk-import pipeline (09 §6). Targets + saved profiles + runs; a run detail
+  // carries the counts + row-level results. Admin/manager only (import:run).
+  import: {
+    targets: (client: ApiClient): QueryOption<ImportTargetsResult> => ({
+      queryKey: queryKeys.import.targets(),
+      queryFn: () => client.listImportTargets().then((r) => unwrap<ImportTargetsResult>(r)),
+    }),
+    profiles: (client: ApiClient): QueryOption<Page<ImportProfileDto>> => ({
+      queryKey: queryKeys.import.profiles(),
+      queryFn: () => client.listImportProfiles().then((r) => unwrap<Page<ImportProfileDto>>(r)),
+    }),
+    runs: (client: ApiClient): QueryOption<Page<ImportRunDto>> => ({
+      queryKey: queryKeys.import.runs(),
+      queryFn: () => client.listImportRuns().then((r) => unwrap<Page<ImportRunDto>>(r)),
+    }),
+    run: (client: ApiClient, id: string): QueryOption<ImportRunDto> => ({
+      queryKey: queryKeys.import.run(id),
+      queryFn: () => client.getImportRun({ params: { id } }).then((r) => unwrap<ImportRunDto>(r)),
     }),
   },
 
