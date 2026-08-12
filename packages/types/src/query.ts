@@ -57,40 +57,45 @@ export const Query = z.object({
 });
 export type Query = z.infer<typeof Query>;
 
-// --- Result & metadata DTOs -------------------------------------------------
+// --- Result & metadata DTOs (Zod, so the ts-rest contract can validate) ------
 
 /** A queryable field as exposed to the client — never carries the DB column. */
-export interface QueryFieldDto {
-  readonly key: string;
-  readonly label: string;
-  readonly type: QueryFieldType;
-}
+export const QueryFieldDto = z.object({
+  key: z.string(),
+  label: z.string(),
+  type: QueryFieldType,
+});
+export type QueryFieldDto = z.infer<typeof QueryFieldDto>;
 
 /** A data source the caller may query (filtered to their capabilities). */
-export interface QuerySourceDto {
-  readonly id: string;
-  readonly label: string;
-  readonly origin: string;
-  readonly fields: readonly QueryFieldDto[];
-  readonly defaultColumns: readonly string[];
-}
+export const QuerySourceDto = z.object({
+  id: z.string(),
+  label: z.string(),
+  origin: z.string(),
+  fields: z.array(QueryFieldDto),
+  defaultColumns: z.array(z.string()),
+});
+export type QuerySourceDto = z.infer<typeof QuerySourceDto>;
 
-export interface QueryRowsResult {
-  readonly fields: readonly QueryFieldDto[];
-  readonly rows: ReadonlyArray<Record<string, string | number | null>>;
+export const QuerySourcesResult = z.object({ items: z.array(QuerySourceDto) });
+export type QuerySourcesResult = z.infer<typeof QuerySourcesResult>;
+
+export const QueryCell = z.union([z.string(), z.number(), z.null()]);
+export type QueryCell = z.infer<typeof QueryCell>;
+
+export const QueryRowsResult = z.object({
+  fields: z.array(QueryFieldDto),
+  rows: z.array(z.record(QueryCell)),
   /** Rows matching the filters, before `limit` — powers "N of M" captions. */
-  readonly total: number;
-}
+  total: z.number(),
+});
+export type QueryRowsResult = z.infer<typeof QueryRowsResult>;
 
-export interface QueryMetricResult {
-  readonly value: number | null;
-}
+export const QueryMetricResult = z.object({ value: z.number().nullable() });
+export type QueryMetricResult = z.infer<typeof QueryMetricResult>;
 
-export interface QuerySeriesPoint {
-  readonly label: string;
-  readonly value: number;
-}
+export const QuerySeriesPoint = z.object({ label: z.string(), value: z.number() });
+export type QuerySeriesPoint = z.infer<typeof QuerySeriesPoint>;
 
-export interface QuerySeriesResult {
-  readonly points: readonly QuerySeriesPoint[];
-}
+export const QuerySeriesResult = z.object({ points: z.array(QuerySeriesPoint) });
+export type QuerySeriesResult = z.infer<typeof QuerySeriesResult>;

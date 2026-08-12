@@ -148,6 +148,14 @@ import {
   SupplierStatus,
   TemplateStatus,
 } from "./enums.js";
+import {
+  Query,
+  QuerySourcesResult,
+  QueryRowsResult,
+  QueryMetricResult,
+  QuerySeriesResult,
+} from "./query.js";
+import { ReportDefinitionDto, CreateReportBody, UpdateReportBody } from "./report.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -1036,6 +1044,73 @@ export const contract = c.router(
       body: z.object({}),
       responses: { 200: FmeaItemDto, ...commonErrors },
       summary: "Remove a failure mode (fmea:manage)",
+    },
+
+    // --- Data platform: query engine (B2) ----------------------------------
+    listQuerySources: {
+      method: "GET",
+      path: "/v1/query/sources",
+      responses: { 200: QuerySourcesResult, ...commonErrors },
+      summary: "Data sources the caller may query, with field schemas (source *:view)",
+    },
+    runQuery: {
+      method: "POST",
+      path: "/v1/query",
+      body: Query,
+      responses: { 200: QueryRowsResult, ...commonErrors },
+      summary: "Run a query for rows (datatable / repeater); source *:view + RLS",
+    },
+    runQueryMetric: {
+      method: "POST",
+      path: "/v1/query/metric",
+      body: Query,
+      responses: { 200: QueryMetricResult, ...commonErrors },
+      summary: "Run a query for a single scalar (KPI); source *:view + RLS",
+    },
+    runQuerySeries: {
+      method: "POST",
+      path: "/v1/query/series",
+      body: Query,
+      responses: { 200: QuerySeriesResult, ...commonErrors },
+      summary: "Run a query for a grouped series (bar/pie/line); source *:view + RLS",
+    },
+
+    // --- Data platform: report definitions & dashboards (B3) ----------------
+    listReports: {
+      method: "GET",
+      path: "/v1/reports",
+      responses: { 200: page(ReportDefinitionDto), ...commonErrors },
+      summary: "Saved reports + built-in dashboards (report:view)",
+    },
+    createReport: {
+      method: "POST",
+      path: "/v1/reports",
+      body: CreateReportBody,
+      responses: { 201: ReportDefinitionDto, ...commonErrors },
+      summary: "Create a report definition (report:manage)",
+    },
+    getReport: {
+      method: "GET",
+      path: "/v1/reports/:id",
+      pathParams: z.object({ id: z.string() }),
+      responses: { 200: ReportDefinitionDto, ...commonErrors },
+      summary: "One report or built-in dashboard by id (report:view)",
+    },
+    updateReport: {
+      method: "PUT",
+      path: "/v1/reports/:id",
+      pathParams: z.object({ id: z.string() }),
+      body: UpdateReportBody,
+      responses: { 200: ReportDefinitionDto, ...commonErrors },
+      summary: "Edit a report definition (report:manage; optimistic)",
+    },
+    deleteReport: {
+      method: "POST",
+      path: "/v1/reports/:id/delete",
+      pathParams: z.object({ id: z.string() }),
+      body: z.object({}),
+      responses: { 200: ReportDefinitionDto, ...commonErrors },
+      summary: "Delete a report definition (report:manage)",
     },
 
     // --- Suppliers (FEATURES §11.1) ----------------------------------------

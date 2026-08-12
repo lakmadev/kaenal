@@ -59,14 +59,15 @@ export const UpdateReportBody = CreateReportBody.extend({
 });
 export type UpdateReportBody = z.infer<typeof UpdateReportBody>;
 
-export interface ReportDefinitionDto {
-  readonly id: string;
-  readonly name: string;
-  readonly description: string;
-  readonly filters: readonly QueryFilter[];
-  readonly branding: ReportBranding | null;
-  readonly tiles: readonly ReportTile[];
+export const ReportDefinitionDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  filters: z.array(QueryFilter),
+  branding: ReportBranding.nullable(),
+  tiles: z.array(ReportTile),
   /** Built-in dashboards (code constants) are read-only; user reports are not. */
-  readonly builtin: boolean;
-  readonly lockVersion: number;
-}
+  builtin: z.boolean(),
+  lockVersion: z.number(),
+});
+export type ReportDefinitionDto = z.infer<typeof ReportDefinitionDto>;

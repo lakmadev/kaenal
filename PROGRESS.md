@@ -83,9 +83,24 @@ per-field detail) ride along with the phase that introduces them. Plan approved;
   - **Tests** `apps/api/test/reports.test.ts` (5): CRUD + optimistic 409, built-ins listed (3) + edit/delete
     403, unknown-id 404 (no 500), **viewer reads but 403 on create** (A3), cross-tenant RLS. typecheck 3/3,
     rbac 198, repo lint clean.
-  - **Next (Phase H FE):** the web report builder (`reports.jsx`/`report-data.jsx` fidelity — 6 bound widget
-    kinds, QueryBuilder, canvas) over `/v1/reports` + `/v1/query*`, and the built-in dashboards rendered
-    through the engine; authoring gated on `report:manage`.
+  - **Phase H FE — DONE, browser-verified.** Wired the query engine + reports into the typed contract
+    (`packages/types/contract.ts`: `runQuery`/`runQueryMetric`/`runQuerySeries`/`listQuerySources` +
+    `list/create/get/update/deleteReport`) and `@kaenal/api-client` (`apiQueries.query.*`/`apiQueries.reports.*`
+    + keys); the result DTOs in `query.ts`/`report.ts` became Zod schemas so the contract validates them.
+    Web: `hooks/use-query.ts` + `hooks/use-reports.ts`; `features/reports/` — `bound-widgets.tsx` (the 6
+    engine-backed widgets from report-data.jsx: KPI/bar/pie/line/table/repeater), `query-builder.tsx` (the tile
+    inspector — source + measure/agg + dimension + filters + group-by + sort + limit, all from the source's
+    whitelisted field schema), `report-canvas.tsx` (24-col→12-col tile grid), `report-builder.tsx` (add-tile ×6,
+    live per-tile preview, inspector, optimistic Save/Delete — `report:manage`), `reports-home.tsx` (Dashboards
+    | My reports segmented, New-report gated on `report:manage`), `report-page.tsx` (builder for editors,
+    read-only canvas for built-ins/viewers). Routes `/reports` + `/reports/[id]` replace the placeholder.
+    **Verified in-browser** (demo admin): reports home lists the 3 built-in dashboards; Quality Overview renders
+    live through `/v1/query*` (Open NCRs KPI=1, by-priority bar, by-status pie 100% open, Recent-NCRs table);
+    New report → builder → add Bar tile → live preview → switch dimension Code→Status re-runs the series →
+    Save persists (POST 201 / PUT 200, all `/query*` 200; the only console errors are pre-sign-in stale-buffer
+    401 replays). typecheck 6/6 (types/core/api-client/api/web) + repo lint clean. **Phase H COMPLETE.**
+  - **Deferred (flagged):** drag-to-reposition tile layout (tiles use their seeded 24-col spans; the builder
+    edits queries, not geometry) and report scheduling/export (reuses 06-JOBS, a later slice).
 
 - **Phase A — `tenant_settings` foundation + White-label branding: DONE, browser-verified.**
   - **DB** `0025_tenant_settings.sql` — ONE reusable table keyed `(tenant_id, namespace)` holding a

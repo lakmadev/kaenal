@@ -119,4 +119,18 @@ export const queryKeys = {
     list: () => ["fmea", "list"] as const,
     items: (fmeaId: string) => ["fmea", "items", fmeaId] as const,
   },
+
+  reports: {
+    all: ["reports"] as const,
+    list: () => ["reports", "list"] as const,
+    detail: (id: string) => ["reports", "detail", id] as const,
+  },
+
+  query: {
+    all: ["query"] as const,
+    sources: () => ["query", "sources"] as const,
+    rows: (key: string) => ["query", "rows", key] as const,
+    metric: (key: string) => ["query", "metric", key] as const,
+    series: (key: string) => ["query", "series", key] as const,
+  },
 } as const;

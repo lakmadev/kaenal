@@ -11,6 +11,12 @@ import type {
   ChargebackReportDto,
   FmeaDto,
   FmeaItemDto,
+  ReportDefinitionDto,
+  Query,
+  QuerySourcesResult,
+  QueryRowsResult,
+  QueryMetricResult,
+  QuerySeriesResult,
   CapaDto,
   CommentDto,
   DocumentDto,
@@ -323,6 +329,38 @@ export const apiQueries = {
     items: (client: ApiClient, fmeaId: string): QueryOption<Page<FmeaItemDto>> => ({
       queryKey: queryKeys.fmea.items(fmeaId),
       queryFn: () => client.listFmeaItems({ params: { id: fmeaId } }).then((r) => unwrap<Page<FmeaItemDto>>(r)),
+    }),
+  },
+
+  reports: {
+    list: (client: ApiClient): QueryOption<Page<ReportDefinitionDto>> => ({
+      queryKey: queryKeys.reports.list(),
+      queryFn: () => client.listReports().then((r) => unwrap<Page<ReportDefinitionDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<ReportDefinitionDto> => ({
+      queryKey: queryKeys.reports.detail(id),
+      queryFn: () => client.getReport({ params: { id } }).then((r) => unwrap<ReportDefinitionDto>(r)),
+    }),
+  },
+
+  // The query engine (B2): sources + the three run shapes. Each run is keyed on
+  // the serialized Query so distinct tiles cache independently.
+  query: {
+    sources: (client: ApiClient): QueryOption<QuerySourcesResult> => ({
+      queryKey: queryKeys.query.sources(),
+      queryFn: () => client.listQuerySources().then((r) => unwrap<QuerySourcesResult>(r)),
+    }),
+    rows: (client: ApiClient, q: Query): QueryOption<QueryRowsResult> => ({
+      queryKey: queryKeys.query.rows(JSON.stringify(q)),
+      queryFn: () => client.runQuery({ body: q }).then((r) => unwrap<QueryRowsResult>(r)),
+    }),
+    metric: (client: ApiClient, q: Query): QueryOption<QueryMetricResult> => ({
+      queryKey: queryKeys.query.metric(JSON.stringify(q)),
+      queryFn: () => client.runQueryMetric({ body: q }).then((r) => unwrap<QueryMetricResult>(r)),
+    }),
+    series: (client: ApiClient, q: Query): QueryOption<QuerySeriesResult> => ({
+      queryKey: queryKeys.query.series(JSON.stringify(q)),
+      queryFn: () => client.runQuerySeries({ body: q }).then((r) => unwrap<QuerySeriesResult>(r)),
     }),
   },
 } as const;
