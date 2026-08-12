@@ -16,10 +16,11 @@ port. Sequenced as Phases A–F (tasks #30–35), backend-first, one at a time. 
 
 **STATUS: all six phases A–F are DONE + browser-verified** (branding, NCR validation rules, session
 policies, legal-hold + DLP, cost-centers + chargeback, FMEA workbench). Details per-phase below.
-Not yet pushed — six phase commits stacked on `feat/admin-platform-settings`, ready for a PR.
+Pushed with the Data Platform (G–K) as **PR #5** — https://github.com/lakmadev/kaenal/pull/5.
 **Carry-over (not a Phase-F defect):** the RLS tenancy suite (`pnpm test:rls`) has been red since
-Phase A (`tenant_settings` composite PK crashes its single-`id` probe) — a dedicated task is filed;
-isolation is proven per-slice via `db:check` + API-level cross-tenant tests.
+Phase A (`tenant_settings` composite PK crashes its single-`id` probe) — tracked in **issue #6**
+(https://github.com/lakmadev/kaenal/issues/6); isolation is proven per-slice via `db:check` +
+API-level cross-tenant tests.
 
 **DATA PLATFORM program (KAENAL_IMPLEMENTATION.md Part B) — kickoff + Phase G (2026-08-12).** Pulled the
 Claude Design `KAENAL_IMPLEMENTATION.md` (RBAC + Data Platform, the two NEW cross-cutting systems) via
@@ -36,6 +37,9 @@ dashboards (H), connector registry (I), bulk-import pipeline (J), SPC + cross-te
 (0031–0034 + integrations), 6 new capabilities (report:view/manage, integration:manage, import:run, spc:view,
 measurement:manage), all injection-safe / RLS-scoped / audited, with per-phase tests. Remaining deferrals are
 flagged (external OAuth/live fetch, corporate cross-tenant roll-ups, async-at-scale import commit) — never faked.
+**SHIPPED (2026-08-12):** branch `feat/admin-platform-settings` pushed; A–F + G–K both ride on
+**PR #5** — https://github.com/lakmadev/kaenal/pull/5 (66 commits, base `main`, open). The pre-existing
+`test:rls` breakage is tracked in **issue #6** — https://github.com/lakmadev/kaenal/issues/6 (linked from PR #5).
 
 - **Phase G — Query engine core + `/v1/query*`: DONE (backend-first; no UI yet).**
   - **Types** `packages/types/src/query.ts` — the shared `Query` Zod (sourceId/columns/sort/groupBy/limit +
@@ -333,9 +337,9 @@ flagged (external OAuth/live fetch, corporate cross-tenant roll-ups, async-at-sc
   - **⚠ Surfaced a pre-existing RED test (see Known issues + TODO):** the RLS tenancy suite
     (`pnpm test:rls`) has been broken since **Phase A** — `tenant_settings` (composite PK, no `id`)
     crashes its single-`id` probe; it's not in the `pnpm test` gate so it went unnoticed. Phase D
-    isolation is independently proven via `db:check` + API-level cross-tenant tests. Filed as a
-    dedicated task; NOT fixed inline (refactoring the codebase's most critical mutation-tested suite
-    deserves its own reviewed change).
+    isolation is independently proven via `db:check` + API-level cross-tenant tests. Tracked in
+    **issue #6** (https://github.com/lakmadev/kaenal/issues/6); NOT fixed inline (refactoring the
+    codebase's most critical mutation-tested suite deserves its own reviewed change).
 
 - **Phase E — Cost centers & chargeback: DONE, browser-verified.**
   - **DB** `0029_cost_centers.sql` — new `cost_centers` (self-referencing tenant tree: code, name,
