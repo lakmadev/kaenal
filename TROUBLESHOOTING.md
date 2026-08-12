@@ -25,15 +25,29 @@ the same session.
 
 ## Known failures — symptom → cause → fix
 
-### Sign-in returns 401 with correct credentials (after DB/test churn)
+### Sign-in fails with "Check your workspace, email, and password" (stale cookie in jar)
+- **Symptom:** Sign-in fails *repeatedly* in the browser while `curl` (no cookie) returns 201.
+  The UI message says bad credentials, but the API is actually returning **403 `FORBIDDEN`
+  — "Missing or invalid CSRF token"** (the sign-in form relabels any non-429 error).
 - **Cause:** A stale httpOnly `kaenal_session` cookie in the browser jar points at a session
-  row that no longer exists (commonly because a test run — e.g. `auth.test.ts` — deleted
-  demo sessions). `@AllowAnonymous` routes (sign-in, accept-invite) still run the
-  authenticator, which **throws** `UNAUTHENTICATED` ("Your session has expired") on an
-  unresolvable token instead of falling through to anonymous.
-- **Fix (already in place):** `apps/api/src/lifecycle.interceptor.ts` wraps
-  `authenticator.authenticate` in try/catch and tolerates a stale session **only** on
-  `allowAnonymous` routes. If this regresses, that try/catch is the thing to check.
+  row that no longer exists (session revoked, max-concurrent enforcement, or — most often —
+  a test run deleting demo sessions). The double-submit CSRF check used to run **before** the
+  session was resolved, so a stale cookie with a missing/mismatched CSRF token threw
+  `FORBIDDEN` on sign-in — and the interceptor forgives only `UNAUTHENTICATED` on anonymous
+  routes, never `FORBIDDEN` — locking the user out of the page that recovers the situation.
+- **Fix (in place, `61c47f0`):** `apps/api/src/auth/session.authenticator.ts` now resolves the
+  session **first** and enforces CSRF only once it resolves (CSRF guards a *valid* mutation,
+  so this doesn't weaken real requests — a valid session on an unsafe method is still rejected
+  without the token). A stale cookie now raises `UNAUTHENTICATED`, which
+  `apps/api/src/lifecycle.interceptor.ts` (try/catch, tolerates stale sessions **only** on
+  `allowAnonymous` routes) falls through to anonymous. Regression test:
+  `auth.test.ts` → "does NOT let a stale session cookie block sign-in". If sign-in 403s again,
+  check that the CSRF check still sits *after* `resolveSession`.
+- **Why the demo session kept dying (related, same commit):** `auth.test.ts` teardown swept
+  every `%@acme.test` user — including the provisioned demo admin `admin@acme.test` — wiping
+  its sessions/membership on every run (and, post-Phase F, tripping `fmeas_created_by_member_fk`
+  on its demo FMEAs). It now deletes only the users the suite itself seeds. If demo creds break
+  anyway, `pnpm --filter @kaenal/api exec tsx scripts/reset-dev-passwords.ts` re-seeds them.
 - **Quick unblock while debugging:** clear the `kaenal_session` cookie for the tenant origin,
   or verify the credential out-of-band with curl (expect 201):
   ```bash
