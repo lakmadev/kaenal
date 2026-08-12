@@ -37,6 +37,12 @@ export const CAPABILITIES = [
   "scar:manage",
   "fmea:view",
   "fmea:manage",
+  // Data platform (B6). `report:view` renders reports + dashboards through the
+  // query engine; `report:manage` gates the *authoring* surface (create / edit /
+  // delete a report definition) — this split is what closes the A3 gap where a
+  // viewer could reach the report builder.
+  "report:view",
+  "report:manage",
   "settings:manage",
   "members:manage",
   "apikeys:manage",
@@ -83,6 +89,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "scar:manage",
     "fmea:view",
     "fmea:manage",
+    "report:view",
+    "report:manage",
     "settings:manage",
   ],
 
@@ -103,6 +111,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "scar:manage",
     "fmea:view",
     "fmea:manage",
+    "report:view",
   ],
 
   inspector: [
@@ -129,6 +138,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ppap:view",
     "scar:view",
     "fmea:view",
+    "report:view",
   ],
 
   // External supplier contact — the read-only portal, nothing internal. Every

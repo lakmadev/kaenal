@@ -4,4 +4,5 @@ export * from "./http.js";
 export * from "./form.js";
 export * from "./dto.js";
 export * from "./query.js";
+export * from "./report.js";
 export * from "./contract.js";

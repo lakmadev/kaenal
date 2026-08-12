@@ -60,6 +60,33 @@ per-field detail) ride along with the phase that introduces them. Plan approved;
     the external `@Internal` boundary, and will bite once a source maps to a narrower cap. No UI this phase
     (the builder/dashboards that consume the engine are Phase H).
 
+- **Phase H — Report definitions + built-in dashboards: BACKEND DONE (web builder is the next commit).**
+  - **DB** `0031_report_definitions.sql` — `report_definitions` (name, description, `definition` jsonb =
+    `{filters,branding?,tiles:[{id,title,viz,query,layout}]}`) + forced RLS + leading index + bump trigger +
+    composite member FKs. `db:check` **44 tables**.
+  - **RBAC** added `report:view` / `report:manage` to `packages/core/rbac.ts` — view: admin/manager/auditor/
+    viewer (NOT inspector, matching the reports nav allow-list); manage: admin/manager only. The **view/manage
+    split closes the A3 gap** (a viewer reads a report but cannot reach the builder). rbac matrix test grew
+    186→**198 cells** (+2 caps × 6 roles).
+  - **Types** `packages/types/src/report.ts` — `ReportWidgetKind` (datatable/repeater/kpi/bar/pie/line),
+    `ReportTile` (binds a Phase-G `Query`), `ReportDoc`/`ReportBranding`, `CreateReportBody`/`UpdateReportBody`
+    (optimistic `version`), `ReportDefinitionDto` (+ `builtin` flag).
+  - **Core** `packages/core/src/report-dashboards.ts` — the 3 prototype dashboards (Quality Overview /
+    Inspection Performance / Compliance) reproduced as **engine-backed** `ReportDefinitionDto` constants: every
+    tile binds a real `Query` over ncr/inspection/audit, so a built-in renders through the same `/v1/query*`
+    path as a user report. **Honesty:** the prototype's hand-drawn mock charts (cost-of-quality, MTBF, IATF
+    gap matrix, cert-expiration tables) have no backing entity, so they are NOT fabricated — flagged as a
+    follow-up needing a CoQ/calibration/certificate data model.
+  - **API** `apps/api/src/reports/` — `ReportsService` (audited CRUD, optimistic; built-ins listed but
+    read-only — any write to a `builtin-*` id → 403; a non-uuid/non-builtin id → 404, never a 500 uuid-cast) +
+    `ReportsController` (`@Internal`, reads `report:view`, writes `report:manage`). Registered (+ `REPORTS_SERVICE`).
+  - **Tests** `apps/api/test/reports.test.ts` (5): CRUD + optimistic 409, built-ins listed (3) + edit/delete
+    403, unknown-id 404 (no 500), **viewer reads but 403 on create** (A3), cross-tenant RLS. typecheck 3/3,
+    rbac 198, repo lint clean.
+  - **Next (Phase H FE):** the web report builder (`reports.jsx`/`report-data.jsx` fidelity — 6 bound widget
+    kinds, QueryBuilder, canvas) over `/v1/reports` + `/v1/query*`, and the built-in dashboards rendered
+    through the engine; authoring gated on `report:manage`.
+
 - **Phase A — `tenant_settings` foundation + White-label branding: DONE, browser-verified.**
   - **DB** `0025_tenant_settings.sql` — ONE reusable table keyed `(tenant_id, namespace)` holding a
     JSONB `doc` (namespace `branding` now; `session` etc. widen the CHECK per later phase), forced
