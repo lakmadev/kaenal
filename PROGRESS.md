@@ -102,7 +102,7 @@ per-field detail) ride along with the phase that introduces them. Plan approved;
   - **Deferred (flagged):** drag-to-reposition tile layout (tiles use their seeded 24-col spans; the builder
     edits queries, not geometry) and report scheduling/export (reuses 06-JOBS, a later slice).
 
-- **Phase I — Connector / integrations registry: BACKEND DONE (settings UI is the next commit).**
+- **Phase I — Connector / integrations registry: DONE (backend + FE), browser-verified.**
   - **DB** `0032_integrations.sql` — the ONE connector substrate (09 §1): `integrations` (provider CHECK over
     13 providers, status, `config` jsonb [non-secret only], `credentials_ref` [pointer, NEVER a token],
     last_error/connected_at/last_ok_at/connected_by) + `integration_events` (per-delivery log, powers the
@@ -126,9 +126,20 @@ per-field detail) ride along with the phase that introduces them. Plan approved;
     cross-tenant RLS. typecheck 4/4 (types/core/api-client/api), rbac 204, repo lint clean.
   - **Per 09 §6 (substrate, not point connectors):** external providers declare their shape but live
     `fetchRows`/OAuth is stubbed/flagged — the registry, adapter interface, and event log are the deliverable.
-  - **Next (Phase I FE):** the Integrations settings screen (provider-card grid + status + connect/disconnect +
-    event log) from `settings.jsx`/`dev-platform.jsx`, and surfacing external sources in the report builder's
-    source picker via the adapter path.
+  - **FE (commit 2):** `apiQueries.integrations.*` + `queryKeys.integrations` factories; `use-integrations.ts`
+    hooks (list/events/schema + create/connect/disconnect/delete/update, each invalidating the registry).
+    `settings/sections/integrations.tsx` — a faithful port of settings.jsx `Integrations` (design rule #9):
+    live card per registry provider grouped by category (Data sources / Notifications & messaging / Files /
+    APIs / Email), each reflecting the tenant's real status, with Connect (register-then-connect in one click)
+    / Disconnect / Remove and an expandable per-connector panel (declared field schema for data sources +
+    delivery log). Whole surface **admin-gated** — a non-admin sees a "restricted" state (reads 403), and the
+    Developer nav group already shows only under `settingsFull`. Wired into `settings-shell` + nav marked
+    `built`. Report builder's source picker now shows **connected external data-source connectors** in a
+    disabled "live preview coming soon" optgroup (honest — engine runs native sources only; external
+    `fetchRows` deferred), fetched best-effort so a non-admin author simply sees none.
+  - **Browser-verified** as acme admin: card grid renders; SAP connect flips status + writes a `connect`
+    event; the panel shows the 7 declared SAP fields + the delivery log; remove purges it — every
+    `/integrations*` call 200/201; demo tenant left clean.
 
 - **Phase A — `tenant_settings` foundation + White-label branding: DONE, browser-verified.**
   - **DB** `0025_tenant_settings.sql` — ONE reusable table keyed `(tenant_id, namespace)` holding a

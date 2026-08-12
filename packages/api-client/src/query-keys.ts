@@ -126,6 +126,14 @@ export const queryKeys = {
     detail: (id: string) => ["reports", "detail", id] as const,
   },
 
+  integrations: {
+    all: ["integrations"] as const,
+    list: () => ["integrations", "list"] as const,
+    detail: (id: string) => ["integrations", "detail", id] as const,
+    schema: (id: string) => ["integrations", "schema", id] as const,
+    events: (id: string) => ["integrations", "events", id] as const,
+  },
+
   query: {
     all: ["query"] as const,
     sources: () => ["query", "sources"] as const,

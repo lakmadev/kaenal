@@ -120,7 +120,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     group: "Developer",
     items: [
       { id: "dev-platform", label: "Developer Platform", icon: Code },
-      { id: "integrations", label: "Integrations", icon: Plug },
+      { id: "integrations", label: "Integrations", icon: Plug, built: true },
       { id: "api", label: "API & webhooks", icon: Code },
     ],
   },

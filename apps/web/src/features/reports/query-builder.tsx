@@ -27,11 +27,15 @@ export function QueryBuilder({
   query,
   viz,
   sources,
+  externalSources = [],
   onChange,
 }: {
   query: Query;
   viz: string;
   sources: QuerySourceDto[];
+  /** Connected external data-source connectors (Phase I). Shown but not yet
+   *  selectable — live fetch through the adapter path is stubbed (09 §6). */
+  externalSources?: { id: string; label: string }[];
   onChange: (q: Query) => void;
 }): React.ReactElement {
   const source = sources.find((s) => s.id === query.sourceId);
@@ -71,6 +75,15 @@ export function QueryBuilder({
               {s.label}
             </option>
           ))}
+          {externalSources.length > 0 && (
+            <optgroup label="Connected sources — live preview coming soon">
+              {externalSources.map((s) => (
+                <option key={s.id} value={s.id} disabled>
+                  {s.label}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
       </Field>
 

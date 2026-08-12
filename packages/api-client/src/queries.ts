@@ -11,6 +11,9 @@ import type {
   ChargebackReportDto,
   FmeaDto,
   FmeaItemDto,
+  IntegrationDto,
+  IntegrationEventDto,
+  ConnectorSchemaResult,
   ReportDefinitionDto,
   Query,
   QuerySourcesResult,
@@ -340,6 +343,27 @@ export const apiQueries = {
     detail: (client: ApiClient, id: string): QueryOption<ReportDefinitionDto> => ({
       queryKey: queryKeys.reports.detail(id),
       queryFn: () => client.getReport({ params: { id } }).then((r) => unwrap<ReportDefinitionDto>(r)),
+    }),
+  },
+
+  // Connector registry (09 §1). Whole surface is admin-only server-side
+  // (integration:manage) — the DTO exposes `hasCredentials`, never the pointer.
+  integrations: {
+    list: (client: ApiClient): QueryOption<Page<IntegrationDto>> => ({
+      queryKey: queryKeys.integrations.list(),
+      queryFn: () => client.listIntegrations().then((r) => unwrap<Page<IntegrationDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<IntegrationDto> => ({
+      queryKey: queryKeys.integrations.detail(id),
+      queryFn: () => client.getIntegration({ params: { id } }).then((r) => unwrap<IntegrationDto>(r)),
+    }),
+    schema: (client: ApiClient, id: string): QueryOption<ConnectorSchemaResult> => ({
+      queryKey: queryKeys.integrations.schema(id),
+      queryFn: () => client.getIntegrationSchema({ params: { id } }).then((r) => unwrap<ConnectorSchemaResult>(r)),
+    }),
+    events: (client: ApiClient, id: string): QueryOption<Page<IntegrationEventDto>> => ({
+      queryKey: queryKeys.integrations.events(id),
+      queryFn: () => client.listIntegrationEvents({ params: { id } }).then((r) => unwrap<Page<IntegrationEventDto>>(r)),
     }),
   },
 

@@ -6,8 +6,10 @@ import { BarChart3, Hash, LayoutGrid, LineChart, PieChart, Repeat, Table2, Trash
 import type { Query, ReportDefinitionDto, ReportTile, ReportWidgetKind, QuerySourceDto } from "@kaenal/types";
 import { PageHeader } from "@/components/page-header";
 import { Button, Card, CardContent, EmptyState, Input, Spinner, useToast } from "@/components/ui";
+import { CONNECTOR_META } from "@kaenal/core";
 import { useDeleteReport, useUpdateReport } from "@/hooks/use-reports";
 import { useQuerySources } from "@/hooks/use-query";
+import { useIntegrations } from "@/hooks/use-integrations";
 import { TileWidget } from "./bound-widgets";
 import { QueryBuilder } from "./query-builder";
 
@@ -47,6 +49,13 @@ export function ReportBuilder({ report }: { report: ReportDefinitionDto }): Reac
   const [selected, setSelected] = useState<string | null>(report.tiles[0]?.id ?? null);
 
   const sources: QuerySourceDto[] = sourcesQ.data?.items ? [...sourcesQ.data.items] : [];
+
+  // Connected external data-source connectors (Phase I), surfaced in the picker.
+  // Admin-only read — for a non-admin author this 403s silently and yields none.
+  const integrationsQ = useIntegrations();
+  const externalSources = (integrationsQ.data?.items ?? [])
+    .filter((it) => it.status === "connected" && CONNECTOR_META[it.provider].dataSource)
+    .map((it) => ({ id: `ext:${it.id}`, label: `${it.name} (${CONNECTOR_META[it.provider].origin})` }));
 
   const patchTile = (id: string, patch: Partial<ReportTile>): void =>
     setTiles((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -185,6 +194,7 @@ export function ReportBuilder({ report }: { report: ReportDefinitionDto }): Reac
                       query={selectedTile.query}
                       viz={selectedTile.viz}
                       sources={sources}
+                      externalSources={externalSources}
                       onChange={(q) => patchTile(selectedTile.id, { query: q })}
                     />
                   )}
