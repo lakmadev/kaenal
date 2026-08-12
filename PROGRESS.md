@@ -21,6 +21,45 @@ Not yet pushed — six phase commits stacked on `feat/admin-platform-settings`, 
 Phase A (`tenant_settings` composite PK crashes its single-`id` probe) — a dedicated task is filed;
 isolation is proven per-slice via `db:check` + API-level cross-tenant tests.
 
+**DATA PLATFORM program (KAENAL_IMPLEMENTATION.md Part B) — kickoff + Phase G (2026-08-12).** Pulled the
+Claude Design `KAENAL_IMPLEMENTATION.md` (RBAC + Data Platform, the two NEW cross-cutting systems) via
+DesignSync. Grounding: **Part A (RBAC) is already built + tested** (core `rbac.ts`, `@RequireCapability`,
+`/me`, web nav/route/settings gating) and **Part B5's FMEA shipped in Phase F** — so the net-new work is the
+Data Platform, sequenced backend-first as Phases **G–K** (tasks #41–45): G) query engine, H) report
+definitions+builder+dashboards, I) integrations/connector registry, J) bulk-import pipeline, K) SPC
+(measurements table) + cross-tenant KPIs. Decisions this session: keep our settled `verb:module` capability
+convention (do NOT port `rbac.jsx`'s `view.scope` strings — PROGRESS/CLAUDE.md already settled this); SPC
+gets a real `measurements` table; RBAC "gaps" (report-builder authoring gate, connector/import gates,
+per-field detail) ride along with the phase that introduces them. Plan approved; full rollout, phase by phase.
+
+- **Phase G — Query engine core + `/v1/query*`: DONE (backend-first; no UI yet).**
+  - **Types** `packages/types/src/query.ts` — the shared `Query` Zod (sourceId/columns/sort/groupBy/limit +
+    agg/measure/dimension + filters[{field,op,value}]; ops `= ≠ contains > <`, aggs count/sum/avg/min/max),
+    `QUERY_MAX_LIMIT=1000`, and the result DTOs (`QuerySourceDto`/`QueryFieldDto`/rows/metric/series). One
+    model compiles to a table, KPI, or chart series (report-data.jsx `rbRunQuery`/`rbMetric`/`rbSeries`).
+  - **Core** `packages/core/src/query.ts` — the security-critical compiler. A static **source registry**
+    (`QUERY_SOURCES`) maps the 7 Kaenal-native sources (ncr, inspection, eightd, capa, audit, finding,
+    supplier) → real table + whitelisted scalar columns + the `*:view` capability that gates each (B6).
+    `compileRowsQuery`/`compileTotalQuery`/`compileMetricQuery`/`compileSeriesQuery` emit **parameterised**
+    SQL: identifiers come only from the whitelist (unknown source/column/measure/dimension/sort → `QueryError`
+    before any SQL exists), values are always `$n` bound params, limit is capped, dates compared as ISO text
+    (lexicographic = chronological), numeric `> <` cast the param. Tenant scoping is RLS only (runs on the
+    request tx). 16 core unit tests incl. an injection probe (`'; DROP TABLE ncrs; --` stays a bound param).
+  - **API** `apps/api/src/query/` — `QueryService` executes the compiled `{text,params}` sequentially on the
+    tx (one pg conn) and coerces driver types (numeric→number, timestamptz→ISO); a `QueryError` maps to 422,
+    never 500. `QueryController` (`@Internal`) `POST /v1/query|/metric|/series` + `GET /v1/query/sources`;
+    the capability gate is **dynamic** (resolve `sourceId` → `authorize(membership, source.capability)`, 403
+    with the missing cap) since the source is in the body, not a static decorator. Registered in
+    `app.module.ts` (+ `QUERY_SERVICE` token).
+  - **Tests** `apps/api/test/query.test.ts` (9): rows+filtered-total, count metric, series-by-status, source
+    list (no DB column leaked), whitelist 422 (bad column/source/non-numeric-measure), injection no-op +
+    table survives, viewer may query a source it can view, 401 unauthenticated, and **cross-tenant RLS**
+    (globex admin sees only globex rows). typecheck 3/3 (types+core+api) + repo lint clean; core query 16/16.
+  - **Note (honest):** every internal role currently holds all 7 sources' `*:view` caps, so the per-source
+    403 differentiator can't be shown among internal roles today — it's exercised by the unknown-source 422 +
+    the external `@Internal` boundary, and will bite once a source maps to a narrower cap. No UI this phase
+    (the builder/dashboards that consume the engine are Phase H).
+
 - **Phase A — `tenant_settings` foundation + White-label branding: DONE, browser-verified.**
   - **DB** `0025_tenant_settings.sql` — ONE reusable table keyed `(tenant_id, namespace)` holding a
     JSONB `doc` (namespace `branding` now; `session` etc. widen the CHECK per later phase), forced

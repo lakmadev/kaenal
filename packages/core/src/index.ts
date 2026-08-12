@@ -25,3 +25,4 @@ export * from "./scar.js";
 export * from "./ncr-validation.js";
 export * from "./chargeback.js";
 export * from "./fmea.js";
+export * from "./query.js";

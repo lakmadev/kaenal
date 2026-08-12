@@ -74,6 +74,8 @@ import { DlpPoliciesService } from "./settings/dlp-policies.service.js";
 import { CostCentersService } from "./settings/cost-centers.service.js";
 import { FmeaController } from "./fmea/fmea.controller.js";
 import { FmeaService } from "./fmea/fmea.service.js";
+import { QueryController } from "./query/query.controller.js";
+import { QueryService } from "./query/query.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -113,6 +115,7 @@ import {
   DLP_POLICIES_SERVICE,
   COST_CENTERS_SERVICE,
   FMEA_SERVICE,
+  QUERY_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -148,6 +151,7 @@ import {
     EntityLinksController,
     SettingsController,
     FmeaController,
+    QueryController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -315,6 +319,7 @@ import {
       inject: [CONTROL_POOL],
     },
     { provide: FMEA_SERVICE, useFactory: () => new FmeaService() },
+    { provide: QUERY_SERVICE, useFactory: () => new QueryService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),
