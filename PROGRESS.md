@@ -5,6 +5,19 @@
 
 ## Current status
 
+**RLS tenancy suite GREEN + PR #5 CI unblocked (2026-08-13).** The `verify` CI job had been red
+since Phase A because `packages/db/test/rls.test.ts` addressed every probe row by a single-column
+`id`, but `tenant_settings` (Phase A) has a composite PK `(tenant_id, namespace)` and no `id` —
+so `beforeAll` threw `column "id" does not exist` (42703) and the whole suite aborted (299 tests,
+all skipped). Fixed at the root: the suite now discovers each table's **primary-key columns** and
+addresses probe rows by that key (captured/compared as text so a timestamptz PK member like
+partitioned `audit_events.created_at` keeps full precision). Also seeded the **12 tenant tables**
+added across Phases A–K that `fixtures.ts` never seeded (tenant_settings, ncr_validation_rules,
+dlp_policies, cost_centers, fmeas, fmea_items, report_definitions, integrations,
+integration_events, import_profiles, import_runs, measurements) — so isolation is now proven on
+**all 49 tenant tables**, not just the core set. `pnpm test:rls` 299/299, `pnpm db:check` 49
+tables, typecheck 6/6, lint clean. Closes **issue #6**. Merge process captured in `MERGE_RUNBOOK.md`.
+
 **Admin/platform functional slices — program kickoff + Phase A (2026-08-08).** Pulled the Claude
 Design "5 functional phases" handoff (`PHASES_HANDOFF.md`, `IMPLEMENTATION_PROGRESS.md`) into
 `project_brain/project/` via DesignSync. Key reframe recorded in `ADMIN_PLATFORM_PLAN.md`: those

@@ -18,8 +18,17 @@ import { seedTenant, truncateAllTenantTables } from "./fixtures.js";
 const TENANT_A = "019f0000-0000-7000-8000-00000000000a";
 const TENANT_B = "019f0000-0000-7000-8000-00000000000b";
 
-/** One row id per table, per tenant — the probe targets, filled in beforeAll. */
-const rowIds = new Map<string, { a: string; b: string }>();
+/**
+ * Primary-key columns per table, discovered from the catalog in beforeAll.
+ * Tables are addressed by their real PK, not an assumed single-column `id`:
+ * `tenant_settings` is keyed by `(tenant_id, namespace)` and `audit_events`
+ * (partitioned) by `(id, created_at)`, so a hardcoded `id` probe would crash
+ * the whole suite before any isolation is checked.
+ */
+const pkColumns = new Map<string, string[]>();
+
+/** One row's PK values (as text) per table, per tenant — the probe targets, filled in beforeAll. */
+const rowKeys = new Map<string, { a: string[]; b: string[] }>();
 
 /**
  * Append-only tables are exempt from the generic "0 rows affected" write
@@ -60,28 +69,67 @@ const tenantTables: string[] = await (async () => {
   }
 })();
 
+/** The ordered primary-key columns of a table, from the catalog. */
+async function primaryKeyColumns(tx: Tx, table: string): Promise<string[]> {
+  const { rows } = await tx.query<{ column_name: string }>(
+    `SELECT kcu.column_name
+       FROM information_schema.table_constraints tc
+       JOIN information_schema.key_column_usage kcu
+         ON kcu.constraint_name = tc.constraint_name AND kcu.table_schema = tc.table_schema
+      WHERE tc.table_schema = 'public' AND tc.table_name = $1 AND tc.constraint_type = 'PRIMARY KEY'
+      ORDER BY kcu.ordinal_position`,
+    [table],
+  );
+  return rows.map((r) => r.column_name);
+}
+
 /**
- * Fetches a probe target, throwing if the table has no fixture row.
+ * Builds a `WHERE`-clause fragment addressing one tenant's probe row by its
+ * primary key, plus the bound parameter values (starting at `$startIndex`).
  *
- * Deliberately throws rather than skipping: a probe that quietly does nothing
- * because its fixture is missing is indistinguishable from a passing probe,
- * which is exactly how an unprotected table would slip through.
+ * Deliberately throws if the table has no fixture row: a probe that quietly
+ * does nothing because its fixture is missing is indistinguishable from a
+ * passing probe, which is exactly how an unprotected table would slip through.
  */
-function requireRowId(table: string, tenant: "a" | "b"): string {
-  const ids = rowIds.get(table);
-  if (!ids) {
+function keyMatch(
+  table: string,
+  tenant: "a" | "b",
+  startIndex = 1,
+): { sql: string; params: unknown[] } {
+  const key = rowKeys.get(table);
+  if (!key) {
     throw new Error(
       `No fixture row for '${table}' — add it to seedTenant() in test/fixtures.ts. ` +
         `Cross-tenant probes cannot run against this table.`,
     );
   }
-  return ids[tenant];
+  const cols = pkColumns.get(table) ?? [];
+  // Compare as text on both sides. Keys are captured as text (see beforeAll) so
+  // that a timestamptz PK member like audit_events.created_at keeps its full
+  // microsecond precision — a JS Date round-trip truncates to milliseconds and
+  // would silently fail to match the stored row.
+  const sql = cols.map((c, i) => `"${c}"::text = $${startIndex + i}`).join(" AND ");
+  return { sql, params: key[tenant] };
+}
+
+/**
+ * The scalar `id` of a table's probe row. Only valid for tables whose primary
+ * key leads with `id` (every table the audit/template blocks below touch does);
+ * used where a single-column id is needed rather than a full key predicate.
+ */
+function scalarId(table: string, tenant: "a" | "b"): string | undefined {
+  return rowKeys.get(table)?.[tenant]?.[0];
 }
 
 beforeAll(async () => {
   const client = await migratorPool.connect();
   try {
     await truncateAllTenantTables(client, tenantTables);
+    // Discover each table's real primary key so probes address rows by it,
+    // rather than assuming a single `id` column that some tables don't have.
+    for (const table of tenantTables) {
+      pkColumns.set(table, await primaryKeyColumns(client, table));
+    }
   } finally {
     client.release();
   }
@@ -90,17 +138,29 @@ beforeAll(async () => {
   await withTenant(TENANT_A, null, (tx) => seedTenant(tx, TENANT_A, "alpha"));
   await withTenant(TENANT_B, null, (tx) => seedTenant(tx, TENANT_B, "beta"));
 
-  // Capture one row id per table per tenant for the cross-tenant probes.
+  // Capture one row's PK values per table per tenant for the cross-tenant probes.
   for (const table of tenantTables) {
-    const a = await withTenant(TENANT_A, null, async (tx) => {
-      const { rows } = await tx.query<{ id: string }>(`SELECT id FROM ${table} LIMIT 1`);
-      return rows[0]?.id;
-    });
-    const b = await withTenant(TENANT_B, null, async (tx) => {
-      const { rows } = await tx.query<{ id: string }>(`SELECT id FROM ${table} LIMIT 1`);
-      return rows[0]?.id;
-    });
-    if (a && b) rowIds.set(table, { a, b });
+    const cols = pkColumns.get(table) ?? [];
+    // Capture PK members as text to preserve full precision across the JS round
+    // trip (see keyMatch) — the values are only ever used in text comparisons.
+    const selectList = cols.map((c) => `"${c}"::text AS "${c}"`).join(", ");
+    const capture = (tenant: string): Promise<string[] | undefined> =>
+      withTenant(tenant, null, async (tx) => {
+        const { rows } = await tx.query<Record<string, string>>(
+          `SELECT ${selectList} FROM ${table} LIMIT 1`,
+        );
+        const row = rows[0];
+        if (!row) return undefined;
+        // Primary-key columns are NOT NULL by definition, so each is present.
+        return cols.map((c) => {
+          const value = row[c];
+          if (value == null) throw new Error(`null primary-key column '${c}' in '${table}'`);
+          return value;
+        });
+      });
+    const a = await capture(TENANT_A);
+    const b = await capture(TENANT_B);
+    if (a && b) rowKeys.set(table, { a, b });
   }
 }, 60_000);
 
@@ -122,7 +182,7 @@ describe("tenancy coverage", () => {
   // The guard that keeps this suite honest as the schema grows: a new table
   // with no fixture would otherwise pass every probe below vacuously.
   it("every tenant table has a fixture row in both tenants", () => {
-    const unseeded = tenantTables.filter((t) => !rowIds.has(t));
+    const unseeded = tenantTables.filter((t) => !rowKeys.has(t));
     expect(
       unseeded,
       `These tables have no fixture row, so the cross-tenant probes below never ran ` +
@@ -150,14 +210,14 @@ describe("RLS: read isolation", () => {
   );
 
   it.each(tenantTables)(
-    "%s — tenant A cannot fetch tenant B's row by id",
+    "%s — tenant A cannot fetch tenant B's row by primary key",
     async (table: string) => {
-      const bRowId = requireRowId(table, "b");
+      const { sql, params } = keyMatch(table, "b");
       const found = await withTenant(TENANT_A, null, async (tx) => {
-        const { rows } = await tx.query(`SELECT id FROM ${table} WHERE id = $1`, [bRowId]);
+        const { rows } = await tx.query(`SELECT 1 FROM ${table} WHERE ${sql}`, params);
         return rows.length;
       });
-      expect(found, `${table}: B's row was readable by A via direct id lookup`).toBe(0);
+      expect(found, `${table}: B's row was readable by A via direct key lookup`).toBe(0);
     },
   );
 });
@@ -166,10 +226,12 @@ describe("RLS: write isolation (WITH CHECK)", () => {
   it.each(tenantTables)(
     "%s — tenant A cannot insert a row stamped with tenant B",
     async (table: string) => {
-      const aRowId = requireRowId(table, "a");
-      // Clone A's own row, overriding tenant_id to B. Building the column list
-      // from the catalog keeps this generic: it exercises the real table shape
-      // rather than a hand-written stub that could drift from it.
+      // Address A's own row by its primary key, then clone it overriding
+      // tenant_id to B. Building the column list from the catalog keeps this
+      // generic: it exercises the real table shape rather than a hand-written
+      // stub that could drift from it.
+      const { sql: keySql, params: keyParams } = keyMatch(table, "a");
+      const tenantParamIndex = keyParams.length + 1;
       const columns = await withTenant(TENANT_A, null, async (tx) => {
         const { rows } = await tx.query<{ column_name: string }>(
           // Skip generated columns (e.g. search_vector): they cannot be written
@@ -185,7 +247,7 @@ describe("RLS: write isolation (WITH CHECK)", () => {
       });
 
       const selectList = columns
-        .map((c) => (c === "tenant_id" ? `$2::uuid AS tenant_id` : `"${c}"`))
+        .map((c) => (c === "tenant_id" ? `$${tenantParamIndex}::uuid AS tenant_id` : `"${c}"`))
         .join(", ");
       const insertList = columns.map((c) => `"${c}"`).join(", ");
 
@@ -193,8 +255,8 @@ describe("RLS: write isolation (WITH CHECK)", () => {
         withTenant(TENANT_A, null, async (tx) => {
           await tx.query(
             `INSERT INTO ${table} (${insertList})
-             SELECT ${selectList} FROM ${table} WHERE id = $1`,
-            [aRowId, TENANT_B],
+             SELECT ${selectList} FROM ${table} WHERE ${keySql}`,
+            [...keyParams, TENANT_B],
           );
         }),
         `${table}: WITH CHECK did not block writing a row into another tenant`,
@@ -205,12 +267,10 @@ describe("RLS: write isolation (WITH CHECK)", () => {
   it.each(mutableTables())(
     "%s — tenant A's UPDATE of tenant B's row affects 0 rows",
     async (table: string) => {
-      const bRowId = requireRowId(table, "b");
+      const { sql, params } = keyMatch(table, "b");
       const affected = await withTenant(TENANT_A, null, async (tx) => {
         // A no-op SET: the point is whether the row is reachable at all.
-        const res = await tx.query(`UPDATE ${table} SET tenant_id = tenant_id WHERE id = $1`, [
-          bRowId,
-        ]);
+        const res = await tx.query(`UPDATE ${table} SET tenant_id = tenant_id WHERE ${sql}`, params);
         return res.rowCount ?? 0;
       });
       expect(affected, `${table}: A was able to update B's row`).toBe(0);
@@ -220,9 +280,9 @@ describe("RLS: write isolation (WITH CHECK)", () => {
   it.each(mutableTables())(
     "%s — tenant A's DELETE of tenant B's row affects 0 rows",
     async (table: string) => {
-      const bRowId = requireRowId(table, "b");
+      const { sql, params } = keyMatch(table, "b");
       const affected = await withTenant(TENANT_A, null, async (tx) => {
-        const res = await tx.query(`DELETE FROM ${table} WHERE id = $1`, [bRowId]);
+        const res = await tx.query(`DELETE FROM ${table} WHERE ${sql}`, params);
         return res.rowCount ?? 0;
       });
       expect(affected, `${table}: A was able to delete B's row`).toBe(0);
@@ -277,23 +337,23 @@ describe("RLS: unscoped access fails loudly", () => {
 
 describe("audit trail immutability (02 §3, 07 §1)", () => {
   it("the app role cannot UPDATE its own tenant's audit events", async () => {
-    const ids = rowIds.get("audit_events");
-    expect(ids).toBeDefined();
+    const auditId = scalarId("audit_events", "a");
+    expect(auditId).toBeDefined();
 
     await expect(
       withTenant(TENANT_A, null, async (tx) => {
-        await tx.query(`UPDATE audit_events SET action = 'tampered' WHERE id = $1`, [ids?.a]);
+        await tx.query(`UPDATE audit_events SET action = 'tampered' WHERE id = $1`, [auditId]);
       }),
       "audit_events accepted an UPDATE",
     ).rejects.toThrow(/append-only|permission denied/i);
   });
 
   it("the app role cannot DELETE its own tenant's audit events", async () => {
-    const ids = rowIds.get("audit_events");
+    const auditId = scalarId("audit_events", "a");
 
     await expect(
       withTenant(TENANT_A, null, async (tx) => {
-        await tx.query(`DELETE FROM audit_events WHERE id = $1`, [ids?.a]);
+        await tx.query(`DELETE FROM audit_events WHERE id = $1`, [auditId]);
       }),
       "audit_events accepted a DELETE",
     ).rejects.toThrow(/append-only|permission denied/i);
@@ -305,7 +365,7 @@ describe("audit trail immutability (02 §3, 07 §1)", () => {
         await tx.query(
           `INSERT INTO audit_events (tenant_id, actor_kind, entity_kind, entity_id, action)
            VALUES ($1, 'support', 'ncr', $2, 'updated')`,
-          [TENANT_A, rowIds.get("ncrs")?.a],
+          [TENANT_A, scalarId("ncrs", "a")],
         );
       }),
       "a support-role audit event was accepted without a reason",
@@ -320,7 +380,7 @@ describe("template immutability (02 §7)", () => {
         await tx.query(
           `UPDATE inspection_templates SET schema = '{"sections":[{"id":"x"}]}'::jsonb
            WHERE id = $1`,
-          [rowIds.get("inspection_templates")?.a],
+          [scalarId("inspection_templates", "a")],
         );
       }),
       "a published template's schema was mutable",
