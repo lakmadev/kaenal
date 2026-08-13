@@ -25,7 +25,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 export class SessionAuthenticator implements Authenticator {
   constructor(@Inject(AUTH_SERVICE) private readonly auth: AuthService) {}
 
-  async authenticate(req: Request, tx: Tx): Promise<Session | null> {
+  async authenticate(req: Request, tx: Tx, allowAnonymous = false): Promise<Session | null> {
     const token = this.extractToken(req);
     if (token === null) return null;
 
@@ -50,7 +50,14 @@ export class SessionAuthenticator implements Authenticator {
     // real authenticated mutation. A bearer token is not attached automatically
     // by the browser, so it is not forgeable cross-site — demanding a CSRF
     // header from the mobile app would be theatre.
-    if (this.isCookieAuth(req) && !SAFE_METHODS.has(req.method)) {
+    //
+    // Anonymous routes are exempt: sign-in / accept-invite / reset act on their
+    // own body credentials or token, never on this session, so CSRF guards
+    // nothing here. Enforcing it would let a stale-but-valid `kaenal_session`
+    // (user never signed out, session still alive) throw FORBIDDEN on sign-in —
+    // which the interceptor does not forgive — locking the user out with the
+    // misleading "check your workspace, email, and password". See TROUBLESHOOTING.md.
+    if (!allowAnonymous && this.isCookieAuth(req) && !SAFE_METHODS.has(req.method)) {
       this.requireCsrf(req);
     }
 

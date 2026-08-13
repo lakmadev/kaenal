@@ -43,6 +43,17 @@ the same session.
   `allowAnonymous` routes) falls through to anonymous. Regression test:
   `auth.test.ts` → "does NOT let a stale session cookie block sign-in". If sign-in 403s again,
   check that the CSRF check still sits *after* `resolveSession`.
+- **Second variant — a stale-but-VALID session (the recurring one):** the fix above only helped
+  when the session row was *gone*. If the user simply never signed out, the `kaenal_session` is
+  still valid and *resolves*, so CSRF was enforced — and if the readable `kaenal_csrf` cookie was
+  missing (evicted, cleared, or the FE couldn't read it), the sign-in POST 403'd every time.
+  **Fix:** the authenticator now takes an `allowAnonymous` flag (threaded from
+  `lifecycle.interceptor.ts`) and **skips CSRF entirely on anonymous routes** — sign-in /
+  accept-invite / reset act on body credentials or a token, never on the leftover session, so
+  CSRF guards nothing there. Real authenticated mutations (e.g. `sign-out`) still require the
+  token. Regression test: `auth.test.ts` → "lets a signed-in user sign in again without a CSRF
+  token (stale-but-VALID session)". If this recurs, check the `!allowAnonymous` guard in
+  `session.authenticator.ts`.
 - **Why the demo session kept dying (related, same commit):** `auth.test.ts` teardown swept
   every `%@acme.test` user — including the provisioned demo admin `admin@acme.test` — wiping
   its sessions/membership on every run (and, post-Phase F, tripping `fmeas_created_by_member_fk`

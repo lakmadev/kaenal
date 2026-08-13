@@ -121,7 +121,7 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
       // Authenticated routes still surface the error (default-deny below).
       let session: Session | null;
       try {
-        session = await this.authenticator.authenticate(req, tx);
+        session = await this.authenticator.authenticate(req, tx, allowAnonymous);
       } catch (err) {
         if (allowAnonymous && err instanceof ApiError && err.code === "UNAUTHENTICATED") {
           session = null;

@@ -341,6 +341,32 @@ describe("CSRF on cookie-authenticated mutations (03 §2)", () => {
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ role: "admin" });
   });
+
+  it("lets a signed-in user sign in again without a CSRF token (stale-but-VALID session)", async () => {
+    await resetCredentials("ada@acme.test");
+
+    // The most common real trap: the user never signed out, so a genuinely
+    // VALID `kaenal_session` is still in the jar, but its paired readable
+    // `kaenal_csrf` cookie is gone (evicted, cleared, or the FE can't read it) —
+    // so the sign-in POST carries no CSRF header. Sign-in is @AllowAnonymous and
+    // acts only on the body credentials, so it must NOT demand CSRF from that
+    // leftover session; otherwise it 403s and the form mislabels it as a bad
+    // password. Send the valid session cookie WITHOUT an X-CSRF-Token header.
+    const { cookie } = await authedSession("ada@acme.test");
+    const sessionOnly = cookie
+      .split(/;\s*/)
+      .find((c) => c.startsWith("kaenal_session="));
+    expect(sessionOnly).toBeDefined();
+
+    const res = await request(server())
+      .post("/v1/auth/sign-in")
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", sessionOnly!)
+      .send({ email: "ada@acme.test", password: PASSWORD });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ role: "admin" });
+  });
 });
 
 describe("invitation → accept → sign-in (07 §7)", () => {
