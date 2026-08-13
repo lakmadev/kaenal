@@ -11,7 +11,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "seed:demo": "tsx scripts/seed-demo.ts"
+    "seed:demo": "tsx scripts/seed-demo.ts",
+    "seed:testdata": "tsx scripts/seed-testdata.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3",
