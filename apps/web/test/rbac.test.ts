@@ -33,7 +33,9 @@ describe("roleSeesNavRoot", () => {
   it("inspector sees the field-user set only", () => {
     expect(roleSeesNavRoot("inspector", "inspections")).toBe(true);
     expect(roleSeesNavRoot("inspector", "ncrs")).toBe(true);
-    expect(roleSeesNavRoot("inspector", "quicklog")).toBe(true);
+    // Quick-Log was removed from the shell for every role (see config/excluded.md),
+    // so it is no longer part of the inspector's field-user set.
+    expect(roleSeesNavRoot("inspector", "quicklog")).toBe(false);
     expect(roleSeesNavRoot("inspector", "8d")).toBe(false);
     expect(roleSeesNavRoot("inspector", "audits")).toBe(false);
     expect(roleSeesNavRoot("inspector", "reports")).toBe(false);
