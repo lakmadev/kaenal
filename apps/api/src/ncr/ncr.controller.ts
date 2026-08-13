@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
+  AssignNcrBody,
   CreateNcrActionBody,
   CreateNcrBody,
   NcrPriority,
@@ -93,6 +94,22 @@ export class NcrController {
       parse(uuid, id),
       input.version,
       input.reason ?? null,
+      auditCtxOf(),
+    );
+  }
+
+  @Post("v1/ncrs/:id/assign")
+  @HttpCode(200)
+  @RequireCapability("ncr:manage")
+  async assign(@Param("id") id: string, @Body() body: unknown): Promise<NcrDto> {
+    const input = parse(AssignNcrBody, body);
+    return this.ncrs.assign(
+      currentTx(),
+      currentContext().tenantId,
+      membershipOf(),
+      actorIdOf(),
+      parse(uuid, id),
+      input,
       auditCtxOf(),
     );
   }

@@ -228,6 +228,22 @@ describe("the AV scan download gate (07 §3)", () => {
     expect(Number(rows[0]?.n)).toBeGreaterThanOrEqual(1);
   });
 
+  it("presents inline for preview and attachment by default", async () => {
+    const p = await presign(uploaderTok);
+    await authed("post", `/v1/files/${p.fileId}/complete`, uploaderTok).send({});
+    await setScan(p.fileId, "clean");
+
+    // The document Preview asks for an inline URL (renders in the iframe);
+    // the Download button gets the default attachment (forces a download).
+    const inline = await authed("get", `/v1/files/${p.fileId}/download?disposition=inline`, uploaderTok);
+    expect(inline.status).toBe(200);
+    expect(inline.body.url).toContain("disposition=inline");
+
+    const attach = await authed("get", `/v1/files/${p.fileId}/download`, uploaderTok);
+    expect(attach.status).toBe(200);
+    expect(attach.body.url).toContain("disposition=attachment");
+  });
+
   it("blocks everyone — including the uploader — from an infected file", async () => {
     const p = await presign(uploaderTok);
     await authed("post", `/v1/files/${p.fileId}/complete`, uploaderTok).send({});

@@ -158,7 +158,7 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
 
   await q(
     `INSERT INTO ppap_submissions (tenant_id, supplier_id, part_number, level, status)
-     VALUES ($1, $2, 'PN-1001', 3, 'submitted') RETURNING id`,
+     VALUES ($1, $2, 'PN-1001', 3, 'in_review') RETURNING id`,
     [t, supplierId],
   );
 
@@ -190,6 +190,12 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
     `INSERT INTO exports (tenant_id, resource, format, status, requested_by)
      VALUES ($1, 'ncrs', 'csv', 'queued', $2) RETURNING id`,
     [t, userId],
+  );
+
+  await q(
+    `INSERT INTO entity_links (tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by)
+     VALUES ($1, 'document', $2, 'ncr', $3, 'reference', $4) RETURNING id`,
+    [t, documentId, ncrId, userId],
   );
 
   await q(
@@ -253,6 +259,91 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
                                  input_tokens, output_tokens, redactions_applied)
      VALUES ($1, $2, 'doc_summary', 'fast', 'succeeded', 120, 80, 1) RETURNING id`,
     [t, userId],
+  );
+
+  // ── Admin-config + data-platform tables (Phases A–K). Seeded here so the
+  // tenancy suite proves isolation on every tenant table, not just the core QMS
+  // set — each needs at least one row to probe against. FK order matters:
+  // parents (fmeas, integrations, import_profiles) before their children.
+
+  // Phase A — white-label settings. Composite PK (tenant_id, namespace), no
+  // `id` column, so it can't use the id-returning `q()` helper.
+  await tx.query(
+    `INSERT INTO tenant_settings (tenant_id, namespace, doc)
+     VALUES ($1, 'branding', '{"brandName":"Acme"}'::jsonb)`,
+    [t],
+  );
+
+  // Phase B — NCR validation rules.
+  await q(
+    `INSERT INTO ncr_validation_rules (tenant_id, name, field, operator, action, message)
+     VALUES ($1, 'Require title', 'title', 'is_not_empty', 'block', 'Title is required')
+     RETURNING id`,
+    [t],
+  );
+
+  // Phase D — DLP policies.
+  await q(
+    `INSERT INTO dlp_policies (tenant_id, name, action) VALUES ($1, 'Block SSNs', 'block')
+     RETURNING id`,
+    [t],
+  );
+
+  // Phase E — cost centers.
+  await q(
+    `INSERT INTO cost_centers (tenant_id, code, name) VALUES ($1, $2, 'Quality Dept')
+     RETURNING id`,
+    [t, `CC-${tag}`],
+  );
+
+  // Phase F — FMEA header + one item.
+  const fmeaId = await q(
+    `INSERT INTO fmeas (tenant_id, part_code, part_name) VALUES ($1, $2, 'Bracket')
+     RETURNING id`,
+    [t, `PART-${tag}`],
+  );
+  await q(
+    `INSERT INTO fmea_items (tenant_id, fmea_id, failure_mode)
+     VALUES ($1, $2, 'Crack under cyclic load') RETURNING id`,
+    [t, fmeaId],
+  );
+
+  // Phase H — report definitions.
+  await q(
+    `INSERT INTO report_definitions (tenant_id, name, definition)
+     VALUES ($1, 'Open NCRs by plant', '{"tiles":[]}'::jsonb) RETURNING id`,
+    [t],
+  );
+
+  // Phase I — integration registry + one event.
+  const integrationId = await q(
+    `INSERT INTO integrations (tenant_id, provider, name) VALUES ($1, 'rest', 'Warehouse REST')
+     RETURNING id`,
+    [t],
+  );
+  await q(
+    `INSERT INTO integration_events (tenant_id, integration_id, direction, kind)
+     VALUES ($1, $2, 'out', 'sync') RETURNING id`,
+    [t, integrationId],
+  );
+
+  // Phase J — import profile + run.
+  const importProfileId = await q(
+    `INSERT INTO import_profiles (tenant_id, name, target_entity)
+     VALUES ($1, 'Supplier CSV', 'suppliers') RETURNING id`,
+    [t],
+  );
+  await q(
+    `INSERT INTO import_runs (tenant_id, profile_id, target_entity)
+     VALUES ($1, $2, 'suppliers') RETURNING id`,
+    [t, importProfileId],
+  );
+
+  // Phase K — SPC measurements.
+  await q(
+    `INSERT INTO measurements (tenant_id, part, characteristic, value, subgroup)
+     VALUES ($1, 'Bracket', 'hole_dia_mm', 10.02, 1) RETURNING id`,
+    [t],
   );
 
   await q(

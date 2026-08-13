@@ -1,7 +1,7 @@
 import { Body, Controller, Inject, Post, Req, Res } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { z } from "zod";
-import { Role } from "@kaenal/types";
+import { InternalRole } from "@kaenal/types";
 import { WEB_SESSION_TTL_MS } from "@kaenal/core";
 import { currentContext, currentTx } from "../context.js";
 import { AllowAnonymous, Public, RequireCapability } from "../decorators.js";
@@ -34,7 +34,10 @@ const AcceptInviteBody = z.object({
 
 const InviteBody = z.object({
   email: z.string().email().max(320),
-  role: Role,
+  // Internal roles only — a `partner` is onboarded through the (separate)
+  // supplier-scoped portal invite, never the staff invite, so this endpoint can
+  // never mint an un-scoped external membership.
+  role: InternalRole,
   plantIds: z.array(z.string().uuid()).optional(),
 });
 

@@ -71,11 +71,7 @@ export function SignInForm(): React.ReactElement {
       router.replace("/dashboard");
     } catch (error) {
       setBusy(false);
-      setErr(
-        error instanceof AuthError && error.status === 429
-          ? "Too many attempts. Please wait a moment and try again."
-          : "Sign-in failed. Check your workspace, email, and password.",
-      );
+      setErr(signInErrorMessage(error, workspace));
     }
   };
 
@@ -327,6 +323,35 @@ export function SignInForm(): React.ReactElement {
       </div>
     </AuthShell>
   );
+}
+
+/**
+ * Turn a sign-in failure into an actionable message. The old code collapsed
+ * *every* error into "check your workspace, email, and password", which hid the
+ * real cause — a wrong workspace, a stale browser session, a rate-limit, or the
+ * server being unreachable all looked identical. We keep the genuine
+ * bad-credentials case (401) generic so it never reveals whether an email
+ * exists (enumeration-safe, 07 §2), but name the others so they can be fixed.
+ */
+function signInErrorMessage(error: unknown, workspace: string): string {
+  // A rejected fetch (server down, wrong host, offline) is a TypeError, not an
+  // AuthError — most common when reaching the app by IP with the API not up.
+  if (!(error instanceof AuthError)) {
+    return "Couldn’t reach the server. Check that the app is running and try again.";
+  }
+  if (error.status === 429) {
+    return "Too many attempts. Please wait a moment and try again.";
+  }
+  if (error.code === "TENANT_NOT_FOUND") {
+    return `Workspace “${workspace}” wasn’t found. Check the workspace name and try again.`;
+  }
+  if (error.status === 403) {
+    // A stale browser session/CSRF cookie. The server no longer blocks sign-in
+    // on this (anonymous routes skip CSRF), so seeing it means an older build —
+    // clearing site cookies for this origin and reloading resolves it.
+    return "Your browser session is stale. Clear this site’s cookies, reload, and sign in again.";
+  }
+  return "Sign-in failed. Check your workspace, email, and password.";
 }
 
 function InlineError({ message }: { message: string }): React.ReactElement {

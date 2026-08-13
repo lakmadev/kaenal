@@ -6,6 +6,7 @@ import {
   type FormSchema,
   type Page,
   type TemplateDto,
+  type UpdateTemplateBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
 import {
@@ -130,6 +131,163 @@ export class TemplatesService {
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Template was not created");
+        return toDto(row);
+      },
+    );
+  }
+
+  /**
+   * Edit a DRAFT in place — its name + schema (02 §7 lets a draft schema change;
+   * the trigger only freezes a published one). Optimistic; editing a published
+   * or archived template is a CONFLICT (version it instead).
+   */
+  async update(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    id: string,
+    body: UpdateTemplateBody,
+    context: { requestId: string | null; ip: string | null; userAgent: string | null },
+  ): Promise<TemplateDto> {
+    const current = await this.get(tx, id);
+    if (current === null) throw notFound();
+    if (current.status !== "draft") {
+      throw new ApiError("CONFLICT", `Only a draft can be edited (this template is ${current.status}); publish a new version instead`);
+    }
+    if (current.lock_version !== body.version) {
+      throw new ApiError("STALE_WRITE", "The template changed since you loaded it", {
+        expected: body.version,
+        actual: current.lock_version,
+      });
+    }
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "inspection_template",
+        entityId: id,
+        action: "updated",
+        before: { name: current.name },
+        after: { name: body.name },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const { rows } = await t.query<TemplateRow>(
+          `UPDATE inspection_templates
+              SET name = $3, schema = $4::jsonb, updated_by = $5
+            WHERE id = $1 AND lock_version = $2 AND status = 'draft' AND deleted_at IS NULL
+            RETURNING ${COLUMNS}`,
+          [id, body.version, body.name, JSON.stringify(body.schema), actorId],
+        );
+        const row = rows[0];
+        if (row === undefined) throw new ApiError("STALE_WRITE", "The template changed since you loaded it");
+        return toDto(row);
+      },
+    );
+  }
+
+  /**
+   * Create the next-version DRAFT of an existing template (same lineage, 02 §7:
+   * "publishing creates a NEW row at version+1"). The version is `max(version)+1`
+   * for the given name, so the `(tenant, name, version)` uniqueness holds even
+   * when the editor also renamed it (a rename starts a fresh lineage at v1).
+   */
+  async newVersion(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    sourceId: string,
+    body: CreateTemplateBody,
+    context: { requestId: string | null; ip: string | null; userAgent: string | null },
+  ): Promise<TemplateDto> {
+    const source = await this.get(tx, sourceId);
+    if (source === null) throw notFound();
+
+    const { rows: vr } = await tx.query<{ next: number }>(
+      `SELECT COALESCE(max(version), 0) + 1 AS next FROM inspection_templates WHERE name = $1 AND deleted_at IS NULL`,
+      [body.name],
+    );
+    const nextVersion = vr[0]?.next ?? source.version + 1;
+    const id = randomUUID();
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "inspection_template",
+        entityId: id,
+        action: "created",
+        after: { name: body.name, version: nextVersion, supersedes: sourceId },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const { rows } = await t.query<TemplateRow>(
+          `INSERT INTO inspection_templates (id, tenant_id, name, version, status, schema, created_by, updated_by)
+           VALUES ($1, $2, $3, $4, 'draft', $5, $6, $6)
+           RETURNING ${COLUMNS}`,
+          [id, tenantId, body.name, nextVersion, JSON.stringify(body.schema), actorId],
+        );
+        const row = rows[0];
+        if (row === undefined) throw new ApiError("INTERNAL", "Template version was not created");
+        return toDto(row);
+      },
+    );
+  }
+
+  /** Archive a template (optimistic) — a superseded version drops out of the
+   *  editable list once its successor is published. Idempotent on an already
+   *  archived row. */
+  async archive(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    id: string,
+    expectedVersion: number,
+    context: { requestId: string | null; ip: string | null; userAgent: string | null },
+  ): Promise<TemplateDto> {
+    const current = await this.get(tx, id);
+    if (current === null) throw notFound();
+    if (current.status === "archived") return toDto(current);
+    if (current.lock_version !== expectedVersion) {
+      throw new ApiError("STALE_WRITE", "The template changed since you loaded it", {
+        expected: expectedVersion,
+        actual: current.lock_version,
+      });
+    }
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "inspection_template",
+        entityId: id,
+        action: "status_changed",
+        before: { status: current.status },
+        after: { status: "archived" },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const { rows } = await t.query<TemplateRow>(
+          `UPDATE inspection_templates SET status = 'archived', updated_by = $3
+            WHERE id = $1 AND lock_version = $2 AND deleted_at IS NULL
+            RETURNING ${COLUMNS}`,
+          [id, expectedVersion, actorId],
+        );
+        const row = rows[0];
+        if (row === undefined) throw new ApiError("STALE_WRITE", "The template changed since you loaded it");
         return toDto(row);
       },
     );

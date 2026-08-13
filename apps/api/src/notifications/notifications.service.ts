@@ -24,12 +24,14 @@ interface NotificationRow {
   body: string | null;
   entity_kind: string | null;
   entity_id: string | null;
+  actor_id: string | null;
+  starred: boolean;
   read_at: Date | null;
   created_at: Date;
 }
 
 const NOTIFICATION_COLUMNS =
-  "id, kind, title, body, entity_kind, entity_id, read_at, created_at";
+  "id, kind, title, body, entity_kind, entity_id, actor_id, starred, read_at, created_at";
 
 function toDto(row: NotificationRow): NotificationDto {
   return {
@@ -39,6 +41,8 @@ function toDto(row: NotificationRow): NotificationDto {
     body: row.body,
     entityKind: row.entity_kind,
     entityId: row.entity_id,
+    actorId: row.actor_id,
+    starred: row.starred,
     readAt: row.read_at === null ? null : row.read_at.toISOString(),
     createdAt: row.created_at.toISOString(),
   };
@@ -52,6 +56,8 @@ export interface NotifyInput {
   readonly body?: string | null;
   readonly entityKind?: string | null;
   readonly entityId?: string | null;
+  /** Who caused this (an assigner). NULL for system/job notifications. */
+  readonly actorId?: string | null;
   /** Idempotency key — a retry with the same key does not double-notify (06). */
   readonly dedupeKey?: string | null;
 }
@@ -76,13 +82,24 @@ export class NotificationsService {
   async list(
     tx: Tx,
     userId: string,
-    opts: { unread?: boolean; cursor?: string; limit: number },
+    opts: {
+      unread?: boolean;
+      starred?: boolean;
+      entityKind?: string;
+      cursor?: string;
+      limit: number;
+    },
   ): Promise<Page<NotificationDto>> {
     const limit = clampLimit(opts.limit);
     const cursor: Cursor | null = opts.cursor !== undefined ? decodeCursor(opts.cursor) : null;
     const params: unknown[] = [userId];
-    let where = "WHERE user_id = $1";
+    let where = "WHERE user_id = $1 AND deleted_at IS NULL";
     if (opts.unread === true) where += " AND read_at IS NULL";
+    if (opts.starred === true) where += " AND starred";
+    if (opts.entityKind !== undefined) {
+      params.push(opts.entityKind);
+      where += ` AND entity_kind = $${params.length}`;
+    }
 
     const keyset = keysetPredicate(cursor, params.length + 1);
     params.push(...keyset.params);
@@ -98,7 +115,7 @@ export class NotificationsService {
 
   async unreadCount(tx: Tx, userId: string): Promise<number> {
     const { rows } = await tx.query<{ n: string }>(
-      "SELECT count(*)::text AS n FROM notifications WHERE user_id = $1 AND read_at IS NULL",
+      "SELECT count(*)::text AS n FROM notifications WHERE user_id = $1 AND read_at IS NULL AND deleted_at IS NULL",
       [userId],
     );
     return Number(rows[0]?.n ?? "0");
@@ -125,8 +142,31 @@ export class NotificationsService {
 
   async markAllRead(tx: Tx, userId: string): Promise<number> {
     const { rowCount } = await tx.query(
-      "UPDATE notifications SET read_at = now(), updated_by = $1 WHERE user_id = $1 AND read_at IS NULL",
+      "UPDATE notifications SET read_at = now(), updated_by = $1 WHERE user_id = $1 AND read_at IS NULL AND deleted_at IS NULL",
       [userId],
+    );
+    return rowCount ?? 0;
+  }
+
+  /** Star / un-star. Scoped to the owner: a foreign id is a 404 (rule 8). */
+  async setStarred(tx: Tx, userId: string, id: string, starred: boolean): Promise<NotificationDto> {
+    const { rows } = await tx.query<NotificationRow>(
+      `UPDATE notifications SET starred = $3, updated_by = $2
+        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+        RETURNING ${NOTIFICATION_COLUMNS}`,
+      [id, userId, starred],
+    );
+    const row = rows[0];
+    if (row === undefined) throw notFound();
+    return toDto(row);
+  }
+
+  /** Dismiss (soft-delete). Idempotent: a second dismiss returns 0. */
+  async dismiss(tx: Tx, userId: string, id: string): Promise<number> {
+    const { rowCount } = await tx.query(
+      `UPDATE notifications SET deleted_at = now(), updated_by = $2
+        WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+      [id, userId],
     );
     return rowCount ?? 0;
   }
@@ -165,8 +205,8 @@ export class NotificationsService {
     const id = randomUUID();
     const { rows } = await tx.query<NotificationRow>(
       `INSERT INTO notifications
-         (id, tenant_id, user_id, kind, title, body, entity_kind, entity_id, dedupe_key, created_by, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$3,$3)
+         (id, tenant_id, user_id, kind, title, body, entity_kind, entity_id, actor_id, dedupe_key, created_by, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$3,$3)
        ON CONFLICT (tenant_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
        RETURNING ${NOTIFICATION_COLUMNS}`,
       [
@@ -178,6 +218,7 @@ export class NotificationsService {
         input.body ?? null,
         input.entityKind ?? null,
         input.entityId ?? null,
+        input.actorId ?? null,
         input.dedupeKey ?? null,
       ],
     );

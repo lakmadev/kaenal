@@ -57,20 +57,23 @@ export class BullMqProducer implements JobProducer {
     this.reports = new Queue(QUEUES.reports, { connection: this.connection });
   }
 
+  // Job ids dedupe a retried enqueue (one file → one scan, etc). BullMQ reserves
+  // ':' as its internal key separator and rejects it in a custom id, so these
+  // use '-' — the value only needs to be stable and unique per entity.
   async scanFile(job: ScanFileJob): Promise<void> {
-    await this.files.add(JOBS.scanFile, job, { ...DEFAULT_JOB_OPTS, jobId: `scan:${job.fileId}` });
+    await this.files.add(JOBS.scanFile, job, { ...DEFAULT_JOB_OPTS, jobId: `scan-${job.fileId}` });
   }
 
   async deliverNotification(job: DeliverNotificationJob): Promise<void> {
     await this.notify.add(JOBS.deliverNotification, job, {
       ...DEFAULT_JOB_OPTS,
-      jobId: `deliver:${job.notificationId}`,
+      jobId: `deliver-${job.notificationId}`,
     });
   }
 
   async runExport(job: RunExportJob): Promise<void> {
     // One export id → one render job, so a retried enqueue cannot double-render.
-    await this.reports.add(JOBS.runExport, job, { ...DEFAULT_JOB_OPTS, jobId: `export:${job.exportId}` });
+    await this.reports.add(JOBS.runExport, job, { ...DEFAULT_JOB_OPTS, jobId: `export-${job.exportId}` });
   }
 
   async close(): Promise<void> {

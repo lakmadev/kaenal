@@ -4,6 +4,7 @@ import { withAudit, type Tx } from "@kaenal/db";
 import { canRevertCapa, capaMachine, counterYear, formatCode } from "@kaenal/core";
 import type {
   AdvanceCapaBody,
+  AssignCapaBody,
   CapaActionDto,
   CapaDto,
   CapaPhase,
@@ -263,6 +264,77 @@ export class CapaService {
     if (!decision.ok) throw ApiError.from(decision);
 
     return this.applyPhaseChange(tx, tenantId, actorId, id, row.status, body.to, body.version, body.reason, context);
+  }
+
+  /**
+   * Assign, reassign, or clear the owner and/or sponsor (P25). Orthogonal to the
+   * phase machine, so it never touches `status`. Each field is tri-state: a uuid
+   * assigns, `null` unassigns, an absent key leaves the column untouched. Every
+   * non-null id must be an active member; the write is optimistic-concurrency
+   * guarded and audited (`assigned`, with before/after ids) in one transaction.
+   */
+  async assign(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    id: string,
+    body: AssignCapaBody,
+    context: AuditContext,
+  ): Promise<CapaDto> {
+    const row = await this.fetch(tx, id);
+    if (row === null) throw notFound();
+    this.assertVersion(row.lock_version, body.version);
+
+    if (body.ownerId != null) await this.assertMember(tx, body.ownerId);
+    if (body.sponsorId != null) await this.assertMember(tx, body.sponsorId);
+
+    // Only the columns the caller actually provided are updated.
+    const sets: string[] = [];
+    const params: unknown[] = [id, body.version];
+    const before: Record<string, string | null> = {};
+    const after: Record<string, string | null> = {};
+    if (body.ownerId !== undefined) {
+      params.push(body.ownerId);
+      sets.push(`owner_id = $${params.length}`);
+      before["ownerId"] = row.owner_id;
+      after["ownerId"] = body.ownerId;
+    }
+    if (body.sponsorId !== undefined) {
+      params.push(body.sponsorId);
+      sets.push(`sponsor_id = $${params.length}`);
+      before["sponsorId"] = row.sponsor_id;
+      after["sponsorId"] = body.sponsorId;
+    }
+    params.push(actorId);
+    const actorParam = params.length;
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "capa",
+        entityId: id,
+        action: "assigned",
+        before,
+        after,
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const { rows } = await t.query<CapaRow>(
+          `UPDATE capas SET ${sets.join(", ")}, updated_by = $${actorParam}
+            WHERE id = $1 AND lock_version = $2
+            RETURNING ${CAPA_COLUMNS}`,
+          params,
+        );
+        const updated = rows[0];
+        if (updated === undefined) throw new ApiError("STALE_WRITE", "The CAPA changed since you loaded it");
+        return toCapaDto(updated);
+      },
+    );
   }
 
   // --- CAPA actions ---------------------------------------------------------

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
+  AssignEightDBody,
   CreateEightDBody,
   EightDStatus,
   PageQuery,
@@ -83,6 +84,21 @@ export class EightDController {
   async transition(@Param("id") id: string, @Body() body: unknown): Promise<EightDDto> {
     const input = parse(TransitionEightDBody, body);
     return this.eightDs.transition(
+      currentTx(),
+      currentContext().tenantId,
+      actorIdOf(),
+      parse(uuid, id),
+      input,
+      auditCtxOf(),
+    );
+  }
+
+  @Post("v1/eight-ds/:id/assign")
+  @HttpCode(200)
+  @RequireCapability("ncr:manage")
+  async assign(@Param("id") id: string, @Body() body: unknown): Promise<EightDDto> {
+    const input = parse(AssignEightDBody, body);
+    return this.eightDs.assign(
       currentTx(),
       currentContext().tenantId,
       actorIdOf(),

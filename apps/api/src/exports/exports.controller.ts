@@ -9,6 +9,7 @@ import {
   type Page,
 } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
+import { Internal } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf, membershipOf } from "../ncr/handler-ctx.js";
 import { EXPORTS_SERVICE } from "../tokens.js";
@@ -25,8 +26,10 @@ const ListQuery = PageQuery.extend({
  * `create` additionally checks the requester may VIEW the resource (enforced in
  * the service, since the required capability depends on the body). Reads are
  * scoped to the requester by the service, so no capability decorator is needed —
- * an export you did not request is a 404.
+ * an export you did not request is a 404. `@Internal`: exporting internal record
+ * sets is not a supplier-portal capability.
  */
+@Internal()
 @Controller()
 export class ExportsController {
   constructor(@Inject(EXPORTS_SERVICE) private readonly exports: ExportsService) {}

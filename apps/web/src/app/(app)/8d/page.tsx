@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import { GitBranch } from "lucide-react";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { EightDList } from "@/features/eightd/eightd-list";
 
 export const metadata: Metadata = { title: "8D Problem Solving" };
 
 export default function Page(): React.ReactElement {
-  return <ModulePlaceholder title="8D Problem Solving" icon={GitBranch} />;
+  return <EightDList />;
 }

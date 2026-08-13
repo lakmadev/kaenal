@@ -7,9 +7,10 @@ import { useRouter } from "next/navigation";
 import { TemplateEditor, type Draft } from "./template-editor";
 
 /**
- * Loads an existing template and seeds the editor with its schema. Because a
- * published template's schema is immutable (02 §2), Save & Publish here creates
- * a NEW template from this starting point — the editor is a duplicate-and-edit.
+ * Loads an existing template and seeds the editor with its schema, plus the
+ * `source` so Save & Publish updates the right row: a draft is edited in place,
+ * a published one is versioned + superseded (see `useSaveTemplate`) — never a
+ * silent duplicate.
  */
 export function TemplateEditorLoader({ id }: { id: string }): React.ReactElement {
   const router = useRouter();
@@ -40,5 +41,5 @@ export function TemplateEditorLoader({ id }: { id: string }): React.ReactElement
     version: t.version,
     sections: t.schema.sections.map((s) => ({ id: s.id, title: s.title, weight: s.weight, items: s.items })),
   };
-  return <TemplateEditor initial={initial} />;
+  return <TemplateEditor initial={initial} source={{ id: t.id, status: t.status, lockVersion: t.lockVersion }} />;
 }

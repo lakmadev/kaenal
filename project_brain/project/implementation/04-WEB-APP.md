@@ -5,15 +5,16 @@
 - **The prototype (`../Kaenal.html` + `../src/*.jsx`) is the visual spec.** Recreate each screen to match its layout, spacing, copy, and interaction patterns. Open it in a browser while building. Component source in `../src/` shows exact structures (e.g. `src/ncr.jsx` for NCR list/detail, `src/eightd.jsx` for the D1–D8 stepper).
 - Server Components for shells/static chrome; Client Components for anything interactive. All data via the typed hooks — no fetch in components.
 
-## 2. Design tokens (from `../styles/tokens.css` — port into the Tailwind preset in `packages/config`)
-- **Brand blue:** 600 `#2563eb` (accent), hover 700 `#1d4ed8`, soft `#eff6ff`, ring `rgba(37,99,235,.25)`.
-- **Neutrals (slate):** 50 `#f8fafc` … 900 `#0f172a`, 950 `#020617`.
-- **Semantic:** success `#16a34a`/`#22c55e`, warning `#d97706`/`#f59e0b`, danger `#dc2626`/`#ef4444`.
-- **Risk scale:** critical `#dc2626`, high `#ea580c`, medium `#f59e0b`, low `#22c55e`, info `#6366f1`.
-- **Light surfaces:** bg `#f6f8fb`, bg-subtle `#eef2f7`, surface `#ffffff`, border `#e2e8f0`, text `#0f172a`, muted `#64748b`, subtle `#94a3b8`. Sidebar is always dark: bg `#0f1d35`, fg `#cbd5e1`, active accent `#3b82f6`.
-- **Dark theme** is a full token remap (see `[data-theme="dark"]` block in tokens.css) — implement as CSS variables + `data-theme` attr on `<html>`, persisted per user. Accent variants (indigo/teal/orange) and density (dense/comfortable) likewise per-user preferences from `GET /v1/me`.
-- **Type:** Inter (400–800) for UI, JetBrains Mono for entity codes/IDs/numbers. Base sizes: page title 26–28/700, section 15–16/600, body 13–13.5, meta 11–12, table cells 12.5–13.
-- **Shape/shadows:** radius sm 6 / md 10 / lg 14; card = white surface, 1px `#e2e8f0` border, subtle shadow.
+## 2. Design tokens (SINGLE SOURCE OF TRUTH: `../styles/tokens.css` — copy the `:root` + `[data-theme="dark"]` blocks VERBATIM into the Tailwind preset in `packages/config`; do NOT retype hex values from this doc)
+> ⚠️ The design is a **monochrome ink / near-neutral** system, NOT blue. If your UI is blue, you are using the wrong palette — stop and re-read `../styles/tokens.css`. (Earlier drafts of this doc described a blue/slate/Inter theme; that is superseded. `--primary-*` still exists as a scale but the **accent is ink `#18181b`, never blue.**)
+- **Accent (interactive/primary):** `--accent: #18181b` (near-black ink), hover `#3f3f46`, accent-fg `#ffffff`, soft `#f1f1f3`, ring `rgba(24,24,27,0.16)`. Primary buttons are ink-on-white, not blue.
+- **Neutrals (zinc):** bg `#f4f4f5`, bg-subtle `#ececee`, surface `#ffffff`, border `#e4e4e7`, border-strong `#d4d4d8`, text `#18181b`, text-muted `#6b7280`, text-subtle `#a1a1aa`.
+- **Sidebar (always dark):** bg `#18181b`, fg `#a1a1aa`, fg-active `#fafafa`, active-bg `rgba(255,255,255,0.08)`, accent `#fafafa`. Active item = white text + 3px left border in `--sidebar-accent`.
+- **Semantic** (used sparingly, for status only — never as brand color): success `#16a34a`/`#22c55e`, warning `#d97706`/`#f59e0b`, danger `#dc2626`/`#ef4444`. **Risk scale:** critical `#dc2626`, high `#ea580c`, medium `#f59e0b`, low `#22c55e`, info `#6366f1`.
+- **Dark theme** is a full token remap (see `[data-theme="dark"]` block in tokens.css) — implement as CSS variables + `data-theme` attr on `<html>`, persisted per user. Density (dense/comfortable) is a per-user preference from `GET /v1/me`.
+- **Type:** **Archivo** (`--font-sans`, weights 400–800) for ALL UI, **JetBrains Mono** for entity codes/IDs/numbers/tabular figures (`.mono`). NOT Inter, NOT system-ui as the visible font. Base sizes: page title 24/700 (letter-spacing −0.02em), section 15–16/600, body 13–13.5, meta 11–12, table cells 12.5–13.
+- **Shape/shadows:** tight engineered radii — sm 3 / md 4 / lg 5 / xl 7 / 2xl 9px (NOT 6/10/14). Shadows are **flat, hairline-first** (`--shadow-xs`…`--shadow-xl`): surfaces read as paper, not floating cards. Card = white surface, 1px `#e4e4e7` border, `--shadow-xs`/none. No large drop shadows, no glassmorphism.
+- **Reuse the prototype's utility classes verbatim** (they are defined in `../styles/tokens.css`): `.k-surface`, `.k-btn`/`.k-btn-primary`/`.k-btn-ghost`/`.k-btn-plain`/`.k-btn-sm`/`.k-btn-icon`, `.k-input`, `.k-chip`, `.k-overline`, `.k-tabs`/`.k-tab`, `.k-table`, `.kbd`, `.skeleton`, `.mono`. Do not invent parallel component styles.
 
 ## 3. App shell (match `src/shell.jsx`)
 - **Sidebar** 260px (collapsed 72px, persisted): groups Core / Supply chain / Quality system / Platform; badge counts (live from API); "All systems operational" status pill footer; below 860px becomes an off-canvas drawer with scrim.

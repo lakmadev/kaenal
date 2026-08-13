@@ -7,6 +7,7 @@
  * app needs the same numbers to decide when to refresh.
  */
 
+import type { Role } from "@kaenal/types";
 import { allow, deny, type Decision } from "./result.js";
 
 /** 03 §2: 10 failed attempts → 15 minute lock. */
@@ -15,6 +16,12 @@ export const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
 /** 03 §2: web session 12h sliding; mobile access 15 min, refresh 30 days. */
 export const WEB_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+/**
+ * P11: external `partner` sessions are deliberately short (2h, no slide beyond
+ * that on each request the way staff sessions do) — an external boundary should
+ * re-authenticate often, and a leaked partner token should expire fast.
+ */
+export const PARTNER_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 export const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -90,9 +97,28 @@ export function checkPasswordPolicy(password: string, email?: string): Decision 
   return allow();
 }
 
-/** Sliding expiry for web sessions (03 §2). */
-export function slideSessionExpiry(now: Date): Date {
-  return new Date(now.getTime() + WEB_SESSION_TTL_MS);
+/** Session lifetime by role: external partners get the short TTL (P11). */
+export function sessionTtlFor(role: Role): number {
+  return role === "partner" ? PARTNER_SESSION_TTL_MS : WEB_SESSION_TTL_MS;
+}
+
+/** Sliding expiry for web sessions (03 §2); partner sessions use the short TTL. */
+export function slideSessionExpiry(now: Date, role: Role = "viewer"): Date {
+  return new Date(now.getTime() + sessionTtlFor(role));
+}
+
+/**
+ * Whether a role must have MFA configured to sign in (P11, 07 §4). External
+ * `partner` accounts cross the tenant trust boundary, so MFA is mandatory for
+ * them; internal roles follow the tenant's own MFA policy (not gated here).
+ *
+ * NOTE: this gates on MFA being *enrolled* (a secret exists). A per-login TOTP
+ * challenge/verify step is a separate dependency (no TOTP subsystem exists yet)
+ * — tracked in PROGRESS Known issues; the portal must not be exposed to real
+ * suppliers until it lands.
+ */
+export function mfaRequiredFor(role: Role): boolean {
+  return role === "partner";
 }
 
 export function isExpired(expiresAt: Date, now: Date): boolean {

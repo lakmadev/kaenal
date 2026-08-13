@@ -10,14 +10,14 @@ import { firstValueFrom, from, type Observable } from "rxjs";
 import type { Request } from "express";
 import type pg from "pg";
 import { withTenant } from "@kaenal/db";
-import { authorize, type Capability } from "@kaenal/core";
+import { authorize, isPartner, type Capability } from "@kaenal/core";
 import { ApiError, tenantNotFound } from "./errors.js";
 import { runWithContext } from "./context.js";
 import { slugFromHost, TenantRegistry } from "./tenant/registry.js";
 import type { TenantPoolManager } from "./tenant/pool-manager.js";
-import { IS_ANONYMOUS, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
+import { IS_ANONYMOUS, IS_INTERNAL, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
 import { AUTHENTICATOR, ENV, RATE_LIMITER, TENANT_POOLS, TENANT_REGISTRY } from "./tokens.js";
-import type { Authenticator } from "./auth/authenticator.js";
+import type { Authenticator, Session } from "./auth/authenticator.js";
 import { USER_LIMIT, type RateLimiter } from "./http/rate-limit.js";
 import type { Env } from "./env.js";
 
@@ -68,8 +68,10 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     ]);
     const allowAnonymous =
       this.reflector.getAllAndOverride<boolean>(IS_ANONYMOUS, [handler, controller]) ?? false;
+    const internalOnly =
+      this.reflector.getAllAndOverride<boolean>(IS_INTERNAL, [handler, controller]) ?? false;
 
-    return from(this.run(req, next, required, allowAnonymous));
+    return from(this.run(req, next, required, allowAnonymous, internalOnly));
   }
 
   private async run(
@@ -77,6 +79,7 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     next: CallHandler<unknown>,
     required: Capability | undefined,
     allowAnonymous: boolean,
+    internalOnly: boolean,
   ): Promise<unknown> {
     // --- 1. Resolve tenant ------------------------------------------------
     // Subdomain for web; X-Tenant-Id header for the mobile app (01 §3.3).
@@ -111,7 +114,21 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     // RLS applies on the dedicated pool exactly as on the shared one.
     return withTenant(tenant.id, null, async (tx) => {
       // --- 2. Authenticate ------------------------------------------------
-      const session = await this.authenticator.authenticate(req, tx);
+      // On an explicitly-anonymous route (sign-in, accept-invite) a stale or
+      // otherwise unresolvable session cookie must NOT block the request: there
+      // is no protected resource to downgrade, and a user whose session expired
+      // has to be able to sign in again while the old cookie is still in the jar.
+      // Authenticated routes still surface the error (default-deny below).
+      let session: Session | null;
+      try {
+        session = await this.authenticator.authenticate(req, tx, allowAnonymous);
+      } catch (err) {
+        if (allowAnonymous && err instanceof ApiError && err.code === "UNAUTHENTICATED") {
+          session = null;
+        } else {
+          throw err;
+        }
+      }
 
       // Default-deny. Anything not marked @Public or @AllowAnonymous requires
       // a session, whether or not it declares a capability — so forgetting
@@ -136,6 +153,13 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
             USER_LIMIT.windowMs,
           );
         }
+      }
+
+      // Internal-only routes refuse an external partner even with a valid
+      // session (e.g. `/v1/files/*`, which carry no capability). A partner's
+      // sanctioned file path is the portal-scoped `/v1/portal/files/*`.
+      if (internalOnly && session !== null && isPartner(session.membership.role)) {
+        throw new ApiError("FORBIDDEN", "This endpoint is not available to supplier-portal accounts");
       }
 
       // --- 4. RBAC --------------------------------------------------------

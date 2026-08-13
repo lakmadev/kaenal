@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiQueries, queryKeys, unwrap } from "@kaenal/api-client";
 import type {
+  AssignNcrBody,
   CreateNcrActionBody,
   CreateNcrBody,
   NcrActionDto,
@@ -64,6 +65,22 @@ export function useVerifyNcr() {
     onSuccess: (ncr) => {
       void qc.invalidateQueries({ queryKey: queryKeys.ncrs.list() });
       void qc.invalidateQueries({ queryKey: queryKeys.ncrs.detail(ncr.id) });
+    },
+  });
+}
+
+/** Assign / reassign / clear an NCR's owner (P25). Orthogonal to the lifecycle
+ *  machine — it never moves status. Seeds the detail cache with the fresh row so
+ *  a rapid second reassign uses the current lockVersion. */
+export function useAssignNcr() {
+  const client = getApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: AssignNcrBody }) =>
+      client.assignNcr({ params: { id }, body }).then((r) => unwrap<NcrDto>(r)),
+    onSuccess: (ncr) => {
+      qc.setQueryData(queryKeys.ncrs.detail(ncr.id), ncr);
+      void qc.invalidateQueries({ queryKey: queryKeys.ncrs.list() });
     },
   });
 }

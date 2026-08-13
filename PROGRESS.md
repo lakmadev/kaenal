@@ -5,6 +5,457 @@
 
 ## Current status
 
+**RLS tenancy suite GREEN + PR #5 CI unblocked (2026-08-13).** The `verify` CI job had been red
+since Phase A because `packages/db/test/rls.test.ts` addressed every probe row by a single-column
+`id`, but `tenant_settings` (Phase A) has a composite PK `(tenant_id, namespace)` and no `id` —
+so `beforeAll` threw `column "id" does not exist` (42703) and the whole suite aborted (299 tests,
+all skipped). Fixed at the root: the suite now discovers each table's **primary-key columns** and
+addresses probe rows by that key (captured/compared as text so a timestamptz PK member like
+partitioned `audit_events.created_at` keeps full precision). Also seeded the **12 tenant tables**
+added across Phases A–K that `fixtures.ts` never seeded (tenant_settings, ncr_validation_rules,
+dlp_policies, cost_centers, fmeas, fmea_items, report_definitions, integrations,
+integration_events, import_profiles, import_runs, measurements) — so isolation is now proven on
+**all 49 tenant tables**, not just the core set. `pnpm test:rls` 299/299, `pnpm db:check` 49
+tables, typecheck 6/6, lint clean. Closes **issue #6**. Merge process captured in `MERGE_RUNBOOK.md`.
+
+**Admin/platform functional slices — program kickoff + Phase A (2026-08-08).** Pulled the Claude
+Design "5 functional phases" handoff (`PHASES_HANDOFF.md`, `IMPLEMENTATION_PROGRESS.md`) into
+`project_brain/project/` via DesignSync. Key reframe recorded in `ADMIN_PLATFORM_PLAN.md`: those
+five prototype phases (session policy, branding, cost-centers, filters, confirms, validation)
+target screens that in the REAL app are all **placeholders with no backend** — so each is a
+**net-new vertical slice** (migration+RLS+contract+service+tests+audit+UI), not a localStorage
+port. Sequenced as Phases A–F (tasks #30–35), backend-first, one at a time. User directive:
+"implement everything in phases".
+
+**STATUS: all six phases A–F are DONE + browser-verified** (branding, NCR validation rules, session
+policies, legal-hold + DLP, cost-centers + chargeback, FMEA workbench). Details per-phase below.
+Pushed with the Data Platform (G–K) as **PR #5** — https://github.com/lakmadev/kaenal/pull/5.
+**Carry-over (not a Phase-F defect):** the RLS tenancy suite (`pnpm test:rls`) has been red since
+Phase A (`tenant_settings` composite PK crashes its single-`id` probe) — tracked in **issue #6**
+(https://github.com/lakmadev/kaenal/issues/6); isolation is proven per-slice via `db:check` +
+API-level cross-tenant tests.
+
+**DATA PLATFORM program (KAENAL_IMPLEMENTATION.md Part B) — kickoff + Phase G (2026-08-12).** Pulled the
+Claude Design `KAENAL_IMPLEMENTATION.md` (RBAC + Data Platform, the two NEW cross-cutting systems) via
+DesignSync. Grounding: **Part A (RBAC) is already built + tested** (core `rbac.ts`, `@RequireCapability`,
+`/me`, web nav/route/settings gating) and **Part B5's FMEA shipped in Phase F** — so the net-new work is the
+Data Platform, sequenced backend-first as Phases **G–K** (tasks #41–45): G) query engine, H) report
+definitions+builder+dashboards, I) integrations/connector registry, J) bulk-import pipeline, K) SPC
+(measurements table) + cross-tenant KPIs. Decisions this session: keep our settled `verb:module` capability
+convention (do NOT port `rbac.jsx`'s `view.scope` strings — PROGRESS/CLAUDE.md already settled this); SPC
+gets a real `measurements` table; RBAC "gaps" (report-builder authoring gate, connector/import gates,
+per-field detail) ride along with the phase that introduces them. Plan approved; full rollout, phase by phase.
+**STATUS: G–K ALL COMPLETE + browser-verified (2026-08-12).** Query engine (G), report builder + live
+dashboards (H), connector registry (I), bulk-import pipeline (J), SPC + cross-tenant KPIs (K). 5 new tables
+(0031–0034 + integrations), 6 new capabilities (report:view/manage, integration:manage, import:run, spc:view,
+measurement:manage), all injection-safe / RLS-scoped / audited, with per-phase tests. Remaining deferrals are
+flagged (external OAuth/live fetch, corporate cross-tenant roll-ups, async-at-scale import commit) — never faked.
+**SHIPPED (2026-08-12):** branch `feat/admin-platform-settings` pushed; A–F + G–K both ride on
+**PR #5** — https://github.com/lakmadev/kaenal/pull/5 (66 commits, base `main`, open). The pre-existing
+`test:rls` breakage is tracked in **issue #6** — https://github.com/lakmadev/kaenal/issues/6 (linked from PR #5).
+
+- **Phase G — Query engine core + `/v1/query*`: DONE (backend-first; no UI yet).**
+  - **Types** `packages/types/src/query.ts` — the shared `Query` Zod (sourceId/columns/sort/groupBy/limit +
+    agg/measure/dimension + filters[{field,op,value}]; ops `= ≠ contains > <`, aggs count/sum/avg/min/max),
+    `QUERY_MAX_LIMIT=1000`, and the result DTOs (`QuerySourceDto`/`QueryFieldDto`/rows/metric/series). One
+    model compiles to a table, KPI, or chart series (report-data.jsx `rbRunQuery`/`rbMetric`/`rbSeries`).
+  - **Core** `packages/core/src/query.ts` — the security-critical compiler. A static **source registry**
+    (`QUERY_SOURCES`) maps the 7 Kaenal-native sources (ncr, inspection, eightd, capa, audit, finding,
+    supplier) → real table + whitelisted scalar columns + the `*:view` capability that gates each (B6).
+    `compileRowsQuery`/`compileTotalQuery`/`compileMetricQuery`/`compileSeriesQuery` emit **parameterised**
+    SQL: identifiers come only from the whitelist (unknown source/column/measure/dimension/sort → `QueryError`
+    before any SQL exists), values are always `$n` bound params, limit is capped, dates compared as ISO text
+    (lexicographic = chronological), numeric `> <` cast the param. Tenant scoping is RLS only (runs on the
+    request tx). 16 core unit tests incl. an injection probe (`'; DROP TABLE ncrs; --` stays a bound param).
+  - **API** `apps/api/src/query/` — `QueryService` executes the compiled `{text,params}` sequentially on the
+    tx (one pg conn) and coerces driver types (numeric→number, timestamptz→ISO); a `QueryError` maps to 422,
+    never 500. `QueryController` (`@Internal`) `POST /v1/query|/metric|/series` + `GET /v1/query/sources`;
+    the capability gate is **dynamic** (resolve `sourceId` → `authorize(membership, source.capability)`, 403
+    with the missing cap) since the source is in the body, not a static decorator. Registered in
+    `app.module.ts` (+ `QUERY_SERVICE` token).
+  - **Tests** `apps/api/test/query.test.ts` (9): rows+filtered-total, count metric, series-by-status, source
+    list (no DB column leaked), whitelist 422 (bad column/source/non-numeric-measure), injection no-op +
+    table survives, viewer may query a source it can view, 401 unauthenticated, and **cross-tenant RLS**
+    (globex admin sees only globex rows). typecheck 3/3 (types+core+api) + repo lint clean; core query 16/16.
+  - **Note (honest):** every internal role currently holds all 7 sources' `*:view` caps, so the per-source
+    403 differentiator can't be shown among internal roles today — it's exercised by the unknown-source 422 +
+    the external `@Internal` boundary, and will bite once a source maps to a narrower cap. No UI this phase
+    (the builder/dashboards that consume the engine are Phase H).
+
+- **Phase H — Report definitions + built-in dashboards: BACKEND DONE (web builder is the next commit).**
+  - **DB** `0031_report_definitions.sql` — `report_definitions` (name, description, `definition` jsonb =
+    `{filters,branding?,tiles:[{id,title,viz,query,layout}]}`) + forced RLS + leading index + bump trigger +
+    composite member FKs. `db:check` **44 tables**.
+  - **RBAC** added `report:view` / `report:manage` to `packages/core/rbac.ts` — view: admin/manager/auditor/
+    viewer (NOT inspector, matching the reports nav allow-list); manage: admin/manager only. The **view/manage
+    split closes the A3 gap** (a viewer reads a report but cannot reach the builder). rbac matrix test grew
+    186→**198 cells** (+2 caps × 6 roles).
+  - **Types** `packages/types/src/report.ts` — `ReportWidgetKind` (datatable/repeater/kpi/bar/pie/line),
+    `ReportTile` (binds a Phase-G `Query`), `ReportDoc`/`ReportBranding`, `CreateReportBody`/`UpdateReportBody`
+    (optimistic `version`), `ReportDefinitionDto` (+ `builtin` flag).
+  - **Core** `packages/core/src/report-dashboards.ts` — the 3 prototype dashboards (Quality Overview /
+    Inspection Performance / Compliance) reproduced as **engine-backed** `ReportDefinitionDto` constants: every
+    tile binds a real `Query` over ncr/inspection/audit, so a built-in renders through the same `/v1/query*`
+    path as a user report. **Honesty:** the prototype's hand-drawn mock charts (cost-of-quality, MTBF, IATF
+    gap matrix, cert-expiration tables) have no backing entity, so they are NOT fabricated — flagged as a
+    follow-up needing a CoQ/calibration/certificate data model.
+  - **API** `apps/api/src/reports/` — `ReportsService` (audited CRUD, optimistic; built-ins listed but
+    read-only — any write to a `builtin-*` id → 403; a non-uuid/non-builtin id → 404, never a 500 uuid-cast) +
+    `ReportsController` (`@Internal`, reads `report:view`, writes `report:manage`). Registered (+ `REPORTS_SERVICE`).
+  - **Tests** `apps/api/test/reports.test.ts` (5): CRUD + optimistic 409, built-ins listed (3) + edit/delete
+    403, unknown-id 404 (no 500), **viewer reads but 403 on create** (A3), cross-tenant RLS. typecheck 3/3,
+    rbac 198, repo lint clean.
+  - **Phase H FE — DONE, browser-verified.** Wired the query engine + reports into the typed contract
+    (`packages/types/contract.ts`: `runQuery`/`runQueryMetric`/`runQuerySeries`/`listQuerySources` +
+    `list/create/get/update/deleteReport`) and `@kaenal/api-client` (`apiQueries.query.*`/`apiQueries.reports.*`
+    + keys); the result DTOs in `query.ts`/`report.ts` became Zod schemas so the contract validates them.
+    Web: `hooks/use-query.ts` + `hooks/use-reports.ts`; `features/reports/` — `bound-widgets.tsx` (the 6
+    engine-backed widgets from report-data.jsx: KPI/bar/pie/line/table/repeater), `query-builder.tsx` (the tile
+    inspector — source + measure/agg + dimension + filters + group-by + sort + limit, all from the source's
+    whitelisted field schema), `report-canvas.tsx` (24-col→12-col tile grid), `report-builder.tsx` (add-tile ×6,
+    live per-tile preview, inspector, optimistic Save/Delete — `report:manage`), `reports-home.tsx` (Dashboards
+    | My reports segmented, New-report gated on `report:manage`), `report-page.tsx` (builder for editors,
+    read-only canvas for built-ins/viewers). Routes `/reports` + `/reports/[id]` replace the placeholder.
+    **Verified in-browser** (demo admin): reports home lists the 3 built-in dashboards; Quality Overview renders
+    live through `/v1/query*` (Open NCRs KPI=1, by-priority bar, by-status pie 100% open, Recent-NCRs table);
+    New report → builder → add Bar tile → live preview → switch dimension Code→Status re-runs the series →
+    Save persists (POST 201 / PUT 200, all `/query*` 200; the only console errors are pre-sign-in stale-buffer
+    401 replays). typecheck 6/6 (types/core/api-client/api/web) + repo lint clean. **Phase H COMPLETE.**
+  - **Deferred (flagged):** drag-to-reposition tile layout (tiles use their seeded 24-col spans; the builder
+    edits queries, not geometry) and report scheduling/export (reuses 06-JOBS, a later slice).
+
+- **Phase K — SPC analytics + cross-tenant KPIs: DONE (backend + FE), browser-verified. Data Platform (G–K) COMPLETE.**
+  - **DB** `0034_measurements.sql` — the canonical SPC source (per the settled decision: a real table, not a
+    projection of inspection responses): `measurements` (part, characteristic, value numeric, subgroup, unit,
+    optional usl/lsl/target, source, taken_at). Full isolation contract — forced RLS, leading index
+    `(tenant_id, characteristic, subgroup, taken_at)`, lock_version + bump trigger, member FKs. `db:check`
+    **49 tables**.
+  - **RBAC** `spc:view` (all internal roles — quality analytics) + `measurement:manage` (admin/manager/
+    inspector — the roles that record on the floor). rbac matrix now **222 cells**.
+  - **Types** `packages/types/src/spc.ts` — `IngestMeasurementsBody`, `SpcCharacteristicDto`, `SpcChartDto`
+    (points + limits + `SpcCapabilityDto` + `SpcViolationDto`).
+  - **Core** `packages/core/src/spc.ts` — pure `computeXbarR`: X̄/R limits via the standard A2/D3/D4 table
+    (n=2–10) + d2-unbiased σ̂, Western-Electric rules 1–4 on the ±1σ/±2σ/±3σ zones, and Cp/Cpk (one- or
+    two-sided) from spec limits. 16 unit tests — pinned against the **Montgomery flow-width worked example**
+    (grand mean/R̄/limits recovered), capability from a known σ, and each WE rule.
+  - **API** `apps/api/src/spc/` — `SpcService`: `characteristics` (series picker), `chart` (groups by subgroup
+    → `computeXbarR` → DTO; ragged/empty → 422/404), `ingest` (audited batch). `@Internal`, class
+    `spc:view` with a **method-level `measurement:manage`** override on ingest (getAllAndOverride). Registered
+    (+ `SPC_SERVICE`); contract routes (characteristics/chart/measurements).
+  - **FE** `apiQueries.spc.*` + `queryKeys.spc`; `use-spc.ts`; `features/spc/spc-charts.tsx` — the
+    qms-risk-spc.jsx `SPCCharts` reproduced (X̄ + R SVG control charts with CL/UCL/LCL + USL/LSL, red-flagged
+    out-of-control points, the WE alarm banner, the WE-rules panel with per-rule point counts, and the Cp/Cpk
+    capability panel), all plotted from the engine's output. `manager+` can seed a sample drifting series.
+    Route `/spc` (was a placeholder). **Cross-tenant analytics** (`settings/sections/cross-tenant.tsx`) —
+    current-workspace KPIs computed LIVE via the Phase G engine (`/query/metric`), with corporate roll-ups
+    honestly flagged as needing an org-hierarchy that isn't modelled yet. Wired into `settings-shell` + nav.
+  - **Tests** `apps/api/test/spc.test.ts` (5): ingest RBAC (auditor has spc:view but not measurement:manage →
+    403 ingest / 200 chart; manager ingests), computed chart returns limits + capability + a WE-1 violation
+    for a drifting series, 404 on no data, cross-tenant RLS. typecheck 6/6, lint clean, core 222 rbac + 16 spc,
+    api spc 5/5.
+  - **Browser-verified** as acme admin: `/spc` empty → Load sample → X̄/R charts render with the drift flagged
+    (WE-1–4, Cp 2.15 / Cpk 1.86 / σ̂ 0.16), all `/spc*` 200/201; cross-tenant KPIs render live (NCRs=1). Demo
+    measurements purged after.
+  - **Flagged (not faked):** corporate cross-tenant roll-ups across child tenants (needs a tenant hierarchy);
+    the AIAG-VDA certified capability table beyond Cp/Cpk; feeding SPC from numeric inspection responses.
+
+- **Phase J — Bulk-import pipeline: DONE (backend + FE), browser-verified.**
+  - **DB** `0033_import.sql` — `import_profiles` (reusable mapping: target + `mapping`/`transform` jsonb +
+    dedupe policy + `source_ref`) and `import_runs` (one execution: staged `source_rows`, mapping snapshot,
+    roll-up `counts`, capped row-level `result`, status pending→validated→committing→completed/failed). Both
+    full isolation contract — forced RLS, leading index, lock_version + bump trigger, composite member FKs;
+    `import_runs.profile_id` a composite FK (ON DELETE SET NULL). `db:check` **48 tables**.
+  - **RBAC** `import:run` added (admin + manager — the masters-data authors); rbac matrix now **210 cells**.
+  - **Types** `packages/types/src/import.ts` — target/dedupe/status enums, `ImportTargetDto`+field schema,
+    `ImportProfileDto`, `ImportRunDto` (+`ImportCounts`, `ImportRowResult`), Create/Commit bodies. 50k row cap.
+  - **Core** `packages/core/src/import.ts` — `IMPORT_TARGETS` registry (suppliers, natural key `code`) is the
+    identifier whitelist (like the query engine's source registry); pure `applyMapping` / `validateMappedRow`
+    / `planImport` — the last computes the exact create/update/skip plan `commit` executes, so a dry run and
+    the real commit can never diverge. 16 unit tests (whitelist, mapping, enum/number/required validation,
+    dedupe policies, within-file dup, purity).
+  - **API** `apps/api/src/import/` — `ImportService`: profiles CRUD; `createRun` = Validate + Dry-run (writes
+    NOTHING, lands `validated` with counts + sample); `commit` re-plans against current keys and upserts each
+    non-error row **idempotently by natural key** (`ON CONFLICT (tenant_id, code) DO UPDATE`), audited +
+    optimistic. Columns come only from the registry, values are bound params. `@Internal`, class-level
+    `@RequireCapability("import:run")`. Registered (+ `IMPORT_SERVICE`); contract routes (targets/profiles/
+    runs/commit).
+  - **DECISION — commit runs synchronously in the request tx** (idempotent by natural key, 50k cap), not on
+    the BullMQ `imports` queue. Rationale: the slice must be browser-verifiable without standing up a separate
+    worker+Redis, and `commit` is already a self-contained tenant-tx step (`ImportService.commit`) ready to
+    move behind a job for very large migrations — a wiring change, not a rewrite. Logged in Decisions.
+  - **FE** `apiQueries.import.*` + `queryKeys.import`; `use-import.ts` (targets + createRun/commitRun);
+    `settings/sections/bulk-import.tsx` — the operations.jsx `BulkImport` 5-step wizard (Source → Map →
+    Validate → Dry run → Commit) wired live: CSV paste + auto-map, real validate/dry-run counts +
+    aggregated errors/warnings + sample preview, dedupe-policy select, idempotent commit. Admin/manager only
+    (viewer 403 → restricted state). Wired into `settings-shell` + nav `built`.
+  - **Tests** `apps/api/test/import.test.ts` (7): targets schema; validate/dry-run writes nothing; natural-key
+    422; commit creates then a re-import updates-not-duplicates (idempotent); optimistic 409 + state guard 422;
+    viewer 403; cross-tenant RLS (globex 404 on acme's run, no row leakage). typecheck 6/6, lint clean,
+    core 210 rbac + 16 import, api import 7/7.
+  - **Browser-verified** as acme admin: sample CSV → auto-map → Validate (4 total / 2 will-import / 2 errors /
+    4 warnings, exact messages) → Dry run (create 2) → Commit ("2 created", all calls 200/201); demo rows
+    purged after. (Pre-existing `housekeeping` purge test is flaky on the shared DB — fails on the clean tree
+    too — unrelated to this phase.)
+
+- **Phase I — Connector / integrations registry: DONE (backend + FE), browser-verified.**
+  - **DB** `0032_integrations.sql` — the ONE connector substrate (09 §1): `integrations` (provider CHECK over
+    13 providers, status, `config` jsonb [non-secret only], `credentials_ref` [pointer, NEVER a token],
+    last_error/connected_at/last_ok_at/connected_by) + `integration_events` (per-delivery log, powers the
+    settings UI) — forced RLS, member FKs, bump trigger. `db:check` **46 tables**.
+  - **RBAC** `integration:manage` added (admin only — connect/disconnect is platform-tier; a manager configures
+    reports but doesn't wire the workspace to SAP/Slack). rbac matrix 198→**204 cells**.
+  - **Types** `packages/types/src/integration.ts` — provider/status enums, `IntegrationDto`
+    (`hasCredentials` boolean, never the ref), `IntegrationEventDto`, `ConnectorSchemaResult`, Create/Update/
+    Connect bodies.
+  - **Core** `packages/core/src/connectors.ts` — `CONNECTOR_META` (label/origin/category/external/dataSource per
+    provider, from report-data.jsx `RB_CONNECTORS`), `connectorSchema(provider)` (declared field shapes for
+    the data-source connectors — SAP/Snowflake/Oracle/generic, from `RB_CONNECTOR_DATA`), and the
+    `ConnectorAdapter` interface (`listSchema`/`fetchRows`).
+  - **API** `apps/api/src/integrations/` — `IntegrationsService` (CRUD + connect/disconnect + events + schema;
+    **secrets never cross the boundary** — DTO exposes only `hasCredentials`, connect stores a `secret://…`
+    pointer, disconnect/delete purge it; a connect writes an `integration_events` row) + `IntegrationsController`
+    (`@Internal`, whole surface `integration:manage`). Registered (+ `INTEGRATIONS_SERVICE`). Contract routes
+    added (list/create/get/schema/events/update/connect/disconnect/delete).
+  - **Tests** `apps/api/test/integrations.test.ts` (4): create→schema→connect(pointer-only, ref never
+    returned)→events→disconnect→delete lifecycle; optimistic 409; admin-only (manager 403 read+write);
+    cross-tenant RLS. typecheck 4/4 (types/core/api-client/api), rbac 204, repo lint clean.
+  - **Per 09 §6 (substrate, not point connectors):** external providers declare their shape but live
+    `fetchRows`/OAuth is stubbed/flagged — the registry, adapter interface, and event log are the deliverable.
+  - **FE (commit 2):** `apiQueries.integrations.*` + `queryKeys.integrations` factories; `use-integrations.ts`
+    hooks (list/events/schema + create/connect/disconnect/delete/update, each invalidating the registry).
+    `settings/sections/integrations.tsx` — a faithful port of settings.jsx `Integrations` (design rule #9):
+    live card per registry provider grouped by category (Data sources / Notifications & messaging / Files /
+    APIs / Email), each reflecting the tenant's real status, with Connect (register-then-connect in one click)
+    / Disconnect / Remove and an expandable per-connector panel (declared field schema for data sources +
+    delivery log). Whole surface **admin-gated** — a non-admin sees a "restricted" state (reads 403), and the
+    Developer nav group already shows only under `settingsFull`. Wired into `settings-shell` + nav marked
+    `built`. Report builder's source picker now shows **connected external data-source connectors** in a
+    disabled "live preview coming soon" optgroup (honest — engine runs native sources only; external
+    `fetchRows` deferred), fetched best-effort so a non-admin author simply sees none.
+  - **Browser-verified** as acme admin: card grid renders; SAP connect flips status + writes a `connect`
+    event; the panel shows the 7 declared SAP fields + the delivery log; remove purges it — every
+    `/integrations*` call 200/201; demo tenant left clean.
+
+- **Phase A — `tenant_settings` foundation + White-label branding: DONE, browser-verified.**
+  - **DB** `0025_tenant_settings.sql` — ONE reusable table keyed `(tenant_id, namespace)` holding a
+    JSONB `doc` (namespace `branding` now; `session` etc. widen the CHECK per later phase), forced
+    RLS + PK-as-leading-tenant_id-index, `lock_version` + bump trigger, composite member FKs.
+    `db:check` passes (38 tenant tables).
+  - **Types** `BrandingSettings` Zod + `BRANDING_DEFAULTS` (ink `#18181b`/`#f4f4f5`/Archivo — tokens
+    supersede the prototype's Precision-Auto/red seed data), `BrandingDto`, `UpdateBrandingBody`
+    (optimistic `version`). Contract `getBranding` (GET) + `updateBranding` (PUT), `@Internal`.
+  - **API** `settings/` module: GET merges stored doc over defaults (unbranded → version 0); PUT is
+    `settings:manage`, upserts with optimistic concurrency (first INSERT seeds `lock_version=1` so a
+    racing first-writer loses cleanly — found + fixed via test), audits `settings_changed`.
+  - **Web** `sections/white-label.tsx` (built:true) — faithful reproduction of the `WhiteLabelEditor`
+    design (brand/colour/login-copy/email cards + live login+sidebar preview + Reset/Save), wired to
+    `use-branding` hook. Saved display name flows to the **sidebar wordmark** (shell reflection,
+    handoff Phase 4). Logo/favicon upload, domain-verify + SPF/DKIM chips, PDF/mobile toggles are
+    presentational (no upload/DNS backend yet — flagged).
+  - **Tests** `apps/api/test/settings.test.ts` (6): defaults@v0, save+bumped-version reflect, stale
+    409, viewer 403-write/200-read, invalid-colour 422, cross-tenant RLS isolation. typecheck 6/6 +
+    lint clean. Browser-verified: editor renders, live preview reactive, Save persists, dashboard
+    sidebar shows the branded name after a full navigation.
+  - **Deferred (flagged):** apply branding COLOURS to the live runtime theme; branded pre-auth login
+    page (needs a public-by-slug read — rule-8 existence-leak care); logo/favicon upload backend.
+  - *Note:* the pre-existing shell hydration warning (theme toggle Moon/Sun SSR mismatch in
+    `ThemeProvider.readInitialTheme`) is unrelated to this slice.
+
+- **Phase B — NCR validation rules: DONE, browser-verified.**
+  - **DB** `0026_ncr_validation_rules.sql` — tenant table (name, field, operator, value, action,
+    message, enabled) + RLS + `lock_version`/bump trigger + composite member FKs. A rule FIRES when
+    `field <operator> value` holds; `field` is the closed set of CreateNcrBody fields
+    (priority/source/title/description/plant/area). `db:check` 39 tables.
+  - **Core** `packages/core/ncr-validation.ts` — pure `ruleFires` / `firingBlockRules(rules, facts)`
+    (rule 5: evaluation in core, throw in the service).
+  - **Types/contract** `NcrRuleField|Operator|Action` enums + `NcrValidationRuleDto` +
+    create/update bodies (refined so `equals`/`in` require a value); CRUD under
+    `/v1/settings/ncr-validation-rules` (`settings:manage`, optimistic, `@Internal`).
+  - **API** `settings/ncr-rules.service.ts` (audited CRUD) + enforcement wired into
+    `NcrService.create` (`enforceValidationRules` loads enabled `block` rules and rejects with the
+    rule's message before any row/counter is written). `warn`/`escalate` are stored, not yet
+    enforced (no warning channel / escalation job) — flagged.
+  - **Web** `sections/validation-rules.tsx` (built:true) — faithful `ValidationRules` reproduction:
+    list (search + Block/Warn/Escalate filter + empty state), per-rule action chip + enabled toggle
+    + delete-with-confirm (Radix Dialog), and the WHEN/FOR/IF/THEN rule builder with inline form
+    validation. `use-ncr-rules` hook. The design's "recent validation events" table is **omitted**
+    (needs a validation-event log that doesn't exist — flagged, not faked).
+  - **Fix found in-browser:** the delete confirm blanked the settings content — conditionally
+    unmounting `DialogContent` on the same state that drives Radix `open` throws during close.
+    Fixed to the controlled pattern (DialogContent always mounted; Radix gates its portal by `open`).
+  - **Tests** extended `settings.test.ts` (now 10): rules CRUD + optimistic 409 + viewer 403 +
+    **create-enforcement** (a block rule rejects a matching NCR create, allows once disabled) +
+    cross-tenant RLS. typecheck 6/6, lint clean, build green. Browser-verified create/toggle/delete.
+  - *Note:* verifying with `pnpm build` while `next dev` shares `apps/web/.next` corrupts the dev
+    cache (`Cannot find module './vendor-chunks/…'`) — clear `.next` + restart the dev server, and
+    don't run a production build against a live dev server (see TROUBLESHOOTING.md).
+
+- **Phase C — Session policies (config + enforcement): DONE, browser-verified.**
+  - **DB** `0027_session_settings.sql` — widens the `tenant_settings` namespace CHECK to admit
+    `'session'` (reuses the 0025 store; no new table). `db:check` 39 tables.
+  - **Types/contract** `SessionPolicy` Zod + `SESSION_POLICY_DEFAULTS` (web idle/absolute, mobile
+    idle, max concurrent [0=unlimited], remember-device days, step-up minutes, notify-new-device) +
+    `SessionPolicyDto`/`UpdateSessionPolicyBody`; GET/PUT `/v1/settings/session-policy`
+    (`settings:manage` on PUT, member-readable GET, `@Internal`).
+  - **API** generalised `SettingsService` to a `writeDoc(namespace,…)` core reused by branding +
+    session (branding behaviour unchanged, still tested). Exported standalone `loadSessionPolicy(tx)`
+    so **`AuthService.signIn` enforces** it: staff session `expires_at = now + webAbsoluteHours`
+    (partners keep the P11 short TTL), and after minting, `maxConcurrentSessions > 0` revokes the
+    oldest live sessions beyond the cap (per-user). Idle/remember/step-up are stored, not yet
+    enforced (idle needs per-request `last_seen`; step-up needs a per-op challenge) — flagged.
+  - **Web** `sections/session-policies.tsx` (built:true) — faithful 5-card `SessionPolicies`
+    reproduction (web/mobile lifetime, concurrent, step-up, workforce-safety) with a
+    minutes/hours `DurationMinutes` control; enforced/stored fields wired, decorative safety toggles
+    labelled "UI only — not yet enforced" (not persisted). `use-session-policy` hook. Personal
+    **Security** page (`sections/security.tsx`) now shows a **read-only Session-policy summary card**
+    and the active-sessions caption reflects the max-concurrent limit (handoff Phase 4).
+  - **Tests** `settings.test.ts` now **12**: policy defaults/save/stale-409/viewer-403 + enforcement
+    (absolute timeout drives `expires_at` ≈ now+1h; max=1 revokes the older session on the second
+    sign-in). typecheck 6/6, lint clean, build green. Browser-verified editor→save→personal-page
+    reflection.
+
+- **Phase D — Compliance: Legal hold + DLP policies: DONE, browser-verified.**
+  - **Key discovery:** `legal_holds` is NOT a placeholder — it's a foundational table (0001) already
+    ENFORCED by the nightly purge job (`packages/core/purge.ts`, 07 §5): an active hold
+    (`released_at IS NULL`) refuses permanent erasure of any soft-deleted row its `scope` covers. So
+    Phase D's legal-hold slice was built ON that table (a genuinely enforced feature), NOT as a
+    flagged register. `scope` is the structured jsonb purge understands (`{}` tenant-wide /
+    `{entityKinds}` / `{entityKind,entityId?}`).
+  - **DB** `0028_compliance_legal_hold_dlp.sql` — (a) EXTENDS `legal_holds` with register fields
+    (`name`, `matter`, `reference`, `lock_version`, `deleted_at`; `reason` default '') + bump trigger;
+    status is DERIVED from `released_at` (no `status` column — single source of truth, keeps the purge
+    index meaningful). (b) NEW `dlp_policies` register (name, pattern, action
+    block/warn/watermark/quarantine/notify, surface, note, enabled) + forced RLS + bump + member FKs.
+    `db:check` **40 tables**.
+  - **Types/contract** `LegalHoldDto` + `LegalHoldScopeInput` (tagged union tenant/kinds/record over a
+    curated `LegalHoldEntityKind` enum) + Create/Update; `DlpPolicyDto` + Create/Update. Endpoints
+    under `/v1/settings/legal-holds` (list/create/update/release/delete) + `/v1/settings/dlp-policies`
+    (list/create/update/delete), all `settings:manage` (reads gated too — sensitive), `@Internal`.
+  - **API** `legal-holds.service.ts` (scope map to/from stored jsonb via core's `isTenantWideScope`;
+    `release` stamps `released_at`; `remove` soft-deletes AND releases so a hidden row can't keep
+    blocking purge; best-effort `LH-YYYY-NNN` reference) + `dlp-policies.service.ts` (CRUD mirror of
+    ncr-rules). Both audited `settings_changed`, optimistic.
+  - **Web** `sections/legal-hold.tsx` + `sections/dlp-policies.tsx` (both built:true). Legal hold:
+    active/released register with real scope editor (workspace / entity-kinds checkboxes / one-record),
+    Release + Remove behind confirm dialogs, Active/Released stat cards. DLP: policy register with
+    action-coloured rows, toggle, action filter, DETECT/ON/THEN builder. Honestly OMITTED (not faked,
+    flagged in TODO): DLP hit-metric stat cards + "recent events" table (no interception layer/event
+    log), legal-hold custodian-ack table + frozen-record counters (no sub-entity/metering).
+  - **Tests** `settings.test.ts` now **20** (+8): legal-hold CRUD/optimistic/release/derived-status +
+    an ENFORCEMENT test (an active kinds-hold makes core's `isBlockedByHolds` refuse a covered row;
+    releasing lifts it) + reads/writes 403 for viewer + cross-tenant RLS; DLP CRUD/optimistic + invalid
+    action 422 + viewer 403 + RLS. typecheck 6/6, lint clean, build green. Browser-verified end-to-end
+    (signed in as a seeded acme admin): opened `LH-2026-001` freezing NCRs+Inspections (register +
+    stat updated), added a BLOCK DLP policy (toast + row).
+  - **⚠ Surfaced a pre-existing RED test (see Known issues + TODO):** the RLS tenancy suite
+    (`pnpm test:rls`) has been broken since **Phase A** — `tenant_settings` (composite PK, no `id`)
+    crashes its single-`id` probe; it's not in the `pnpm test` gate so it went unnoticed. Phase D
+    isolation is independently proven via `db:check` + API-level cross-tenant tests. Tracked in
+    **issue #6** (https://github.com/lakmadev/kaenal/issues/6); NOT fixed inline (refactoring the
+    codebase's most critical mutation-tested suite deserves its own reviewed change).
+
+- **Phase E — Cost centers & chargeback: DONE, browser-verified.**
+  - **DB** `0029_cost_centers.sql` — new `cost_centers` (self-referencing tenant tree: code, name,
+    parent_id via composite FK `(tenant_id, parent_id)`, `UNIQUE(tenant_id,id)` as the FK target,
+    partial-unique code per tenant, forced RLS + bump + member FKs) + `memberships.cost_center_id`
+    (composite FK, ON DELETE SET NULL) so **seats are a real count**; widens the tenant_settings
+    namespace CHECK to admit `'chargeback'`. `db:check` **41 tables**.
+  - **Core** `packages/core/chargeback.ts` — pure `allocateConserved(totalCents, weights)`, integer-
+    cent largest-remainder (Hamilton) apportionment: the parts sum EXACTLY to the whole (no rounding
+    drift), so a finance export reconciles. 6 unit tests (conservation, proportional split, zero-
+    weight, empty).
+  - **Types/contract** `CostCenterDto` (+ seats) / Create/Update; `CostCenterAssignmentDto` +
+    `AssignCostCenterBody`; `ChargebackSettings` (currency, seatRateCents, platformMonthlyFeeCents,
+    seat/AI/storage allocation, showBudgetToManagers) + Dto/UpdateBody; `ChargebackReportDto`
+    (rows + conserved total + `meteringPending`). Endpoints under `/v1/settings/cost-centers`
+    (list/create/update/delete + `/assignments` + `/assign`) and `/v1/settings/chargeback`
+    (settings get/put + `/report`), all `settings:manage`, `@Internal`.
+  - **API** `cost-centers.service.ts` (CRUD; delete refuses a CC with children + unassigns its
+    members since soft-delete doesn't fire the FK SET NULL; unique-code → clean 409; assignment via
+    control-pool names like MembersService; **report** = real seats × rate + `allocateConserved`
+    platform-fee split, AI/storage 0, Unallocated bucket for unassigned members so the grand total
+    reconciles). Chargeback settings reuse the generalised `SettingsService.writeDoc` (namespace
+    'chargeback') + standalone `loadChargebackSettings`. Audited, optimistic.
+  - **Web** `sections/cost-centers.tsx` (built:true) — hierarchy tree (create/edit/delete + reparent),
+    member-assignment panel (per-member CC select), COMPUTED monthly-chargeback table (seats/seats$/
+    platform$/AI$/storage$/total + conserved total), and an allocation-rules card (currency, seat
+    rate, platform fee, seat/AI/storage strategy, budget-visibility toggle). AI/Storage render as
+    "—" with a "metering not wired" note; the design's Export-GL/NetSuite/Finalize actions are
+    omitted (need the metering pipeline + a GL integration), not faked.
+  - **Tests** `settings.test.ts` now **25** (+5): cost-center CRUD/optimistic/duplicate-409/children-
+    409, real-seat assignment + foreign-CC 404 + viewer 403 + RLS, chargeback settings CRUD/409/403,
+    and a report test asserting real seats × rate, an EXACTLY conserved platform-fee split ($9.99 →
+    parts sum to 999¢), and un-metered AI/storage. Plus 6 core `chargeback` tests. typecheck 6/6,
+    lint clean, build green. Browser-verified end-to-end (signed-in admin: created CC-4101, assigned a
+    member → 1 seat → chargeback US$30.00 conserved).
+
+- **Phase F — FMEA workbench: DONE, browser-verified. (Admin/platform program A–F COMPLETE.)**
+  - **DB** `0030_fmea.sql` — two new tenant tables: `fmeas` (per-part PFMEA/DFMEA header, revision,
+    `UNIQUE(tenant_id,id)` FK target) + `fmea_items` (failure modes: process function, failure mode,
+    effect, S/O/D each CHECK 1–10, cause, prevention/detection controls, recommended action). Composite
+    `(tenant_id,fmea_id)` FK ON DELETE CASCADE, forced RLS + bump + member FKs. `db:check` **43 tables**.
+  - **RBAC** added `fmea:view` / `fmea:manage` capabilities to `packages/core/rbac.ts` (view: all
+    internal roles + auditor/manager also manage; partner none) and the rbac test's EXPECTED matrix
+    (rbac suite now 186 cells green).
+  - **Core** `packages/core/fmea.ts` — pure `rpn(s,o,d)` (S×O×D, clamped 1–10) + `actionPriority` +
+    `apDistribution`. AP is the SIMPLIFIED rule the design states in its own UI note (Sev 9–10 & Occ≥2 →
+    H; Sev 7–8 & Occ×Det≥6 → H; else RPN≥100 or Sev 9–10 → M; else L), clearly labelled — the full
+    certified AIAG/VDA (S,O,D) table is a flagged follow-up (reconstructing it from memory would be
+    worse than an honest approximation). 9 unit tests (incl. the design's own mock AP labels being
+    inconsistent with its stated rule — we follow the rule).
+  - **API** `fmea/` module — `FmeaService` (FMEA CRUD + item CRUD; RPN/AP derived on read via core so a
+    rating edit always re-scores; delete cascades soft-delete to items; item `seq` auto-assigned) +
+    `FmeaController` (`@Internal`, reads `fmea:view`, writes `fmea:manage`). Audited (`created`/
+    `updated`/`deleted`), optimistic.
+  - **Web** real `/fmea` route (removed from `PLANNED_MODULES` so it serves instead of the placeholder):
+    `features/fmea/fmea-workbench.tsx` — FMEA part selector, worksheet table (ScoreBoxes + AP badge),
+    Action-Priority distribution card (client tally of the server-computed AP), recommended-actions
+    detail panel, and a failure-mode editor dialog with a LIVE RPN/AP preview (same `@kaenal/core`
+    functions the API scores with). The design's Export-AIAG-form action is omitted (needs an XLSX
+    exporter) — flagged, not faked.
+  - **Tests** new `apps/api/test/fmea.test.ts` (5): FMEA CRUD + itemCount + optimistic + cascade delete;
+    scoring (S9×O4×D3 → RPN 108 / AP H; drop Occ→1 re-scores to M) + stale-409 + rating-422; viewer can
+    read but not write; cross-tenant RLS (foreign FMEA → 404, foreign item add → 404). Plus 9 core fmea
+    tests. typecheck 6/6, lint clean, build green, core suite 625. Browser-verified end-to-end (signed-in
+    admin: created VBR-3041 PFMEA, added a failure mode → RPN 108 / HIGH → distribution 1 High).
+
+**RBAC — role-based UI (web, 2026-08-06).** Pulled the Claude Design "RBAC" change
+(`src/rbac.jsx` NEW, `src/shell.jsx`, `Kaenal.html`) into `project_brain/project/` via the
+DesignSync MCP (+ `RBAC_HANDOFF.md`). Implemented the REAL feature against our existing
+server-enforced RBAC rather than porting the localStorage demo (CLAUDE.md forbids copying
+prototype code; the handoff's "critical" server-enforcement TODO was already done via
+`@RequireCapability`/`@Internal`). Role comes strictly from the session (`/me`) — **no client
+"view as role" switcher** (user decision: omit it; a client toggle would desync from the
+server-enforced role). Deltas built, all driven by the real `me.role`/`me.capabilities`:
+- **`apps/web/src/config/rbac.ts`** (NEW) — `roleSeesNavRoot`/`roleSeesRoute`/`settingsFull`,
+  mirroring the design's per-role nav (admin=all, manager=all-minus-platform, auditor/
+  inspector/viewer explicit allow-lists; PLATFORM_ROOTS). Nav ids mapped to ours (ncr→ncrs,
+  scar→scars; dev-platform→/developer, pdf-designer→/pdf-templates).
+- **Sidebar** now filters by role AND capability (empty divider groups drop out).
+- **Route guard** in `app-shell.tsx` — a role deep-linking a module its UI doesn't surface is
+  bounced to `/dashboard` (belt-and-suspenders with the server 403).
+- **Settings rail** — only admin sees the Workspace/Security/Compliance/Platform/Process groups
+  (`settingsFull`); Personal is visible to all.
+- **Action gating** — `useCan(cap)` hook added; gated the gaps (NCR-list New NCR, NCR-detail
+  Verify=`ncr:verify`/transitions=`ncr:manage`, inspection-list New Inspection, inspection-detail
+  Raise NCR). CAPA/SCAR/documents/suppliers/PPAP list creates + detail approves were already
+  capability-gated.
+Verify: `apps/web/test/rbac.test.ts` (11 tests) proves the per-role nav/route/settings logic;
+web typecheck + 14 web unit tests green. **Browser-verified both an admin** (full nav, 30 modules,
+no route-guard misfire) **and a seeded inspector** (`inspector@acme.test`, via the new
+`apps/api/scripts/seed-role-user.ts` dev helper): nav restricted to the inspector set; `/8d`
+deep-link → redirect to `/dashboard`; settings shows only the Personal group; Documents Upload
+hidden (no `document:manage`) while `/ncrs` New NCR shows (has `ncr:create`). *Known minor gap:*
+a non-admin deep-linking a hidden `/settings/<section>` still renders the section's placeholder
+(server enforces data); rail hides it.
+
+**CI fix (2026-08-06).** CI had been red: (1) **lint** failed because `ecosystem.config.cjs`
+wasn't lint-ignored (`eslint.config.js` ignored `*.config.{js,ts,mjs}` but not `.cjs`) → added
+`**/*.config.cjs` to `ignores`; (2) an earlier run hit the **known flaky**
+`scoped-transaction.test.ts` ECONNRESET (re-run, not a regression). Added `CI.md` — the pre-push
+gate (`pnpm typecheck && pnpm lint`) + full-pipeline reference + the flaky-test / local-only-
+teardown caveats, so CI is checked locally before every push.
+
 **Phase 0 done; Phase 1 backend COMPLETE; Phase 2 nearly done; FRONTEND STARTED — `apps/web` foundation
 is up (Next.js App Router + Tailwind v4 on the ported design tokens, shell, sign-in, dashboard).** Data
 plane, business logic, audit plumbing, the request lifecycle, authentication, the contract layer, all
@@ -26,6 +477,341 @@ forward-only/revert directionality and the document rules (approver-role, self-a
 last-approved-version protection) were all mutation-tested (the CAPA and document rules via the full
 (from, to) matrix in core) — proven to fail when the guard is disabled. The rate limiter and the
 file AV-scan download gate have behavioural tests (allow/deny paths), not a formal mutation.
+
+**Feature delivery roadmap (2026-07-29):** `project_brain/project/implementation/phases/` now holds a
+roadmap index + 24 per-feature phase docs (P01–P24), each specifying backend→FE end-to-end and mapped
+to the `src/*.jsx` visual spec. Tier-2 modules (SPC/FMEA/Risk/MSA/Training/Calibration/Complaints/ECN)
+carry a `PROPOSED` backend flagged for sign-off; mock-only admin screens are explicitly out of scope.
+
+**Shell interactivity — search, notifications, profile (2026-08-06):** the three topbar affordances,
+all end-to-end with backend extensions where the design needed data the API didn't serve. Verified
+in-browser (Demo Admin @ acme).
+- **Search / ⌘K command palette** — frontend only (`GET /v1/search` already federated inspections/
+  NCRs/CAPAs/documents). New `command-palette.tsx` (mounted once in `AppShell`, global ⌘K toggle +
+  topbar button + mobile icon), `use-search.ts` (debounced, `enabled` on non-empty), shared
+  `lib/entity-routes.ts` (kind→route/icon/label, reused by notifications). Records + matched nav
+  shortcuts, keyboard nav, click-through to detail. NOTE: physical ⌘K/Ctrl-K is swallowed by the
+  in-app Chromium's own omnibox shortcut; the listener is correct (verified via synthetic dispatch)
+  and free in a normal browser — the button + mobile icon cover it regardless.
+- **Notifications — full-stack.** Migration `0024_notification_ext.sql` adds `starred`, `actor_id`,
+  `deleted_at` (columns on the already-RLS-forced table; `actor_id` is an unconstrained uuid like
+  `entity_id`, resolved to a name client-side via `/members`). `NotificationDto` gains `actorId` +
+  `starred`; new `POST /:id/star`, `POST /:id/dismiss` (soft-delete), and `unread`/`starred`/
+  `entityKind` list filters. **Assignment notifications now fire**: NCR/inspection/8D/SCAR `assign`
+  flows call `NotificationsService.notify` (kind `<entity>_assigned`, `actorId` = assigner) inside
+  the same audited transaction — skipping self-assign and unassigns. This is what makes a member's
+  inbox real and the "Assigned" filter meaningful (assignments produced nothing before). FE: bell
+  badge (`unread-count`, polled), `notifications-panel.tsx` dropdown (All/Unread/Assigned, mark-all-
+  read, click-through), full `notifications-center.tsx` page (type rail + counts, star/mark-read/
+  dismiss/bulk/search) replacing the placeholder. Tests: +4 notification cases (star/dismiss/filters/
+  actor) and an NCR assign→notify assertion; the four assign suites' teardown now clears notifications
+  before memberships (assignment rows carry the composite member FK). **Mentions filter dropped** —
+  no @mention producer exists; comment-mention notifications are a separate slice (flagged, not built).
+- **Profile dropdown — full-stack.** `/v1/me` extended (name/email/mfaEnabled from `control.users`,
+  `tenantName`, scoped `plants[]`, `openNcrs`/`openCapas` counts) — all queries run in the request tx
+  (sequentially: one pg connection). New `GET /v1/me/workspaces` (control-pool lookup, strictly
+  own-`user_id`-scoped — control-plane identity, not tenant data) and `POST /v1/me/switch-workspace`
+  (mints a session in a target tenant the caller already belongs to, via `withTenant` + audited
+  `signed_in`; a non-member/unknown slug is 404, no leak — rule 8). FE `profile-menu.tsx` rebuilds
+  the `shell.jsx` dropdown on real data (identity header, quick facts, links, workspace switcher,
+  sign-out). Tests: `workspaces.test.ts` (list + cross-tenant switch + two 404 no-leak cases).
+  **Dev data:** demo user added to `globex` (manager) so the switcher is demonstrable locally.
+- **Known local-DB gotcha (pre-existing, not a regression):** `auth.test.ts`'s teardown deletes users
+  `WHERE email LIKE '%@acme.test'`, which sweeps up the *demo seed* user (`demo@acme.test`) when the
+  local DB has the demo seed loaded; its `resolved_by` FK on a seeded resolved NCR then blocks the
+  delete. All 16 auth tests pass — only the over-broad teardown trips, and only locally (CI has no demo
+  seed). Latent test-hygiene bug in a file this work didn't touch.
+
+**Suppliers backend — entity slice (P08, 2026-07-29):** first vertical of the Supply-chain block.
+`suppliers`/`ppap_submissions`/`scars` turned out to **already exist** (thin) since `0001_core.sql`,
+and `codes.ts` already registers `supplier`/`scar` — so this EXTENDED rather than created. Migration
+`0019_supplier_profile.sql` adds `lock_version` (+ bump trigger — the table had none), the queryable
+descriptors (country/city/category/cert_expires/last_audit/next_audit/ai_risk_tier/ai_risk_confidence/
+flags) and a `profile` jsonb, honoring `0001`'s design note ("`scorecard` jsonb = RAW metrics; weighted
+score computed in packages/core"). `packages/core/supplier-score.ts` is the pure, re-weightable scorer
+(each KPI → 0–100 goodness, weighted over *present* metrics so raw-material suppliers still grade; 8
+unit tests off the `suppliers-data.js` numbers). Contract adds list (status/riskTier/tier/category/
+country/flag/q filters), get, create (auto `SUP-YYYY-NNNN` or explicit for imports), update (optimistic
+`version`), and `GET /v1/supplier-scorecard?wPpm&wOtd&wOqe&wScar` (ranked; weights are query params,
+never stored). `SuppliersService` is tenant-wide (RLS-only isolation, foreign-tenant→404), audits every
+mutation, `supplier:view` (all roles) / `supplier:manage` (admin/manager). `apiQueries.suppliers.*`
+client factories added. Tests: `apps/api/test/suppliers.test.ts` (8, incl. real globex cross-tenant
+404 + optimistic 409 + viewer-403) + core (8); RLS suite green (227), `pnpm -r typecheck` + api-client
+tests green. **Risk_tier reuses the RiskLevel scale (A=low … D=critical); no new enum.** **Deferred
+(logged, NOT built):** the FE screens, the nightly `supplier-scorecard` flag/insight job, server-side
+flag derivation, `supplier_kpis` time-series + risk-matrix endpoint (trends stored inline for v1).
+
+**Suppliers FE (P08, 2026-07-29):** the Supply-chain FE, matching `suppliers.jsx`, over `apiQueries.suppliers.*`.
+`apps/web/src/features/suppliers/` — `suppliers-bits.tsx` (RiskLevel→A–D tier map, name-initial monogram,
+MiniSpark/KpiCell/FlagChip, typed `profile` accessors), `supplier-list.tsx` (one `/suppliers` page with a
+**List / Scorecards / Risk-matrix** Segmented: KPI strip, tier tabs w/ live counts, search, sort, sparkline
+table), `supplier-scorecards.tsx` (PPM/OTD/OQE/SCAR weight sliders → the **`/v1/supplier-scorecard?w*`**
+endpoint so ranking is **server-computed**, rule 5), `supplier-risk-matrix.tsx` (score×spend bubble plot,
+grade bands, hover card; degrades to even X-spacing when spend isn't populated), `supplier-detail.tsx` (360
+header + AI-insight banner + tabs Overview/Scorecard/Linked-records/Parts; the scorecard radar reuses core's
+`weightedSupplierScore` via one-hot weights rather than reimplementing normalization), `supplier-create-dialog.tsx`.
+Routes: `/suppliers` + `/suppliers/[id]` (replaced the placeholder). Fixed the nav: the Suppliers link was gated
+on a **dead `suppliers:read`** capability → corrected to the real `supplier:view`. **Verified in-browser** against
+3 seeded suppliers (Bharat Forge A / Rhein B / Ningbo D): KPI strip, tier tabs, sparklines, live weight re-rank
+(bumping `wScar` reorders server-side, Ningbo 62→57), matrix hover card, detail 360 + full-diamond radar. Repo-wide
+`pnpm -r typecheck` (7/7) + eslint clean; web tests green. **Deferred unchanged:** nightly scorecard job, P09 PPAP,
+P10 SCAR. *(Also surfaced but NOT fixed here — logged for follow-up: the lifecycle interceptor hard-401s an
+`@AllowAnonymous` sign-in when a stale/expired `kaenal_session` cookie is present, by design (`session.authenticator.ts`
+— "no silent downgrade"), which can wedge login after a session dies; a bearer-authed sign-out clears it. Worth a
+UX decision: clear the cookie on `UNAUTHENTICATED` instead of hard-failing.)*
+
+**PPAP submissions — backend + FE (P09, 2026-07-29):** the second Supply-chain vertical, end-to-end.
+Like `suppliers`, `ppap_submissions` **already existed** (thin) since `0001` **with an `elements jsonb`
+column** — so this EXTENDED it and stores the 18 PPAP elements **inline in jsonb** (same "raw structure
+in jsonb, rules in core" choice as `suppliers.scorecard`), **superseding** the P09 doc's separate
+`ppap_elements`/`ppap_history` table proposal; history uses `audit_events` (`entity_kind='ppap_submission'`).
+Migration `0020_ppap.sql` adds `lock_version` (+ bump trigger), part_rev/program_name/customer/dates,
+`owner` (composite member FK), `ai_prediction` jsonb, a `(tenant_id,code)` unique + `(tenant_id,status)`
+index, and **reconciles `PpapStatus`** from 0001's generic `draft/submitted/interim/approved/rejected`
+to the review workflow `pending/in_review/interim/approved/rejected` (existing rows migrated in the same
+file; RLS fixture updated). `codes.ts` gained `ppap`→`PPAP`. `packages/core/ppap.ts` holds the canonical
+18 AIAG elements + the pure `ppapCompleteness`/`isPpapApprovable` rule (N/A excluded from the denominator,
+empty package not approvable) + `ppapDaysOpen` (15 unit tests). `PpapService`: list (supplier/status/
+customer/level/q filters, supplier name via correlated subquery so the shared keyset stays unambiguous),
+get, create (auto `PPAP-YYYY-NNNN`, seeds 18 pending elements, 404s an unknown/cross-tenant supplier),
+update, `updateElement` (per-element status/reviewer/comment, optimistic on the submission), and `decide`
+(**approve refused unless every non-N/A element is approved** → 422; sets `approved_date`; audited
+`status_changed`). Capabilities `ppap:view` (all roles) / `ppap:manage` (admin/manager/auditor).
+**FE** (`apps/web/src/features/ppap/`): list (KPI strip, active/approved/rejected/all tabs, AI-prediction
+pill, element count), detail (completeness progress, AI banner, 18-element grid with per-element status
+select + inline comment editor, Approve gated on `completeness.approvable` + Reject, read-only once decided),
+create dialog (supplier picker); routes `/ppap` + `/ppap/[id]`; nav link. **Also fixed a latent P08
+regression:** the `rbac` capability-matrix test never had `supplier:*` added (P08's check ran supplier-score
++ RLS, not the full core suite) — added `supplier:*` **and** `ppap:*` to the matrix; core now 524 green.
+**Verified in-browser** against 3 suppliers + 3 PPAPs: list AI pill, detail grid, and the full gate→approve
+flow (Approve disabled at 12/17, enabled at 17/17, approve stamps date + flips read-only). API ppap 8/8,
+core 524, RLS 227, repo typecheck 7/7, api-client 11, web 3, lint clean. **Deferred:** the activity-history
+timeline UI (data is in audit_events) and the AI-prediction source (P21 job; stubbed via `ai_prediction` jsonb).
+
+**SCAR & chargebacks — backend + FE (P10, 2026-07-29):** the third Supply-chain vertical, end-to-end.
+Like `suppliers`/`ppap_submissions`, the `scars` table **already existed** (thin) since `0001` — so
+`0021_scar.sql` EXTENDED it: `lock_version` (+ bump trigger), title/severity/`current_d`(1–8)/raised-
+due-response dates/`supplier_acknowledged`+`ack_date`/`affected_lots`/`owner` (composite member FK),
+explicit **chargeback columns** (`_amount`/`_currency`/`_status`) replacing the opaque `chargeback`
+jsonb, a `(tenant_id,status)` index, and **reconciles `ScarStatus`** from 0001's generic
+`open/responded/accepted/rejected/closed` to the SCAR lifecycle `draft/open/responded/closed/rejected/
+cancelled`. **Design choice (recorded):** the jsx's `awaiting_d4`/`d5_review` are **derived display
+labels** (status + `current_d`), and `overdue` is **derived** (an active SCAR past its response/overall
+due date) — neither is stored; history uses `audit_events` (`entity_kind='scar'`); `EntityKind` gained
+`scar` so NCR/8D cross-links reuse `entity_links` (the originating NCR also keeps 0001's direct `ncr_id`).
+`packages/core/scar.ts` holds the pure rules: the **forward-only 8D `nextD` machine** (blocked past D8),
+`scarIsOverdue`, `scarDaysOpen`, the **chargeback ratchet** `canTransitionChargeback` (none→pending→
+debit_issued→closed, one-way), and `scarStageLabel` (31 unit tests). `ScarService`: list (supplier/
+status/severity/overdue/q filters, supplier name via correlated subquery so the shared keyset stays
+unambiguous), get, create (auto `SCAR-YYYY-NNNN`, 404s unknown/cross-tenant supplier **and** linked NCR),
+update, `advance` (opens a draft, 422 past D8), `acknowledge`, and `chargeback` (illegal jump → 422) —
+every mutation `withAudit`, optimistic `version`→409. Capabilities `scar:view` (all roles) / `scar:manage`
+(admin/manager/auditor). **FE** (`apps/web/src/features/scar/`): list (KPI strip incl. chargebacks-YTD /
+pending-recovery / avg-closure, active/overdue/closed tabs + a **chargeback-ledger tab**, 8-square D-step
+stepper, severity, overdue due-dates, chargeback badge), detail (header strip, **acknowledgement banner**
++ Record-ack, **8D discipline tracker** with Advance, **chargeback panel** with the pending→debit-issued→
+recovered ratchet, linked-records panel), create dialog (supplier picker + chargeback amount); routes
+`/scars` + `/scars/[id]`; nav link (`scar:view`). **Verified in-browser** against 1 supplier + 3 SCARs:
+list + KPIs + ledger tab, and the full lifecycle on SCAR-0001 — Advance 8D (draft→open, D1→D2 with the
+stepper re-colouring), Record acknowledgement (banner turned green), chargeback pending→debit-issued→
+recovered — all under optimistic concurrency, no console errors. API scar 10/10, core 555, RLS 227, repo
+typecheck 6/6, api-client 11, lint clean. **Deferred:** the activity-history timeline UI (data in
+audit_events) and an entity-links management UI on the SCAR detail (the backend/graph already supports it).
+
+**Supplier Portal — security foundation, read-only (P11 slice 1, 2026-07-29):** the one phase that
+crosses the tenant trust boundary; built the isolation model FIRST (see Decisions log for the sign-off).
+Migration `0022_supplier_portal.sql` adds `partner` to the memberships/invitations role CHECKs, a
+`supplier_scope` uuid (FK → suppliers) on both, the DB-level coupling invariant
+`(role='partner') = (supplier_scope IS NOT NULL)`, and a partial scope index. `Role` gains `partner`;
+a new `InternalRole` (Role minus partner) is used by the staff-invite body so that endpoint can never
+mint an un-scoped external membership. `rbac`: a `portal:view` capability held ONLY by `partner`
+(plus admin's all-caps) — partners have NO internal capability, so `/v1/ncrs`, `/v1/suppliers`,
+`/v1/scars`, `/v1/ppap` all 403 by RBAC; `Membership` carries `supplierScope`; `authorizeSupplier`
+mirrors `authorizePlant` (foreign supplier → NOT_FOUND, never 403). `auth-policy`: `mfaRequiredFor`
+(partner) + `sessionTtlFor`/`PARTNER_SESSION_TTL_MS` (2h). `AuthService`: a partner is refused sign-in
+(403, "requires multi-factor authentication") unless `mfa_secret` is set; partner sessions use the
+short TTL; `resolveSession`/`activeMembership` thread `supplier_scope` into the session membership.
+`PortalService`/`PortalController`: read-only `/v1/portal/{me,scars,scars/:id,ppap,ppap/:id}`, every
+route `@RequireCapability("portal:view")`, scoped to the membership's own supplier (never a
+caller-supplied id — a partner cannot widen it), reusing the tested `ScarService`/`PpapService` and
+mapping onto **narrow portal DTOs** that omit internal identifiers (owner, linked NCR, reviewer id, AI
+prediction). **Isolation suite** `apps/api/test/portal.test.ts` (11 adversarial tests): partner sees
+only their supplier's SCAR/PPAP, foreign records 404, internal endpoints 403, internal viewer 403 on
+the portal, admin (cap-but-no-scope) 403, no-MFA partner sign-in 403, short session verified, no
+field leakage. core 592, RLS 227, api portal 11 / auth 16 / control-identity 14, typecheck 6/6, lint
+clean. **DELIBERATELY deferred to slice 2:** the portal FE (separate `/portal/*` route group + shell +
+screens) and the audited external WRITES (SCAR respond, PPAP re-submit, AV-gated evidence upload).
+**Hard dependency before any production exposure (Known issues):** a per-login TOTP challenge/enrolment
+subsystem — the MFA gate today only proves a secret is enrolled, not that it was verified this login.
+
+**8D Problem Solving — FE (P03 FE, 2026-08-03):** first of the Part-A core-loop FE-fidelity pass (the
+backends are all built + tested; recreating the 🟡 screens to the jsx is the fastest remaining value).
+The `/8d` route was a `ModulePlaceholder`; now a full feature over the existing tested 8D backend
+(`/v1/eight-ds`, D1–D8 with `canCompleteStep` prerequisite gating, D3∥D2). `apiQueries.eightDs.*` +
+`use-eightd.ts` hooks (list/detail/create/updateStep/transition, mutations `setQueryData` the detail
+cache). `apps/web/src/features/eightd/`: `eightd-bits.tsx` (the eight `DISCIPLINES` config — titles/
+descriptions + the freeform `data` fields each panel edits; status badges; the D1–D8 `DisciplineRail`),
+`eightd-list.tsx` (active/completed/cancelled/all tabs, stage + N/8 progress + team-lead via the shared
+`UserCell`), `eightd-create-dialog.tsx` (title + optional NCR link + target), `eightd-detail.tsx`
+(header strip with linked-NCR jump, the rail, and the active-discipline panel: per-field textareas bound
+to the step `data`, Save-draft / Complete-Dn / Re-open, overall Complete-8D gated on 8/8 + Cancel).
+Gated on `ncr:view`/`ncr:manage` (what the 8D endpoints require). Routes `/8d` + `/8d/[id]`.
+**Verified in-browser** (demo admin, 3 reports): list; opened a report; edited D1 + completed it (1/8,
+rail greens, data persists across reload); completed D2 (2/8); confirmed the **prerequisite gate** —
+completing D4 out of order returns `INVALID_TRANSITION` "D4 cannot be completed until D2, D3 are
+complete" (HTTP 409 for a state-machine violation), surfaced via toast; version threads cleanly across
+sequential writes. api-client 11, typecheck 6/6, lint clean. **Deferred (still 🟡 on P03):** the AI
+copilot (`eightd-agentic.jsx`), 8D templates, and PDF export — and the D4 root-cause *tools* (5-Why /
+fishbone / Pareto builders from the jsx) beyond the plain root-cause/verification fields.
+
+**Supplier Portal — audited writes + portal FE (P11 slice 2, 2026-08-03):** the external surface goes
+interactive. Migration `0023_portal_writes.sql` widens `audit_events.actor_kind` to admit `partner`;
+`ActorKind` gains `partner`; a new `portal:respond` capability (partner + admin only) gates the writes.
+`PortalService` gains two narrow, supplier-scoped, `withAudit(actor_kind='partner')` writes: `respondScar`
+(records the supplier's note as a comment on the SCAR — internal staff see it too — plus an optional
+acknowledge; refused once the SCAR is closed) and `resubmitPpap` (flips a package back to `in_review`
+with a fresh submitted date so the reviewers re-check; refused on an already-decided package; the note
+becomes the audit `reason`, since PPAP has no comment thread). Both 404 a foreign supplier's record.
+`apiQueries.portal.*` added. `apps/api/test/portal.test.ts` grows 11 → **17** (respond writes a
+partner-authored comment + a `partner`-attributed audit event; foreign respond 404; viewer & admin-no-scope
+403; re-submit → in_review audited as partner; decided-package 422; foreign re-submit 404). **FE:** a
+SEPARATE `apps/web/src/app/(portal)/` route group with `PortalShell` — a distinct **teal top-nav** (no
+internal sidebar) that owns the portal session guard (401 → sign-in; a non-partner such as an admin with
+no scope, who 403s on `/v1/portal/me`, sees a "supplier accounts only" notice). Screens: overview
+(welcome banner + KPIs + open-corrective-actions list), SCAR list + detail (8D tracker + response form
+with Submit / Submit&acknowledge), PPAP list + detail (element-feedback grid + re-submit). `AppShell`
+now bounces a portal-only session to `/portal`. **Verified in-browser** as a real MFA-gated,
+supplier-scoped partner (`jen@acmeforging.test`): landed on `/portal`, saw only Acme Forging's records,
+submitted a SCAR response + acknowledge (green banner, today's date), re-submitted the PPAP (Pending →
+In review, submitted date bumped) — no console errors. core 592 / rbac 174, api 238 (portal 17), RLS
+227, typecheck 6/6, lint clean. **One piece deferred (Known issues):** the AV-gated evidence *upload*.
+
+**Web FE fidelity — Settings + CAPA (2026-08-04):** a run of FE-only fidelity commits landed (these had
+not been logged here at the time — recorded now for continuity): the **Settings module** (shell + section
+rail moved into the layout so nav is static across sections, `settings-nav.ts` porting `settings.jsx`'s
+full grouped map with `built` flags, "coming soon" placeholders for unbuilt sections), the **Personal
+group** (Profile/Notifications/Security/Preferences), **Settings › Workspace › Members & teams**
+(`sections/members.tsx` over the real `/v1/members` directory — search, All/Active/Invited/Suspended
+filter, avatar+role table; membership-admin columns show `—` with an honest "read-only, not wired" toast
+since no membership-write API exists), and the **CAPA list to `capa.jsx` fidelity** (4-KPI row,
+opened-vs-closed 6-month trend chart, the "At risk" tab, SLA sub-line, owner-by-name via
+`useMemberLookup`). Two honesty calls on the CAPA list (logged for sign-off): KPI #4 shows a real "Avg
+days open" in place of the jsx's fabricated "Avg closure = 38", and the trend's "closed" series is
+approximated from each closed CAPA's last-update month with a disclosure caption (no CAPA-analytics
+endpoint yet). Also a **CI fix** (`bc31a75`): `audit-partition-roll.test.ts` was a time-bomb — it pinned
+`now` to a hardcoded September that migration 0015's `now + 2 months` provisioning had already created
+once real time reached August; rewritten date-relative (`ROLL_NOW` = real-now + 6 months) so the
+"created" assertions hold whenever CI runs.
+
+**CAPA detail polish (2026-08-04):** brought `capa-detail.tsx` up to `capa.jsx` and wired three areas to
+**real backend endpoints** that had landed but gone unused on this screen. (1) The **Activity tab** now
+renders the record's true `audit_events` trail via a new `useAuditEvents("capa", id)` hook +
+`apiQueries.auditEvents` — actor resolved through the member directory ("You"/name/"System"), action
+verb, optional reason, date, newest-first — replacing the old stub empty state (the jsx's timeline was
+fabricated mock; this is authoritative). (2) **Owner/Sponsor** in the sidebar switched from the stale
+short-id `OwnerCell` fallback to the shared `MemberCell` (real names, matching the list) — `OwnerCell`
+was then dead and removed from `capa-bits.tsx`. (3) **Linked items** became a `LinkedItemsCard` that
+lists the CAPA's origin (`source*`, labelled "· source") *plus* every `entity_links` edge touching it
+(opposite end, relation label, routable "Open"); the card is omitted entirely when empty rather than
+showing a placeholder. Small fidelity adds: **days-open** in the phase tracker ("Opened … (Nd)"), an
+**action-plan count badge** on the tab, and the previously-dropped **Export** button restored with an
+honest "not wired — lands with the reporting service" toast (Members precedent; rule #9 = surface, don't
+silently drop). RCA + Effectiveness tabs keep their honest empty states (no backend root-cause /
+effectiveness-check data to fabricate). **Verified in-browser** (CAPA-2026-0001): Export/Revert/Advance
+header, "Opened 3 Aug 2026 (1d)", Owner Unassigned / Sponsor None honest labels, "NCR · source" linked
+item, and the Activity feed showing two real events ("You changed the phase", "You created this CAPA")
+— `window.__live` listener clean (`[]`), web typecheck + lint green.
+
+**Shared ActivityFeed → NCR + Inspection (2026-08-04):** extracted the CAPA detail's audit-trail feed
+into `apps/web/src/components/activity-feed.tsx` (the "shared history component" the NCR and Inspection
+history-tab stubs literally named), and wired all three details to it — `<ActivityFeed entityKind
+entityId meId noun />` over `useAuditEvents`. The component owns the loading/empty/list states, resolves
+actors through the members directory ("You" / name / "System" for a null system actor), and shapes the
+verb by `noun` ("created this NCR" / "…inspection" / "…CAPA") with a generic `status_changed` → "changed
+the status" (rule #5 — one component, no per-screen duplication; `capa-detail.tsx` lost its local
+`CapaActivity`/`ACTION_META` and the now-unused imports). Inspection detail gained `useMe()` for the
+"You" comparison. **Verified in-browser:** NCR bfe593f8 → "You changed the status" ×2 + "You created this
+NCR"; INS-2026-0005 (recurring, scheduler-created) → "System created this inspection" (exercises the
+null-actor path); CAPA still renders via the shared component. All three `window.__live` clean; typecheck
+6/6 + lint green. RCA/Effectiveness (CAPA) and any other stub tabs unaffected.
+
+**Supplier detail — 7-tab split (2026-08-04):** `supplier-detail.tsx` matched `suppliers.jsx`'s seven
+tabs. The single merged "Linked records" tab became **PPAP / Quality events / Audits / Documents** (joining
+the existing Overview / Scorecard / Parts) with live counts in the tab labels. Data is real and honest per
+source: **PPAP** via `usePpapList({ supplierId })` (rich table — code, part/program, `LevelChip`,
+customer, `PpapStatusBadge`, `AiPredictionPill`, due; reuses `ppap-bits`); **Quality events** = SCARs via
+`useScarList({ supplierId })` (rich — `SeverityChip`, `stageLabel`, `ScarStatusBadge`, reuses `scar-bits`)
+**plus** linked NCRs/8Ds/CAPAs from the entity-link graph; **Audits** = linked audit/inspection edges;
+**Documents** = linked document edges — the id-level link rows share one `LinkTable`/`LinkList` (a tidy of
+the old `LinksTab`), each entity-link bucket grouped by the opposite end's `kind`. Row-clicks route via
+`navigateToEntity` (added the missing `scar → /scars` route; PPAP routes directly since `ppap` isn't an
+`EntityKind`). Honest empty states per tab; NCR/8D/audit/doc rows stay id-level (no title fetch — same as
+the CAPA linked-items call). **Verified in-browser** (SUP-2026-0001): all 7 tabs render, empty states
+clean at 0; after seeding one PPAP + one SCAR for the supplier via the real create endpoints
+(PPAP-2026-0001, SCAR-2026-0001 — left in the acme demo tenant), counts went live (PPAP (1)/Quality
+events (1)) and both rich tables rendered correctly; row-click navigates to `/ppap/:id` and `/scars/:id`;
+`window.__live` clean; typecheck 6/6 + lint green.
+
+**CAPA detail — RCA + Effectiveness tabs off flat empty states (2026-08-04):** the two remaining CAPA
+tabs went from a single hard-coded `EmptyState` each to real, data-backed views (no fabrication — the
+DTO carries no root-cause text/method and no structured effectiveness results, confirmed). **RCA tab**
+(`CapaRcaTab`): the structured 5-Whys / Ishikawa work lives on a linked 8D's D4 discipline, so it reads
+`useEntityLinks("capa", id)`, filters to `eight_d` edges, and surfaces each as a navigable "8D report ·
+root cause" card → `/8d/:id` (reusing `LinkedItem`); with none linked it stays an honest prompt to link
+an 8D. **Effectiveness tab** (`CapaEffectivenessTab`): shows the real `effectivenessCheckAt` schedule
+date + a phase-aware state (Pending / In effectiveness check / verified-on-close from `phaseIndex`), with
+a plain note that structured pass/fail results record later; the pre-schedule/pre-phase case keeps an
+honest empty state. Extracted a shared `openEntity(kind,id)` in the detail (used by the sidebar
+LinkedItemsCard + RCA card). **Verified in-browser:** empty states on the seed CAPA; then after seeding
+a linked 8D (8D-2026-0002 via a `capa→eight_d` root_cause entity-link) the RCA card rendered + the
+sidebar picked up the same edge; a new CAPA-2026-0003 with an effectiveness date showed SCHEDULED
+3 Sept 2026 / PHASE "Pending — hasn't reached the effectiveness phase". `window.__live` clean; typecheck
+6/6 + lint green. **Demo rows left in the acme tenant** (for the rich paths): PPAP-2026-0001,
+SCAR-2026-0001, 8D-2026-0002 + its CAPA link, CAPA-2026-0003 — harmless seed-style data, removable.
+
+**User assignment — P25, CAPA slice (2026-08-04):** you couldn't assign/reassign/unassign anyone on any
+screen — every assignee (`owner_id`/`sponsor_id`/`inspector_id`/…) was create-only or (NCR) settable once
+via the `open→assigned` lifecycle transition, and the FE rendered them read-only. Assignment is clearly
+intended (`AuditAction.assigned` + the columns exist), so this is a gap, not new scope. Plan +
+per-entity rollout: **`project_brain/project/implementation/phases/P25-user-assignment.md`**. Shipped the
+**CAPA reference slice** end-to-end, dedicated `assign` endpoint (orthogonal to the phase machine, like
+advance/revert are separate): `AssignCapaBody` (tri-state per field — uuid assigns / `null` unassigns /
+absent leaves; `.refine` needs ≥1) + `POST /v1/capas/:id/assign`; `CapaService.assign` builds a dynamic
+SET from only the provided keys, `assertMember`s every non-null id (foreign-tenant→invisible→same
+failure, no existence leak), optimistic-concurrency guarded, `withAudit('assigned', before/after)` in one
+tx. Capability `capa:manage` (admin/manager). Tests: `capa.test.ts` +4 (assign+reassign+unassign audited;
+non-member 422; empty-body 422; stale 409 + viewer 403) — **13/13 green**. FE: reusable
+`components/assignee-picker.tsx` (dropdown = search + member list + Unassign row; plain `MemberCell` when
+`!canManage`) wired into the CAPA detail Owner + Sponsor rows through `useAssignCapa`, which `setQueryData`s
+the returned row so a rapid second reassign uses the fresh `lockVersion` instead of racing the refetch.
+**Verified in-browser** (demo admin): assigned Sarah Chen (owner cell + toast + `assigned` audit event in
+the Activity feed), unassigned (API `ownerId:null`), and a rapid Sarah→Priya double-reassign lands on
+Priya with no STALE_WRITE; `window.__live` clean; all typechecks (6/6) + web lint green.
+
+**User assignment — P25, remaining rollout NCR/Inspection/8D/SCAR (2026-08-05):** rolled the CAPA
+pattern out to the four other assignee-bearing entities — P25 is now **complete** (all 5 done). Each got
+a dedicated audited `assign` endpoint (orthogonal to its lifecycle machine — never moves `status`):
+`AssignNcrBody` (`owner_id`), `AssignInspectionBody` (`inspector_id`), `AssignEightDBody` (`team_lead_id`
++ `champion_id`, tri-state `.refine` like CAPA), `AssignScarBody` (`owner`) in `packages/types` + the
+five contract routes. Services: `NcrService.assign` / `InspectionsService.assign` (both enforce plant
+scope → 404 before assigning; Inspection gained an `assertMember` it lacked), `EightDService.assign`
+(dynamic SET; **refuses** to re-form a completed/cancelled team → `INVALID_TRANSITION`), `ScarService.assign`
+(new — distinct from `update`, which audits `updated` and skips membership). Capabilities from the real
+RBAC catalogue: `ncr:manage`, `inspection:perform`, `ncr:manage`, `scar:manage` (the plan's
+`inspection:manage`/`supplier:manage` don't exist; corrected in the P25 doc). All `withAudit('assigned',
+before/after)`, optimistic-concurrency guarded, `assertMember` on non-null ids (no existence leak).
+Tests: `ncr.test.ts` +3, `inspections.test.ts` +2, `eight-d.test.ts` +3, `scar.test.ts` +2 — **44/44
+across the four suites**. FE: hooks `useAssignNcr`/`useAssignInspection`/`useAssignEightD`/`useAssignScar`
+(all `setQueryData` the fresh row); shared `AssigneePicker` wired into the NCR Owner row, the 8D D1
+"Team & roles" lead + champion (managers only, `!decided`; viewers keep the 36px read block), the SCAR
+detail Owner panel, and — restoring a designed-but-omitted element — an **Inspection overview metadata
+panel** (`inspections.jsx` §Metadata: Status / Inspector-picker / Template / Scheduled / Started /
+Completed; only honest fields, no fabricated tags/location). **Verified in-browser** (demo admin) for all
+four: NCR owner→Sarah Chen (status stayed `in_progress`, lockVersion 3→4), 8D team-lead→Priya Nair
+(partial update, status `active`/step 1 untouched), SCAR owner→Marco Reyes (status/currentD untouched),
+new inspection inspector→Tom Fischer (status `scheduled` untouched); every `window.__live` clean.
+Typechecks types/core/api-client/api/web + web lint + types tests (25) all green; throwaway demo
+inspection/template cleaned up.
 
 **Tenant offboarding (01 §3.4, 06 §1 `housekeeping` → `offboardTenant`, 07 §5):** the staged, gated
 teardown of a tenant. `pnpm offboard-tenant --slug X` (CLI mirroring `provision-tenant`) flips the
@@ -361,6 +1147,45 @@ ClamAV + email/push providers (replacing the stub scanner/delivery ports). SPC/F
 Suppliers/PPAP/SCAR is Phase 4. The **FE** (`apps/web`) is now under way against `@kaenal/api-client` —
 foundation shipped (shell, tokens, design system, sign-in, dashboard); module screens next.
 
+### Frontend fidelity audit (2026-07-25)
+
+Ran the 00-FRONTEND-FIDELITY §7 remediation + §8 self-review over everything already
+built. **Finding: the token remediation the kickoff assumed was missing had already been
+done by a prior session** — `apps/web/src/styles/tokens.css` is a verbatim port of the
+visual spec (ink `--accent:#18181b`, Archivo + JetBrains Mono, tight 3–9px radii, flat
+hairline shadows; `diff` vs the source shows only the header comment differs), and
+`globals.css` already ports every `.k-*` class into `@layer components` with the Tailwind v4
+`@theme inline` bridge mapping `accent → var(--accent)` (ink, no blue primary). So step 1
+was NOT redone; the audit verified the built screens against their `src/*.jsx` instead.
+
+- [x] **Tokens + `.k-*` layer** — confirmed faithful; no change.
+- [x] **Sidebar** (`sidebar.tsx` vs `shell.jsx`) — dark `bg-sidebar-bg`, white active text,
+      3px left accent bar, expandable sub-navs, "All systems operational" pulse-dot footer,
+      260/72 collapse + mobile drawer. Faithful; no change.
+- [x] **Status/priority/risk badges** (`badge.tsx` vs `primitives.jsx` `STATUS_STYLES`) —
+      colour maps match exactly (the "blue" grep hits are the prototype's own semantic
+      `scheduled`/`open` = `rgba(59,130,246,.12)`/`#1d4ed8`/`#3b82f6`, not hallucination).
+- [x] **Auth** (`auth-shell.tsx` vs `auth.jsx`) — the blue/indigo marketing-panel gradient
+      (`linear-gradient(135deg,#0f1d35,#1e3a8a,#312e81)`, `#93c5fd`) is the prototype's ONE
+      decorative-blue spot and is reproduced faithfully; per-tenant logo colours are mock data.
+- [x] **Topbar** (`topbar.tsx` vs `shell.jsx`) — **fixed**: search placeholder copy
+      `"Search…"` → `"Search inspections, NCRs, 8Ds…"` (verbatim, §4.4). Search, notifications,
+      and the profile menu (incl. quick-facts + workspace switcher) are now **built and backed
+      by real data** — see "Shell interactivity (2026-08-06)" below. Quick-create, live-mode,
+      and the AI button remain deferred (later slices).
+- [x] **Inspections / NCRs list headers** — `PageHeader` title/description/actions copy
+      matches the prototype verbatim; `rounded-xl` = `--r-xl` = 7px (within the tight scale,
+      not a defect); EmptyState/Skeleton states present.
+- [~] **Dashboard** (`dashboard-view.tsx` vs `dashboard.jsx`) — the prototype is a
+      customizable drag-drop widget grid whose data (COPQ, ISO compliance scores, supplier
+      scorecards, heatmaps, AI insights) is ~90% fabricated. The built real-data foundation
+      (KPI tiles + recent NCRs) is the correct subset under the "no invented scope" rule; the
+      full widget grid stays deferred pending backing data. Logged, not silently built.
+
+**Net:** one verbatim-copy fix (topbar search); everything else confirmed already faithful
+or an already-tracked deferral (command palette, stale-write/offline/permission states —
+Phase-1 frontend checklist). The "everything is blue/Inter" premise was stale.
+
 ### How to get running from a cold clone
 
 ```bash
@@ -548,8 +1373,8 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       screen deliberately omitted (the API returns the wrong-password envelope for a lock — 07 §2 anti-
       enumeration — so a real locked-detection UI would leak account state); request-workspace omitted (no
       self-serve provisioning endpoint). Prototype fixture data (mock tenants/SSO/inviter) not fabricated.
-- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation + **NCRs + Inspections DONE**;
-      CAPA/Documents are placeholders. **Inspections** (`feat/web-inspections`): list/grid with status filter +
+- [~] Dashboard → Inspections → NCR → CAPA → Documents — Dashboard foundation + **NCRs + Inspections + CAPA +
+      Documents DONE** (Phase-1 web core loop complete). **Inspections** (`feat/web-inspections`): list/grid with status filter +
       search + CSV export; create dialog (schedule from a published template); detail with the **dynamic form
       renderer** (one control per FormItemType, `isVisible` conditional gating) + **live scoring** (the shared
       `scoreInspection` from `@kaenal/core`, recomputed as you fill); start → fill → complete flow with
@@ -560,7 +1385,86 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
       tabs, meta sidebar), Actions CRUD (containment/corrective/preventive add + toggle). Kanban drag →
       transition with optimistic move + 409/illegal-move revert + toast. Verified end-to-end vs. the real
       API (transition Assigned→In Progress, action-add). Shared primitives added: `PageHeader`, Radix
-      `Dialog`, `Segmented`, `api-error` helpers, `format` utils.
+      `Dialog`, `Segmented`, `api-error` helpers, `format` utils. **CAPA** (`feat/web-capa`, 2026-07-25):
+      ported from `src/capa.jsx` against the real API. List (`capa-list.tsx`): PageHeader + filter bar
+      (Segmented All/Open/Closed/My CAPAs + type select + search + CSV export) + table (ID/Type with the
+      corrective=red / preventive=blue type chip, Title, **Phase** with the per-row progress bar keyed on
+      the real `CapaPhase` enum, Owner via the shared "You/Unassigned/short-id" `OwnerCell`, Source, Due,
+      Risk). Detail (`capa-detail.tsx`): header (type chip + code + status/priority badges), the **7-phase
+      stepper** (`capa-bits.tsx` `PhaseTracker`, `initiation → root_cause → … → closed`), the four faithful
+      tabs (Action plan real; Root cause / Effectiveness / Activity honest empty-state placeholders), and a
+      real Details sidebar (owner, sponsor, type, priority, risk, opened, due, eff-check) + Linked-items
+      card (links `sourceKind==='ncr'` to the NCR). **Advance** (one phase forward) and the **audited
+      Revert** (reason-required dialog → earlier phase) both send `lockVersion` (optimistic concurrency);
+      Action-plan tab (`capa-actions.tsx`) lists/creates actions and advances their status
+      (pending→in_progress→done→verified). Manage controls (New CAPA / Advance / Revert / Add action) are
+      `capa:manage`-gated (permission-hidden, 04 §6.6). **Verified end-to-end** against the seeded API
+      (advanced CAPA-2026-0041 Root Cause→Action Plan, then reverted with a reason — both with success
+      toasts, no console errors). **Faithful-fidelity deviations (logged, not silent):** the prototype's
+      opened-vs-closed **trend chart** and two of the four **stat cards** (at-risk/overdue, avg-closure) are
+      omitted — they need SLA/aggregate data the `CapaDto` doesn't carry; the "At risk" tab is dropped for
+      the same reason; the Sponsor/Team detail uses real ids only (no fabricated names); Root-cause &
+      Effectiveness tab bodies are honest placeholders (no `rootCause`/`effectivenessChecks` in the API).
+      Revert is an intentional **addition** vs the static prototype — it is the module's defining backed
+      capability (audited forward-only exception, 02 §4). **Documents** (`feat/web-documents`, 2026-07-26):
+      ported from `src/documents.jsx` against the real controlled-document API (03 §3, 02 §4). Replaces the
+      placeholder /documents route + adds /documents/[id]. List (`document-list.tsx`): the faithful
+      full-height **library rail** (the 8 real `DocumentCategory` folders with page-derived counts + "All
+      Documents" + Smart views Expiring-soon / Pending-review) + toolbar (search + status Segmented +
+      list/grid view toggle) + table (Name/code/category, Version, `DocStatus` badge, Owner, Approver,
+      Updated, Expires with expiry warn, Frameworks chips) and a grid view. Detail
+      (`document-detail.tsx`): header with **status-driven lifecycle actions** — Submit-for-review
+      (draft→pending), Approve/Reject (pending, four-eyes: hidden for the author, reason dialog on reject),
+      Revise (rejected→draft), New-version (approved, dialog) + Archive — all sending `lockVersion`
+      (optimistic concurrency); Versions tab (real `listDocumentVersions` history with changelog/approvedBy/
+      Current marker), Approvals tab (honest Author→Reviewer state), and a sidebar with Properties,
+      Compliance (frameworks), and the real **AI summary** (`aiSummary`). **Compliance-matrix view** added
+      (2026-07-26, the list/grid/**matrix** toggle now matches the prototype): a categories × frameworks
+      coverage grid — the framework columns are derived from the frameworks actually present on the loaded
+      docs, each cell the count of in-category docs tagged with that framework, plus a per-category coverage
+      bar — computed entirely from the real `category`/`frameworks` fields (no fabrication), verified live.
+      Author/approver capabilities gated
+      (`document:manage` / `document:approve`). **Verified end-to-end** against the seeded API: the library
+      rail + 3 docs render, the pending seed doc correctly **hides Approve/Reject for its author and shows
+      "Awaiting review"** (four-eyes) with its AI summary, and Submit-for-review flipped a draft →pending
+      with a success toast (no console errors). **Remaining deviations, now tiered (logged):** (Tier 2 —
+      needs a Files web slice; backend exists per 03 §7) file-type icons/sizes (`getFile` mime/size),
+      scan-gated Download, and a real document Preview all depend on the not-yet-built upload/attach flow;
+      (Tier 3 — needs NEW backend + a spec decision, so NOT built) starred/recent smart views (favorites +
+      view-tracking), the Linked-records tab (document↔record links), the multi-stage approval chain (the
+      API models one reviewer + four-eyes, not an N-stage workflow), and bulk Share/Move (no share-link /
+      category-change endpoints). The compliance-matrix view is now BUILT (see above). `UserCell` (You/short-id, no fabricated
+      names) is duplicated across the ncr/capa/documents modules — a candidate to promote to
+      `components/ui` later.
+      **Documents backend depth + upload/preview/fidelity (2026-07-28, `feat/web-documents`):** closed the
+      logged Documents deviations that were genuinely in scope, backend-first.
+      *Collaboration backend* (`apps/api/src/collab/`, commit 8aaad99) — the three FEATURES §9/§329 gaps,
+      generic over a new `EntityKind` enum so they serve every module: **Comments** (list/create/soft-delete,
+      audited `commented` on the parent, author-only delete, parent-visibility 404; the `comments` table
+      already existed in 0001), **Access log** (`GET /v1/audit-events` — a payload-free projection of
+      `audit_events` for one record, no before/after leak), **Entity links** (migration 0018 adds
+      `entity_links` with RLS+FORCE+tenant indexes+composite member FK and the `linked`/`unlinked` audit
+      actions; directed edges read from both ends; dedupe/self-link/cross-tenant-404). Tests: `collab.test.ts`
+      (4) + RLS suite now 227 (entity_links fixture added). *Upload unblocked* (commit 51d826e) — **BullMQ
+      bug fix**: `BullMqProducer` used `:` in custom job ids (`scan:<id>`…), which BullMQ rejects ("Custom Id
+      cannot contain :"), 500-ing `POST /v1/files/:id/complete` whenever jobs are enabled; tests run with
+      jobs OFF so it was latent. Switched to `-` + added a real-BullMQ regression test. `DocumentDto` now
+      carries `fileMime`/`fileSizeBytes` (correlated subqueries on list/get, no N+1). *FE* (commit a83bca5):
+      `use-files` (presign→PUT-with-XHR-progress→complete, scan-gated download), `FileDrop` drag-drop
+      (upload-flow.jsx) wired into the create + new-version dialogs (attach `fileId`), an **Upload** header
+      button; detail gains a **Preview** tab (renders the attached PDF/image via a presigned URL — the
+      audited download), a **Download** action, a File row in Properties, and a **Linked records** tab reading
+      real `entity_links`; the rail gains **folder colours** + a **Compliance framework filter**; list/grid
+      show real **file-type icons+colours+sizes**. **Verified end-to-end live**: upload (presign→MinIO PUT
+      200→complete 200 after the fix), a doc created with the file shows the PDF icon + "68 B" + framework
+      chips + the Compliance rail filter, detail shows Download + FILE property + the Preview iframe (download
+      200, no console errors) + the Linked-records empty state. **Still deferred (logged, NOT built):** the
+      bulk-select toolbar — its Share/Move actions have no backend and multi-file zip is an unbuilt export
+      job (all mock-only per the scope decision); starred/recently-viewed smart views (need favorites +
+      view-tracking tables) and the multi-stage approval chain (contradicts the settled single-`approver_id`
+      model, 02 §4) — jsx-only, out of scope. Comments + Access-log backends are built + client-ready but not
+      surfaced on the Documents detail (documents.jsx has no such tabs — they'll appear where a module's
+      design includes them); entity-links has no create/delete UI yet (populated by API/cross-module flows).
 - [~] All six UI states on every list/detail (04 §6) — loading/empty/error demonstrated on the dashboard;
       stale-write (409), offline, and per-capability hiding land with the first CRUD module
 
@@ -640,6 +1544,37 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 ---
 
 ## Decisions log
+
+- [x] Bulk-import commit runs synchronously in the request transaction (2026-08-12, Phase J) — the plan
+      called for a BullMQ `imports` job, but the commit is implemented as a self-contained tenant-tx step
+      (`ImportService.commit`: re-plan against current keys → upsert each non-error row idempotently by
+      natural key → flip run to completed, all under RLS + audit, 50k cap). Chose synchronous because the
+      vertical slice must be browser-verifiable without standing up a separate worker + Redis, and the
+      idempotent-by-natural-key guarantee (the tests' core assertion) holds identically whether the body runs
+      in-request or in a worker. Moving it behind the `imports` queue for very large migrations is a wiring
+      change (add a queue/job/producer method + a processor that calls the same `commit` body), not a
+      rewrite — flagged as the async-at-scale follow-up, consistent with prior "flag, don't fake" phases.
+
+
+- **2026-07-29 — Supplier Portal (P11): partner role + supplier-scope within the ONE identity plane;
+    MFA-required + short sessions; read-only v1 (SECURITY SIGN-OFF).** The one phase that crosses the
+    tenant trust boundary (external supplier users acting on tenant data). Decided AGAINST a separate
+    external service: for an enterprise QMS the single-identity model is stronger *when scoping is
+    enforced server-side* — one governed identity/audit/MFA plane, one revoke point, and it reuses the
+    already-mutation-tested RLS instead of a data-sync boundary (itself a leak surface). So a `partner`
+    is a normal `control.users` person with a `membership` whose role is `partner` and which carries a
+    `supplier_scope` (one supplier). What makes them safe is AUTHORIZATION, not a separate schema:
+    (a) `partner` holds ONLY `portal:view` — no internal capability, so RBAC 403s every `/v1/*` internal
+    route before a query runs; (b) the portal service filters to the membership's `supplier_scope` (never
+    a caller-supplied id) and 404s another supplier's record (rule 8, one boundary out from plant-scope);
+    (c) the DB CHECK `(role='partner') = (supplier_scope IS NOT NULL)` makes an un-scoped partner or a
+    scoped internal role impossible; (d) partners get a short (2h) session and are refused sign-in unless
+    MFA is configured. External writes (SCAR respond, PPAP re-submit, AV-gated upload) are a DELIBERATE
+    second slice — read-only first validates the boundary before any external write path exists.
+    **Caveat recorded in Known issues:** the MFA gate enforces *enrolment*, not a per-login TOTP
+    challenge (no TOTP subsystem exists yet) — the portal must not be exposed to real suppliers until it
+    lands. Portal DTOs are narrow projections that never emit internal identifiers (owner, linked NCR,
+    reviewer id, AI prediction). Isolation proven by `apps/api/test/portal.test.ts` (11 adversarial tests).
 
 - **2026-07-24 — Web foundation: tokens as the one styling source, Tailwind v4 bridges to them, primitives
     hand-built, Radix reserved for the hard a11y widgets.** `apps/web` is Next.js 15 (App Router, React 19,
@@ -1273,6 +2208,49 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 ---
 
 ## Known issues / TODO
+
+- **P11 Supplier Portal — TOTP verify/enrolment subsystem is a HARD dependency before production exposure.**
+  The partner MFA gate (`mfaRequiredFor` + the sign-in check) currently enforces only that a `mfa_secret`
+  is *enrolled*, not that a TOTP code was verified this login — no TOTP challenge/enrolment subsystem
+  exists anywhere in the codebase yet (the `control.users.mfa_secret` column is schema-only). The portal
+  must NOT be opened to real external suppliers until: (a) TOTP enrolment (QR/secret provisioning +
+  recovery codes) and (b) a per-login verify step are built, and (c) the partner-invite/onboarding flow
+  (a supplier-scoped variant of the staff invite — deferred) mints the `partner` membership + drives
+  enrolment. The read-only portal backend + isolation model are done and proven; these are the gates on
+  turning it on. See P11 Decisions log entry.
+- **P11 Supplier Portal — evidence UPLOAD ✅ (2026-08-06).** The last deferred write. A partner-scoped
+  mirror of the internal presign flow that never touches `/v1/files/*`: `POST /v1/portal/files/presign`
+  (`portal:respond`) creates the file **unlinked and owned by the caller** — the partner supplies only
+  name/type/size, never a target entity (`PortalEvidencePresignBody`) — then `POST /v1/portal/files/:id/
+  complete` finalises + hands off to the AV scan. The file is attached to a record only when the partner
+  responds/re-submits: `PortalScarRespondBody`/`PortalPpapResubmitBody` gained `fileIds[]`, and
+  `PortalService.attachEvidence` links inside the audited tx via `UPDATE files … WHERE uploaded_by = actor
+  AND entity_kind IS NULL` — a file the partner didn't upload, one already attached, or a foreign record
+  can't be linked (mismatch → 422; foreign SCAR/PPAP → 404 before any attach). `FilesService.presign/
+  complete` gained an `actorKind` param so these audit as `actor_kind='partner'`; the not-clean download
+  gate is the internal FilesService's, reused as-is. **FE:** `PortalEvidenceAttach` (teal paperclip + chips,
+  `supplier-portal.jsx`) on the SCAR respond + PPAP re-submit cards; `uploadPortalEvidence` runs presign →
+  PUT → complete. Tests: portal.test.ts +6 (presign scoped/201/actor=partner, denied to viewer & admin-no-
+  scope, own-file attach to SCAR, foreign-file 422 untouched, foreign-record 404 untouched, PPAP attach) —
+  23 green; files.test 11 green; repo typecheck 7/7; lint clean. Verified the portal route compiles/renders
+  (the account-scope guard shows for a non-partner). *Note: a full in-browser upload click-through needs a
+  partner+MFA session against a running API — not exercised here; the scoped-attach behaviour is covered by
+  the integration tests instead.*
+  - **Files controller locked against partners ✅ (2026-08-06).** New `@Internal()` decorator (`IS_INTERNAL`
+    metadata) enforced in `lifecycle.interceptor.ts`: an internal-only route refuses an external `partner`
+    (via `isPartner`) with 403 even with a valid session — the role axis, orthogonal to `@RequireCapability`.
+    Applied class-level to `FilesController`, which carries no capability by design; a partner's only
+    sanctioned file path stays `/v1/portal/files/*`. Test: portal.test.ts asserts a partner gets 403 on
+    `/v1/files/presign` + `/v1/files/:id` (24 tests); files.test 11 green (internal file flows unaffected).
+  - **All internal capability-less routes now locked against partners ✅ (2026-08-06).** Extended `@Internal`
+    to every authenticated route that carries no capability and is not part of the portal: `/v1/search`
+    (federated internal search — the notable one), `/v1/me`, `/v1/exports/*`, `/v1/ai/*`, `/v1/me/workspaces`
+    + `/switch-workspace`, `/v1/audit-events`, and `/v1/comments` + `/v1/entity-links` (a partner records a
+    SCAR comment only through `PortalService`, never the collab controller). Confirmed the portal FE is
+    self-contained (only `/v1/portal/*` + sign-out) so nothing legitimate breaks. **Deliberately NOT locked:**
+    `/v1/notifications` (per-user/self-scoped by RLS, and the P11 spec lists supplier notifications) and the
+    `@Public` `health`/`openapi`. Test: portal.test.ts iterates all of these → 403 for a partner (25 tests);
+    the internal-access suites (search/exports/ai/collab/workspaces) stay green.
 
 - **Web app (`apps/web`): foundation only; module screens + several cross-cutting systems pending.** The
   shell, design system, sign-in, and a dashboard slice are up and building, but most nav destinations are

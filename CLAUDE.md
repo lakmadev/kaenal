@@ -24,6 +24,11 @@ All spec paths below are relative to `project_brain/project/`.
 6. Every list endpoint paginated (cursor); every create idempotency-safe; writes use optimistic concurrency (03 §5–6).
 7. A feature = migration + API contract + UI + tests + audit events. Missing any → not done.
 8. Never reveal cross-tenant existence: foreign-tenant ids → 404, not 403.
+9. **Design fidelity is a completion gate.** Any screen with a `project_brain/project/src/*.jsx`
+   design MUST match that jsx pixel-for-pixel — every view, panel, and state, not a simplified
+   subset. Read the whole jsx first, reproduce all of it, verify in-browser side-by-side. A screen
+   that diverges from its jsx is a defect. Full rule + process: `apps/web/docs/design-rules.md`.
+   You may not silently simplify or drop a designed element — surface it and get sign-off first.
 
 ## Settled architecture decisions (do not re-litigate; see PROGRESS.md Decisions log for why)
 - **Identity is shared, not per-tenant.** A person is one row in `control.users` (email globally
@@ -61,7 +66,8 @@ Turborepo + pnpm · NestJS + ts-rest (contract-first OpenAPI) · Postgres 16 + R
 - `pnpm test` (unit) / `pnpm test:rls` (tenancy suite) / `pnpm e2e` (not yet wired)
 - `pnpm --filter @kaenal/api dev` (API :3001) · `pnpm --filter @kaenal/web dev` (web :3000)
   — the web app proxies `/api/*` to the API (same-origin cookies). Web engineering docs:
-  `apps/web/README.md`, `apps/web/docs/rules.md`, `apps/web/docs/best-practices.md`.
+  `apps/web/README.md`, `apps/web/docs/rules.md`, `apps/web/docs/best-practices.md`,
+  `apps/web/docs/design-rules.md` (**jsx = pixel-for-pixel binding design; rule #9**).
   Visual truth is `styles/tokens.css` + `Kaenal.html` + `src/*.jsx`; 04 §2's literal palette
   (blue accent, Inter) is SUPERSEDED by tokens.css (ink accent, Archivo) — see PROGRESS.md.
 

@@ -171,6 +171,78 @@ describe("read state", () => {
   });
 });
 
+describe("star, dismiss, and filters", () => {
+  let starId = "";
+  beforeAll(async () => {
+    await withTenant(acmeId, null, async (tx) => {
+      const n = await notifications.notify(tx, acmeId, {
+        userId: userAId,
+        actorId: userBId,
+        kind: "ncr_assigned",
+        title: "NOTIFTEST star me",
+        entityKind: "ncr",
+        entityId: randomUUID(),
+      });
+      starId = n?.id ?? "";
+    });
+  });
+
+  it("carries the actor through to the DTO", async () => {
+    const list = await authed("get", "/v1/notifications", aTok);
+    const seeded = (list.body.items as { id: string; actorId: string | null; starred: boolean }[]).find(
+      (n) => n.id === starId,
+    );
+    expect(seeded?.actorId).toBe(userBId);
+    expect(seeded?.starred).toBe(false);
+  });
+
+  it("stars, filters by starred, and un-stars", async () => {
+    const star = await authed("post", `/v1/notifications/${starId}/star`, aTok).send({ starred: true });
+    expect(star.status).toBe(200);
+    expect(star.body.starred).toBe(true);
+
+    // Another user cannot star A's notification — 404, not 403 (rule 8).
+    const foreign = await authed("post", `/v1/notifications/${starId}/star`, bTok).send({ starred: true });
+    expect(foreign.status).toBe(404);
+
+    const starred = await authed("get", "/v1/notifications?starred=true", aTok);
+    const ids = (starred.body.items as { id: string }[]).map((n) => n.id);
+    expect(ids).toContain(starId);
+    expect(ids.every((id) => id === starId)).toBe(true);
+
+    const un = await authed("post", `/v1/notifications/${starId}/star`, aTok).send({ starred: false });
+    expect(un.body.starred).toBe(false);
+  });
+
+  it("filters by entityKind", async () => {
+    const res = await authed("get", "/v1/notifications?entityKind=ncr", aTok);
+    const items = res.body.items as { entityKind: string }[];
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((n) => n.entityKind === "ncr")).toBe(true);
+  });
+
+  it("dismisses (soft-delete), hiding it from the list, and is 404-safe + idempotent", async () => {
+    const before = (await authed("get", "/v1/notifications", aTok)).body.items as unknown[];
+
+    // B cannot dismiss A's row — it touches nothing, no existence leak.
+    const foreign = await authed("post", `/v1/notifications/${starId}/dismiss`, bTok).send({});
+    expect(foreign.body.count).toBe(0);
+
+    const dismiss = await authed("post", `/v1/notifications/${starId}/dismiss`, aTok).send({});
+    expect(dismiss.status).toBe(200);
+    expect(dismiss.body.count).toBe(1);
+
+    const after = await authed("get", "/v1/notifications", aTok);
+    const afterIds = (after.body.items as { id: string }[]).map((n) => n.id);
+    expect(afterIds).not.toContain(starId);
+    expect(afterIds.length).toBe(before.length - 1);
+
+    // A second dismiss is a no-op.
+    const again = await authed("post", `/v1/notifications/${starId}/dismiss`, aTok).send({});
+    expect(again.body.count).toBe(0);
+  });
+});
+
 describe("channel preferences", () => {
   it("starts empty and round-trips the matrix", async () => {
     const initial = await authed("get", "/v1/notification-prefs", bTok);

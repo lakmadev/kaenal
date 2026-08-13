@@ -31,6 +31,7 @@ let adminTok = "";
 let mgrTok = "";
 let viewerTok = "";
 let mgrUserId = "";
+let adminUserId = "";
 
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
@@ -101,7 +102,7 @@ beforeAll(async () => {
   control = new pg.Pool({ connectionString: process.env["DATABASE_URL"] });
   acmeId = await tid(ACME);
 
-  await seedMember("capa-admin@acme.test", "admin");
+  adminUserId = await seedMember("capa-admin@acme.test", "admin");
   mgrUserId = await seedMember("capa-mgr@acme.test", "manager");
   await seedMember("capa-viewer@acme.test", "viewer");
 
@@ -264,5 +265,86 @@ describe("CAPA actions + concurrency + RBAC", () => {
     const res = await authed("get", `/v1/capas/${randomUUID()}`, adminTok);
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe("NOT_FOUND");
+  });
+});
+
+describe("CAPA assignment (P25)", () => {
+  it("assigns owner + sponsor, then reassigns and unassigns — each audited", async () => {
+    let capa = await openCapa();
+    expect(capa.status).toBe("initiation");
+
+    // Assign both, at any phase (assignment is orthogonal to the machine).
+    const assigned = await authed("post", `/v1/capas/${capa.id}/assign`, mgrTok).send({
+      version: capa.lockVersion,
+      ownerId: mgrUserId,
+      sponsorId: adminUserId,
+    });
+    expect(assigned.status).toBe(200);
+    expect(assigned.body.ownerId).toBe(mgrUserId);
+    expect(assigned.body.sponsorId).toBe(adminUserId);
+    capa = assigned.body as Capa;
+
+    // The change is in the append-only trail as `assigned`, with before/after ids.
+    const { rows } = await control.query<{ before: { ownerId?: string | null }; after: { ownerId?: string | null } }>(
+      `SELECT before, after FROM audit_events
+        WHERE entity_kind = 'capa' AND entity_id = $1 AND action = 'assigned'
+        ORDER BY created_at DESC LIMIT 1`,
+      [capa.id],
+    );
+    expect(rows[0]?.before).toEqual({ ownerId: null, sponsorId: null });
+    expect(rows[0]?.after).toEqual({ ownerId: mgrUserId, sponsorId: adminUserId });
+
+    // Reassign just the owner (sponsor left untouched by omitting the key).
+    const reassigned = await authed("post", `/v1/capas/${capa.id}/assign`, mgrTok).send({
+      version: capa.lockVersion,
+      ownerId: adminUserId,
+    });
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.ownerId).toBe(adminUserId);
+    expect(reassigned.body.sponsorId).toBe(adminUserId); // unchanged
+    capa = reassigned.body as Capa;
+
+    // Unassign the owner with an explicit null.
+    const cleared = await authed("post", `/v1/capas/${capa.id}/assign`, mgrTok).send({
+      version: capa.lockVersion,
+      ownerId: null,
+    });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.ownerId).toBeNull();
+    expect(cleared.body.sponsorId).toBe(adminUserId);
+  });
+
+  it("rejects a non-member assignee (no cross-tenant existence leak)", async () => {
+    const capa = await openCapa();
+    const res = await authed("post", `/v1/capas/${capa.id}/assign`, mgrTok).send({
+      version: capa.lockVersion,
+      ownerId: randomUUID(),
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("rejects an empty body (must provide owner and/or sponsor)", async () => {
+    const capa = await openCapa();
+    const res = await authed("post", `/v1/capas/${capa.id}/assign`, mgrTok).send({ version: capa.lockVersion });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe("VALIDATION_FAILED");
+  });
+
+  it("rejects a stale assign (STALE_WRITE) and a viewer (403)", async () => {
+    const capa = await openCapa();
+
+    const stale = await authed("post", `/v1/capas/${capa.id}/assign`, mgrTok).send({
+      version: capa.lockVersion + 5,
+      ownerId: mgrUserId,
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe("STALE_WRITE");
+
+    const viewer = await authed("post", `/v1/capas/${capa.id}/assign`, viewerTok).send({
+      version: capa.lockVersion,
+      ownerId: mgrUserId,
+    });
+    expect(viewer.status).toBe(403);
   });
 });

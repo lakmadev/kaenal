@@ -8,12 +8,14 @@ import {
   checkPasswordPolicy,
   INVITATION_TTL_MS,
   isLocked,
+  mfaRequiredFor,
   PASSWORD_RESET_TTL_MS,
   registerFailure,
   registerSuccess,
   slideSessionExpiry,
 } from "@kaenal/core";
 import { ApiError } from "../errors.js";
+import { loadSessionPolicy } from "../settings/settings.service.js";
 import { CONTROL_POOL } from "../tokens.js";
 import { generateToken, hashPassword, hashToken, verifyPassword, equalizeTiming } from "./passwords.js";
 
@@ -42,6 +44,7 @@ export interface SignInResult {
 interface CredentialRow {
   id: string;
   password_hash: string | null;
+  mfa_secret: string | null;
   failed_login_attempts: number;
   locked_until: Date | null;
   status: string;
@@ -68,7 +71,7 @@ export class AuthService {
       new ApiError("UNAUTHENTICATED", "Email or password is incorrect");
 
     const { rows } = await this.control.query<CredentialRow>(
-      `SELECT id, password_hash, failed_login_attempts, locked_until, status
+      `SELECT id, password_hash, mfa_secret, failed_login_attempts, locked_until, status
          FROM control.users WHERE email = $1`,
       [email],
     );
@@ -115,6 +118,18 @@ export class AuthService {
       throw invalid();
     }
 
+    // P11: external partners must have MFA configured (07 §4). The password has
+    // already verified here, so this is not a credential oracle — it is a hard
+    // stop on an under-secured external account, and it says so plainly rather
+    // than reusing the generic invalid-credentials envelope.
+    if (mfaRequiredFor(membership.role) && user.mfa_secret === null) {
+      await this.auditSignIn(tenantId, user.id, "sign_in_failed", { reason: "mfa_required" }, context);
+      throw new ApiError(
+        "FORBIDDEN",
+        "This account requires multi-factor authentication, which is not configured. Contact your administrator.",
+      );
+    }
+
     const reset = registerSuccess();
     await this.control.query(
       `UPDATE control.users
@@ -124,7 +139,13 @@ export class AuthService {
     );
 
     const sessionToken = generateToken();
-    const expiresAt = slideSessionExpiry(now);
+    // Session-policy enforcement (Phase C): partners keep the short-lived P11
+    // session; staff sessions live for the tenant's configured absolute timeout.
+    const policy = await loadSessionPolicy(tx);
+    const expiresAt =
+      membership.role === "partner"
+        ? slideSessionExpiry(now, "partner")
+        : new Date(now.getTime() + policy.webAbsoluteHours * 60 * 60 * 1000);
 
     await withAudit(
       tx,
@@ -155,12 +176,127 @@ export class AuthService {
       },
     );
 
+    // Max-concurrent enforcement: keep the newest N live sessions, revoke the
+    // rest (the just-minted one is newest, so it survives). 0 = unlimited.
+    if (policy.maxConcurrentSessions > 0) {
+      await tx.query(
+        `UPDATE sessions SET revoked_at = now()
+          WHERE id IN (
+            SELECT id FROM sessions
+             WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+             ORDER BY created_at DESC, id DESC
+             OFFSET $2
+          )`,
+        [user.id, policy.maxConcurrentSessions],
+      );
+    }
+
     return {
       userId: user.id,
       role: membership.role,
       plantIds: membership.plantIds,
       sessionToken,
       expiresAt,
+    };
+  }
+
+  /**
+   * Every workspace the signed-in person can enter (the profile switcher). This
+   * is a control-plane lookup — "which tenants may this identity enter" — so it
+   * reads through the control pool, strictly filtered by the caller's own
+   * user_id. It returns only the caller's memberships (never another person's),
+   * so it is not a cross-tenant oracle: it discloses nothing about tenants the
+   * caller is not already a member of. Only slug/name/role are returned, never
+   * tenant business data (which always flows through the RLS-scoped app pool).
+   */
+  async listWorkspaces(
+    userId: string,
+    activeSlug: string,
+  ): Promise<{ tenantSlug: string; tenantName: string; role: string; active: boolean }[]> {
+    const { rows } = await this.control.query<{ slug: string; name: string; role: string }>(
+      `SELECT t.slug, t.name, m.role
+         FROM memberships m
+         JOIN control.tenants t ON t.id = m.tenant_id
+        WHERE m.user_id = $1 AND m.status = 'active' AND m.deleted_at IS NULL
+          AND t.status = 'active'
+        ORDER BY t.name`,
+      [userId],
+    );
+    return rows.map((r) => ({
+      tenantSlug: r.slug,
+      tenantName: r.name,
+      role: r.role,
+      active: r.slug === activeSlug,
+    }));
+  }
+
+  /**
+   * Switch the active workspace: mint a session for a target tenant the caller
+   * is ALREADY a member of. The caller is authenticated in their current
+   * workspace (the request went through the normal chain), and the password is
+   * global (control.users), so no re-entry of credentials is needed — but
+   * membership in the target is verified before any session is issued. A target
+   * the caller does not belong to is a 404 (never a 403), so this cannot probe
+   * for workspaces the caller has no access to (rule 8).
+   */
+  async switchWorkspace(
+    userId: string,
+    slug: string,
+    context: { ip: string | null; userAgent: string | null; requestId: string | null },
+  ): Promise<{
+    sessionToken: string;
+    expiresAt: Date;
+    workspace: { tenantSlug: string; tenantName: string; role: string; active: boolean };
+  }> {
+    const notFound = (): ApiError => new ApiError("NOT_FOUND", "Workspace not found");
+
+    // Resolve the target tenant and verify active membership — both through the
+    // control pool, in one query, so a non-member and an unknown slug are
+    // indistinguishable (no existence leak).
+    const { rows } = await this.control.query<{ tenant_id: string; name: string; role: Role }>(
+      `SELECT t.id AS tenant_id, t.name, m.role
+         FROM control.tenants t
+         JOIN memberships m ON m.tenant_id = t.id AND m.user_id = $2
+        WHERE t.slug = $1 AND t.status = 'active'
+          AND m.status = 'active' AND m.deleted_at IS NULL`,
+      [slug, userId],
+    );
+    const target = rows[0];
+    if (target === undefined) throw notFound();
+
+    const sessionToken = generateToken();
+    const expiresAt = slideSessionExpiry(new Date(), target.role);
+
+    // Mint the session INSIDE the target tenant's scoped transaction, so RLS and
+    // the audit event are written against the workspace being entered.
+    await withTenant(target.tenant_id, userId, async (t) => {
+      await withAudit(
+        t,
+        target.tenant_id,
+        {
+          actorId: userId,
+          actorKind: "user",
+          entityKind: "session",
+          entityId: userId,
+          action: "signed_in",
+          requestId: context.requestId,
+          ip: context.ip,
+          userAgent: context.userAgent,
+        },
+        async (tt) => {
+          await tt.query(
+            `INSERT INTO sessions (tenant_id, user_id, refresh_token_hash, expires_at, ip, user_agent)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [target.tenant_id, userId, hashToken(sessionToken), expiresAt, context.ip, context.userAgent],
+          );
+        },
+      );
+    });
+
+    return {
+      sessionToken,
+      expiresAt,
+      workspace: { tenantSlug: slug, tenantName: target.name, role: target.role, active: true },
     };
   }
 
@@ -172,9 +308,19 @@ export class AuthService {
   async resolveSession(
     tx: Tx,
     token: string,
-  ): Promise<{ userId: string; role: Role; plantIds: readonly string[] } | null> {
-    const { rows } = await tx.query<{ user_id: string; role: Role; plant_ids: string[] }>(
-      `SELECT s.user_id, m.role, m.plant_ids
+  ): Promise<{
+    userId: string;
+    role: Role;
+    plantIds: readonly string[];
+    supplierScope: string | null;
+  } | null> {
+    const { rows } = await tx.query<{
+      user_id: string;
+      role: Role;
+      plant_ids: string[];
+      supplier_scope: string | null;
+    }>(
+      `SELECT s.user_id, m.role, m.plant_ids, m.supplier_scope
          FROM sessions s
          JOIN memberships m ON m.tenant_id = s.tenant_id AND m.user_id = s.user_id
         WHERE s.refresh_token_hash = $1
@@ -188,10 +334,15 @@ export class AuthService {
     const row = rows[0];
     if (row === undefined) return null;
 
-    // Role is re-read from the database on every request (07 §7): a role
-    // downgraded mid-session must take effect on the next request, not at the
-    // next sign-in.
-    return { userId: row.user_id, role: row.role, plantIds: row.plant_ids };
+    // Role AND supplier scope are re-read from the database on every request
+    // (07 §7): a role downgrade or a re-scoped partner must take effect on the
+    // next request, not the next sign-in.
+    return {
+      userId: row.user_id,
+      role: row.role,
+      plantIds: row.plant_ids,
+      supplierScope: row.supplier_scope,
+    };
   }
 
   async signOut(tx: Tx, tenantId: string, token: string, userId: string): Promise<void> {
@@ -447,14 +598,16 @@ export class AuthService {
   private async activeMembership(
     tx: Tx,
     userId: string,
-  ): Promise<{ role: Role; plantIds: readonly string[] } | null> {
-    const { rows } = await tx.query<{ role: Role; plant_ids: string[] }>(
-      `SELECT role, plant_ids FROM memberships
+  ): Promise<{ role: Role; plantIds: readonly string[]; supplierScope: string | null } | null> {
+    const { rows } = await tx.query<{ role: Role; plant_ids: string[]; supplier_scope: string | null }>(
+      `SELECT role, plant_ids, supplier_scope FROM memberships
         WHERE user_id = $1 AND status = 'active' AND deleted_at IS NULL`,
       [userId],
     );
     const row = rows[0];
-    return row === undefined ? null : { role: row.role, plantIds: row.plant_ids };
+    return row === undefined
+      ? null
+      : { role: row.role, plantIds: row.plant_ids, supplierScope: row.supplier_scope };
   }
 
   /**

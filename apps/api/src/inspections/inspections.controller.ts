@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { z } from "zod";
 import {
+  AssignInspectionBody,
   CompleteInspectionBody,
   CreateInspectionBody,
   InspectionStatus,
@@ -123,6 +124,24 @@ export class InspectionsController {
     const input = parse(SetRecurrenceBody, body);
     const ctx = currentContext();
     return this.inspections.setRecurrence(
+      currentTx(),
+      ctx.tenantId,
+      membership(ctx),
+      actorId(ctx),
+      uuid,
+      input,
+      auditCtx(ctx),
+    );
+  }
+
+  @Post("v1/inspections/:id/assign")
+  @HttpCode(200)
+  @RequireCapability("inspection:perform")
+  async assign(@Param("id") id: string, @Body() body: unknown): Promise<InspectionDto> {
+    const uuid = parse(z.string().uuid(), id);
+    const input = parse(AssignInspectionBody, body);
+    const ctx = currentContext();
+    return this.inspections.assign(
       currentTx(),
       ctx.tenantId,
       membership(ctx),

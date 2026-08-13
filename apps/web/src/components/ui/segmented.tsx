@@ -28,7 +28,7 @@ export function Segmented<T extends string>({
     <div
       role="tablist"
       aria-label={ariaLabel}
-      className="inline-flex gap-0.5 rounded-md border border-border p-[3px]"
+      className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-md border border-border p-[3px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       style={{ background: "var(--bg-subtle)" }}
     >
       {options.map((o) => {
@@ -43,7 +43,7 @@ export function Segmented<T extends string>({
             aria-label={o.label !== undefined && o.label !== "" ? o.label : o.value}
             onClick={() => onChange(o.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-sm font-medium transition-colors",
+              "inline-flex shrink-0 items-center gap-1.5 rounded-sm font-medium transition-colors",
               size === "sm" ? "px-2.5 py-1 text-[12px]" : "px-3 py-1.5 text-[13px]",
               active ? "text-text shadow-xs" : "text-muted hover:text-text",
             )}

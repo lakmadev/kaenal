@@ -40,8 +40,25 @@ export const Role = defineEnum([
   "auditor",
   "inspector",
   "viewer",
+  // External supplier contact (P11). Scoped to ONE supplier_id, portal-only
+  // capabilities, no access to internal endpoints. See 07 / FEATURES §17.
+  "partner",
 ]);
 export type Role = z.infer<typeof Role>;
+
+/**
+ * The internal (staff) roles — every role except the external `partner`. Used
+ * by the internal member-invite flow, which must never mint an un-scoped
+ * `partner` membership (partner onboarding is the portal-specific invite path).
+ */
+export const InternalRole = defineEnum([
+  "admin",
+  "manager",
+  "auditor",
+  "inspector",
+  "viewer",
+]);
+export type InternalRole = z.infer<typeof InternalRole>;
 
 // --- Inspections -----------------------------------------------------------
 
@@ -227,23 +244,48 @@ export const SupplierStatus = defineEnum([
 ]);
 export type SupplierStatus = z.infer<typeof SupplierStatus>;
 
+// PPAP submission review workflow (P09), matching `suppliers-ppap.jsx`:
+// pending (received, not yet in review) → in_review → interim (interim approval)
+// / approved / rejected. Reconciled from 0001's generic draft/submitted set by
+// migration 0020.
 export const PpapStatus = defineEnum([
-  "draft",
-  "submitted",
+  "pending",
+  "in_review",
   "interim",
   "approved",
   "rejected",
 ]);
 export type PpapStatus = z.infer<typeof PpapStatus>;
 
+// Per-element review state within a submission. N/A means the element is
+// legitimately waived (excluded from the completeness denominator).
+export const PpapElementStatus = defineEnum([
+  "pending",
+  "approved",
+  "changes_requested",
+  "n_a",
+]);
+export type PpapElementStatus = z.infer<typeof PpapElementStatus>;
+
+// SCAR lifecycle (P10). Coarse status; the 8D `currentD` (1–8) is the fine
+// progress and `overdue` is derived from the due dates — neither is a stored
+// status. Reconciled from 0001's generic open/responded/accepted/rejected/closed.
 export const ScarStatus = defineEnum([
+  "draft",
   "open",
   "responded",
-  "accepted",
-  "rejected",
   "closed",
+  "rejected",
+  "cancelled",
 ]);
 export type ScarStatus = z.infer<typeof ScarStatus>;
+
+export const ScarSeverity = defineEnum(["minor", "major", "critical"]);
+export type ScarSeverity = z.infer<typeof ScarSeverity>;
+
+// Chargeback (cost-recovery) status — a one-way ratchet (rules in packages/core).
+export const ChargebackStatus = defineEnum(["pending", "debit_issued", "closed"]);
+export type ChargebackStatus = z.infer<typeof ChargebackStatus>;
 
 // --- Exports (03 §8, 06 `reports` queue) -----------------------------------
 
@@ -265,8 +307,29 @@ export type ExportStatus = z.infer<typeof ExportStatus>;
 
 // --- Audit trail (07 §1) ---------------------------------------------------
 
-export const ActorKind = defineEnum(["user", "system", "api_key", "support"]);
+// `partner` is an EXTERNAL supplier-portal actor (P11) — their audited writes
+// (SCAR respond, PPAP re-submit) are attributable and distinct from staff.
+export const ActorKind = defineEnum(["user", "system", "api_key", "support", "partner"]);
 export type ActorKind = z.infer<typeof ActorKind>;
+
+/**
+ * Top-level entity kinds that carry comments, cross-links, and an access log
+ * (FEATURES §9 "related items · access log · comments"; §329 linkage graph).
+ * Free-text `entity_kind` columns (comments, audit_events, entity_links) are
+ * validated against this closed set at the API edge so a typo can't orphan a
+ * comment or a link.
+ */
+export const EntityKind = defineEnum([
+  "inspection",
+  "ncr",
+  "eight_d",
+  "audit",
+  "capa",
+  "document",
+  "supplier",
+  "scar",
+]);
+export type EntityKind = z.infer<typeof EntityKind>;
 
 export const AuditAction = defineEnum([
   "created",
@@ -281,6 +344,8 @@ export const AuditAction = defineEnum([
   "deleted",
   "restored",
   "purged",
+  "linked",
+  "unlinked",
   "signed_in",
   "sign_in_failed",
   "signed_out",

@@ -29,10 +29,45 @@ export const CAPABILITIES = [
   "document:view",
   "document:manage",
   "document:approve",
+  "supplier:view",
+  "supplier:manage",
+  "ppap:view",
+  "ppap:manage",
+  "scar:view",
+  "scar:manage",
+  "fmea:view",
+  "fmea:manage",
+  // SPC analytics (B5). `spc:view` reads the control charts + capability (every
+  // internal role sees quality analytics); `measurement:manage` gates ingesting
+  // the measurement data the charts run on (the roles that record on the floor).
+  "spc:view",
+  "measurement:manage",
+  // Data platform (B6). `report:view` renders reports + dashboards through the
+  // query engine; `report:manage` gates the *authoring* surface (create / edit /
+  // delete a report definition) — this split is what closes the A3 gap where a
+  // viewer could reach the report builder.
+  "report:view",
+  "report:manage",
+  // Connector registry (09 §1 / B6). Connect/disconnect an external system is a
+  // platform-tier action, so only admin holds it — a manager configures reports
+  // but does not wire the workspace to SAP/Snowflake/Slack.
+  "integration:manage",
+  // Bulk-import pipeline (09 §6 / B6). Committing a masters-data import writes
+  // rows across the workspace, so it is held by the roles that already author
+  // masters data (admin + manager); a validate/dry-run never writes but is gated
+  // by the same capability — the whole wizard is one permission.
+  "import:run",
   "settings:manage",
   "members:manage",
   "apikeys:manage",
   "billing:manage",
+  // External supplier portal (P11). `portal:view` gates the read-only namespace;
+  // `portal:respond` gates the narrow audited writes (respond to a SCAR,
+  // re-submit a PPAP). Internal roles never carry either (except admin, which
+  // holds everything), and holding them is not enough on its own: the portal
+  // service also requires the session to carry a supplier scope.
+  "portal:view",
+  "portal:respond",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -60,6 +95,19 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "document:view",
     "document:manage",
     "document:approve",
+    "supplier:view",
+    "supplier:manage",
+    "ppap:view",
+    "ppap:manage",
+    "scar:view",
+    "scar:manage",
+    "fmea:view",
+    "fmea:manage",
+    "spc:view",
+    "measurement:manage",
+    "report:view",
+    "report:manage",
+    "import:run",
     "settings:manage",
   ],
 
@@ -73,6 +121,15 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "audit:view",
     "audit:manage",
     "document:view",
+    "supplier:view",
+    "ppap:view",
+    "ppap:manage",
+    "scar:view",
+    "scar:manage",
+    "fmea:view",
+    "fmea:manage",
+    "spc:view",
+    "report:view",
   ],
 
   inspector: [
@@ -83,9 +140,33 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "capa:view",
     "audit:view",
     "document:view",
+    "supplier:view",
+    "ppap:view",
+    "scar:view",
+    "fmea:view",
+    "spc:view",
+    "measurement:manage",
   ],
 
-  viewer: ["inspection:view", "ncr:view", "capa:view", "audit:view", "document:view"],
+  viewer: [
+    "inspection:view",
+    "ncr:view",
+    "capa:view",
+    "audit:view",
+    "document:view",
+    "supplier:view",
+    "ppap:view",
+    "scar:view",
+    "fmea:view",
+    "spc:view",
+    "report:view",
+  ],
+
+  // External supplier contact — the read-only portal, nothing internal. Every
+  // internal capability is absent, so a partner hitting /v1/ncrs, /v1/suppliers,
+  // etc. is denied by RBAC before the query runs. Their `portal:view` access is
+  // further narrowed to their own supplier by the supplier-scope check.
+  partner: ["portal:view", "portal:respond"],
 };
 
 export function capabilitiesFor(role: Role): readonly Capability[] {
@@ -111,6 +192,17 @@ export interface Membership {
   readonly role: Role;
   /** Empty array = no restriction (03 §3: scoping applies "when set"). */
   readonly plantIds: readonly string[];
+  /**
+   * The single supplier an external `partner` is bound to (P11); null for every
+   * internal role. The DB CHECK guarantees `partner ⇔ supplierScope !== null`,
+   * so a partner always has one and an internal role never does.
+   */
+  readonly supplierScope?: string | null;
+}
+
+/** External supplier-portal user — see {@link authorizeSupplier}. */
+export function isPartner(role: Role): boolean {
+  return role === "partner";
 }
 
 /**
@@ -138,6 +230,24 @@ export function authorizePlant(membership: Membership, plantId: string | null): 
   if (!isPlantScoped(membership.role)) return allow();
   if (membership.plantIds.length === 0) return allow();
   if (plantId !== null && membership.plantIds.includes(plantId)) return allow();
+  return deny("NOT_FOUND", "Resource not found");
+}
+
+/**
+ * Supplier-level scoping for an external `partner` (P11) — the same shape as
+ * {@link authorizePlant}, one boundary out.
+ *
+ * A partner may only ever touch records belonging to the single supplier their
+ * membership is scoped to. A mismatch (or a partner with no scope, which the DB
+ * CHECK should make impossible) returns NOT_FOUND, never FORBIDDEN: a 403 would
+ * confirm the other supplier's record exists (rule 8). Internal roles are not
+ * supplier-scoped, so this is a no-op for them — the portal endpoints gate
+ * *reaching* this check on the partner-only supplier scope, not on role.
+ */
+export function authorizeSupplier(membership: Membership, supplierId: string): Decision {
+  if (!isPartner(membership.role)) return allow();
+  const scope = membership.supplierScope ?? null;
+  if (scope !== null && scope === supplierId) return allow();
   return deny("NOT_FOUND", "Resource not found");
 }
 

@@ -4,6 +4,7 @@ import type { Capability } from "@kaenal/core";
 export const IS_PUBLIC = "kaenal:isPublic";
 export const IS_ANONYMOUS = "kaenal:isAnonymous";
 export const REQUIRED_CAPABILITY = "kaenal:capability";
+export const IS_INTERNAL = "kaenal:isInternal";
 
 /**
  * Marks a route as reachable without a tenant or a session: health checks,
@@ -30,3 +31,13 @@ export const AllowAnonymous = (): MethodDecorator & ClassDecorator =>
  */
 export const RequireCapability = (capability: Capability): MethodDecorator & ClassDecorator =>
   SetMetadata(REQUIRED_CAPABILITY, capability);
+
+/**
+ * Restricts a route to INTERNAL members — an external `partner` (supplier-portal
+ * account) is refused with 403 even though it holds a valid session. Files carry
+ * no capability by design (access is governed by RLS + the AV-scan gate, not by
+ * role), so a partner would otherwise reach `/v1/files/*`; a partner's only
+ * sanctioned file path is the portal-scoped `/v1/portal/files/*`. Orthogonal to
+ * `@RequireCapability` — it gates on the role axis, not the capability one.
+ */
+export const Internal = (): MethodDecorator & ClassDecorator => SetMetadata(IS_INTERNAL, true);

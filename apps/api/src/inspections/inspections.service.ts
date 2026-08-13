@@ -14,6 +14,7 @@ import {
   type RecurrenceRule as CoreRecurrenceRule,
 } from "@kaenal/core";
 import {
+  type AssignInspectionBody,
   type CreateInspectionBody,
   type FormResponses,
   type FormSchema,
@@ -24,6 +25,7 @@ import {
   type SetRecurrenceBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import {
   clampLimit,
   decodeCursor,
@@ -37,6 +39,7 @@ interface InspectionRow {
   code: string;
   title: string;
   template_id: string;
+  template_name: string | null;
   template_version: number;
   inspector_id: string | null;
   plant_id: string | null;
@@ -58,7 +61,9 @@ interface InspectionRow {
 
 // occurrence_date is a `date`; cast to text so pg hands back a clean
 // 'YYYY-MM-DD' string rather than a local-midnight Date that can shift a day.
-const COLUMNS = `id, code, title, template_id, template_version, inspector_id, plant_id, area_id,
+const COLUMNS = `id, code, title, template_id,
+  (SELECT t.name FROM inspection_templates t WHERE t.id = template_id) AS template_name,
+  template_version, inspector_id, plant_id, area_id,
   status, risk, scheduled_at, started_at, completed_at, score, responses,
   recurrence, series_id, occurrence_date::text AS occurrence_date, lock_version,
   created_at, updated_at`;
@@ -73,6 +78,7 @@ function toDto(row: InspectionRow): InspectionDto {
     code: row.code,
     title: row.title,
     templateId: row.template_id,
+    templateName: row.template_name,
     templateVersion: row.template_version,
     inspectorId: row.inspector_id,
     plantId: row.plant_id,
@@ -106,6 +112,8 @@ function toDto(row: InspectionRow): InspectionDto {
  */
 @Injectable()
 export class InspectionsService {
+  constructor(private readonly notifications: NotificationsService = new NotificationsService()) {}
+
   async list(
     tx: Tx,
     membership: Membership,
@@ -386,6 +394,65 @@ export class InspectionsService {
     );
   }
 
+  /**
+   * Assign, reassign, or clear the inspector (P25). Orthogonal to the
+   * scheduled → in_progress → completed machine — it never touches `status`.
+   * `inspectorId` is a uuid to assign or `null` to unassign; a non-null id must
+   * be an active member. Optimistic-concurrency guarded and audited (`assigned`,
+   * before/after) in one transaction. Plant scope is enforced first (out-of-scope
+   * → 404, rule 8).
+   */
+  async assign(
+    tx: Tx,
+    tenantId: string,
+    membership: Membership,
+    actorId: string,
+    id: string,
+    body: AssignInspectionBody,
+    context: AuditContext,
+  ): Promise<InspectionDto> {
+    const row = await this.fetch(tx, id);
+    if (row === null) throw notFound();
+    this.assertInScope(membership, row.plant_id);
+    this.assertVersion(row, body.version);
+
+    if (body.inspectorId !== null) await this.assertMember(tx, body.inspectorId);
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "inspection",
+        entityId: id,
+        action: "assigned",
+        before: { inspectorId: row.inspector_id },
+        after: { inspectorId: body.inspectorId },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const dto = await this.applyUpdate(t, id, body.version, "inspector_id = $3, updated_by = $4", [
+          body.inspectorId,
+          actorId,
+        ]);
+        if (body.inspectorId !== null && body.inspectorId !== actorId) {
+          await this.notifications.notify(t, tenantId, {
+            userId: body.inspectorId,
+            actorId,
+            kind: "inspection_assigned",
+            title: `${dto.code} was assigned to you`,
+            entityKind: "inspection",
+            entityId: id,
+          });
+        }
+        return dto;
+      },
+    );
+  }
+
   /** List a series head's materialised occurrences (newest first). */
   async listOccurrences(
     tx: Tx,
@@ -548,6 +615,14 @@ export class InspectionsService {
     if (plantId !== null && membership.plantIds.includes(plantId)) return;
     // A record outside the caller's plant scope is invisible, not forbidden.
     throw notFound();
+  }
+
+  private async assertMember(tx: Tx, userId: string): Promise<void> {
+    const { rows } = await tx.query(
+      "SELECT 1 FROM memberships WHERE user_id = $1 AND status = 'active' AND deleted_at IS NULL",
+      [userId],
+    );
+    if (rows.length === 0) throw new ApiError("VALIDATION_FAILED", "That user is not an active member");
   }
 
   private assertVersion(row: InspectionRow, expected: number): void {

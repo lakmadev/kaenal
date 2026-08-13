@@ -25,6 +25,13 @@ export interface Authenticator {
    * A credential belonging to another tenant must return null or throw
    * UNAUTHENTICATED — never a distinguishable error, which would confirm the
    * account exists elsewhere (rule 8).
+   *
+   * `allowAnonymous` marks routes that establish identity from their own
+   * inputs (sign-in from body credentials, accept-invite/reset from a token) and
+   * never act on an existing session's authority. On those routes a leftover
+   * valid session cookie must NOT trigger CSRF enforcement: double-submit CSRF
+   * guards a mutation made *with* the session, and these routes make none — so
+   * demanding a token only locks the user out of the page that recovers them.
    */
-  authenticate(req: Request, tx: Tx): Promise<Session | null>;
+  authenticate(req: Request, tx: Tx, allowAnonymous: boolean): Promise<Session | null>;
 }

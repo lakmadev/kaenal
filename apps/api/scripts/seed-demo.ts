@@ -115,9 +115,37 @@ async function main(): Promise<void> {
     tx.query<{ id: string }>("SELECT id FROM inspection_templates WHERE name = $1 LIMIT 1", [TEMPLATE_NAME]),
   );
   if (already.rows.length > 0) {
-    console.log(`Demo already seeded. Sign in at /login as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
+    console.log(`Demo already seeded. Sign in at /sign-in as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
     await control.end();
     return;
+  }
+
+  // A handful of colleagues so people-facing screens (8D team, owners, leads)
+  // resolve to real names via the members directory instead of raw ids.
+  const DEMO_MEMBERS = [
+    { email: "sarah.chen@demo.kaenal.io", name: "Sarah Chen", role: "manager" },
+    { email: "marco.reyes@demo.kaenal.io", name: "Marco Reyes", role: "inspector" },
+    { email: "priya.nair@demo.kaenal.io", name: "Priya Nair", role: "auditor" },
+    { email: "tom.fischer@demo.kaenal.io", name: "Tom Fischer", role: "inspector" },
+  ] as const;
+  const member: Record<string, string> = {};
+  for (const m of DEMO_MEMBERS) {
+    const { rows } = await control.query<{ id: string }>(
+      `INSERT INTO control.users (email, name, password_hash)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [m.email, m.name, hash],
+    );
+    member[m.name] = rows[0]!.id;
+    await withTenant(tenantId, null, async (tx) => {
+      await tx.query(
+        `INSERT INTO memberships (tenant_id, user_id, role, status)
+         VALUES ($1, $2, $3, 'active')
+         ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role, status = 'active'`,
+        [tenantId, rows[0]!.id, m.role],
+      );
+    });
   }
 
   let demoDocId = "";
@@ -205,16 +233,84 @@ async function main(): Promise<void> {
     );
     await capas.advance(tx, tenantId, userId, capa.id, { to: "root_cause", version: capa.lockVersion }, ctx);
 
-    // An 8D opened from that NCR (blocks its close) with D1 complete, so the
-    // 8D endpoints show a live case mid-investigation.
-    const eightD = await eightDs.create(
+    // An 8D opened from that NCR (blocks its close), driven to D4 in-progress
+    // with the full structured payload each discipline renders — so the 8D
+    // detail screen shows a live mid-investigation case, not an empty shell.
+    const lead = member["Sarah Chen"]!;
+    const marco = member["Marco Reyes"]!;
+    const priya = member["Priya Nair"]!;
+    const tom = member["Tom Fischer"]!;
+    let e8 = await eightDs.create(
       tx,
       tenantId,
       userId,
-      { title: "8D — Guard interlock fault", ncrId: ncr.id },
+      {
+        title: "Recurring weld porosity on Part #A-7742",
+        ncrId: ncr.id,
+        teamLeadId: lead,
+        championId: userId,
+        memberIds: [marco, priya, tom],
+        targetAt: "2026-05-15T00:00:00.000Z",
+      },
       ctx,
     );
-    await eightDs.updateStep(tx, tenantId, userId, eightD.id, 1, { status: "complete", version: eightD.lockVersion }, ctx);
+    const step = async (n: number, status: "complete" | "in_progress", data: Record<string, unknown>): Promise<void> => {
+      e8 = await eightDs.updateStep(tx, tenantId, userId, e8.id, n, { status, data, version: e8.lockVersion }, ctx);
+    };
+    // D1 — team + AI provenance (D1–D4 drafted from the linked NCR).
+    await step(1, "complete", {
+      teamRoles: { [lead]: "Team Lead", [marco]: "Production", [tom]: "Inspector", [priya]: "Supplier Quality" },
+      ai: { model: "Kaenal Quality Copilot", draftedFrom: ncr.code, draftedAt: "2026-04-16T09:12:00.000Z" },
+    });
+    // D2 — problem statement, IS/IS-NOT, quantification.
+    await step(2, "complete", {
+      problemStatement:
+        "Since April 10, 2026, Part #A-7742 (door hinge assembly) from Weld Cell 3 has exhibited porosity at the A-pillar weld joint. Defect rate reached 5.8% on April 15 vs. the 0.5% IATF threshold. No defects on parallel Weld Cells 1, 2, or 4. Customer notified; containment active.",
+      isIsNot: {
+        what: { is: "Porosity at A-pillar weld joint, Part #A-7742", isNot: "Other weld joints on same part; other parts on same cell" },
+        where: { is: "Weld Cell 3, Station 3B", isNot: "Cells 1, 2, 4; Station 3A" },
+        when: { is: "Since April 10, 2026 — all shifts", isNot: "Before April 10; during PM windows" },
+        howMuch: { is: "5.8% defect rate (peak); 2,840 parts quarantined", isNot: "<0.5% baseline; other parts unaffected" },
+        who: { is: "All 3 welders on Station 3B", isNot: "Individual operator error" },
+      },
+      cost: 84000,
+      quantity: 2840,
+    });
+    // D3 — interim containment + AI-proposed containment for the copilot rail.
+    await step(3, "complete", {
+      actions: [
+        { title: "100% visual inspection at Station 3B output", owner: marco, status: "completed" },
+        { title: "Quarantine 2,840 suspect parts", owner: marco, status: "completed" },
+        { title: "Notify Tier-1 OEM customer", owner: userId, status: "completed" },
+        { title: "Shift production to Weld Cell 1 for critical orders", owner: marco, status: "completed" },
+      ],
+      effective: true,
+      aiContainment: [
+        { id: "c1", title: "Install inline shielding-gas flow sensor + low-flow alarm at Station 3B", rationale: "Detects regulator drift in real time. This containment closed 8D-2025-0047 in 21 days.", impact: "high" },
+        { id: "c2", title: "100% X-ray of A-pillar joints until root cause is verified", rationale: "Current visual-only screen misses subsurface voids; raises detection to 100%.", impact: "high" },
+        { id: "c3", title: "Quarantine wire lot ER70S-6 #4471 pending incoming re-test", rationale: "Lot introduced 2 days before defect onset; composition is edge-of-spec.", impact: "med" },
+      ],
+    });
+    // D4 — current discipline: 5-Whys seed, ranked AI root causes, similar cases.
+    await step(4, "in_progress", {
+      fiveWhys: [
+        { why: "Why is Part #A-7742 showing porosity at the A-pillar weld?", answer: "Shielding gas coverage is insufficient during the weld cycle." },
+        { why: "Why is shielding gas coverage insufficient?", answer: "Gas flow rate is below the 18 L/min spec — measured at 13–14 L/min." },
+        { why: "Why is gas flow below spec?", answer: "Primary regulator on Station 3B is drifting under load." },
+        { why: "Why is the regulator drifting?", answer: "Regulator diaphragm worn — unit is 4 years old past its 3-year service interval." },
+        { why: "", answer: "" },
+      ],
+      aiSuggestions: [
+        { confidence: 85, cause: "Shielding gas regulator drift on Station 3B", evidence: "Wire feed speed and amperage drift correlate with intermittent gas flow. Regulator last serviced 4 years ago (3-year interval).", similar: "8D-2025-0047" },
+        { confidence: 62, cause: "Supplier batch variation — wire grade ER70S-6", evidence: "New batch from alternate supplier introduced April 8. Composition within tolerance but at edge.", similar: "NCR-2026-0085" },
+        { confidence: 41, cause: "Fixture wear (J-12)", evidence: "Fixture #J-12 last calibrated 6 months ago — may affect joint geometry.", similar: null },
+      ],
+      similarCases: [
+        { id: "8D-2025-0047", kind: "8d", title: "Weld porosity — Station 2A regulator drift", match: 92, rootCause: "Gas regulator past service interval", outcome: "closed", closedIn: "21 days", capa: "PM interval shortened to 18 mo" },
+        { id: "NCR-2026-0085", kind: "ncr", title: "ER70S-6 wire batch composition variation", match: 74, rootCause: "Supplier composition at tolerance edge", outcome: "active", closedIn: "open", capa: "Added incoming PMI verification" },
+        { id: "8D-2024-0112", kind: "8d", title: "Fillet weld voids — Weld Cell 4", match: 61, rootCause: "Torch tip electrode wear", outcome: "closed", closedIn: "34 days", capa: "Added consumable tip-life counter" },
+      ],
+    });
 
     // A certification audit in fieldwork with a finding that spawned a CAPA, so
     // the audit + audit-findings endpoints show a live case with a linkage.
@@ -307,7 +403,7 @@ async function main(): Promise<void> {
   const aiGateway = new AiGatewayService(new StubAiProvider());
   await generateDocumentSummary({ tenantId, userId, documentId: demoDocId }, { gateway: aiGateway });
 
-  console.log(`Seeded. Sign in at /login as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
+  console.log(`Seeded. Sign in at /sign-in as ${EMAIL} / ${PASSWORD} (workspace: ${TENANT}).`);
   await control.end();
 }
 

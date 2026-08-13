@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query } from
 import { z } from "zod";
 import {
   PageQuery,
+  StarNotificationBody,
   UpdateNotificationPrefsBody,
   type CountDto,
   type NotificationDto,
@@ -16,7 +17,11 @@ import { NOTIFICATIONS_SERVICE } from "../tokens.js";
 import type { NotificationsService } from "./notifications.service.js";
 
 const uuid = z.string().uuid();
-const ListQuery = PageQuery.extend({ unread: z.coerce.boolean().optional() });
+const ListQuery = PageQuery.extend({
+  unread: z.coerce.boolean().optional(),
+  starred: z.coerce.boolean().optional(),
+  entityKind: z.string().max(40).optional(),
+});
 
 /**
  * Notification routes (06). No `@RequireCapability`: these are personal to the
@@ -32,6 +37,8 @@ export class NotificationsController {
     const q = parse(ListQuery, query);
     return this.notifications.list(currentTx(), actorIdOf(), {
       ...(q.unread !== undefined ? { unread: q.unread } : {}),
+      ...(q.starred !== undefined ? { starred: q.starred } : {}),
+      ...(q.entityKind !== undefined ? { entityKind: q.entityKind } : {}),
       ...(q.cursor !== undefined ? { cursor: q.cursor } : {}),
       limit: q.limit,
     });
@@ -52,6 +59,19 @@ export class NotificationsController {
   @HttpCode(200)
   async markRead(@Param("id") id: string): Promise<NotificationDto> {
     return this.notifications.markRead(currentTx(), actorIdOf(), parse(uuid, id));
+  }
+
+  @Post("v1/notifications/:id/star")
+  @HttpCode(200)
+  async star(@Param("id") id: string, @Body() body: unknown): Promise<NotificationDto> {
+    const { starred } = parse(StarNotificationBody, body);
+    return this.notifications.setStarred(currentTx(), actorIdOf(), parse(uuid, id), starred);
+  }
+
+  @Post("v1/notifications/:id/dismiss")
+  @HttpCode(200)
+  async dismiss(@Param("id") id: string): Promise<CountDto> {
+    return { count: await this.notifications.dismiss(currentTx(), actorIdOf(), parse(uuid, id)) };
   }
 
   @Get("v1/notification-prefs")

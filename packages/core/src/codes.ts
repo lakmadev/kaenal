@@ -16,7 +16,8 @@ export type CodeKind =
   | "audit"
   | "document"
   | "scar"
-  | "supplier";
+  | "supplier"
+  | "ppap";
 
 const PREFIXES: Readonly<Record<CodeKind, string>> = {
   ncr: "NCR",
@@ -27,6 +28,7 @@ const PREFIXES: Readonly<Record<CodeKind, string>> = {
   document: "DOC",
   scar: "SCAR",
   supplier: "SUP",
+  ppap: "PPAP",
 };
 
 /** Sequence width. Numbers beyond 9999 simply get longer rather than wrapping. */

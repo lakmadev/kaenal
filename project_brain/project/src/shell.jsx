@@ -86,6 +86,8 @@ function useIsMobile(bp = 860) {
 const Sidebar = ({ collapsed: collapsedProp, onToggle, route, setRoute, mobile, open, onClose }) => {
   const [expanded, setExpanded] = React.useState({ inspections: true, ncr: true, '8d': true, audits: true, capa: true, reports: true });
   const ent = useEntitlements();
+  const role = useRole();
+  const navItems = visibleNav(NAV, role);
   const activeRoot = route.split('/')[0];
   // In the mobile drawer the sidebar is always full-width (never the 72px mini rail).
   const collapsed = mobile ? false : collapsedProp;
@@ -127,7 +129,7 @@ const Sidebar = ({ collapsed: collapsedProp, onToggle, route, setRoute, mobile, 
 
       {/* Nav */}
       <nav style={{ flex: 1, overflowY: 'auto', padding: collapsed ? '12px 8px' : '12px 12px' }}>
-        {NAV.map((item) => {
+        {navItems.map((item) => {
           if (item.divider) {
             if (collapsed) return <div key={item.id} style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '10px 8px' }} />;
             return (
@@ -158,7 +160,7 @@ const Sidebar = ({ collapsed: collapsedProp, onToggle, route, setRoute, mobile, 
                 }}
                 onMouseEnter={(e) => {if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.04)';}}
                 onMouseLeave={(e) => {if (!isActive) e.currentTarget.style.background = 'transparent';}}>
-                
+
                 <Icon name={item.icon} size={18} stroke={1.75} />
                 {!collapsed && <span style={{ flex: 1, textAlign: 'left' }}>{item.label}</span>}
                 {!collapsed && item.badge &&
@@ -225,6 +227,8 @@ const Sidebar = ({ collapsed: collapsedProp, onToggle, route, setRoute, mobile, 
 
 const TopBar = ({ onToggleSidebar, breadcrumbs, onToggleTheme, theme, onOpenAI, aiOpen, onOpenCmd, onOpenNotifs, aiProminence, openCreate, liveMode, onToggleLive, onSignOut, setRoute, mobile }) => {
   const [profileOpen, setProfileOpen] = React.useState(false);
+  const roleId = useRole();
+  const role = roleById(roleId);
   const profileRef = React.useRef(null);
   React.useEffect(() => {
     if (!profileOpen) return;
@@ -279,7 +283,7 @@ const TopBar = ({ onToggleSidebar, breadcrumbs, onToggleTheme, theme, onOpenAI, 
         fontSize: 13, width: 400, maxWidth: '40vw'
       }}>
         <Icon name="search" size={16} stroke={1.75} />
-        <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Search inspections, NCRs, 8Ds…</span>
+        <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} data-comment-anchor="13e6cc719d-span-224-9">Search inspections, NCRs, 8Ds…</span>
         <kbd style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)', padding: '3px 7px', border: '1px solid var(--border)', borderRadius: 4, background: 'var(--surface)', color: 'var(--text-muted)', flexShrink: 0 }}>⌘K</kbd>
       </button>
 
@@ -328,7 +332,7 @@ const TopBar = ({ onToggleSidebar, breadcrumbs, onToggleTheme, theme, onOpenAI, 
           <Avatar user="u1" size={30} />
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, textAlign: 'left' }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Manjunath K.</span>
-            <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>Quality Manager</span>
+            <span style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{role.label}</span>
           </div>
           <Icon name="chevronDown" size={14} stroke={1.75} style={{ color: 'var(--text-muted)', marginLeft: 2 }} />
         </button>
@@ -352,7 +356,7 @@ const TopBar = ({ onToggleSidebar, breadcrumbs, onToggleTheme, theme, onOpenAI, 
                 <div style={{ fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>m.kumar@precision-auto.com</div>
                 <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-soft)', padding: '2px 7px', borderRadius: 999, border: '1px solid var(--border)' }}>
                   <span style={{ width: 6, height: 6, borderRadius: 999, background: '#16a34a' }}></span>
-                  Quality Manager · Pune-1
+                  {role.label} · Pune-1
                 </div>
               </div>
             </div>
@@ -403,6 +407,32 @@ const TopBar = ({ onToggleSidebar, breadcrumbs, onToggleTheme, theme, onOpenAI, 
                   </div>
                 </button>
               ))}
+            </div>
+
+            {/* Role switcher (demo control — in production the role comes from the session) */}
+            <div style={{ borderTop: '1px solid var(--border)', padding: 6 }}>
+              <div style={{ padding: '6px 10px 4px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="key" size={11} stroke={2} /> View as role
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '2px 8px 6px' }}>
+                {ROLE_ORDER.map(rid => {
+                  const r = roleById(rid); const active = rid === roleId;
+                  return (
+                    <button key={rid} onClick={() => { setRole(rid); }} title={r.desc} role="menuitemradio" aria-checked={active}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px',
+                        borderRadius: 'var(--r-full)', cursor: 'pointer', fontSize: 11.5, fontWeight: 600,
+                        color: active ? 'white' : 'var(--text)',
+                        background: active ? r.color : 'var(--bg-subtle)',
+                        border: `1px solid ${active ? r.color : 'var(--border)'}`
+                      }}>
+                      <span style={{ width: 6, height: 6, borderRadius: 999, background: active ? 'white' : r.color }}></span>
+                      {r.short}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ padding: '0 10px 6px', fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.4 }}>{role.desc}</div>
             </div>
 
             {/* Workspace switcher */}

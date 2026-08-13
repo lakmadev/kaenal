@@ -4,15 +4,19 @@ import { withAudit, type Tx } from "@kaenal/db";
 import {
   computeDueAt,
   counterYear,
+  firingBlockRules,
   formatCode,
   isPlantScoped,
   ncrMachine,
   type BusinessHours,
   type Membership,
   type NcrAction,
+  type NcrFacts,
+  type NcrRule,
   type SlaConfigByPriority,
 } from "@kaenal/core";
 import type {
+  AssignNcrBody,
   CreateNcrActionBody,
   CreateNcrBody,
   NcrActionDto,
@@ -31,6 +35,7 @@ import {
   type Cursor,
 } from "../http/pagination.js";
 import type { AuditContext } from "./audit-context.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
 
 interface NcrRow {
   id: string;
@@ -78,6 +83,7 @@ function toNcrDto(row: NcrRow): NcrDto {
     areaId: row.area_id,
     dueAt: iso(row.due_at),
     slaState: row.sla_state as NcrDto["slaState"],
+    eightDId: row.eight_d_id,
     resolvedBy: row.resolved_by,
     resolvedAt: iso(row.resolved_at),
     verifiedBy: row.verified_by,
@@ -129,6 +135,10 @@ function toActionDto(row: ActionRow): NcrActionDto {
  */
 @Injectable()
 export class NcrService {
+  /** Defaults to a standalone service so seeds/tests can `new NcrService()`;
+   *  the DI container passes the app's producer-backed instance. */
+  constructor(private readonly notifications: NotificationsService = new NotificationsService()) {}
+
   async list(
     tx: Tx,
     membership: Membership,
@@ -199,6 +209,17 @@ export class NcrService {
 
     // A plant-scoped author can only raise NCRs inside their plants.
     this.assertInScope(membership, plantId);
+
+    // Configurable NCR validation rules (Settings > Process): a firing `block`
+    // rule rejects the create before any row/counter is written.
+    await this.enforceValidationRules(tx, {
+      priority: body.priority,
+      source,
+      title: body.title,
+      description: body.description ?? null,
+      plant: plantId,
+      area: body.areaId ?? null,
+    });
 
     const now = new Date();
     const tz = await this.plantTimezone(tx, plantId);
@@ -275,6 +296,19 @@ export class NcrService {
   }
 
   /** Manager-side transitions (everything except verify). */
+  /** Load the tenant's enabled block rules and reject on the first that fires.
+   *  The evaluation itself is the pure `firingBlockRules` in core (rule 5). */
+  private async enforceValidationRules(tx: Tx, facts: NcrFacts): Promise<void> {
+    const { rows } = await tx.query<NcrRule>(
+      `SELECT field, operator, value, action, message, enabled
+         FROM ncr_validation_rules
+        WHERE deleted_at IS NULL AND enabled = true AND action = 'block'`,
+    );
+    const firing = firingBlockRules(rows, facts);
+    const first = firing[0];
+    if (first !== undefined) throw new ApiError("VALIDATION_FAILED", first.message);
+  }
+
   async transition(
     tx: Tx,
     tenantId: string,
@@ -377,6 +411,68 @@ export class NcrService {
           "status = 'verified', verified_by = $3, verified_at = now()",
           [actorId],
         ),
+    );
+  }
+
+  /**
+   * Assign, reassign, or clear the owner (P25). Orthogonal to the lifecycle
+   * machine — it never moves `status`, so a manager can hand an in-progress NCR
+   * to someone else without pretending it re-entered "assigned". `ownerId` is a
+   * uuid to assign or `null` to unassign; a non-null id must be an active member.
+   * Optimistic-concurrency guarded and audited (`assigned`, before/after) in one
+   * transaction. Plant scope is enforced first (out-of-scope → 404, rule 8).
+   */
+  async assign(
+    tx: Tx,
+    tenantId: string,
+    membership: Membership,
+    actorId: string,
+    id: string,
+    body: AssignNcrBody,
+    context: AuditContext,
+  ): Promise<NcrDto> {
+    const row = await this.fetch(tx, id);
+    if (row === null) throw notFound();
+    this.assertInScope(membership, row.plant_id);
+    this.assertVersion(row.lock_version, body.version);
+
+    if (body.ownerId !== null) await this.assertMember(tx, body.ownerId);
+
+    return withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "ncr",
+        entityId: id,
+        action: "assigned",
+        before: { ownerId: row.owner_id },
+        after: { ownerId: body.ownerId },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const dto = await this.applyNcrUpdate(t, id, body.version, "owner_id = $3, updated_by = $4", [
+          body.ownerId,
+          actorId,
+        ]);
+        // Tell the new owner they've been assigned — but never notify someone of
+        // their own action, and skip an unassign (ownerId = null). Runs in the
+        // same transaction, so the notification commits with the assignment.
+        if (body.ownerId !== null && body.ownerId !== actorId) {
+          await this.notifications.notify(t, tenantId, {
+            userId: body.ownerId,
+            actorId,
+            kind: "ncr_assigned",
+            title: `${dto.code} was assigned to you`,
+            entityKind: "ncr",
+            entityId: id,
+          });
+        }
+        return dto;
+      },
     );
   }
 

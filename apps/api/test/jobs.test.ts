@@ -10,6 +10,8 @@ import { recomputeSlaStatesForTenant } from "../src/jobs/processors/sla.js";
 import { scanFile } from "../src/jobs/processors/scan-file.js";
 import { deliverNotification } from "../src/jobs/processors/deliver-notification.js";
 import { StubDelivery, StubScanner } from "../src/jobs/ports.js";
+import { BullMqProducer } from "../src/jobs/producer.js";
+import { QUEUES } from "../src/jobs/job-types.js";
 
 /**
  * Jobs runtime (06 §1). The processors are tested directly against real Postgres
@@ -217,5 +219,24 @@ describe("BullMQ wiring", () => {
     await queue.obliterate({ force: true });
     await queue.close();
     await connection.quit();
+  });
+
+  it("uses a colon-free custom job id (BullMQ rejects ':')", async () => {
+    // Regression: the producer once used `scan:<uuid>`; BullMQ reserves ':' as
+    // its key separator and threw "Custom Id cannot contain :", which surfaced
+    // as a 500 on file-upload completion. A non-throwing enqueue proves the fix.
+    const producer = new BullMqProducer(process.env["REDIS_URL"] ?? "redis://localhost:6380");
+    const fileId = randomUUID();
+    await expect(producer.scanFile({ tenantId: acmeId, fileId })).resolves.toBeUndefined();
+
+    const connection = new IORedis(process.env["REDIS_URL"] ?? "redis://localhost:6380", {
+      maxRetriesPerRequest: null,
+    });
+    const queue = new Queue(QUEUES.files, { connection });
+    expect(await queue.getJob(`scan-${fileId}`)).not.toBeUndefined();
+    await queue.obliterate({ force: true });
+    await queue.close();
+    await connection.quit();
+    await producer.close();
   });
 });

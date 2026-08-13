@@ -4,16 +4,22 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Clock, Calendar, MapPin, TriangleAlert } from "lucide-react";
 import type { NcrDto, NcrStatus, NcrTransition } from "@kaenal/types";
+import { apiQueries } from "@kaenal/api-client";
 import { cn } from "@/lib/cn";
 import { longDate, titleCase } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
-import { useMe } from "@/hooks/use-me";
-import { useNcr, useTransitionNcr, useVerifyNcr } from "@/hooks/use-ncrs";
+import { getApiClient } from "@/lib/api";
+import { useMe, hasCapability } from "@/hooks/use-me";
+import { usePrefetchQueries } from "@/hooks/use-prefetch";
+import { useNcr, useTransitionNcr, useVerifyNcr, useAssignNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, PriorityBadge, Skeleton, EmptyState, useToast } from "@/components/ui";
-import { SlaIndicator, OwnerCell } from "./ncr-bits";
+import { AssigneePicker } from "@/components/assignee-picker";
+import { ActivityFeed } from "@/components/activity-feed";
+import { SlaIndicator } from "./ncr-bits";
 import { NcrActionsTab } from "./ncr-actions";
+import { NcrInvestigationTab } from "./ncr-investigation";
 
-type Tab = "details" | "actions" | "history";
+type Tab = "details" | "investigation" | "actions" | "history";
 
 /** Contextual transitions per status — the server is the final guard, so an
  *  illegal attempt surfaces as a toast; this just offers the sensible next steps. */
@@ -63,17 +69,51 @@ export function NcrDetail({ id }: { id: string }): React.ReactElement {
     );
   }
 
-  return <NcrDetailView ncr={ncr} meId={me?.userId} />;
+  return (
+    <NcrDetailView
+      ncr={ncr}
+      meId={me?.userId}
+      canManage={hasCapability(me, "ncr:manage")}
+      canVerify={hasCapability(me, "ncr:verify")}
+    />
+  );
 }
 
-function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined }): React.ReactElement {
+function NcrDetailView({
+  ncr,
+  meId,
+  canManage,
+  canVerify,
+}: {
+  ncr: NcrDto;
+  meId: string | undefined;
+  canManage: boolean;
+  canVerify: boolean;
+}): React.ReactElement {
   const router = useRouter();
   const toast = useToast();
   const transition = useTransitionNcr();
   const verify = useVerifyNcr();
+  const assign = useAssignNcr();
   const [tab, setTab] = useState<Tab>("details");
 
+  // Warm the data-fetching tabs so the first click doesn't flash a spinner.
+  const client = getApiClient();
+  usePrefetchQueries([
+    apiQueries.auditEvents.list(client, "ncr", ncr.id),
+    apiQueries.ncrs.actions(client, ncr.id),
+  ]);
+
   const busy = transition.isPending || verify.isPending;
+
+  const runAssign = (ownerId: string | null): void =>
+    assign.mutate(
+      { id: ncr.id, body: { version: ncr.lockVersion, ownerId } },
+      {
+        onSuccess: () => toast.success(ownerId === null ? "Unassigned" : "Owner updated"),
+        onError: (e) => toast.error(errorMessage(e)),
+      },
+    );
 
   const runTransition = (to: NcrTransition, needsOwner?: boolean): void => {
     const body =
@@ -122,27 +162,28 @@ function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined })
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {ncr.status === "resolved" && (
+            {ncr.status === "resolved" && canVerify && (
               <Button variant="primary" loading={busy} onClick={runVerify}>
                 Verify
               </Button>
             )}
-            {transitionsFor(ncr.status).map((t, i) => (
-              <Button
-                key={t.to}
-                variant={i === 0 && ncr.status !== "resolved" ? "primary" : "ghost"}
-                loading={busy}
-                onClick={() => runTransition(t.to, t.needsOwner)}
-              >
-                {t.label}
-              </Button>
-            ))}
+            {canManage &&
+              transitionsFor(ncr.status).map((t, i) => (
+                <Button
+                  key={t.to}
+                  variant={i === 0 && ncr.status !== "resolved" ? "primary" : "ghost"}
+                  loading={busy}
+                  onClick={() => runTransition(t.to, t.needsOwner)}
+                >
+                  {t.label}
+                </Button>
+              ))}
           </div>
         </div>
       </div>
 
       <div className="k-tabs">
-        {(["details", "actions", "history"] as Tab[]).map((t) => (
+        {(["details", "investigation", "actions", "history"] as Tab[]).map((t) => (
           <button key={t} type="button" className={cn("k-tab", tab === t && "active")} onClick={() => setTab(t)}>
             {titleCase(t)}
           </button>
@@ -150,14 +191,11 @@ function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined })
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_280px]">
-        <div>
+        <div key={tab} className="fade-in">
           {tab === "details" && <DetailsTab ncr={ncr} />}
+          {tab === "investigation" && <NcrInvestigationTab ncr={ncr} />}
           {tab === "actions" && <NcrActionsTab ncrId={ncr.id} />}
-          {tab === "history" && (
-            <div className="k-surface">
-              <EmptyState icon={Clock} title="Activity timeline" body="The audit trail view lands with the shared history component." />
-            </div>
-          )}
+          {tab === "history" && <ActivityFeed entityKind="ncr" entityId={ncr.id} meId={meId} noun="NCR" />}
         </div>
 
         <aside className="k-surface flex h-fit flex-col gap-3.5 p-4">
@@ -165,7 +203,13 @@ function NcrDetailView({ ncr, meId }: { ncr: NcrDto; meId: string | undefined })
             <StatusBadge status={ncr.status} />
           </Meta>
           <Meta label="Owner">
-            <OwnerCell ownerId={ncr.ownerId} meId={meId} />
+            <AssigneePicker
+              userId={ncr.ownerId}
+              meId={meId}
+              canManage={canManage}
+              busy={assign.isPending}
+              onAssign={runAssign}
+            />
           </Meta>
           <Meta label="Priority">
             <PriorityBadge priority={ncr.priority} />

@@ -106,13 +106,15 @@ async function token(email: string): Promise<string> {
   return decodeURIComponent(session?.split("=")[1]?.split(";")[0] ?? "");
 }
 
-function authed(method: "get" | "post", path: string, bearer: string) {
+function authed(method: "get" | "post" | "put", path: string, bearer: string) {
   return request(server())[method](path).set("X-Tenant-Id", ACME).set("Authorization", `Bearer ${bearer}`);
 }
 
 let adminTok = "";
 let inspectorTok = ""; // scoped to plantA
 let viewerTok = "";
+let adminUserId = "";
+let inspectorUserId = "";
 
 beforeAll(async () => {
   control = new pg.Pool({ connectionString: process.env["DATABASE_URL"] });
@@ -120,8 +122,8 @@ beforeAll(async () => {
   plantA = await seedPlant(acmeId, "TESTPA");
   plantB = await seedPlant(acmeId, "TESTPB");
 
-  await seedMember(acmeId, "insp-admin@acme.test", "admin", []);
-  await seedMember(acmeId, "insp-scoped@acme.test", "inspector", [plantA]);
+  adminUserId = await seedMember(acmeId, "insp-admin@acme.test", "admin", []);
+  inspectorUserId = await seedMember(acmeId, "insp-scoped@acme.test", "inspector", [plantA]);
   await seedMember(acmeId, "insp-viewer@acme.test", "viewer", []);
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -139,11 +141,17 @@ afterAll(async () => {
       "SELECT id FROM control.users WHERE email LIKE '%@acme.test' AND email LIKE 'insp-%'",
     )
   ).rows.map((r) => r.id);
+  // Completing an inspection can spawn findings that FK to it — clear them
+  // before the inspections they reference, or the delete violates the FK.
+  await control.query(
+    "DELETE FROM findings WHERE inspection_id IN (SELECT id FROM inspections WHERE title LIKE 'TEST %' OR code LIKE 'INS-%')",
+  );
   await control.query("DELETE FROM inspections WHERE title LIKE 'TEST %' OR code LIKE 'INS-%'");
   await control.query("DELETE FROM inspection_templates WHERE name LIKE 'TEST %'");
   await control.query("DELETE FROM plants WHERE code LIKE 'TESTP%'");
   if (ids.length > 0) {
     await control.query("DELETE FROM sessions WHERE user_id = ANY($1)", [ids]);
+    await control.query("DELETE FROM notifications WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM memberships WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM control.users WHERE id = ANY($1)", [ids]);
   }
@@ -190,6 +198,55 @@ describe("templates", () => {
     });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe("FORBIDDEN");
+  });
+
+  it("edits a DRAFT in place (no duplicate) and refuses to edit a published one", async () => {
+    const created = await authed("post", "/v1/inspection-templates", adminTok).send({ name: "TEST Draft Edit", schema: SCHEMA });
+    const { id, lockVersion } = created.body as { id: string; lockVersion: number };
+
+    const renamed = { ...SCHEMA, sections: [{ ...SCHEMA.sections[0], title: "Renamed section" }] };
+    const upd = await authed("put", `/v1/inspection-templates/${id}`, adminTok).send({
+      name: "TEST Draft Edit v2",
+      schema: renamed,
+      version: lockVersion,
+    });
+    expect(upd.status).toBe(200);
+    expect(upd.body.id).toBe(id); // SAME row — not a duplicate
+    expect(upd.body.name).toBe("TEST Draft Edit v2");
+
+    // Publish it, then editing the published one in place is a CONFLICT.
+    const pub = await authed("post", `/v1/inspection-templates/${id}/publish`, adminTok).send({ version: upd.body.lockVersion });
+    expect(pub.status).toBe(200);
+    const blocked = await authed("put", `/v1/inspection-templates/${id}`, adminTok).send({
+      name: "TEST Draft Edit v3",
+      schema: SCHEMA,
+      version: pub.body.lockVersion,
+    });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.error.code).toBe("CONFLICT");
+  });
+
+  it("versions a published template and supersedes it via archive", async () => {
+    const id = await publishedTemplate("TEST Versioned");
+    const src = await authed("get", `/v1/inspection-templates/${id}`, adminTok);
+    expect(src.body.version).toBe(1);
+
+    // New version (same lineage/name) → version 2, its own draft row.
+    const next = await authed("post", `/v1/inspection-templates/${id}/version`, adminTok).send({ name: "TEST Versioned", schema: SCHEMA });
+    expect(next.status).toBe(201);
+    expect(next.body.id).not.toBe(id);
+    expect(next.body.version).toBe(2);
+    expect(next.body.status).toBe("draft");
+
+    // Publish the new version, archive the old one — the old drops out of the list.
+    await authed("post", `/v1/inspection-templates/${next.body.id}/publish`, adminTok).send({ version: next.body.lockVersion });
+    const arch = await authed("post", `/v1/inspection-templates/${id}/archive`, adminTok).send({ version: src.body.lockVersion });
+    expect(arch.status).toBe(200);
+    expect(arch.body.status).toBe("archived");
+    // Archive is idempotent.
+    const again = await authed("post", `/v1/inspection-templates/${id}/archive`, adminTok).send({ version: arch.body.lockVersion });
+    expect(again.status).toBe(200);
+    expect(again.body.status).toBe("archived");
   });
 });
 
@@ -319,6 +376,75 @@ describe("plant scoping (rule 8, one level down)", () => {
     const templateId = await publishedTemplate("TEST ViewerCreate");
     const res = await authed("post", "/v1/inspections", viewerTok).send({ title: "TEST nope", templateId });
     expect(res.status).toBe(403);
+  });
+});
+
+describe("inspector assignment (P25)", () => {
+  it("assigns, reassigns, and clears the inspector without moving status — each audited", async () => {
+    const templateId = await publishedTemplate("TEST Assign");
+    const created = await authed("post", "/v1/inspections", adminTok).send({ title: "TEST assignable", templateId });
+    expect(created.status).toBe(201);
+    let ins = created.body as { id: string; status: string; inspectorId: string | null; lockVersion: number };
+    expect(ins.status).toBe("scheduled");
+
+    const assigned = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion,
+      inspectorId: inspectorUserId,
+    });
+    expect(assigned.status).toBe(200);
+    expect(assigned.body.inspectorId).toBe(inspectorUserId);
+    expect(assigned.body.status).toBe("scheduled"); // orthogonal to the machine
+    ins = assigned.body as typeof ins;
+
+    const { rows } = await control.query<{ before: { inspectorId?: string | null }; after: { inspectorId?: string | null } }>(
+      `SELECT before, after FROM audit_events
+        WHERE entity_kind = 'inspection' AND entity_id = $1 AND action = 'assigned'
+        ORDER BY created_at DESC LIMIT 1`,
+      [ins.id],
+    );
+    expect(rows[0]?.before).toEqual({ inspectorId: null });
+    expect(rows[0]?.after).toEqual({ inspectorId: inspectorUserId });
+
+    const reassigned = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion,
+      inspectorId: adminUserId,
+    });
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.inspectorId).toBe(adminUserId);
+    ins = reassigned.body as typeof ins;
+
+    const cleared = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion,
+      inspectorId: null,
+    });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.inspectorId).toBeNull();
+  });
+
+  it("rejects a non-member, a stale version, and a viewer", async () => {
+    const templateId = await publishedTemplate("TEST AssignGuard");
+    const created = await authed("post", "/v1/inspections", adminTok).send({ title: "TEST guard", templateId });
+    const ins = created.body as { id: string; lockVersion: number };
+
+    const nonMember = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion,
+      inspectorId: randomUUID(),
+    });
+    expect(nonMember.status).toBe(422);
+    expect(nonMember.body.error.code).toBe("VALIDATION_FAILED");
+
+    const stale = await authed("post", `/v1/inspections/${ins.id}/assign`, adminTok).send({
+      version: ins.lockVersion + 5,
+      inspectorId: inspectorUserId,
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe("STALE_WRITE");
+
+    const viewer = await authed("post", `/v1/inspections/${ins.id}/assign`, viewerTok).send({
+      version: ins.lockVersion,
+      inspectorId: inspectorUserId,
+    });
+    expect(viewer.status).toBe(403);
   });
 });
 

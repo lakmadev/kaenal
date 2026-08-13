@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import { BarChart3 } from "lucide-react";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { ReportsHome } from "@/features/reports/reports-home";
 
 export const metadata: Metadata = { title: "Reports" };
 
 export default function Page(): React.ReactElement {
-  return <ModulePlaceholder title="Reports" icon={BarChart3} />;
+  return <ReportsHome />;
 }

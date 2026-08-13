@@ -9,8 +9,11 @@ import {
   MAX_FAILED_ATTEMPTS,
   MIN_PASSWORD_LENGTH,
   REFRESH_TOKEN_TTL_MS,
+  mfaRequiredFor,
+  PARTNER_SESSION_TTL_MS,
   registerFailure,
   registerSuccess,
+  sessionTtlFor,
   slideSessionExpiry,
   WEB_SESSION_TTL_MS,
 } from "../src/auth-policy.js";
@@ -113,6 +116,22 @@ describe("session lifetimes (03 §2)", () => {
 
   it("slides the expiry forward from now", () => {
     expect(slideSessionExpiry(NOW).getTime()).toBe(NOW.getTime() + WEB_SESSION_TTL_MS);
+  });
+
+  it("gives external partners a short session and internal roles the standard one (P11)", () => {
+    expect(PARTNER_SESSION_TTL_MS).toBe(2 * 60 * 60 * 1000);
+    expect(sessionTtlFor("partner")).toBe(PARTNER_SESSION_TTL_MS);
+    for (const role of ["admin", "manager", "auditor", "inspector", "viewer"] as const) {
+      expect(sessionTtlFor(role)).toBe(WEB_SESSION_TTL_MS);
+    }
+    expect(slideSessionExpiry(NOW, "partner").getTime()).toBe(NOW.getTime() + PARTNER_SESSION_TTL_MS);
+  });
+
+  it("requires MFA for partners only (P11)", () => {
+    expect(mfaRequiredFor("partner")).toBe(true);
+    for (const role of ["admin", "manager", "auditor", "inspector", "viewer"] as const) {
+      expect(mfaRequiredFor(role)).toBe(false);
+    }
   });
 
   it("treats the exact expiry instant as expired", () => {

@@ -6,7 +6,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import type { Storage, StatResult } from "./storage.js";
+import type { Disposition, Storage, StatResult } from "./storage.js";
 
 /**
  * The real object-storage adapter (03 §7): MinIO locally, S3/R2 in the cloud.
@@ -28,7 +28,7 @@ export class S3Storage implements Storage {
     );
   }
 
-  presignGet(key: string, filename: string): Promise<string> {
+  presignGet(key: string, filename: string, disposition: Disposition = "attachment"): Promise<string> {
     // Quote-strip the filename so it cannot break out of the header value.
     const safe = filename.replace(/["\\\r\n]/g, "_");
     return getSignedUrl(
@@ -36,7 +36,7 @@ export class S3Storage implements Storage {
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,
-        ResponseContentDisposition: `attachment; filename="${safe}"`,
+        ResponseContentDisposition: `${disposition}; filename="${safe}"`,
       }),
       { expiresIn: this.ttlSeconds },
     );

@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Calendar, ClipboardCheck, Clock, Play, TriangleAlert, Plus } from "lucide-react";
+import { ArrowLeft, Calendar, Camera, ClipboardCheck, Clock, Play, TriangleAlert, Plus } from "lucide-react";
 import { FindingSeverity, type FindingDto, type FormResponses, type InspectionDto, type TemplateDto } from "@kaenal/types";
 import { scoreInspection, validateResponses } from "@kaenal/core";
+import { apiQueries } from "@kaenal/api-client";
 import { cn } from "@/lib/cn";
 import { longDate, titleCase } from "@/lib/format";
 import { errorMessage } from "@/lib/api-error";
+import { getApiClient } from "@/lib/api";
+import { usePrefetchQueries } from "@/hooks/use-prefetch";
 import {
   useInspection,
   useTemplate,
@@ -15,12 +18,16 @@ import {
   useCompleteInspection,
   useInspectionFindings,
   useCreateFinding,
+  useAssignInspection,
 } from "@/hooks/use-inspections";
 import { useCreateNcr } from "@/hooks/use-ncrs";
 import { Button, StatusBadge, RiskBadge, Skeleton, EmptyState, Input, useToast } from "@/components/ui";
+import { useMe, useCan, hasCapability } from "@/hooks/use-me";
+import { AssigneePicker } from "@/components/assignee-picker";
+import { ActivityFeed } from "@/components/activity-feed";
 import { InspectionForm } from "./form-renderer";
 
-type Tab = "overview" | "findings" | "history";
+type Tab = "overview" | "findings" | "media" | "history";
 
 export function InspectionDetail({ id }: { id: string }): React.ReactElement {
   const router = useRouter();
@@ -45,9 +52,24 @@ export function InspectionDetail({ id }: { id: string }): React.ReactElement {
 function View({ inspection, template }: { inspection: InspectionDto; template: TemplateDto | undefined }): React.ReactElement {
   const router = useRouter();
   const toast = useToast();
+  const { data: me } = useMe();
   const start = useStartInspection();
   const complete = useCompleteInspection();
+  const assign = useAssignInspection();
+  const canManage = hasCapability(me, "inspection:perform");
   const [tab, setTab] = useState<Tab>("overview");
+
+  // Warm the History tab (audit-events) so its first open doesn't flash a spinner.
+  usePrefetchQueries([apiQueries.auditEvents.list(getApiClient(), "inspection", inspection.id)]);
+
+  const runAssign = (inspectorId: string | null): void =>
+    assign.mutate(
+      { id: inspection.id, body: { version: inspection.lockVersion, inspectorId } },
+      {
+        onSuccess: () => toast.success(inspectorId === null ? "Unassigned" : "Inspector updated"),
+        onError: (e) => toast.error(errorMessage(e)),
+      },
+    );
 
   const editable = inspection.status === "in_progress";
   const [responses, setResponses] = useState<FormResponses>(inspection.responses);
@@ -134,43 +156,87 @@ function View({ inspection, template }: { inspection: InspectionDto; template: T
       </div>
 
       <div className="k-tabs">
-        {(["overview", "findings", "history"] as Tab[]).map((t) => (
+        {(["overview", "findings", "media", "history"] as Tab[]).map((t) => (
           <button key={t} type="button" className={cn("k-tab", tab === t && "active")} onClick={() => setTab(t)}>
             {titleCase(t)}
           </button>
         ))}
       </div>
 
-      {tab === "overview" &&
-        (template === undefined ? (
-          <div className="k-surface">
-            <EmptyState icon={TriangleAlert} title="Template unavailable" body="The inspection's template couldn't be loaded." />
+      <div key={tab} className="fade-in">
+      {tab === "overview" && (
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1">
+            {template === undefined ? (
+              <div className="k-surface">
+                <EmptyState icon={TriangleAlert} title="Template unavailable" body="The inspection's template couldn't be loaded." />
+              </div>
+            ) : inspection.status === "scheduled" ? (
+              <div className="k-surface">
+                <EmptyState
+                  icon={Play}
+                  title="Not started yet"
+                  body="Start the inspection to begin filling in the checklist."
+                  action={<Button variant="primary" loading={start.isPending} onClick={onStart}><Play size={14} /> Start inspection</Button>}
+                />
+              </div>
+            ) : (
+              <InspectionForm
+                schema={template.schema}
+                responses={responses}
+                readOnly={!editable}
+                onChange={(itemId, value) => setResponses((r) => ({ ...r, [itemId]: value }))}
+              />
+            )}
           </div>
-        ) : inspection.status === "scheduled" ? (
-          <div className="k-surface">
-            <EmptyState
-              icon={Play}
-              title="Not started yet"
-              body="Start the inspection to begin filling in the checklist."
-              action={<Button variant="primary" loading={start.isPending} onClick={onStart}><Play size={14} /> Start inspection</Button>}
-            />
-          </div>
-        ) : (
-          <InspectionForm
-            schema={template.schema}
-            responses={responses}
-            readOnly={!editable}
-            onChange={(itemId, value) => setResponses((r) => ({ ...r, [itemId]: value }))}
-          />
-        ))}
+
+          <aside className="k-surface flex shrink-0 flex-col gap-3.5 p-4 lg:w-64">
+            <MetaRow label="Status">
+              <StatusBadge status={inspection.status} />
+            </MetaRow>
+            <MetaRow label="Inspector">
+              <AssigneePicker
+                userId={inspection.inspectorId}
+                meId={me?.userId}
+                canManage={canManage}
+                busy={assign.isPending}
+                onAssign={runAssign}
+              />
+            </MetaRow>
+            <MetaRow label="Template">
+              <span className="text-[12.5px]">
+                {template !== undefined ? `${template.name} v${inspection.templateVersion}` : "—"}
+              </span>
+            </MetaRow>
+            <MetaRow label="Scheduled">
+              <span className="mono text-[12px]">{longDate(inspection.scheduledAt)}</span>
+            </MetaRow>
+            <MetaRow label="Started">
+              <span className="mono text-[12px]">{longDate(inspection.startedAt)}</span>
+            </MetaRow>
+            <MetaRow label="Completed">
+              <span className="mono text-[12px]">{longDate(inspection.completedAt)}</span>
+            </MetaRow>
+          </aside>
+        </div>
+      )}
 
       {tab === "findings" && <FindingsTab inspection={inspection} />}
 
-      {tab === "history" && (
+      {tab === "media" && (
         <div className="k-surface">
-          <EmptyState icon={Clock} title="Activity timeline" body="The audit-trail view lands with the shared history component." />
+          <EmptyState
+            icon={Camera}
+            title="No photos attached"
+            body="Photos captured on the mobile inspector app will appear here once media capture is wired up."
+          />
         </div>
       )}
+
+      {tab === "history" && (
+        <ActivityFeed entityKind="inspection" entityId={inspection.id} meId={me?.userId} noun="inspection" />
+      )}
+      </div>
     </div>
   );
 }
@@ -181,6 +247,7 @@ function FindingsTab({ inspection }: { inspection: InspectionDto }): React.React
   const findings = useInspectionFindings(inspection.id);
   const createFinding = useCreateFinding(inspection.id);
   const createNcr = useCreateNcr();
+  const canRaiseNcr = useCan("ncr:create");
   const [adding, setAdding] = useState(false);
   const [itemRef, setItemRef] = useState("");
   const [severity, setSeverity] = useState<FindingDto["severity"]>("major");
@@ -274,11 +341,11 @@ function FindingsTab({ inspection }: { inspection: InspectionDto }): React.React
                   <button onClick={() => router.push(`/ncrs/${f.ncrId!}`)} className="k-link mono text-[12px]">
                     → NCR
                   </button>
-                ) : (
+                ) : canRaiseNcr ? (
                   <Button size="sm" loading={createNcr.isPending} onClick={() => raiseNcr(f)}>
                     Raise NCR
                   </Button>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
@@ -308,6 +375,15 @@ function Block({ label, children }: { label: string; children: React.ReactNode }
     <div>
       <div className="k-overline mb-1.5">{label}</div>
       {children}
+    </div>
+  );
+}
+
+function MetaRow({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="k-overline">{label}</span>
+      <div className="text-right">{children}</div>
     </div>
   );
 }

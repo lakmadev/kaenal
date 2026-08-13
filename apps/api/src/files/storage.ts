@@ -10,11 +10,18 @@ export interface StatResult {
   readonly etag: string;
 }
 
+/** How a presigned GET presents the object: forced download vs inline render. */
+export type Disposition = "attachment" | "inline";
+
 export interface Storage {
   /** A short-TTL presigned PUT the client uploads to directly. */
   presignPut(key: string, mime: string): Promise<string>;
-  /** A short-TTL presigned GET, forcing a download with the original filename. */
-  presignGet(key: string, filename: string): Promise<string>;
+  /**
+   * A short-TTL presigned GET with the original filename. `disposition`
+   * `attachment` (default) forces a download; `inline` lets the browser render
+   * the object in place — what the document Preview needs.
+   */
+  presignGet(key: string, filename: string, disposition?: Disposition): Promise<string>;
   /** Object metadata, or null if it does not exist (upload never happened). */
   stat(key: string): Promise<StatResult | null>;
   /**
@@ -51,9 +58,9 @@ export class FakeStorage implements Storage {
     return Promise.resolve(`https://fake-storage.local/put/${encodeURIComponent(key)}`);
   }
 
-  presignGet(key: string, filename: string): Promise<string> {
+  presignGet(key: string, filename: string, disposition: Disposition = "attachment"): Promise<string> {
     return Promise.resolve(
-      `https://fake-storage.local/get/${encodeURIComponent(key)}?filename=${encodeURIComponent(filename)}`,
+      `https://fake-storage.local/get/${encodeURIComponent(key)}?filename=${encodeURIComponent(filename)}&disposition=${disposition}`,
     );
   }
 

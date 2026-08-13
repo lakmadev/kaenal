@@ -27,6 +27,13 @@ let app: INestApplication;
 let control: pg.Pool;
 let acmeId = "";
 let globexId = "";
+/**
+ * The users THIS suite seeds, tracked by id so teardown removes exactly them.
+ * A domain-wide `%@acme.test` sweep would also delete the provisioned demo
+ * admin (`admin@acme.test`) — and its sessions — which is why local demo
+ * sign-in kept dying between test runs. Delete only what we created.
+ */
+const seededUserIds: string[] = [];
 
 type App = Parameters<typeof request>[0];
 const server = (): App => app.getHttpServer() as App;
@@ -64,6 +71,7 @@ async function seedMember(
       [tid, userId, role],
     );
   });
+  if (userId !== "" && !seededUserIds.includes(userId)) seededUserIds.push(userId);
   return userId;
 }
 
@@ -98,13 +106,17 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Memberships reference control.users with ON DELETE RESTRICT, and sessions
-  // reference memberships — so tear down inside-out. Scoped by the test email
-  // domains to leave the provisioned tenants' own seed intact.
-  const emails = await control.query<{ id: string }>(
-    `SELECT id FROM control.users
-      WHERE email LIKE '%@acme.test' OR email LIKE '%@globex.test' OR email LIKE '%@invite.test'`,
+  // reference memberships — so tear down inside-out. Delete ONLY the users this
+  // suite seeded (tracked by id) plus the ones the invitation-flow tests mint
+  // (`@invite.test`). A domain-wide `%@acme.test` sweep used to live here and
+  // would also delete the provisioned demo admin `admin@acme.test` — wiping its
+  // sessions and membership on every run (and, since Phase F, tripping the
+  // `fmeas_created_by_member_fk` on its demo FMEAs). Deleting only our own
+  // fixtures leaves the demo seed — and the developer's local data — intact.
+  const invited = await control.query<{ id: string }>(
+    `SELECT id FROM control.users WHERE email LIKE '%@invite.test'`,
   );
-  const ids = emails.rows.map((r) => r.id);
+  const ids = [...new Set([...seededUserIds, ...invited.rows.map((r) => r.id)])];
   if (ids.length > 0) {
     // sessions and memberships are RLS-forced, so clear them as the owner
     // rather than per-tenant. audit_events is append-only and left as-is.
@@ -309,6 +321,51 @@ describe("CSRF on cookie-authenticated mutations (03 §2)", () => {
     expect(res.body.email).toBe("invitee@invite.test");
     // Outside production the one-time token is returned so the flow is testable.
     expect(res.body.token).toBeTruthy();
+  });
+
+  it("does NOT let a stale session cookie block sign-in (the @AllowAnonymous recovery path)", async () => {
+    await resetCredentials("ada@acme.test");
+
+    // The real-world trap: a `kaenal_session` cookie is still in the browser jar
+    // but the row behind it is gone (revoked, test churn, db reset). CSRF is a
+    // POST-on-cookie check, so if it ran *before* the session was resolved the
+    // sign-in POST would 403 on the missing CSRF header — locking the user out
+    // of the one page that recovers the situation. It must resolve to "expired"
+    // and fall through to anonymous instead, so the credential still signs in.
+    const res = await request(server())
+      .post("/v1/auth/sign-in")
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", "kaenal_session=this-session-no-longer-exists")
+      .send({ email: "ada@acme.test", password: PASSWORD });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ role: "admin" });
+  });
+
+  it("lets a signed-in user sign in again without a CSRF token (stale-but-VALID session)", async () => {
+    await resetCredentials("ada@acme.test");
+
+    // The most common real trap: the user never signed out, so a genuinely
+    // VALID `kaenal_session` is still in the jar, but its paired readable
+    // `kaenal_csrf` cookie is gone (evicted, cleared, or the FE can't read it) —
+    // so the sign-in POST carries no CSRF header. Sign-in is @AllowAnonymous and
+    // acts only on the body credentials, so it must NOT demand CSRF from that
+    // leftover session; otherwise it 403s and the form mislabels it as a bad
+    // password. Send the valid session cookie WITHOUT an X-CSRF-Token header.
+    const { cookie } = await authedSession("ada@acme.test");
+    const sessionOnly = cookie
+      .split(/;\s*/)
+      .find((c) => c.startsWith("kaenal_session="));
+    expect(sessionOnly).toBeDefined();
+
+    const res = await request(server())
+      .post("/v1/auth/sign-in")
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", sessionOnly!)
+      .send({ email: "ada@acme.test", password: PASSWORD });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ role: "admin" });
   });
 });
 

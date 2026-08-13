@@ -13,3 +13,6 @@ coverage/
 .DS_Store
 *.log
 .DS_Store
+
+# Local dev credentials sheet — never commit
+CREDENTIALS.md

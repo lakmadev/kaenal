@@ -25,7 +25,9 @@ export function TemplatesView(): React.ReactElement {
   const inspections = useInspections();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const rows = query.data?.items ?? [];
+  // Hide archived (superseded) versions — editing a published template publishes
+  // its successor and archives the old one, so only the live lineage shows.
+  const rows = (query.data?.items ?? []).filter((t) => t.status !== "archived");
   const published = rows.filter((t) => t.status === "published").length;
   const totalUses = rows.reduce((n, t) => n + t.usageCount, 0);
 
