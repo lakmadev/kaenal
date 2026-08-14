@@ -50,3 +50,4 @@ export const IMPORT_SERVICE = Symbol("IMPORT_SERVICE");
 export const SPC_SERVICE = Symbol("SPC_SERVICE");
 export const JOB_PRODUCER = Symbol("JOB_PRODUCER");
 export const RATE_LIMITER = Symbol("RATE_LIMITER");
+export const EMAIL_PORT = Symbol("EMAIL_PORT");

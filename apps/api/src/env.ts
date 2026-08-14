@@ -71,6 +71,28 @@ const EnvSchema = z.object({
    * (`pnpm --filter @kaenal/api worker`) sets it on to consume.
    */
   JOBS_ENABLED: z.coerce.boolean().optional(),
+
+  /**
+   * Email delivery (`providers/email`). `console` (default) logs instead of
+   * sending, so dev/test/provider-less deploys still run every email flow.
+   * `ses` sends through Amazon SES. Switching providers is one new adapter +
+   * this var — no business code changes.
+   */
+  EMAIL_PROVIDER: z.enum(["console", "ses"]).default("console"),
+  /** Verified From address, e.g. `Kaenal <no-reply@mail.kaenal.app>`. */
+  MAIL_FROM: z.string().min(1).default("Kaenal <no-reply@kaenal.local>"),
+  /** SES region; falls back to `S3_REGION` when unset (single-region AWS). */
+  AWS_REGION: z.string().min(1).optional(),
+  /** SES configuration set for bounce/complaint event publishing (recommended in prod). */
+  SES_CONFIGURATION_SET: z.string().min(1).optional(),
+  /**
+   * Static AWS credentials. Leave BOTH unset in production so the SDK uses the
+   * task/pod IAM role (no long-lived keys in env). Only for environments without
+   * a role. The SDK also reads these from process.env directly; they are listed
+   * here so a half-configured pair is a visible config value, not a mystery.
+   */
+  AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
 }).transform((e) => ({
   ...e,
   RATE_LIMIT_ENABLED: e.RATE_LIMIT_ENABLED ?? e.NODE_ENV !== "test",

@@ -5,6 +5,22 @@
 
 ## Current status
 
+**Pure-infra track (provider abstraction) — Email (SES) DONE (2026-08-14).** User direction: every
+third-party/cloud service must sit behind a swappable adapter so AWS→GCP/Azure (or SES→Postmark) is one
+adapter + one env var, no business-code change. Formalized the **Ports & Adapters** convention in
+`apps/api/src/providers/README.md` (port + adapters + config-selected factory + DI token; vendor SDKs
+quarantined in `apps/api`, never in `packages/*`). First reference implementation: **Email**.
+`providers/email/` = `EmailPort` + `ses.adapter` (SESv2) + `console.adapter` (default: logs the envelope
+only, never the body/token — dev/test/provider-less deploys still run every flow) + env-driven `factory`
+(`EMAIL_PROVIDER=console|ses`). Wired the real notification email channel (`ChannelDelivery` replaces
+`StubDelivery`: resolves recipient from `control.users`, sends via the port; push/sms flagged until their
+ports ship) and **transactional password-reset + invite emails** now actually send — a new `notify.email`
+job (`sendEmail` producer + processor) enqueues a fully-rendered message off the request path; forgot-password
+stays enumeration-safe (identical response whether or not the account exists). `MAIL_FROM`/`AWS_REGION`/
+`SES_CONFIGURATION_SET` added to env + `.env.example`. Tests: `email.test.ts` (9 — factory selection, console
+envelope-only logging, template both-parts, ChannelDelivery resolve/skip/opt-out); full API suite 347/347,
+typecheck 6/6, lint clean. **AV (ClamAV) + MFA (TOTP) are the next two slices on this track.**
+
 **RLS tenancy suite GREEN + PR #5 CI unblocked (2026-08-13).** The `verify` CI job had been red
 since Phase A because `packages/db/test/rls.test.ts` addressed every probe row by a single-column
 `id`, but `tenant_settings` (Phase A) has a composite PK `(tenant_id, namespace)` and no `id` —

@@ -2,11 +2,13 @@ import { Body, Controller, Inject, Post, Req, Res } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { InternalRole } from "@kaenal/types";
-import { WEB_SESSION_TTL_MS } from "@kaenal/core";
+import { WEB_SESSION_TTL_MS, PASSWORD_RESET_TTL_MS, INVITATION_TTL_MS } from "@kaenal/core";
 import { currentContext, currentTx } from "../context.js";
 import { AllowAnonymous, Public, RequireCapability } from "../decorators.js";
 import { ApiError } from "../errors.js";
-import { AUTH_SERVICE, ENV, RATE_LIMITER } from "../tokens.js";
+import { AUTH_SERVICE, ENV, JOB_PRODUCER, RATE_LIMITER } from "../tokens.js";
+import type { JobProducer } from "../jobs/producer.js";
+import { renderPasswordReset, renderInvite } from "../providers/email/index.js";
 import { LOGIN_LIMIT, type RateLimiter } from "../http/rate-limit.js";
 import type { Env } from "../env.js";
 import type { AuthService } from "./auth.service.js";
@@ -64,6 +66,7 @@ export class AuthController {
     @Inject(AUTH_SERVICE) private readonly auth: AuthService,
     @Inject(ENV) private readonly env: Env,
     @Inject(RATE_LIMITER) private readonly rateLimiter: RateLimiter,
+    @Inject(JOB_PRODUCER) private readonly jobs: JobProducer,
   ) {}
 
   /**
@@ -150,6 +153,21 @@ export class AuthController {
       plantIds ?? [],
     );
 
+    // Email the invitee their acceptance link. `?workspace=` carries the slug the
+    // accept-invite page needs as X-Tenant-Id. Enqueued so the admin's request
+    // returns without waiting on the mail provider.
+    const url = `${this.env.APP_BASE_URL}/invite/${encodeURIComponent(token)}?workspace=${encodeURIComponent(ctx.tenantSlug)}`;
+    await this.jobs.sendEmail({
+      message: {
+        to: email,
+        ...renderInvite({
+          url,
+          workspaceName: ctx.tenantSlug,
+          expiresHours: Math.round(INVITATION_TTL_MS / 3_600_000),
+        }),
+      },
+    });
+
     // The token is returned only outside production, where there is no mail
     // delivery yet. In production it must reach the invitee by email and
     // nobody else — an admin who can read it can impersonate the invitee.
@@ -167,6 +185,19 @@ export class AuthController {
     await this.throttleLogin(req.ip ?? null);
     const { email } = parse(ForgotBody, body);
     const token = await this.auth.requestPasswordReset(email);
+
+    // Send the email only when the account exists — but the HTTP response is
+    // identical either way, so this is not an enumeration oracle. Enqueued (not
+    // sent inline) so the response isn't gated on the mail provider.
+    if (token !== null) {
+      const url = `${this.env.APP_BASE_URL}/reset-password?token=${encodeURIComponent(token)}`;
+      await this.jobs.sendEmail({
+        message: {
+          to: email,
+          ...renderPasswordReset({ url, expiresMinutes: Math.round(PASSWORD_RESET_TTL_MS / 60_000) }),
+        },
+      });
+    }
 
     // Always `ok: true`, whether or not the address is known. Anything else is
     // an unauthenticated account-enumeration endpoint.
