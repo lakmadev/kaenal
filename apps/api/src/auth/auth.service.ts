@@ -766,6 +766,86 @@ export class AuthService {
     );
   }
 
+  /**
+   * Self-service password change for a signed-in user. Requires the current
+   * password (the user is proving it is really them, so naming a wrong current
+   * password plainly is correct — this is not an enumeration surface). The new
+   * password must satisfy the same policy as a reset and differ from the old one.
+   *
+   * Like a reset, changing the password signs the account out of every OTHER
+   * session (across all workspaces) — a changed password is the remedy for a
+   * suspected compromise — while keeping the session the change was made from.
+   */
+  async changePassword(
+    tx: Tx,
+    tenantId: string,
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    keepToken: string | null,
+    context: { ip: string | null; userAgent: string | null; requestId: string | null },
+  ): Promise<void> {
+    const { rows } = await this.control.query<{ password_hash: string | null; email: string }>(
+      "SELECT password_hash, email FROM control.users WHERE id = $1",
+      [userId],
+    );
+    const user = rows[0];
+    if (user === undefined || user.password_hash === null) {
+      throw new ApiError("UNAUTHENTICATED", "Authentication required");
+    }
+
+    if (!(await verifyPassword(user.password_hash, currentPassword))) {
+      throw new ApiError("VALIDATION_FAILED", "Your current password is incorrect");
+    }
+
+    const policy = checkPasswordPolicy(newPassword, user.email);
+    if (!policy.ok) throw ApiError.from(policy);
+
+    if (await verifyPassword(user.password_hash, newPassword)) {
+      throw new ApiError("VALIDATION_FAILED", "Choose a password different from your current one");
+    }
+
+    const hash = await hashPassword(newPassword);
+    await this.control.query(
+      "UPDATE control.users SET password_hash = $2, failed_login_attempts = 0, locked_until = NULL WHERE id = $1",
+      [userId, hash],
+    );
+
+    // Revoke every other live session (all tenants) — keep only the one this
+    // change was made from. Runs on the control pool because a person's sessions
+    // span every workspace they belong to.
+    if (keepToken === null) {
+      await this.control.query(
+        "UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+        [userId],
+      );
+    } else {
+      await this.control.query(
+        "UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL AND refresh_token_hash <> $2",
+        [userId, hashToken(keepToken)],
+      );
+    }
+
+    // Record the security-relevant change in the tenant trail (the credential
+    // itself lives in the control plane and is never logged).
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId: userId,
+        actorKind: "user",
+        entityKind: "membership",
+        entityId: userId,
+        action: "settings_changed",
+        after: { password: "changed" },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      () => Promise.resolve(undefined),
+    );
+  }
+
   private async activeMembership(
     tx: Tx,
     userId: string,

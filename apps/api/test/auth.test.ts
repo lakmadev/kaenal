@@ -573,6 +573,11 @@ describe("session management — list + revoke (07 §7)", () => {
   const me = (cookie: string) =>
     request(server()).get("/v1/me").set("X-Tenant-Id", ACME).set("Cookie", cookie);
 
+  // supertest's `res.body` is `any`; type the sessions array so array methods
+  // aren't unsafe calls (eslint no-unsafe-call).
+  const sessionsOf = (res: { body: unknown }): { id: string; current: boolean }[] =>
+    (res.body as { sessions: { id: string; current: boolean }[] }).sessions;
+
   it("supports multiple concurrent logins, capped by policy (default 3)", async () => {
     await authedSession(EMAIL);
     await authedSession(EMAIL);
@@ -581,8 +586,8 @@ describe("session management — list + revoke (07 §7)", () => {
 
     const res = await list(fourth.cookie);
     expect(res.status).toBe(200);
-    expect(res.body.sessions).toHaveLength(3);
-    expect(res.body.sessions.filter((s: { current: boolean }) => s.current)).toHaveLength(1);
+    expect(sessionsOf(res)).toHaveLength(3);
+    expect(sessionsOf(res).filter((s) => s.current)).toHaveLength(1);
   });
 
   it("lists the caller's own sessions and flags exactly the current one", async () => {
@@ -591,8 +596,8 @@ describe("session management — list + revoke (07 §7)", () => {
 
     const res = await list(a.cookie);
     expect(res.status).toBe(200);
-    expect(res.body.sessions).toHaveLength(2);
-    const current = res.body.sessions.filter((s: { current: boolean }) => s.current);
+    expect(sessionsOf(res)).toHaveLength(2);
+    const current = sessionsOf(res).filter((s) => s.current);
     expect(current).toHaveLength(1);
   });
 
@@ -601,7 +606,7 @@ describe("session management — list + revoke (07 §7)", () => {
     const b = await authedSession(EMAIL);
 
     const listed = await list(a.cookie);
-    const other = listed.body.sessions.find((s: { current: boolean }) => !s.current) as { id: string };
+    const other = sessionsOf(listed).find((s) => !s.current) as { id: string };
 
     const rev = await request(server())
       .post(`/v1/auth/sessions/${other.id}/revoke`)
@@ -666,5 +671,67 @@ describe("session management — list + revoke (07 §7)", () => {
     expect(after.body.sessions).toHaveLength(1);
     expect(after.body.sessions[0].current).toBe(true);
     expect((await me(current.cookie)).status).toBe(200);
+  });
+});
+
+describe("change password (07 §2)", () => {
+  const EMAIL = "pwchange@acme.test";
+  const NEW_PW = "brand-new-passphrase-9911";
+  let baselineHash = "";
+
+  beforeAll(async () => {
+    const { hashPassword } = await import("../src/auth/passwords.js");
+    baselineHash = await hashPassword(PASSWORD);
+    await seedMember(acmeId, EMAIL, "inspector", baselineHash);
+  });
+
+  beforeEach(async () => {
+    // Restore the known password + clear sessions so each case starts clean.
+    await control.query(
+      "UPDATE control.users SET password_hash = $2, failed_login_attempts = 0, locked_until = NULL WHERE email = $1",
+      [EMAIL, baselineHash],
+    );
+    await control.query(
+      "DELETE FROM sessions WHERE user_id IN (SELECT id FROM control.users WHERE email = $1)",
+      [EMAIL],
+    );
+  });
+
+  const changePw = (cookie: string, csrf: string, currentPassword: string, newPassword: string) =>
+    request(server())
+      .post("/v1/auth/change-password")
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", cookie)
+      .set("X-CSRF-Token", csrf)
+      .send({ currentPassword, newPassword });
+
+  it("rejects a wrong current password and leaves the password unchanged", async () => {
+    const a = await authedSession(EMAIL);
+    const res = await changePw(a.cookie, a.csrf, "not-my-password", NEW_PW);
+    expect(res.status).toBe(422);
+    // The old password still works.
+    expect((await signIn(ACME, EMAIL, PASSWORD)).status).toBe(201);
+  });
+
+  it("rejects a new password that fails the policy (too short)", async () => {
+    const a = await authedSession(EMAIL);
+    const res = await changePw(a.cookie, a.csrf, PASSWORD, "short");
+    expect(res.status).toBe(422);
+  });
+
+  it("changes the password, revokes other sessions, and keeps the current one", async () => {
+    const other = await authedSession(EMAIL); // session B
+    const current = await authedSession(EMAIL); // session A — the one we change from
+
+    const res = await changePw(current.cookie, current.csrf, PASSWORD, NEW_PW);
+    expect(res.status).toBeLessThan(300);
+
+    // Current session survives; the other is revoked.
+    expect((await request(server()).get("/v1/me").set("X-Tenant-Id", ACME).set("Cookie", current.cookie)).status).toBe(200);
+    expect((await request(server()).get("/v1/me").set("X-Tenant-Id", ACME).set("Cookie", other.cookie)).status).toBe(401);
+
+    // The new password works; the old one no longer does.
+    expect((await signIn(ACME, EMAIL, NEW_PW)).status).toBe(201);
+    expect((await signIn(ACME, EMAIL, PASSWORD)).status).toBe(401);
   });
 });

@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { ShieldCheck, KeyRound, Smartphone, Monitor, X, Clock } from "lucide-react";
 import { useSessionPolicy } from "@/hooks/use-session-policy";
 import { useSessions, useRevokeSession, useRevokeOtherSessions } from "@/hooks/use-sessions";
+import { useMe } from "@/hooks/use-me";
 import type { SessionSummary } from "@/lib/auth";
 import { TwoFactorPanel } from "@/features/mfa/two-factor-panel";
+import { ChangePasswordModal } from "../change-password-modal";
 import { SettingsPage, SettingsCard, SettingsRow } from "../settings-bits";
 
 /** Security & devices (settings.jsx `Security`): sign-in method, the real
@@ -61,8 +64,23 @@ function relativeTime(iso: string): string {
   return days === 1 ? "Yesterday" : `${days} days ago`;
 }
 
+/** "Last sign-in just now / 2 hours ago / 3 days ago" from an ISO timestamp. */
+function lastSignInLabel(iso: string | null): string {
+  if (iso === null) return "No recent sign-in on record";
+  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 90) return "Last sign-in just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `Last sign-in ${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `Last sign-in ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "Last sign-in yesterday" : `Last sign-in ${days} days ago`;
+}
+
 export function SecuritySection(): React.ReactElement {
   const { data: policy } = useSessionPolicy();
+  const { data: me } = useMe();
+  const [showChangePw, setShowChangePw] = useState(false);
   const maxLabel =
     policy === undefined
       ? ""
@@ -78,7 +96,7 @@ export function SecuritySection(): React.ReactElement {
             <ShieldCheck size={20} />
             <div className="flex-1">
               <div className="text-[13px] font-semibold">Email &amp; password</div>
-              <div className="text-[11px] text-muted">Last sign-in a few hours ago</div>
+              <div className="text-[11px] text-muted">{lastSignInLabel(me?.lastLoginAt ?? null)}</div>
             </div>
             <span className="k-chip" style={{ background: "var(--success-100, rgba(22,163,74,0.12))", color: "var(--success-700, #15803d)" }}>
               Active
@@ -86,7 +104,7 @@ export function SecuritySection(): React.ReactElement {
           </div>
         </SettingsRow>
         <SettingsRow label="Password" hint="Change the password used to sign in">
-          <button className="k-btn k-btn-ghost">
+          <button className="k-btn k-btn-ghost" onClick={() => setShowChangePw(true)}>
             <KeyRound size={13} /> Change password
           </button>
         </SettingsRow>
@@ -124,6 +142,8 @@ export function SecuritySection(): React.ReactElement {
       )}
 
       <ActiveSessionsCard maxLabel={maxLabel} />
+
+      {showChangePw && <ChangePasswordModal email={me?.email ?? ""} onClose={() => setShowChangePw(false)} />}
     </SettingsPage>
   );
 }

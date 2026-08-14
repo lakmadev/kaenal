@@ -5,6 +5,22 @@
 
 ## Current status
 
+**Change password + real "Last sign-in" (2026-08-14).** The Security "Sign-in method" card was static;
+now both bits are live. **Backend:** `AuthService.changePassword` (verifies current password — naming a
+wrong one plainly is correct here, the user is proving it's them; enforces the same `checkPasswordPolicy`
+as reset; rejects reusing the old password; on success revokes every OTHER session across all workspaces,
+keeps the current one; audited `settings_changed`) + `POST /v1/auth/change-password` (authenticated,
+CSRF-checked, current token read from cookie to keep it alive). `MeDto.lastLoginAt` added + populated from
+`control.users.last_login_at` in `/v1/me`. **Web:** `lib/auth.ts changePassword`; `ChangePasswordModal`
+(reuses the shared `PasswordField`/`PasswordStrength`/`PasswordRequirements`, invalidates the sessions
+query on success, shows the "signed out of other devices" note); `security.tsx` wires the Change-password
+button + the real "Last sign-in N ago". **Tests:** `auth.test.ts` +3 (wrong current 422, weak new 422,
+success revokes others + keeps current + new pw works). **CI note:** the sessions commit failed CI at Lint
+(`no-unsafe-call` on `res.body.sessions.filter/find` in the new tests — I'd linted the changed *source*
+files but not `auth.test.ts`; `eslint .` catches everything). Fixed with a typed `sessionsOf` accessor, and
+now run the FULL `pnpm lint` before pushing. Verified live: Last sign-in "10 min ago", modal strength/reqs,
+wrong-current-password error inline. Full `pnpm typecheck` 6/6 + `pnpm lint` clean, auth 30/30.
+
 **Active-session management — list + revoke, real (2026-08-14).** The Security & devices "Active
 sessions" card was static mock data with dead buttons; now it's a live vertical slice. **Multiple
 concurrent logins already worked** (each sign-in inserts a `sessions` row; `maxConcurrentSessions`

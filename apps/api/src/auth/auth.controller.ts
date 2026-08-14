@@ -45,6 +45,11 @@ const InviteBody = z.object({
   plantIds: z.array(z.string().uuid()).optional(),
 });
 
+const ChangePasswordBody = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newPassword: z.string().min(1).max(256),
+});
+
 const ForgotBody = z.object({ email: z.string().email().max(320) });
 
 const ResetBody = z.object({
@@ -124,6 +129,29 @@ export class AuthController {
     }
 
     this.clearCookies(res);
+    return { ok: true };
+  }
+
+  /**
+   * Change the signed-in user's password (07 §2). Authenticated, so it runs the
+   * normal chain (CSRF-checked on the cookie). The current session survives; every
+   * other session is revoked by the service.
+   */
+  @Post("change-password")
+  async changePassword(@Body() body: unknown, @Req() req: Request): Promise<{ ok: true }> {
+    const { currentPassword, newPassword } = parse(ChangePasswordBody, body);
+    const ctx = currentContext();
+    if (ctx.userId === null) throw new ApiError("UNAUTHENTICATED", "Authentication required");
+
+    await this.auth.changePassword(
+      currentTx(),
+      ctx.tenantId,
+      ctx.userId,
+      currentPassword,
+      newPassword,
+      this.sessionToken(req),
+      { ip: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId },
+    );
     return { ok: true };
   }
 

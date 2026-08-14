@@ -120,6 +120,15 @@ export function resetPassword(input: { token: string; password: string }): Promi
 }
 
 /**
+ * Change the signed-in user's password (07 §2). Authenticated — sent with the
+ * active tenant + CSRF header. The current session stays valid; every other
+ * device is signed out server-side.
+ */
+export function changePassword(input: { currentPassword: string; newPassword: string }): Promise<{ ok: true }> {
+  return authPost<{ ok: true }>("/v1/auth/change-password", input, { tenant: getActiveTenant() });
+}
+
+/**
  * Accept a tenant invitation: set the person's name + password and activate the
  * membership. Tenant-scoped (`@AllowAnonymous`) — the invite belongs to one
  * workspace, sent as `X-Tenant-Id`.
