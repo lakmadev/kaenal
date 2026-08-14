@@ -857,6 +857,9 @@ export const MeDto = z.object({
   name: z.string(),
   email: z.string(),
   mfaEnabled: z.boolean(),
+  /** When the account last signed in (ISO), or null if never. Shown on the
+   *  Security page's sign-in method card. */
+  lastLoginAt: z.string().datetime().nullable(),
   /** Plants this membership is scoped to; empty means all plants. */
   plants: z.array(MePlantDto),
   /** Open items owned by the caller — the dropdown's "N NCRs · M CAPAs". */

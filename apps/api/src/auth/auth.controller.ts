@@ -2,11 +2,13 @@ import { Body, Controller, Inject, Post, Req, Res } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { InternalRole } from "@kaenal/types";
-import { WEB_SESSION_TTL_MS } from "@kaenal/core";
+import { WEB_SESSION_TTL_MS, PASSWORD_RESET_TTL_MS, INVITATION_TTL_MS } from "@kaenal/core";
 import { currentContext, currentTx } from "../context.js";
 import { AllowAnonymous, Public, RequireCapability } from "../decorators.js";
 import { ApiError } from "../errors.js";
-import { AUTH_SERVICE, ENV, RATE_LIMITER } from "../tokens.js";
+import { AUTH_SERVICE, ENV, JOB_PRODUCER, RATE_LIMITER } from "../tokens.js";
+import type { JobProducer } from "../jobs/producer.js";
+import { renderPasswordReset, renderInvite } from "../providers/email/index.js";
 import { LOGIN_LIMIT, type RateLimiter } from "../http/rate-limit.js";
 import type { Env } from "../env.js";
 import type { AuthService } from "./auth.service.js";
@@ -24,6 +26,8 @@ import { generateToken } from "./passwords.js";
 const SignInBody = z.object({
   email: z.string().email().max(320),
   password: z.string().min(1).max(256),
+  /** TOTP or recovery code — present only on the second step of an MFA sign-in. */
+  code: z.string().min(1).max(64).optional(),
 });
 
 const AcceptInviteBody = z.object({
@@ -39,6 +43,11 @@ const InviteBody = z.object({
   // never mint an un-scoped external membership.
   role: InternalRole,
   plantIds: z.array(z.string().uuid()).optional(),
+});
+
+const ChangePasswordBody = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newPassword: z.string().min(1).max(256),
 });
 
 const ForgotBody = z.object({ email: z.string().email().max(320) });
@@ -64,6 +73,7 @@ export class AuthController {
     @Inject(AUTH_SERVICE) private readonly auth: AuthService,
     @Inject(ENV) private readonly env: Env,
     @Inject(RATE_LIMITER) private readonly rateLimiter: RateLimiter,
+    @Inject(JOB_PRODUCER) private readonly jobs: JobProducer,
   ) {}
 
   /**
@@ -82,24 +92,27 @@ export class AuthController {
   async signIn(
     @Body() body: unknown,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ userId: string; role: string; expiresAt: string }> {
-    const { email, password } = parse(SignInBody, body);
+  ): Promise<{ userId: string; role: string; expiresAt: string } | { mfaRequired: true }> {
+    const { email, password, code } = parse(SignInBody, body);
     const ctx = currentContext();
     await this.throttleLogin(ctx.ip);
 
-    const result = await this.auth.signIn(currentTx(), ctx.tenantId, email, password, {
+    const outcome = await this.auth.signIn(currentTx(), ctx.tenantId, email, password, code ?? null, {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
       requestId: ctx.requestId,
     });
 
+    // Password accepted, second factor still needed: no cookies, no session.
+    if (outcome.kind === "mfa_required") return { mfaRequired: true };
+
     const csrfToken = generateToken();
-    this.setCookies(res, result.sessionToken, csrfToken);
+    this.setCookies(res, outcome.result.sessionToken, csrfToken);
 
     return {
-      userId: result.userId,
-      role: result.role,
-      expiresAt: result.expiresAt.toISOString(),
+      userId: outcome.result.userId,
+      role: outcome.result.role,
+      expiresAt: outcome.result.expiresAt.toISOString(),
     };
   }
 
@@ -116,6 +129,29 @@ export class AuthController {
     }
 
     this.clearCookies(res);
+    return { ok: true };
+  }
+
+  /**
+   * Change the signed-in user's password (07 §2). Authenticated, so it runs the
+   * normal chain (CSRF-checked on the cookie). The current session survives; every
+   * other session is revoked by the service.
+   */
+  @Post("change-password")
+  async changePassword(@Body() body: unknown, @Req() req: Request): Promise<{ ok: true }> {
+    const { currentPassword, newPassword } = parse(ChangePasswordBody, body);
+    const ctx = currentContext();
+    if (ctx.userId === null) throw new ApiError("UNAUTHENTICATED", "Authentication required");
+
+    await this.auth.changePassword(
+      currentTx(),
+      ctx.tenantId,
+      ctx.userId,
+      currentPassword,
+      newPassword,
+      this.sessionToken(req),
+      { ip: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId },
+    );
     return { ok: true };
   }
 
@@ -150,6 +186,21 @@ export class AuthController {
       plantIds ?? [],
     );
 
+    // Email the invitee their acceptance link. `?workspace=` carries the slug the
+    // accept-invite page needs as X-Tenant-Id. Enqueued so the admin's request
+    // returns without waiting on the mail provider.
+    const url = `${this.env.APP_BASE_URL}/invite/${encodeURIComponent(token)}?workspace=${encodeURIComponent(ctx.tenantSlug)}`;
+    await this.jobs.sendEmail({
+      message: {
+        to: email,
+        ...renderInvite({
+          url,
+          workspaceName: ctx.tenantSlug,
+          expiresHours: Math.round(INVITATION_TTL_MS / 3_600_000),
+        }),
+      },
+    });
+
     // The token is returned only outside production, where there is no mail
     // delivery yet. In production it must reach the invitee by email and
     // nobody else — an admin who can read it can impersonate the invitee.
@@ -167,6 +218,19 @@ export class AuthController {
     await this.throttleLogin(req.ip ?? null);
     const { email } = parse(ForgotBody, body);
     const token = await this.auth.requestPasswordReset(email);
+
+    // Send the email only when the account exists — but the HTTP response is
+    // identical either way, so this is not an enumeration oracle. Enqueued (not
+    // sent inline) so the response isn't gated on the mail provider.
+    if (token !== null) {
+      const url = `${this.env.APP_BASE_URL}/reset-password?token=${encodeURIComponent(token)}`;
+      await this.jobs.sendEmail({
+        message: {
+          to: email,
+          ...renderPasswordReset({ url, expiresMinutes: Math.round(PASSWORD_RESET_TTL_MS / 60_000) }),
+        },
+      });
+    }
 
     // Always `ok: true`, whether or not the address is known. Anything else is
     // an unauthenticated account-enumeration endpoint.

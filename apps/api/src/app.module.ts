@@ -14,6 +14,10 @@ import { ShutdownService } from "./shutdown.service.js";
 import { AuthService } from "./auth/auth.service.js";
 import { SessionAuthenticator } from "./auth/session.authenticator.js";
 import { AuthController } from "./auth/auth.controller.js";
+import { MfaController } from "./auth/mfa.controller.js";
+import { SessionsController } from "./auth/sessions.controller.js";
+import { MfaService } from "./auth/mfa.service.js";
+import { MfaCrypto } from "./auth/mfa-crypto.js";
 import { WorkspaceController } from "./auth/workspace.controller.js";
 import { MeController } from "./me.controller.js";
 import { MembersController } from "./members/members.controller.js";
@@ -111,6 +115,7 @@ import {
   IDEMPOTENCY,
   INSPECTIONS_SERVICE,
   JOB_PRODUCER,
+  MFA_SERVICE,
   MEMBERS_SERVICE,
   NCR_SERVICE,
   NOTIFICATIONS_SERVICE,
@@ -139,6 +144,8 @@ import {
     MeController,
     MembersController,
     AuthController,
+    MfaController,
+    SessionsController,
     WorkspaceController,
     OpenApiController,
     TemplatesController,
@@ -208,9 +215,15 @@ import {
     },
 
     {
+      provide: MFA_SERVICE,
+      useFactory: (control: pg.Pool, env: Env) =>
+        new MfaService(control, new MfaCrypto({ authSecret: env.AUTH_SECRET, mfaKey: env.MFA_ENCRYPTION_KEY })),
+      inject: [CONTROL_POOL, ENV],
+    },
+    {
       provide: AUTH_SERVICE,
-      useFactory: (control: pg.Pool) => new AuthService(control),
-      inject: [CONTROL_POOL],
+      useFactory: (control: pg.Pool, mfa: MfaService) => new AuthService(control, mfa),
+      inject: [CONTROL_POOL, MFA_SERVICE],
     },
 
     // Names live in `control.users` (outside RLS), the roster in `memberships`

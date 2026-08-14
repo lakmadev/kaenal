@@ -36,10 +36,12 @@ export class MeController {
 
     // The request transaction is a single connection, so these run in sequence
     // (pg cannot multiplex concurrent queries on one client).
-    const profile = await tx.query<{ name: string; email: string; mfa_secret: string | null }>(
-      "SELECT name, email, mfa_secret FROM control.users WHERE id = $1",
-      [userId],
-    );
+    const profile = await tx.query<{
+      name: string;
+      email: string;
+      mfa_secret: string | null;
+      last_login_at: Date | null;
+    }>("SELECT name, email, mfa_secret, last_login_at FROM control.users WHERE id = $1", [userId]);
     const u = profile.rows[0];
     if (u === undefined) throw new ApiError("UNAUTHENTICATED", "Authentication required");
 
@@ -79,6 +81,7 @@ export class MeController {
       name: u.name,
       email: u.email,
       mfaEnabled: u.mfa_secret !== null,
+      lastLoginAt: u.last_login_at === null ? null : u.last_login_at.toISOString(),
       plants,
       openNcrs: openNcrs.rows[0]?.n ?? 0,
       openCapas: openCapas.rows[0]?.n ?? 0,

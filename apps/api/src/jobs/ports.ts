@@ -1,22 +1,9 @@
-import type { ScanStatus } from "@kaenal/types";
-
 /**
- * The AV engine port (06 §1 `files`). Production wires a ClamAV container that
- * streams the object's bytes; the default here is a stub that verdicts by
- * filename marker so the pipeline (and both outcomes) are exercisable without an
- * engine. The verdict is one of the `files.scan_status` states.
+ * The AV engine port now lives in `providers/av` (Ports & Adapters). Re-exported
+ * here so existing importers keep working while the migration settles.
  */
-export interface Scanner {
-  scan(input: { filename: string; key: string }): Promise<Exclude<ScanStatus, "pending">>;
-}
-
-/** Default scanner: everything is clean unless the name carries the EICAR marker. */
-export class StubScanner implements Scanner {
-  scan(input: { filename: string; key: string }): Promise<Exclude<ScanStatus, "pending">> {
-    const marked = /eicar|infected|malware/i.test(input.filename);
-    return Promise.resolve(marked ? "infected" : "clean");
-  }
-}
+export type { Scanner, ScanInput } from "../providers/av/index.js";
+export { StubScanner } from "../providers/av/index.js";
 
 export type DeliveryChannel = "email" | "push" | "sms";
 

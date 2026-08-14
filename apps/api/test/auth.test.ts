@@ -4,9 +4,11 @@ import request from "supertest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import pg from "pg";
+import * as OTPAuth from "otpauth";
 import { withTenant } from "@kaenal/db";
 import { MAX_FAILED_ATTEMPTS } from "@kaenal/core";
 import { AppModule } from "../src/app.module.js";
+import { MfaCrypto } from "../src/auth/mfa-crypto.js";
 
 /**
  * Auth end-to-end (03 §2, 07 §7).
@@ -490,5 +492,246 @@ describe("password reset (03 §2)", () => {
       "ada@acme.test",
       await hashPassword(PASSWORD),
     ]);
+  });
+});
+
+describe("sign-in with MFA (07 §4)", () => {
+  const MFA_EMAIL = "mfauser@acme.test";
+
+  // Enrol a known TOTP secret directly, encrypted with the SAME MfaCrypto the
+  // app uses (derived from the test env), so the app can verify codes we mint.
+  async function enrollMfa(): Promise<OTPAuth.TOTP> {
+    const { hashPassword } = await import("../src/auth/passwords.js");
+    await seedMember(acmeId, MFA_EMAIL, "inspector", await hashPassword(PASSWORD));
+    const secret = new OTPAuth.Secret({ size: 20 });
+    const crypto = new MfaCrypto({
+      authSecret: process.env["AUTH_SECRET"] ?? "",
+      mfaKey: process.env["MFA_ENCRYPTION_KEY"],
+    });
+    await control.query("UPDATE control.users SET mfa_secret = $2, mfa_enrolled_at = now() WHERE email = $1", [
+      MFA_EMAIL,
+      crypto.encrypt(secret.base32),
+    ]);
+    return new OTPAuth.TOTP({ issuer: "Kaenal", label: MFA_EMAIL, digits: 6, period: 30, secret });
+  }
+
+  beforeEach(async () => {
+    await resetCredentials(MFA_EMAIL);
+  });
+
+  it("asks for a code (no session) when the password is right but MFA is active", async () => {
+    await enrollMfa();
+    const res = await signIn(ACME, MFA_EMAIL, PASSWORD); // no code
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ mfaRequired: true });
+    expect(res.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("issues a session when the correct code accompanies the password", async () => {
+    const totp = await enrollMfa();
+    const res = await request(server())
+      .post("/v1/auth/sign-in")
+      .set("X-Tenant-Id", ACME)
+      .send({ email: MFA_EMAIL, password: PASSWORD, code: totp.generate() });
+    expect(res.status).toBe(201);
+    expect(res.body.userId).toBeDefined();
+    const cookies = (res.headers["set-cookie"] ?? []) as unknown as string[];
+    expect(cookies.some((c) => c.startsWith("kaenal_session="))).toBe(true);
+  });
+
+  it("rejects a wrong code with UNAUTHENTICATED and no session", async () => {
+    const totp = await enrollMfa();
+    const valid = totp.generate();
+    const wrong = valid === "000000" ? "999999" : "000000";
+    const res = await request(server())
+      .post("/v1/auth/sign-in")
+      .set("X-Tenant-Id", ACME)
+      .send({ email: MFA_EMAIL, password: PASSWORD, code: wrong });
+    expect(res.status).toBe(401);
+    expect(res.headers["set-cookie"]).toBeUndefined();
+  });
+});
+
+describe("session management — list + revoke (07 §7)", () => {
+  const EMAIL = "ada@acme.test";
+
+  async function clearSessions(): Promise<void> {
+    await control.query(
+      "DELETE FROM sessions WHERE user_id IN (SELECT id FROM control.users WHERE email = $1)",
+      [EMAIL],
+    );
+  }
+
+  beforeEach(async () => {
+    await resetCredentials(EMAIL);
+    await clearSessions();
+  });
+
+  const list = (cookie: string) =>
+    request(server()).get("/v1/auth/sessions").set("X-Tenant-Id", ACME).set("Cookie", cookie);
+
+  const me = (cookie: string) =>
+    request(server()).get("/v1/me").set("X-Tenant-Id", ACME).set("Cookie", cookie);
+
+  // supertest's `res.body` is `any`; type the sessions array so array methods
+  // aren't unsafe calls (eslint no-unsafe-call).
+  const sessionsOf = (res: { body: unknown }): { id: string; current: boolean }[] =>
+    (res.body as { sessions: { id: string; current: boolean }[] }).sessions;
+
+  it("supports multiple concurrent logins, capped by policy (default 3)", async () => {
+    await authedSession(EMAIL);
+    await authedSession(EMAIL);
+    await authedSession(EMAIL);
+    const fourth = await authedSession(EMAIL); // 4th sign-in evicts the oldest
+
+    const res = await list(fourth.cookie);
+    expect(res.status).toBe(200);
+    expect(sessionsOf(res)).toHaveLength(3);
+    expect(sessionsOf(res).filter((s) => s.current)).toHaveLength(1);
+  });
+
+  it("lists the caller's own sessions and flags exactly the current one", async () => {
+    const a = await authedSession(EMAIL);
+    await authedSession(EMAIL);
+
+    const res = await list(a.cookie);
+    expect(res.status).toBe(200);
+    expect(sessionsOf(res)).toHaveLength(2);
+    const current = sessionsOf(res).filter((s) => s.current);
+    expect(current).toHaveLength(1);
+  });
+
+  it("signs out one other device by id, killing that session only", async () => {
+    const a = await authedSession(EMAIL);
+    const b = await authedSession(EMAIL);
+
+    const listed = await list(a.cookie);
+    const other = sessionsOf(listed).find((s) => !s.current) as { id: string };
+
+    const rev = await request(server())
+      .post(`/v1/auth/sessions/${other.id}/revoke`)
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", a.cookie)
+      .set("X-CSRF-Token", a.csrf);
+    expect(rev.status).toBeLessThan(300);
+
+    // B's cookie no longer authenticates; A still does.
+    expect((await me(b.cookie)).status).toBe(401);
+    expect((await me(a.cookie)).status).toBe(200);
+
+    const after = await list(a.cookie);
+    expect(after.body.sessions).toHaveLength(1);
+    expect(after.body.sessions[0].current).toBe(true);
+  });
+
+  it("returns 404 for an unknown session id (no existence leak, rule 8)", async () => {
+    const a = await authedSession(EMAIL);
+    const res = await request(server())
+      .post("/v1/auth/sessions/00000000-0000-7000-8000-0000000000aa/revoke")
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", a.cookie)
+      .set("X-CSRF-Token", a.csrf);
+    expect(res.status).toBe(404);
+  });
+
+  it("cannot revoke another user's session (scoped to the caller → 404)", async () => {
+    const a = await authedSession(EMAIL);
+    // grace signs in; her session id is invisible to ada and un-revokable.
+    const grace = await authedSession("grace@acme.test");
+    const graceList = await list(grace.cookie);
+    const graceSessionId = graceList.body.sessions[0].id as string;
+
+    const res = await request(server())
+      .post(`/v1/auth/sessions/${graceSessionId}/revoke`)
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", a.cookie)
+      .set("X-CSRF-Token", a.csrf);
+    expect(res.status).toBe(404);
+    // grace's session is untouched.
+    expect((await me(grace.cookie)).status).toBe(200);
+    await control.query(
+      "DELETE FROM sessions WHERE user_id IN (SELECT id FROM control.users WHERE email = 'grace@acme.test')",
+    );
+  });
+
+  it("signs out every OTHER device, keeping the current one", async () => {
+    await authedSession(EMAIL);
+    await authedSession(EMAIL);
+    const current = await authedSession(EMAIL);
+
+    const res = await request(server())
+      .post("/v1/auth/sessions/revoke-others")
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", current.cookie)
+      .set("X-CSRF-Token", current.csrf);
+    expect(res.status).toBeLessThan(300);
+    expect(res.body.revoked).toBe(2);
+
+    const after = await list(current.cookie);
+    expect(after.body.sessions).toHaveLength(1);
+    expect(after.body.sessions[0].current).toBe(true);
+    expect((await me(current.cookie)).status).toBe(200);
+  });
+});
+
+describe("change password (07 §2)", () => {
+  const EMAIL = "pwchange@acme.test";
+  const NEW_PW = "brand-new-passphrase-9911";
+  let baselineHash = "";
+
+  beforeAll(async () => {
+    const { hashPassword } = await import("../src/auth/passwords.js");
+    baselineHash = await hashPassword(PASSWORD);
+    await seedMember(acmeId, EMAIL, "inspector", baselineHash);
+  });
+
+  beforeEach(async () => {
+    // Restore the known password + clear sessions so each case starts clean.
+    await control.query(
+      "UPDATE control.users SET password_hash = $2, failed_login_attempts = 0, locked_until = NULL WHERE email = $1",
+      [EMAIL, baselineHash],
+    );
+    await control.query(
+      "DELETE FROM sessions WHERE user_id IN (SELECT id FROM control.users WHERE email = $1)",
+      [EMAIL],
+    );
+  });
+
+  const changePw = (cookie: string, csrf: string, currentPassword: string, newPassword: string) =>
+    request(server())
+      .post("/v1/auth/change-password")
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", cookie)
+      .set("X-CSRF-Token", csrf)
+      .send({ currentPassword, newPassword });
+
+  it("rejects a wrong current password and leaves the password unchanged", async () => {
+    const a = await authedSession(EMAIL);
+    const res = await changePw(a.cookie, a.csrf, "not-my-password", NEW_PW);
+    expect(res.status).toBe(422);
+    // The old password still works.
+    expect((await signIn(ACME, EMAIL, PASSWORD)).status).toBe(201);
+  });
+
+  it("rejects a new password that fails the policy (too short)", async () => {
+    const a = await authedSession(EMAIL);
+    const res = await changePw(a.cookie, a.csrf, PASSWORD, "short");
+    expect(res.status).toBe(422);
+  });
+
+  it("changes the password, revokes other sessions, and keeps the current one", async () => {
+    const other = await authedSession(EMAIL); // session B
+    const current = await authedSession(EMAIL); // session A — the one we change from
+
+    const res = await changePw(current.cookie, current.csrf, PASSWORD, NEW_PW);
+    expect(res.status).toBeLessThan(300);
+
+    // Current session survives; the other is revoked.
+    expect((await request(server()).get("/v1/me").set("X-Tenant-Id", ACME).set("Cookie", current.cookie)).status).toBe(200);
+    expect((await request(server()).get("/v1/me").set("X-Tenant-Id", ACME).set("Cookie", other.cookie)).status).toBe(401);
+
+    // The new password works; the old one no longer does.
+    expect((await signIn(ACME, EMAIL, NEW_PW)).status).toBe(201);
+    expect((await signIn(ACME, EMAIL, PASSWORD)).status).toBe(401);
   });
 });

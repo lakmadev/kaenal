@@ -38,23 +38,15 @@ function readCookie(name: string): string | undefined {
   return undefined;
 }
 
-async function authPost<T>(
-  path: string,
-  body: Record<string, unknown>,
-  opts: { tenant?: string | undefined } = {},
-): Promise<T> {
+function authHeaders(tenant?: string): Record<string, string> {
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (opts.tenant !== undefined && opts.tenant !== "") headers[TENANT_HEADER] = opts.tenant;
+  if (tenant !== undefined && tenant !== "") headers[TENANT_HEADER] = tenant;
   const csrf = readCookie(CSRF_COOKIE);
   if (csrf !== undefined) headers[CSRF_HEADER] = csrf;
+  return headers;
+}
 
-  const res = await fetch(`${env.apiBaseUrl}${path}`, {
-    method: "POST",
-    credentials: "include",
-    headers,
-    body: JSON.stringify(body),
-  });
-
+async function readOrThrow<T>(res: Response): Promise<T> {
   const data: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
     const envelope =
@@ -66,10 +58,50 @@ async function authPost<T>(
   return data as T;
 }
 
-export function signIn(input: { tenant: string; email: string; password: string }): Promise<SignInResult> {
-  return authPost<SignInResult>(
+async function authPost<T>(
+  path: string,
+  body: Record<string, unknown>,
+  opts: { tenant?: string | undefined } = {},
+): Promise<T> {
+  const res = await fetch(`${env.apiBaseUrl}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: authHeaders(opts.tenant),
+    body: JSON.stringify(body),
+  });
+  return readOrThrow<T>(res);
+}
+
+async function authGet<T>(path: string, opts: { tenant?: string | undefined } = {}): Promise<T> {
+  const res = await fetch(`${env.apiBaseUrl}${path}`, {
+    method: "GET",
+    credentials: "include",
+    headers: authHeaders(opts.tenant),
+  });
+  return readOrThrow<T>(res);
+}
+
+/** Sign-in returns a session, or asks for a second factor when MFA is active. */
+export type SignInResponse = SignInResult | { mfaRequired: true };
+
+export function isMfaRequired(res: SignInResponse): res is { mfaRequired: true } {
+  return "mfaRequired" in res;
+}
+
+export function signIn(input: {
+  tenant: string;
+  email: string;
+  password: string;
+  code?: string;
+}): Promise<SignInResponse> {
+  return authPost<SignInResponse>(
     "/v1/auth/sign-in",
-    { email: input.email, password: input.password },
+    {
+      email: input.email,
+      password: input.password,
+      // Only sent on the second step of an MFA sign-in.
+      ...(input.code !== undefined && input.code !== "" ? { code: input.code } : {}),
+    },
     { tenant: input.tenant },
   );
 }
@@ -88,6 +120,15 @@ export function resetPassword(input: { token: string; password: string }): Promi
 }
 
 /**
+ * Change the signed-in user's password (07 §2). Authenticated — sent with the
+ * active tenant + CSRF header. The current session stays valid; every other
+ * device is signed out server-side.
+ */
+export function changePassword(input: { currentPassword: string; newPassword: string }): Promise<{ ok: true }> {
+  return authPost<{ ok: true }>("/v1/auth/change-password", input, { tenant: getActiveTenant() });
+}
+
+/**
  * Accept a tenant invitation: set the person's name + password and activate the
  * membership. Tenant-scoped (`@AllowAnonymous`) — the invite belongs to one
  * workspace, sent as `X-Tenant-Id`.
@@ -103,4 +144,85 @@ export function acceptInvite(input: {
     { token: input.token, name: input.name, password: input.password },
     { tenant: input.tenant },
   );
+}
+
+/**
+ * Self-service MFA management (07 §4). These routes are AUTHENTICATED — a session
+ * already exists — but live outside ts-rest like the other auth calls, so they
+ * are typed fetch wrappers here. Every user manages their own second factor
+ * (including external partners, for whom it is mandatory). Sent with the active
+ * tenant + CSRF header, same as every mutation.
+ */
+export interface MfaStatus {
+  enrolled: boolean;
+  pending: boolean;
+  recoveryCodesRemaining: number;
+  enrolledAt: string | null;
+}
+
+export function mfaStatus(): Promise<MfaStatus> {
+  return authGet<MfaStatus>("/v1/auth/mfa", { tenant: getActiveTenant() });
+}
+
+/** Begin enrolment: returns the otpauth URI + a ready-to-`<img>` QR data-URI. */
+export function mfaEnroll(): Promise<{ otpauthUri: string; qrDataUri: string }> {
+  return authPost<{ otpauthUri: string; qrDataUri: string }>("/v1/auth/mfa/enroll", {}, { tenant: getActiveTenant() });
+}
+
+/** Activate a pending enrolment with a first code; returns the one-time recovery codes. */
+export function mfaActivate(code: string): Promise<{ recoveryCodes: string[] }> {
+  return authPost<{ recoveryCodes: string[] }>("/v1/auth/mfa/activate", { code }, { tenant: getActiveTenant() });
+}
+
+/** Turn MFA off — requires a current TOTP or recovery code. */
+export function mfaDisable(code: string): Promise<{ ok: true }> {
+  return authPost<{ ok: true }>("/v1/auth/mfa/disable", { code }, { tenant: getActiveTenant() });
+}
+
+/** Reissue recovery codes (invalidates the old set) — requires a current code. */
+export function mfaRegenerateRecoveryCodes(code: string): Promise<{ recoveryCodes: string[] }> {
+  return authPost<{ recoveryCodes: string[] }>(
+    "/v1/auth/mfa/recovery-codes/regenerate",
+    { code },
+    { tenant: getActiveTenant() },
+  );
+}
+
+/**
+ * A partner (or any account the workspace mandates MFA for) that has no factor
+ * configured is hard-stopped at sign-in with a 403 — the password already
+ * verified, so this is not a credential oracle. The sign-in form shows the
+ * "two-factor required" blocked screen for it.
+ */
+export function isMfaBlocked(error: unknown): boolean {
+  return error instanceof AuthError && error.status === 403;
+}
+
+/**
+ * Active-session management (07 §7). Authenticated, self-service — a user sees
+ * and signs out their own devices in the current workspace. Sessions are
+ * tenant-scoped, so the list reflects this workspace only; the session the
+ * request comes from is flagged `current` and is never offered for sign-out.
+ */
+export interface SessionSummary {
+  id: string;
+  current: boolean;
+  ip: string | null;
+  userAgent: string | null;
+  signedInAt: string;
+  expiresAt: string;
+}
+
+export function listSessions(): Promise<{ sessions: SessionSummary[] }> {
+  return authGet<{ sessions: SessionSummary[] }>("/v1/auth/sessions", { tenant: getActiveTenant() });
+}
+
+/** Sign out one other device. */
+export function revokeSession(id: string): Promise<{ ok: true }> {
+  return authPost<{ ok: true }>(`/v1/auth/sessions/${encodeURIComponent(id)}/revoke`, {}, { tenant: getActiveTenant() });
+}
+
+/** Sign out every other device, keeping the current one. */
+export function revokeOtherSessions(): Promise<{ revoked: number }> {
+  return authPost<{ revoked: number }>("/v1/auth/sessions/revoke-others", {}, { tenant: getActiveTenant() });
 }

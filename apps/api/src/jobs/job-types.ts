@@ -1,4 +1,5 @@
 import type { JobsOptions } from "bullmq";
+import type { EmailMessage } from "../providers/email/index.js";
 
 /**
  * Background job contracts (06 §1). Every payload carries `tenantId` and the
@@ -31,6 +32,8 @@ export const JOBS = {
   cleanupOrphanedUploads: "files.cleanup",
   /** Deliver an in-app notification's out-of-band channels (email/push/sms). */
   deliverNotification: "notify.deliver",
+  /** Send one fully-rendered transactional email (password reset, invite). */
+  sendEmail: "notify.email",
   /** Render a requested export server-side and upload it to object storage. */
   runExport: "reports.export",
   /** Repeatable fan-out trigger: enqueues one materialise job per active tenant. */
@@ -66,6 +69,15 @@ export interface CleanupOrphanedUploadsJob {
 export interface DeliverNotificationJob {
   readonly tenantId: string;
   readonly notificationId: string;
+}
+/**
+ * A fully-rendered transactional email. Tenant-agnostic (password reset runs
+ * before any tenant is known) and carries the complete message — the token is
+ * already baked into the body's link, so the processor just hands it to the
+ * EmailPort. Jobs are transient (removed on complete), matching the token's TTL.
+ */
+export interface SendEmailJob {
+  readonly message: EmailMessage;
 }
 export interface RunExportJob {
   readonly tenantId: string;

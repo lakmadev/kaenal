@@ -7,6 +7,7 @@ import {
   type DeliverNotificationJob,
   type RunExportJob,
   type ScanFileJob,
+  type SendEmailJob,
 } from "./job-types.js";
 
 /**
@@ -18,6 +19,7 @@ import {
 export interface JobProducer {
   scanFile(job: ScanFileJob): Promise<void>;
   deliverNotification(job: DeliverNotificationJob): Promise<void>;
+  sendEmail(job: SendEmailJob): Promise<void>;
   runExport(job: RunExportJob): Promise<void>;
   close(): Promise<void>;
 }
@@ -28,6 +30,9 @@ export class NoopProducer implements JobProducer {
     return Promise.resolve();
   }
   deliverNotification(): Promise<void> {
+    return Promise.resolve();
+  }
+  sendEmail(): Promise<void> {
     return Promise.resolve();
   }
   runExport(): Promise<void> {
@@ -69,6 +74,13 @@ export class BullMqProducer implements JobProducer {
       ...DEFAULT_JOB_OPTS,
       jobId: `deliver-${job.notificationId}`,
     });
+  }
+
+  // No jobId: two reset requests for the same address are two distinct emails
+  // (different tokens), so they must not collapse to one job the way a per-entity
+  // enqueue does.
+  async sendEmail(job: SendEmailJob): Promise<void> {
+    await this.notify.add(JOBS.sendEmail, job, DEFAULT_JOB_OPTS);
   }
 
   async runExport(job: RunExportJob): Promise<void> {

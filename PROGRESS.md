@@ -5,6 +5,106 @@
 
 ## Current status
 
+**Change password + real "Last sign-in" (2026-08-14).** The Security "Sign-in method" card was static;
+now both bits are live. **Backend:** `AuthService.changePassword` (verifies current password — naming a
+wrong one plainly is correct here, the user is proving it's them; enforces the same `checkPasswordPolicy`
+as reset; rejects reusing the old password; on success revokes every OTHER session across all workspaces,
+keeps the current one; audited `settings_changed`) + `POST /v1/auth/change-password` (authenticated,
+CSRF-checked, current token read from cookie to keep it alive). `MeDto.lastLoginAt` added + populated from
+`control.users.last_login_at` in `/v1/me`. **Web:** `lib/auth.ts changePassword`; `ChangePasswordModal`
+(reuses the shared `PasswordField`/`PasswordStrength`/`PasswordRequirements`, invalidates the sessions
+query on success, shows the "signed out of other devices" note); `security.tsx` wires the Change-password
+button + the real "Last sign-in N ago". **Tests:** `auth.test.ts` +3 (wrong current 422, weak new 422,
+success revokes others + keeps current + new pw works). **CI note:** the sessions commit failed CI at Lint
+(`no-unsafe-call` on `res.body.sessions.filter/find` in the new tests — I'd linted the changed *source*
+files but not `auth.test.ts`; `eslint .` catches everything). Fixed with a typed `sessionsOf` accessor, and
+now run the FULL `pnpm lint` before pushing. Verified live: Last sign-in "10 min ago", modal strength/reqs,
+wrong-current-password error inline. Full `pnpm typecheck` 6/6 + `pnpm lint` clean, auth 30/30.
+
+**Active-session management — list + revoke, real (2026-08-14).** The Security & devices "Active
+sessions" card was static mock data with dead buttons; now it's a live vertical slice. **Multiple
+concurrent logins already worked** (each sign-in inserts a `sessions` row; `maxConcurrentSessions`
+policy caps them, default 3, oldest auto-revoked — verified by test) — what was missing was list +
+per-device/all-others sign-out. **Backend:** `AuthService.listSessions` (own sessions in this tenant,
+RLS-scoped, flags the request's own session `current` by token-hash), `revokeSession` (by id, 404 on
+foreign/unknown per rule 8, audited `signed_out`), `revokeOtherSessions` (keep current, returns count,
+audited); `SessionsController` (`GET /v1/auth/sessions`, `POST /v1/auth/sessions/:id/revoke`, `POST
+/v1/auth/sessions/revoke-others` — authenticated, capability-free, reads the current token from the
+session cookie/bearer). **Web:** `lib/auth.ts` `listSessions/revokeSession/revokeOtherSessions` +
+`SessionSummary`; `hooks/use-sessions.ts` (TanStack); `security.tsx` Active-sessions card wired to live
+data with UA→label + relative-time + loopback-IP formatting, per-row Sign out, and Sign-out-all-others
+(disabled when none). **Tests:** `auth.test.ts` +6 (multi-login cap, current-flag, revoke-one kills only
+that session, unknown-id 404, cross-user 404, revoke-others keeps current) — 27/27. **Verified live:** two
+real sessions (Chrome/macOS "This device" + Safari/iOS) → per-device Sign out removed the iOS session and
+the list refetched to one. Typecheck 6/6, lint clean.
+
+**MFA UI — Claude Design screens integrated + verified in-browser (2026-08-14).** The polished MFA
+enrollment + challenge + settings screens (Claude Design deliverable, source pinned as binding design at
+`project_brain/project/src/mfa.jsx` + `mfa-settings.jsx` + `MFA Screens.html`, per rule #9) are now real,
+wired, and browser-verified end-to-end against live endpoints. **Web:** `features/mfa/` = `mfa-bits`
+(`CodeBoxes` 6-box paste-aware input, `QrImage` = `<img>` of the API's `qrDataUri`, `MfaError`/`MfaNote`,
+`RecoveryCodesGrid`, `RecoveryActions` copy/download/print), `mfa-enroll-modal` (3-step scan→confirm→save,
+wired to `/enroll`+`/activate`), `mfa-confirm-modal` (regenerate/disable, each gated on a current code),
+`two-factor-panel` (loading/not-enrolled/active + low-codes warning). `TwoFactorPanel` **replaces the
+fabricated MFA-methods card** (SMS/WebAuthn/email — none backed) in the Security & devices section. Sign-in
+form gains dedicated **`verify`** (authenticator + recovery modes, `MfaChallenge`) and **`blocked`**
+(partner MFA-required, `MfaRequiredBlocked`) stages, replacing the temporary inline code field. Client:
+`lib/auth.ts` `mfaStatus/Enroll/Activate/Disable/RegenerateRecoveryCodes` + `authGet` + `isMfaBlocked`;
+`hooks/use-mfa.ts` (TanStack). **Backend gap closed:** `POST /v1/auth/mfa/recovery-codes/regenerate` +
+`MfaService.regenerateRecoveryCodes` (design's active panel needs it); `MfaStatus.enrolledAt` surfaced so the
+active card shows a *real* "Added today" (design's fabricated "Last used today" dropped — no data source).
+Fixed an `onComplete` stale-closure bug (auto-submit now uses the completed value, not stale state). **Verified
+live:** enrolled demo@acme.test through real QR → activate → 10 recovery codes → active panel; signed out →
+sign-in challenge → redeemed a recovery code → dashboard, recovery count 10→9. Typecheck 6/6, lint clean,
+`mfa.test.ts` 4/4 (incl. regenerate + enrolledAt). Per-provider swappability of email/AV/MFA unchanged.
+
+**Pure-infra track — MFA (TOTP) DONE (2026-08-14).** Third slice. In-house RFC-6238 TOTP (industry
+practice for a custom auth stack; NOT SMS/Twilio — SIM-swap-vulnerable, NIST-discouraged). Migration
+`0035_mfa.sql`: `control.users.mfa_pending_secret` + `mfa_enrolled_at` (two-phase enrol) + `control.
+mfa_recovery_codes` (argon2/sha256-hashed, single-use). Secret at rest is **AES-256-GCM** (`mfa-crypto.ts`,
+key = `MFA_ENCRYPTION_KEY` or HKDF-derived from `AUTH_SECRET`) — plaintext in the DB would be a permanent
+2FA bypass. `MfaService` (`otpauth` + `qrcode`): enroll (pending secret + QR) → activate (prove a code →
+promote + issue 10 recovery codes) → verifyLogin (TOTP window ±1, then single-use recovery code) → disable.
+`MfaController` (`/v1/auth/mfa` status/enroll/activate/disable — authenticated, capability-free, NOT
+`@Internal` so partners manage their mandatory MFA; enable/disable audited). **Sign-in is now two-step:**
+`AuthService.signIn` returns `mfa_required` when the password is right but a factor is active (no session, not
+a failed attempt); a wrong code counts toward lockout. **Enforcement = "enrolled ⇒ enforced" + partners
+mandatory** (the settled scope). FE: the sign-in form gains a functional code step (`isMfaRequired` +
+`{mfaRequired:true}`); the **polished MFA enrollment + challenge screens are a Claude Design deliverable**
+(functional-but-unstyled now). Tests: `mfa.test.ts` (4 — crypto + full lifecycle), `auth.test.ts` +3
+(two-step HTTP flow), and `members`/`portal` partner sign-ins updated to real encrypted secrets + codes
+(proving the challenge is genuinely enforced). Full API suite 361/361, web 14/14, typecheck 6/6, lint clean,
+`db:check` 49. **All three infra slices (email + AV + MFA) done — one PR for the track.**
+
+**Pure-infra track — AV (ClamAV) DONE (2026-08-14).** Second reference adapter on the provider layer.
+`providers/av/` = `Scanner` port (relocated from `jobs/ports.ts`, which now re-exports it) + `stub.adapter`
+(filename verdict, default — `AV_PROVIDER=stub`, zero bytes, dev/test/CI) + `clamav.adapter` streaming the
+object's bytes to a `clamd` daemon over a dependency-free `INSTREAM` client (`clamd-client.ts`, `node:net`) +
+env factory. Added `Storage.getStream(key)` (S3 `GetObjectCommand` body / FakeStorage `Readable`) so the
+scanner reads bytes through the storage port, not the SDK. **Fail-safe verdict policy:** only `clean`/`infected`
+are terminal; a size-limit refusal, scan error, or unreachable daemon **throws** — the file stays `pending`
+(never downloadable, 07 §3) and the job retries, rather than a false `clean` letting an unscanned file through.
+`AV_PROVIDER`/`CLAMAV_HOST`/`CLAMAV_PORT`/`CLAMAV_TIMEOUT_MS` in env + `.env.example`; local `clamav` service in
+docker-compose. Tests: `av.test.ts` (7 — factory, stub, and the ClamAV adapter driven against a mock clamd TCP
+server for clean/infected/error/missing-object). Full API suite 354/354, typecheck 6/6, lint clean. **MFA (TOTP)
+is the remaining slice.**
+
+**Pure-infra track (provider abstraction) — Email (SES) DONE (2026-08-14).** User direction: every
+third-party/cloud service must sit behind a swappable adapter so AWS→GCP/Azure (or SES→Postmark) is one
+adapter + one env var, no business-code change. Formalized the **Ports & Adapters** convention in
+`apps/api/src/providers/README.md` (port + adapters + config-selected factory + DI token; vendor SDKs
+quarantined in `apps/api`, never in `packages/*`). First reference implementation: **Email**.
+`providers/email/` = `EmailPort` + `ses.adapter` (SESv2) + `console.adapter` (default: logs the envelope
+only, never the body/token — dev/test/provider-less deploys still run every flow) + env-driven `factory`
+(`EMAIL_PROVIDER=console|ses`). Wired the real notification email channel (`ChannelDelivery` replaces
+`StubDelivery`: resolves recipient from `control.users`, sends via the port; push/sms flagged until their
+ports ship) and **transactional password-reset + invite emails** now actually send — a new `notify.email`
+job (`sendEmail` producer + processor) enqueues a fully-rendered message off the request path; forgot-password
+stays enumeration-safe (identical response whether or not the account exists). `MAIL_FROM`/`AWS_REGION`/
+`SES_CONFIGURATION_SET` added to env + `.env.example`. Tests: `email.test.ts` (9 — factory selection, console
+envelope-only logging, template both-parts, ChannelDelivery resolve/skip/opt-out); full API suite 347/347,
+typecheck 6/6, lint clean. **AV (ClamAV) + MFA (TOTP) are the next two slices on this track.**
+
 **RLS tenancy suite GREEN + PR #5 CI unblocked (2026-08-13).** The `verify` CI job had been red
 since Phase A because `packages/db/test/rls.test.ts` addressed every probe row by a single-column
 `id`, but `tenant_settings` (Phase A) has a composite PK `(tenant_id, namespace)` and no `id` —

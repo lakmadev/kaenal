@@ -1,29 +1,86 @@
 "use client";
 
-import { ShieldCheck, KeyRound, Smartphone, Phone, Mail, PanelLeft, X, Clock } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
+import { ShieldCheck, KeyRound, Smartphone, Monitor, X, Clock } from "lucide-react";
 import { useSessionPolicy } from "@/hooks/use-session-policy";
-import { SettingsPage, SettingsCard, SettingsRow, Toggle } from "../settings-bits";
+import { useSessions, useRevokeSession, useRevokeOtherSessions } from "@/hooks/use-sessions";
+import { useMe } from "@/hooks/use-me";
+import type { SessionSummary } from "@/lib/auth";
+import { TwoFactorPanel } from "@/features/mfa/two-factor-panel";
+import { ChangePasswordModal } from "../change-password-modal";
+import { SettingsPage, SettingsCard, SettingsRow } from "../settings-bits";
 
-/** Security & devices (settings.jsx `Security`): sign-in method, MFA methods, and
- *  active sessions. Rendered as the design shows it; live session/MFA management
- *  lands with the account API (07 §7). */
+/** Security & devices (settings.jsx `Security`): sign-in method, the real
+ *  two-factor panel (TOTP enrol/verify/recovery, wired to /v1/auth/mfa), the
+ *  read-only session policy, and live active sessions (list + sign-out, wired to
+ *  /v1/auth/sessions). */
 
-const MFA_METHODS: { icon: LucideIcon; label: string; sub: string; on: boolean; primary?: boolean }[] = [
-  { icon: Smartphone, label: "Authenticator app", sub: "TOTP · added 4 months ago", on: true, primary: true },
-  { icon: KeyRound, label: "Security key", sub: "FIDO2 / WebAuthn · last used yesterday", on: true },
-  { icon: Phone, label: "SMS backup", sub: "Backup only — not recommended as primary", on: false },
-  { icon: Mail, label: "Email codes", sub: "Sent to your verified work email", on: false },
-];
+/** Best-effort friendly name from a User-Agent string (presentation only). */
+function deviceLabel(ua: string | null): string {
+  if (ua === null || ua === "") return "Unknown device";
+  const browser = /Edg\//.test(ua)
+    ? "Edge"
+    : /Chrome\//.test(ua) && !/Chromium/.test(ua)
+      ? "Chrome"
+      : /Firefox\//.test(ua)
+        ? "Firefox"
+        : /Safari\//.test(ua) && !/Chrome/.test(ua)
+          ? "Safari"
+          : "Browser";
+  const os = /Windows/.test(ua)
+    ? "Windows"
+    : /iPhone|iPad|iPod/.test(ua)
+      ? "iOS"
+      : /Mac OS X|Macintosh/.test(ua)
+        ? "macOS"
+        : /Android/.test(ua)
+          ? "Android"
+          : /Linux/.test(ua)
+            ? "Linux"
+            : null;
+  return os === null ? browser : `${browser} on ${os}`;
+}
 
-const SESSIONS: { icon: LucideIcon; label: string; loc: string; when: string; current?: boolean }[] = [
-  { icon: PanelLeft, label: "MacBook Pro · Chrome", loc: "Pune, IN · 192.168.4.18", when: "Active now", current: true },
-  { icon: Smartphone, label: "iPad Pro · Safari", loc: "Plant floor · 192.168.5.42", when: "2 hours ago" },
-  { icon: Smartphone, label: "iPhone · Kaenal Inspector", loc: "Pune, IN · LTE", when: "Yesterday" },
-];
+function isMobileUa(ua: string | null): boolean {
+  return ua !== null && /Mobile|iPhone|iPad|Android/.test(ua);
+}
+
+/** Strip the inet netmask (`::1/128` → `::1`) and label loopback nicely. */
+function formatIp(ip: string | null): string | null {
+  if (ip === null || ip === "") return null;
+  const bare = ip.replace(/\/\d+$/, "");
+  return bare === "::1" || bare === "127.0.0.1" ? "localhost" : bare;
+}
+
+/** "Active now" / "2 hours ago" / "3 days ago" from an ISO timestamp. */
+function relativeTime(iso: string): string {
+  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 90) return "Active now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "Yesterday" : `${days} days ago`;
+}
+
+/** "Last sign-in just now / 2 hours ago / 3 days ago" from an ISO timestamp. */
+function lastSignInLabel(iso: string | null): string {
+  if (iso === null) return "No recent sign-in on record";
+  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 90) return "Last sign-in just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `Last sign-in ${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `Last sign-in ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "Last sign-in yesterday" : `Last sign-in ${days} days ago`;
+}
 
 export function SecuritySection(): React.ReactElement {
   const { data: policy } = useSessionPolicy();
+  const { data: me } = useMe();
+  const [showChangePw, setShowChangePw] = useState(false);
   const maxLabel =
     policy === undefined
       ? ""
@@ -39,7 +96,7 @@ export function SecuritySection(): React.ReactElement {
             <ShieldCheck size={20} />
             <div className="flex-1">
               <div className="text-[13px] font-semibold">Email &amp; password</div>
-              <div className="text-[11px] text-muted">Last sign-in a few hours ago</div>
+              <div className="text-[11px] text-muted">{lastSignInLabel(me?.lastLoginAt ?? null)}</div>
             </div>
             <span className="k-chip" style={{ background: "var(--success-100, rgba(22,163,74,0.12))", color: "var(--success-700, #15803d)" }}>
               Active
@@ -47,38 +104,13 @@ export function SecuritySection(): React.ReactElement {
           </div>
         </SettingsRow>
         <SettingsRow label="Password" hint="Change the password used to sign in">
-          <button className="k-btn k-btn-ghost">
+          <button className="k-btn k-btn-ghost" onClick={() => setShowChangePw(true)}>
             <KeyRound size={13} /> Change password
           </button>
         </SettingsRow>
       </SettingsCard>
 
-      <SettingsCard title="Multi-factor authentication" desc="Required by workspace policy. Add at least 2 methods for resilience.">
-        <div className="flex flex-col gap-2">
-          {MFA_METHODS.map((m) => {
-            const Icon = m.icon;
-            return (
-              <div key={m.label} className="flex items-center gap-3 rounded-md border border-border p-3">
-                <div className="flex items-center justify-center rounded-md" style={{ width: 36, height: 36, background: "var(--bg-subtle)" }}>
-                  <Icon size={16} />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5 text-[13px] font-semibold">
-                    {m.label}
-                    {m.primary === true && (
-                      <span className="k-chip" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
-                        Primary
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[11px] text-muted">{m.sub}</div>
-                </div>
-                <Toggle on={m.on} />
-              </div>
-            );
-          })}
-        </div>
-      </SettingsCard>
+      <TwoFactorPanel />
 
       {policy !== undefined && (
         <SettingsCard title="Session policy" desc="Set by your workspace administrator (read-only)">
@@ -109,40 +141,95 @@ export function SecuritySection(): React.ReactElement {
         </SettingsCard>
       )}
 
-      <SettingsCard
-        title="Active sessions"
-        desc={`Devices currently signed in to your account${maxLabel === "" ? "" : ` — workspace policy allows ${maxLabel}`}`}
-        footer={
-          <button className="k-btn k-btn-ghost" style={{ color: "var(--danger-600)" }}>
-            <X size={13} /> Sign out all other sessions
-          </button>
-        }
-      >
-        <div className="flex flex-col">
-          {SESSIONS.map((s, i) => {
-            const Icon = s.icon;
-            return (
-              <div key={s.label} className={`flex items-center gap-3 py-3 ${i < SESSIONS.length - 1 ? "border-b border-border" : ""}`}>
-                <Icon size={18} />
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5 text-[13px] font-semibold">
-                    {s.label}
-                    {s.current === true && (
-                      <span className="k-chip" style={{ background: "var(--success-100, rgba(22,163,74,0.12))", color: "var(--success-700, #15803d)" }}>
-                        This device
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[11px] text-muted">
-                    {s.loc} · {s.when}
-                  </div>
-                </div>
-                {s.current !== true && <button className="k-btn k-btn-sm k-btn-ghost">Sign out</button>}
-              </div>
-            );
-          })}
-        </div>
-      </SettingsCard>
+      <ActiveSessionsCard maxLabel={maxLabel} />
+
+      {showChangePw && <ChangePasswordModal email={me?.email ?? ""} onClose={() => setShowChangePw(false)} />}
     </SettingsPage>
+  );
+}
+
+/** Live active-session list with per-device and all-other-devices sign-out. */
+function ActiveSessionsCard({ maxLabel }: { maxLabel: string }): React.ReactElement {
+  const { data, isLoading } = useSessions();
+  const revoke = useRevokeSession();
+  const revokeOthers = useRevokeOtherSessions();
+
+  const sessions = data?.sessions ?? [];
+  const others = sessions.filter((s) => !s.current);
+
+  return (
+    <SettingsCard
+      title="Active sessions"
+      desc={`Devices currently signed in to this workspace${maxLabel === "" ? "" : ` — workspace policy allows ${maxLabel}`}`}
+      footer={
+        <button
+          className="k-btn k-btn-ghost"
+          style={{ color: "var(--danger-600)" }}
+          disabled={others.length === 0 || revokeOthers.isPending}
+          onClick={() => revokeOthers.mutate()}
+        >
+          <X size={13} /> {revokeOthers.isPending ? "Signing out…" : "Sign out all other sessions"}
+        </button>
+      }
+    >
+      {isLoading ? (
+        <div className="flex flex-col gap-3">
+          {[0, 1].map((i) => (
+            <div key={i} className="skeleton" style={{ height: 40 }} />
+          ))}
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="py-2 text-[13px] text-muted">No other active sessions.</div>
+      ) : (
+        <div className="flex flex-col">
+          {sessions.map((s, i) => (
+            <SessionRow
+              key={s.id}
+              session={s}
+              divider={i < sessions.length - 1}
+              onRevoke={() => revoke.mutate(s.id)}
+              revoking={revoke.isPending && revoke.variables === s.id}
+            />
+          ))}
+        </div>
+      )}
+    </SettingsCard>
+  );
+}
+
+function SessionRow({
+  session,
+  divider,
+  onRevoke,
+  revoking,
+}: {
+  session: SessionSummary;
+  divider: boolean;
+  onRevoke: () => void;
+  revoking: boolean;
+}): React.ReactElement {
+  const Icon = isMobileUa(session.userAgent) ? Smartphone : Monitor;
+  const ip = formatIp(session.ip);
+  const meta = [ip, relativeTime(session.signedInAt)].filter((x) => x !== null && x !== "").join(" · ");
+  return (
+    <div className={`flex items-center gap-3 py-3 ${divider ? "border-b border-border" : ""}`}>
+      <Icon size={18} />
+      <div className="flex-1">
+        <div className="flex items-center gap-1.5 text-[13px] font-semibold">
+          {deviceLabel(session.userAgent)}
+          {session.current && (
+            <span className="k-chip" style={{ background: "var(--success-100, rgba(22,163,74,0.12))", color: "var(--success-700, #15803d)" }}>
+              This device
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] text-muted">{meta}</div>
+      </div>
+      {!session.current && (
+        <button className="k-btn k-btn-sm k-btn-ghost" disabled={revoking} onClick={onRevoke}>
+          {revoking ? "Signing out…" : "Sign out"}
+        </button>
+      )}
+    </div>
   );
 }

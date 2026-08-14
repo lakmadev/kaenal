@@ -18,6 +18,7 @@ import { ApiError } from "../errors.js";
 import { loadSessionPolicy } from "../settings/settings.service.js";
 import { CONTROL_POOL } from "../tokens.js";
 import { generateToken, hashPassword, hashToken, verifyPassword, equalizeTiming } from "./passwords.js";
+import type { MfaService } from "./mfa.service.js";
 
 /**
  * Authentication service (03 §2).
@@ -41,6 +42,15 @@ export interface SignInResult {
   readonly expiresAt: Date;
 }
 
+/**
+ * Sign-in either issues a session or, when the password is correct but the
+ * account has an active second factor, asks for a code without issuing anything.
+ * `mfa_required` is not a failure — it means "password accepted, now the code".
+ */
+export type SignInOutcome =
+  | { readonly kind: "session"; readonly result: SignInResult }
+  | { readonly kind: "mfa_required" };
+
 interface CredentialRow {
   id: string;
   password_hash: string | null;
@@ -52,7 +62,10 @@ interface CredentialRow {
 
 @Injectable()
 export class AuthService {
-  constructor(@Inject(CONTROL_POOL) private readonly control: pg.Pool) {}
+  constructor(
+    @Inject(CONTROL_POOL) private readonly control: pg.Pool,
+    private readonly mfa: MfaService,
+  ) {}
 
   /**
    * Verifies a credential and opens a tenant-scoped session.
@@ -65,8 +78,9 @@ export class AuthService {
     tenantId: string,
     email: string,
     password: string,
+    code: string | null,
     context: { ip: string | null; userAgent: string | null; requestId: string | null },
-  ): Promise<SignInResult> {
+  ): Promise<SignInOutcome> {
     const invalid = (): ApiError =>
       new ApiError("UNAUTHENTICATED", "Email or password is incorrect");
 
@@ -128,6 +142,27 @@ export class AuthService {
         "FORBIDDEN",
         "This account requires multi-factor authentication, which is not configured. Contact your administrator.",
       );
+    }
+
+    // Second factor: any account with an active TOTP secret must present a code —
+    // a correct password alone is not enough (the "enrolled ⇒ enforced" policy).
+    if (user.mfa_secret !== null) {
+      if (code === null || code === "") {
+        // Password was correct; ask the client for a code. Deliberately NOT a
+        // failed attempt (the credential was valid) — the code step is next.
+        return { kind: "mfa_required" };
+      }
+      if (!(await this.mfa.verifyLogin(user.id, code))) {
+        // A wrong code counts toward lockout, so the 6-digit space can't be
+        // brute-forced behind a known-good password.
+        const next = registerFailure(lockState, now);
+        await this.control.query(
+          `UPDATE control.users SET failed_login_attempts = $2, locked_until = $3 WHERE id = $1`,
+          [user.id, next.failedAttempts, next.lockedUntil],
+        );
+        await this.auditSignIn(tenantId, user.id, "sign_in_failed", { reason: "mfa_invalid" }, context);
+        throw new ApiError("UNAUTHENTICATED", "That verification code is not valid");
+      }
     }
 
     const reset = registerSuccess();
@@ -192,11 +227,14 @@ export class AuthService {
     }
 
     return {
-      userId: user.id,
-      role: membership.role,
-      plantIds: membership.plantIds,
-      sessionToken,
-      expiresAt,
+      kind: "session",
+      result: {
+        userId: user.id,
+        role: membership.role,
+        plantIds: membership.plantIds,
+        sessionToken,
+        expiresAt,
+      },
     };
   }
 
@@ -343,6 +381,139 @@ export class AuthService {
       plantIds: row.plant_ids,
       supplierScope: row.supplier_scope,
     };
+  }
+
+  /**
+   * The caller's own live sessions in THIS tenant (07 §7 — sessions are
+   * tenant-scoped). RLS on `sessions` already limits the query to the current
+   * tenant; the `user_id` filter limits it to the caller, so this is never a
+   * window onto anyone else's devices. The session matching the caller's own
+   * token is flagged `current` so the UI can protect it from being signed out.
+   */
+  async listSessions(
+    tx: Tx,
+    userId: string,
+    currentToken: string | null,
+  ): Promise<
+    {
+      id: string;
+      current: boolean;
+      ip: string | null;
+      userAgent: string | null;
+      signedInAt: Date;
+      expiresAt: Date;
+    }[]
+  > {
+    const { rows } = await tx.query<{
+      id: string;
+      refresh_token_hash: string;
+      ip: string | null;
+      user_agent: string | null;
+      created_at: Date;
+      expires_at: Date;
+    }>(
+      `SELECT id, refresh_token_hash, ip::text AS ip, user_agent, created_at, expires_at
+         FROM sessions
+        WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+        ORDER BY created_at DESC`,
+      [userId],
+    );
+
+    const currentHash = currentToken === null ? null : hashToken(currentToken);
+    return rows.map((r) => ({
+      id: r.id,
+      current: currentHash !== null && r.refresh_token_hash === currentHash,
+      ip: r.ip,
+      userAgent: r.user_agent,
+      signedInAt: r.created_at,
+      expiresAt: r.expires_at,
+    }));
+  }
+
+  /**
+   * Revoke one of the caller's sessions by id. Scoped to the caller's own rows
+   * under RLS, so a session id belonging to another user or tenant simply is not
+   * found — reported as 404, never 403 (rule 8: no cross-tenant/user existence
+   * leak). Idempotent: revoking an already-revoked session is a no-op 404.
+   */
+  async revokeSession(
+    tx: Tx,
+    tenantId: string,
+    userId: string,
+    sessionId: string,
+    context: { ip: string | null; userAgent: string | null; requestId: string | null },
+  ): Promise<void> {
+    const { rows } = await tx.query<{ id: string }>(
+      `SELECT id FROM sessions WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+      [sessionId, userId],
+    );
+    if (rows[0] === undefined) throw new ApiError("NOT_FOUND", "Session not found");
+
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId: userId,
+        actorKind: "user",
+        entityKind: "session",
+        entityId: sessionId,
+        action: "signed_out",
+        after: { revoked: "device" },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        await t.query(
+          `UPDATE sessions SET revoked_at = now(), updated_by = $2 WHERE id = $1 AND revoked_at IS NULL`,
+          [sessionId, userId],
+        );
+      },
+    );
+  }
+
+  /**
+   * "Sign out everywhere else": revoke every live session the caller holds in
+   * this tenant EXCEPT the one they are calling from. A null current token would
+   * mean "revoke all" — refused, so a bearer client that can't identify its own
+   * session cannot accidentally lock itself out. Returns how many were revoked.
+   */
+  async revokeOtherSessions(
+    tx: Tx,
+    tenantId: string,
+    userId: string,
+    currentToken: string | null,
+    context: { ip: string | null; userAgent: string | null; requestId: string | null },
+  ): Promise<number> {
+    if (currentToken === null) {
+      throw new ApiError("VALIDATION_FAILED", "Cannot identify the current session");
+    }
+    let revoked = 0;
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId: userId,
+        actorKind: "user",
+        entityKind: "session",
+        entityId: userId,
+        action: "signed_out",
+        after: { revoked: "others" },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const res = await t.query(
+          `UPDATE sessions SET revoked_at = now(), updated_by = $1
+            WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+              AND refresh_token_hash <> $2`,
+          [userId, hashToken(currentToken)],
+        );
+        revoked = res.rowCount ?? 0;
+      },
+    );
+    return revoked;
   }
 
   async signOut(tx: Tx, tenantId: string, token: string, userId: string): Promise<void> {
@@ -592,6 +763,86 @@ export class AuthService {
     await this.control.query(
       "UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
       [reset.user_id],
+    );
+  }
+
+  /**
+   * Self-service password change for a signed-in user. Requires the current
+   * password (the user is proving it is really them, so naming a wrong current
+   * password plainly is correct — this is not an enumeration surface). The new
+   * password must satisfy the same policy as a reset and differ from the old one.
+   *
+   * Like a reset, changing the password signs the account out of every OTHER
+   * session (across all workspaces) — a changed password is the remedy for a
+   * suspected compromise — while keeping the session the change was made from.
+   */
+  async changePassword(
+    tx: Tx,
+    tenantId: string,
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    keepToken: string | null,
+    context: { ip: string | null; userAgent: string | null; requestId: string | null },
+  ): Promise<void> {
+    const { rows } = await this.control.query<{ password_hash: string | null; email: string }>(
+      "SELECT password_hash, email FROM control.users WHERE id = $1",
+      [userId],
+    );
+    const user = rows[0];
+    if (user === undefined || user.password_hash === null) {
+      throw new ApiError("UNAUTHENTICATED", "Authentication required");
+    }
+
+    if (!(await verifyPassword(user.password_hash, currentPassword))) {
+      throw new ApiError("VALIDATION_FAILED", "Your current password is incorrect");
+    }
+
+    const policy = checkPasswordPolicy(newPassword, user.email);
+    if (!policy.ok) throw ApiError.from(policy);
+
+    if (await verifyPassword(user.password_hash, newPassword)) {
+      throw new ApiError("VALIDATION_FAILED", "Choose a password different from your current one");
+    }
+
+    const hash = await hashPassword(newPassword);
+    await this.control.query(
+      "UPDATE control.users SET password_hash = $2, failed_login_attempts = 0, locked_until = NULL WHERE id = $1",
+      [userId, hash],
+    );
+
+    // Revoke every other live session (all tenants) — keep only the one this
+    // change was made from. Runs on the control pool because a person's sessions
+    // span every workspace they belong to.
+    if (keepToken === null) {
+      await this.control.query(
+        "UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+        [userId],
+      );
+    } else {
+      await this.control.query(
+        "UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL AND refresh_token_hash <> $2",
+        [userId, hashToken(keepToken)],
+      );
+    }
+
+    // Record the security-relevant change in the tenant trail (the credential
+    // itself lives in the control plane and is never logged).
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId: userId,
+        actorKind: "user",
+        entityKind: "membership",
+        entityId: userId,
+        action: "settings_changed",
+        after: { password: "changed" },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      () => Promise.resolve(undefined),
     );
   }
 
