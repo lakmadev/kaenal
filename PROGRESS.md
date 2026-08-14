@@ -5,6 +5,24 @@
 
 ## Current status
 
+**Pure-infra track — MFA (TOTP) DONE (2026-08-14).** Third slice. In-house RFC-6238 TOTP (industry
+practice for a custom auth stack; NOT SMS/Twilio — SIM-swap-vulnerable, NIST-discouraged). Migration
+`0035_mfa.sql`: `control.users.mfa_pending_secret` + `mfa_enrolled_at` (two-phase enrol) + `control.
+mfa_recovery_codes` (argon2/sha256-hashed, single-use). Secret at rest is **AES-256-GCM** (`mfa-crypto.ts`,
+key = `MFA_ENCRYPTION_KEY` or HKDF-derived from `AUTH_SECRET`) — plaintext in the DB would be a permanent
+2FA bypass. `MfaService` (`otpauth` + `qrcode`): enroll (pending secret + QR) → activate (prove a code →
+promote + issue 10 recovery codes) → verifyLogin (TOTP window ±1, then single-use recovery code) → disable.
+`MfaController` (`/v1/auth/mfa` status/enroll/activate/disable — authenticated, capability-free, NOT
+`@Internal` so partners manage their mandatory MFA; enable/disable audited). **Sign-in is now two-step:**
+`AuthService.signIn` returns `mfa_required` when the password is right but a factor is active (no session, not
+a failed attempt); a wrong code counts toward lockout. **Enforcement = "enrolled ⇒ enforced" + partners
+mandatory** (the settled scope). FE: the sign-in form gains a functional code step (`isMfaRequired` +
+`{mfaRequired:true}`); the **polished MFA enrollment + challenge screens are a Claude Design deliverable**
+(functional-but-unstyled now). Tests: `mfa.test.ts` (4 — crypto + full lifecycle), `auth.test.ts` +3
+(two-step HTTP flow), and `members`/`portal` partner sign-ins updated to real encrypted secrets + codes
+(proving the challenge is genuinely enforced). Full API suite 361/361, web 14/14, typecheck 6/6, lint clean,
+`db:check` 49. **All three infra slices (email + AV + MFA) done — one PR for the track.**
+
 **Pure-infra track — AV (ClamAV) DONE (2026-08-14).** Second reference adapter on the provider layer.
 `providers/av/` = `Scanner` port (relocated from `jobs/ports.ts`, which now re-exports it) + `stub.adapter`
 (filename verdict, default — `AV_PROVIDER=stub`, zero bytes, dev/test/CI) + `clamav.adapter` streaming the

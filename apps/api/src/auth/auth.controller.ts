@@ -26,6 +26,8 @@ import { generateToken } from "./passwords.js";
 const SignInBody = z.object({
   email: z.string().email().max(320),
   password: z.string().min(1).max(256),
+  /** TOTP or recovery code — present only on the second step of an MFA sign-in. */
+  code: z.string().min(1).max(64).optional(),
 });
 
 const AcceptInviteBody = z.object({
@@ -85,24 +87,27 @@ export class AuthController {
   async signIn(
     @Body() body: unknown,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ userId: string; role: string; expiresAt: string }> {
-    const { email, password } = parse(SignInBody, body);
+  ): Promise<{ userId: string; role: string; expiresAt: string } | { mfaRequired: true }> {
+    const { email, password, code } = parse(SignInBody, body);
     const ctx = currentContext();
     await this.throttleLogin(ctx.ip);
 
-    const result = await this.auth.signIn(currentTx(), ctx.tenantId, email, password, {
+    const outcome = await this.auth.signIn(currentTx(), ctx.tenantId, email, password, code ?? null, {
       ip: ctx.ip,
       userAgent: ctx.userAgent,
       requestId: ctx.requestId,
     });
 
+    // Password accepted, second factor still needed: no cookies, no session.
+    if (outcome.kind === "mfa_required") return { mfaRequired: true };
+
     const csrfToken = generateToken();
-    this.setCookies(res, result.sessionToken, csrfToken);
+    this.setCookies(res, outcome.result.sessionToken, csrfToken);
 
     return {
-      userId: result.userId,
-      role: result.role,
-      expiresAt: result.expiresAt.toISOString(),
+      userId: outcome.result.userId,
+      role: outcome.result.role,
+      expiresAt: outcome.result.expiresAt.toISOString(),
     };
   }
 

@@ -18,6 +18,7 @@ import { ApiError } from "../errors.js";
 import { loadSessionPolicy } from "../settings/settings.service.js";
 import { CONTROL_POOL } from "../tokens.js";
 import { generateToken, hashPassword, hashToken, verifyPassword, equalizeTiming } from "./passwords.js";
+import type { MfaService } from "./mfa.service.js";
 
 /**
  * Authentication service (03 §2).
@@ -41,6 +42,15 @@ export interface SignInResult {
   readonly expiresAt: Date;
 }
 
+/**
+ * Sign-in either issues a session or, when the password is correct but the
+ * account has an active second factor, asks for a code without issuing anything.
+ * `mfa_required` is not a failure — it means "password accepted, now the code".
+ */
+export type SignInOutcome =
+  | { readonly kind: "session"; readonly result: SignInResult }
+  | { readonly kind: "mfa_required" };
+
 interface CredentialRow {
   id: string;
   password_hash: string | null;
@@ -52,7 +62,10 @@ interface CredentialRow {
 
 @Injectable()
 export class AuthService {
-  constructor(@Inject(CONTROL_POOL) private readonly control: pg.Pool) {}
+  constructor(
+    @Inject(CONTROL_POOL) private readonly control: pg.Pool,
+    private readonly mfa: MfaService,
+  ) {}
 
   /**
    * Verifies a credential and opens a tenant-scoped session.
@@ -65,8 +78,9 @@ export class AuthService {
     tenantId: string,
     email: string,
     password: string,
+    code: string | null,
     context: { ip: string | null; userAgent: string | null; requestId: string | null },
-  ): Promise<SignInResult> {
+  ): Promise<SignInOutcome> {
     const invalid = (): ApiError =>
       new ApiError("UNAUTHENTICATED", "Email or password is incorrect");
 
@@ -128,6 +142,27 @@ export class AuthService {
         "FORBIDDEN",
         "This account requires multi-factor authentication, which is not configured. Contact your administrator.",
       );
+    }
+
+    // Second factor: any account with an active TOTP secret must present a code —
+    // a correct password alone is not enough (the "enrolled ⇒ enforced" policy).
+    if (user.mfa_secret !== null) {
+      if (code === null || code === "") {
+        // Password was correct; ask the client for a code. Deliberately NOT a
+        // failed attempt (the credential was valid) — the code step is next.
+        return { kind: "mfa_required" };
+      }
+      if (!(await this.mfa.verifyLogin(user.id, code))) {
+        // A wrong code counts toward lockout, so the 6-digit space can't be
+        // brute-forced behind a known-good password.
+        const next = registerFailure(lockState, now);
+        await this.control.query(
+          `UPDATE control.users SET failed_login_attempts = $2, locked_until = $3 WHERE id = $1`,
+          [user.id, next.failedAttempts, next.lockedUntil],
+        );
+        await this.auditSignIn(tenantId, user.id, "sign_in_failed", { reason: "mfa_invalid" }, context);
+        throw new ApiError("UNAUTHENTICATED", "That verification code is not valid");
+      }
     }
 
     const reset = registerSuccess();
@@ -192,11 +227,14 @@ export class AuthService {
     }
 
     return {
-      userId: user.id,
-      role: membership.role,
-      plantIds: membership.plantIds,
-      sessionToken,
-      expiresAt,
+      kind: "session",
+      result: {
+        userId: user.id,
+        role: membership.role,
+        plantIds: membership.plantIds,
+        sessionToken,
+        expiresAt,
+      },
     };
   }
 

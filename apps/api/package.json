@@ -30,7 +30,9 @@
     "bullmq": "^5",
     "fflate": "^0.8.2",
     "ioredis": "^5.4.2",
+    "otpauth": "^9.3.6",
     "pg": "^8.13.1",
+    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^3.24.1"
@@ -40,6 +42,7 @@
     "@nestjs/testing": "^10.4.15",
     "@types/express": "^5.0.0",
     "@types/pg": "^8.11.10",
+    "@types/qrcode": "^1.5.6",
     "@types/supertest": "^6.0.2",
     "dotenv": "^16.4.7",
     "supertest": "^7.0.0",

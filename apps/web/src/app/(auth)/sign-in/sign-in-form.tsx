@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, ArrowLeft, TriangleAlert, Eye, EyeOff, Lock, KeyRound, Mail, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@kaenal/api-client";
-import { signIn, forgotPassword, AuthError } from "@/lib/auth";
+import { signIn, forgotPassword, AuthError, isMfaRequired } from "@/lib/auth";
 import { setActiveTenant } from "@/lib/tenant";
 import { AuthShell } from "@/components/auth/auth-shell";
 
@@ -41,6 +41,9 @@ export function SignInForm(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [notice, setNotice] = useState("");
+  // Second factor: once the server signals it, the same form collects a code.
+  const [needsMfa, setNeedsMfa] = useState(false);
+  const [code, setCode] = useState("");
 
   const submitWorkspace = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -62,16 +65,32 @@ export function SignInForm(): React.ReactElement {
       setErr("Enter your password");
       return;
     }
+    if (needsMfa && code.trim() === "") {
+      setErr("Enter the 6-digit code from your authenticator");
+      return;
+    }
     setErr("");
     setBusy(true);
     try {
-      await signIn({ tenant: workspace, email, password });
+      const res = await signIn({
+        tenant: workspace,
+        email,
+        password,
+        ...(needsMfa ? { code: code.trim() } : {}),
+      });
+      // Password accepted, but a second factor is required: reveal the code field.
+      if (isMfaRequired(res)) {
+        setNeedsMfa(true);
+        setBusy(false);
+        return;
+      }
       setActiveTenant(workspace);
       await queryClient.invalidateQueries({ queryKey: queryKeys.me() });
       router.replace("/dashboard");
     } catch (error) {
       setBusy(false);
-      setErr(signInErrorMessage(error, workspace));
+      // A wrong code is a 401 like a bad password; keep the code field visible.
+      setErr(needsMfa ? "That code isn’t valid. Try again." : signInErrorMessage(error, workspace));
     }
   };
 
@@ -146,6 +165,8 @@ export function SignInForm(): React.ReactElement {
               onClick={() => {
                 setStage("workspace");
                 setErr("");
+                setNeedsMfa(false);
+                setCode("");
               }}
               className="k-btn k-btn-plain k-btn-sm mb-3.5 self-start"
             >
@@ -218,6 +239,25 @@ export function SignInForm(): React.ReactElement {
                 </button>
               </div>
 
+              {needsMfa && (
+                <div className="mt-3.5">
+                  <label className="k-overline mb-1.5 block">Authentication code</label>
+                  <input
+                    className="k-input mono"
+                    autoFocus
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/[^0-9a-fA-F-]/g, ""))}
+                    placeholder="123456"
+                    style={{ height: 42, letterSpacing: "0.2em" }}
+                  />
+                  <p className="mt-1.5 text-[11px] text-muted">
+                    Enter the 6-digit code from your authenticator app, or a recovery code.
+                  </p>
+                </div>
+              )}
+
               {err !== "" && <InlineError message={err} />}
 
               <button
@@ -226,7 +266,7 @@ export function SignInForm(): React.ReactElement {
                 className="k-btn k-btn-primary mt-5 w-full"
                 style={{ height: 44, fontSize: 14 }}
               >
-                {busy ? "Signing in…" : "Sign in"}
+                {busy ? "Signing in…" : needsMfa ? "Verify" : "Sign in"}
               </button>
             </form>
 

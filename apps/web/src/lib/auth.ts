@@ -66,10 +66,27 @@ async function authPost<T>(
   return data as T;
 }
 
-export function signIn(input: { tenant: string; email: string; password: string }): Promise<SignInResult> {
-  return authPost<SignInResult>(
+/** Sign-in returns a session, or asks for a second factor when MFA is active. */
+export type SignInResponse = SignInResult | { mfaRequired: true };
+
+export function isMfaRequired(res: SignInResponse): res is { mfaRequired: true } {
+  return "mfaRequired" in res;
+}
+
+export function signIn(input: {
+  tenant: string;
+  email: string;
+  password: string;
+  code?: string;
+}): Promise<SignInResponse> {
+  return authPost<SignInResponse>(
     "/v1/auth/sign-in",
-    { email: input.email, password: input.password },
+    {
+      email: input.email,
+      password: input.password,
+      // Only sent on the second step of an MFA sign-in.
+      ...(input.code !== undefined && input.code !== "" ? { code: input.code } : {}),
+    },
     { tenant: input.tenant },
   );
 }

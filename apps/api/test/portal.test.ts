@@ -5,9 +5,11 @@ import request from "supertest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import pg from "pg";
+import * as OTPAuth from "otpauth";
 import { withTenant } from "@kaenal/db";
 import { AppModule } from "../src/app.module.js";
 import { hashPassword } from "../src/auth/passwords.js";
+import { MfaCrypto } from "../src/auth/mfa-crypto.js";
 
 /**
  * Supplier portal isolation suite (FEATURES §17, P11) — THE risk surface.
@@ -22,7 +24,14 @@ import { hashPassword } from "../src/auth/passwords.js";
 
 const ACME = "acme";
 const PASSWORD = "correct-horse-battery-staple";
-const MFA_SECRET = "JBSWY3DPEHPK3PXP"; // presence is what the gate checks
+// A real base32 TOTP secret, stored ENCRYPTED (as the app requires). A partner
+// now proves a second factor at login, so `token()` generates a code from it.
+const MFA_SECRET = "JBSWY3DPEHPK3PXP";
+const mfaCrypto = new MfaCrypto({
+  authSecret: process.env["AUTH_SECRET"] ?? "",
+  mfaKey: process.env["MFA_ENCRYPTION_KEY"],
+});
+const mfaTotp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(MFA_SECRET), digits: 6, period: 30 });
 
 let app: INestApplication;
 let control: pg.Pool;
@@ -64,7 +73,7 @@ async function seedUser(
      ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash,
        mfa_secret = EXCLUDED.mfa_secret, failed_login_attempts = 0, locked_until = NULL
      RETURNING id`,
-    [email, email, hash, opts.mfa === true ? MFA_SECRET : null],
+    [email, email, hash, opts.mfa === true ? mfaCrypto.encrypt(MFA_SECRET) : null],
   );
   const userId = rows[0]?.id ?? "";
   await withTenant(tenantId, null, async (tx) => {
@@ -80,7 +89,13 @@ async function seedUser(
 }
 
 async function token(email: string): Promise<string> {
-  const res = await request(server()).post("/v1/auth/sign-in").set("X-Tenant-Id", ACME).send({ email, password: PASSWORD });
+  const post = (body: Record<string, unknown>) =>
+    request(server()).post("/v1/auth/sign-in").set("X-Tenant-Id", ACME).send(body);
+  let res = await post({ email, password: PASSWORD });
+  // A partner (MFA-enrolled) is asked for a code; supply one and finish sign-in.
+  if (res.status === 201 && res.body?.mfaRequired === true) {
+    res = await post({ email, password: PASSWORD, code: mfaTotp.generate() });
+  }
   if (res.status !== 201) throw new Error(`sign-in ${email}: ${res.status} ${JSON.stringify(res.body)}`);
   const cookies = res.headers["set-cookie"] as unknown as string[];
   const session = cookies.find((c) => c.startsWith("kaenal_session="));

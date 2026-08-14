@@ -104,6 +104,15 @@ const EnvSchema = z.object({
   CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
   /** Overall connect+scan deadline; a large upload over a busy daemon needs headroom. */
   CLAMAV_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+
+  /**
+   * Encryption key for TOTP secrets at rest (07 §4). 32 bytes, base64 — generate
+   * with `openssl rand -base64 32`. Set it in production so it can be rotated
+   * independently of AUTH_SECRET. Left unset, a distinct key is HKDF-derived from
+   * AUTH_SECRET, so MFA works out of the box; rotating AUTH_SECRET then also
+   * invalidates stored TOTP secrets (re-enrol), which is why prod should set this.
+   */
+  MFA_ENCRYPTION_KEY: z.string().min(1).optional(),
 }).transform((e) => ({
   ...e,
   RATE_LIMIT_ENABLED: e.RATE_LIMIT_ENABLED ?? e.NODE_ENV !== "test",

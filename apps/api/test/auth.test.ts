@@ -4,9 +4,11 @@ import request from "supertest";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import pg from "pg";
+import * as OTPAuth from "otpauth";
 import { withTenant } from "@kaenal/db";
 import { MAX_FAILED_ATTEMPTS } from "@kaenal/core";
 import { AppModule } from "../src/app.module.js";
+import { MfaCrypto } from "../src/auth/mfa-crypto.js";
 
 /**
  * Auth end-to-end (03 §2, 07 §7).
@@ -490,5 +492,62 @@ describe("password reset (03 §2)", () => {
       "ada@acme.test",
       await hashPassword(PASSWORD),
     ]);
+  });
+});
+
+describe("sign-in with MFA (07 §4)", () => {
+  const MFA_EMAIL = "mfauser@acme.test";
+
+  // Enrol a known TOTP secret directly, encrypted with the SAME MfaCrypto the
+  // app uses (derived from the test env), so the app can verify codes we mint.
+  async function enrollMfa(): Promise<OTPAuth.TOTP> {
+    const { hashPassword } = await import("../src/auth/passwords.js");
+    await seedMember(acmeId, MFA_EMAIL, "inspector", await hashPassword(PASSWORD));
+    const secret = new OTPAuth.Secret({ size: 20 });
+    const crypto = new MfaCrypto({
+      authSecret: process.env["AUTH_SECRET"] ?? "",
+      mfaKey: process.env["MFA_ENCRYPTION_KEY"],
+    });
+    await control.query("UPDATE control.users SET mfa_secret = $2, mfa_enrolled_at = now() WHERE email = $1", [
+      MFA_EMAIL,
+      crypto.encrypt(secret.base32),
+    ]);
+    return new OTPAuth.TOTP({ issuer: "Kaenal", label: MFA_EMAIL, digits: 6, period: 30, secret });
+  }
+
+  beforeEach(async () => {
+    await resetCredentials(MFA_EMAIL);
+  });
+
+  it("asks for a code (no session) when the password is right but MFA is active", async () => {
+    await enrollMfa();
+    const res = await signIn(ACME, MFA_EMAIL, PASSWORD); // no code
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ mfaRequired: true });
+    expect(res.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("issues a session when the correct code accompanies the password", async () => {
+    const totp = await enrollMfa();
+    const res = await request(server())
+      .post("/v1/auth/sign-in")
+      .set("X-Tenant-Id", ACME)
+      .send({ email: MFA_EMAIL, password: PASSWORD, code: totp.generate() });
+    expect(res.status).toBe(201);
+    expect(res.body.userId).toBeDefined();
+    const cookies = (res.headers["set-cookie"] ?? []) as unknown as string[];
+    expect(cookies.some((c) => c.startsWith("kaenal_session="))).toBe(true);
+  });
+
+  it("rejects a wrong code with UNAUTHENTICATED and no session", async () => {
+    const totp = await enrollMfa();
+    const valid = totp.generate();
+    const wrong = valid === "000000" ? "999999" : "000000";
+    const res = await request(server())
+      .post("/v1/auth/sign-in")
+      .set("X-Tenant-Id", ACME)
+      .send({ email: MFA_EMAIL, password: PASSWORD, code: wrong });
+    expect(res.status).toBe(401);
+    expect(res.headers["set-cookie"]).toBeUndefined();
   });
 });
