@@ -1,3 +1,5 @@
+import { Readable } from "node:stream";
+
 /**
  * The object-storage port (03 §7). The Files service depends on this interface,
  * not on the AWS SDK, so the presign/complete/download logic — the part that
@@ -24,6 +26,12 @@ export interface Storage {
   presignGet(key: string, filename: string, disposition?: Disposition): Promise<string>;
   /** Object metadata, or null if it does not exist (upload never happened). */
   stat(key: string): Promise<StatResult | null>;
+  /**
+   * Open a read stream over the object's bytes, or null if it does not exist.
+   * Server-side readers only (the AV scanner streams bytes to clamd) — clients
+   * always download through a presigned GET, never through the API process.
+   */
+  getStream(key: string): Promise<Readable | null>;
   /**
    * Upload bytes server-side (the export renderer, 03 §8 — not a client
    * upload). Returns the stored object's byte size.
@@ -67,6 +75,14 @@ export class FakeStorage implements Storage {
   stat(key: string): Promise<StatResult | null> {
     const size = this.objects.get(key);
     return Promise.resolve(size === undefined ? null : { sizeBytes: size, etag: `fake-etag-${key.length}` });
+  }
+
+  getStream(key: string): Promise<Readable | null> {
+    if (!this.objects.has(key)) return Promise.resolve(null);
+    // Prefer the exact bytes stored by `put`; fall back to zero-filled bytes of
+    // the recorded size for objects that only went through a (faked) presign.
+    const body = this.bodies.get(key) ?? Buffer.alloc(this.objects.get(key) ?? 0);
+    return Promise.resolve(Readable.from(body));
   }
 
   put(key: string, body: Buffer, _contentType: string): Promise<{ sizeBytes: number }> {

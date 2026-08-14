@@ -6,6 +6,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import type { Readable } from "node:stream";
 import type { Disposition, Storage, StatResult } from "./storage.js";
 
 /**
@@ -52,6 +53,17 @@ export class S3Storage implements Storage {
   async delete(key: string): Promise<void> {
     // S3 DeleteObject is idempotent — deleting a missing key succeeds.
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  async getStream(key: string): Promise<Readable | null> {
+    try {
+      const out = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      // In the Node runtime the SDK returns the body as a Readable stream.
+      return (out.Body as Readable | undefined) ?? null;
+    } catch (err: unknown) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
   }
 
   async stat(key: string): Promise<StatResult | null> {

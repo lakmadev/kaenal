@@ -30,7 +30,7 @@ import {
   type DeliverNotificationJob,
   type SendEmailJob,
 } from "./job-types.js";
-import { StubScanner } from "./ports.js";
+import { createScanner } from "../providers/av/index.js";
 import { createEmailPort } from "../providers/email/index.js";
 import { ChannelDelivery } from "../notifications/channel-delivery.js";
 import { sendEmail } from "./processors/send-email.js";
@@ -72,7 +72,6 @@ async function main(): Promise<void> {
 
   const notifications = new NotificationsService();
   const inspections = new InspectionsService();
-  const scanner = new StubScanner();
   // Email provider is config-selected (EMAIL_PROVIDER); the delivery channel
   // resolves recipients and fans notifications to it. Same port powers the
   // transactional send-email job below.
@@ -91,6 +90,9 @@ async function main(): Promise<void> {
     env.S3_BUCKET,
     env.S3_URL_TTL_SECONDS,
   );
+  // AV engine is config-selected (AV_PROVIDER); the real adapter streams the
+  // object's bytes (via storage) to clamd, so it is constructed after storage.
+  const scanner = createScanner(env, storage);
 
   const slaQueue = new Queue(QUEUES.sla, { connection });
 

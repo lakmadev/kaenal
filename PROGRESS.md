@@ -5,6 +5,19 @@
 
 ## Current status
 
+**Pure-infra track — AV (ClamAV) DONE (2026-08-14).** Second reference adapter on the provider layer.
+`providers/av/` = `Scanner` port (relocated from `jobs/ports.ts`, which now re-exports it) + `stub.adapter`
+(filename verdict, default — `AV_PROVIDER=stub`, zero bytes, dev/test/CI) + `clamav.adapter` streaming the
+object's bytes to a `clamd` daemon over a dependency-free `INSTREAM` client (`clamd-client.ts`, `node:net`) +
+env factory. Added `Storage.getStream(key)` (S3 `GetObjectCommand` body / FakeStorage `Readable`) so the
+scanner reads bytes through the storage port, not the SDK. **Fail-safe verdict policy:** only `clean`/`infected`
+are terminal; a size-limit refusal, scan error, or unreachable daemon **throws** — the file stays `pending`
+(never downloadable, 07 §3) and the job retries, rather than a false `clean` letting an unscanned file through.
+`AV_PROVIDER`/`CLAMAV_HOST`/`CLAMAV_PORT`/`CLAMAV_TIMEOUT_MS` in env + `.env.example`; local `clamav` service in
+docker-compose. Tests: `av.test.ts` (7 — factory, stub, and the ClamAV adapter driven against a mock clamd TCP
+server for clean/infected/error/missing-object). Full API suite 354/354, typecheck 6/6, lint clean. **MFA (TOTP)
+is the remaining slice.**
+
 **Pure-infra track (provider abstraction) — Email (SES) DONE (2026-08-14).** User direction: every
 third-party/cloud service must sit behind a swappable adapter so AWS→GCP/Azure (or SES→Postmark) is one
 adapter + one env var, no business-code change. Formalized the **Ports & Adapters** convention in

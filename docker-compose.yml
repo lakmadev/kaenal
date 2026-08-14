@@ -50,6 +50,25 @@ services:
       timeout: 5s
       retries: 20
 
+  # Antivirus engine for the upload-scan pipeline (AV_PROVIDER=clamav). The image
+  # ships with a signature DB and refreshes it via freshclam; first boot takes a
+  # minute to become healthy while it loads definitions. Dev/CI can stay on the
+  # default AV_PROVIDER=stub and skip this service.
+  clamav:
+    image: clamav/clamav:stable
+    container_name: kaenal-clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - kaenal-clamavdata:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
   # Local inspection UIs — dev only, not part of the app runtime.
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -85,5 +104,6 @@ volumes:
   kaenal-pgdata:
   kaenal-redisdata:
   kaenal-miniodata:
+  kaenal-clamavdata:
   kaenal-pgadmindata:
   kaenal-redisinsightdata:

@@ -93,6 +93,17 @@ const EnvSchema = z.object({
    */
   AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
   AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+
+  /**
+   * Antivirus engine (`providers/av`). `stub` (default) verdicts by filename and
+   * inspects zero bytes — for dev/test/CI only. `clamav` streams each upload to a
+   * `clamd` daemon. Never run production on `stub`.
+   */
+  AV_PROVIDER: z.enum(["stub", "clamav"]).default("stub"),
+  CLAMAV_HOST: z.string().min(1).default("localhost"),
+  CLAMAV_PORT: z.coerce.number().int().positive().default(3310),
+  /** Overall connect+scan deadline; a large upload over a busy daemon needs headroom. */
+  CLAMAV_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
 }).transform((e) => ({
   ...e,
   RATE_LIMIT_ENABLED: e.RATE_LIMIT_ENABLED ?? e.NODE_ENV !== "test",
