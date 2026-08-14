@@ -5,6 +5,26 @@
 
 ## Current status
 
+**MFA UI — Claude Design screens integrated + verified in-browser (2026-08-14).** The polished MFA
+enrollment + challenge + settings screens (Claude Design deliverable, source pinned as binding design at
+`project_brain/project/src/mfa.jsx` + `mfa-settings.jsx` + `MFA Screens.html`, per rule #9) are now real,
+wired, and browser-verified end-to-end against live endpoints. **Web:** `features/mfa/` = `mfa-bits`
+(`CodeBoxes` 6-box paste-aware input, `QrImage` = `<img>` of the API's `qrDataUri`, `MfaError`/`MfaNote`,
+`RecoveryCodesGrid`, `RecoveryActions` copy/download/print), `mfa-enroll-modal` (3-step scan→confirm→save,
+wired to `/enroll`+`/activate`), `mfa-confirm-modal` (regenerate/disable, each gated on a current code),
+`two-factor-panel` (loading/not-enrolled/active + low-codes warning). `TwoFactorPanel` **replaces the
+fabricated MFA-methods card** (SMS/WebAuthn/email — none backed) in the Security & devices section. Sign-in
+form gains dedicated **`verify`** (authenticator + recovery modes, `MfaChallenge`) and **`blocked`**
+(partner MFA-required, `MfaRequiredBlocked`) stages, replacing the temporary inline code field. Client:
+`lib/auth.ts` `mfaStatus/Enroll/Activate/Disable/RegenerateRecoveryCodes` + `authGet` + `isMfaBlocked`;
+`hooks/use-mfa.ts` (TanStack). **Backend gap closed:** `POST /v1/auth/mfa/recovery-codes/regenerate` +
+`MfaService.regenerateRecoveryCodes` (design's active panel needs it); `MfaStatus.enrolledAt` surfaced so the
+active card shows a *real* "Added today" (design's fabricated "Last used today" dropped — no data source).
+Fixed an `onComplete` stale-closure bug (auto-submit now uses the completed value, not stale state). **Verified
+live:** enrolled demo@acme.test through real QR → activate → 10 recovery codes → active panel; signed out →
+sign-in challenge → redeemed a recovery code → dashboard, recovery count 10→9. Typecheck 6/6, lint clean,
+`mfa.test.ts` 4/4 (incl. regenerate + enrolledAt). Per-provider swappability of email/AV/MFA unchanged.
+
 **Pure-infra track — MFA (TOTP) DONE (2026-08-14).** Third slice. In-house RFC-6238 TOTP (industry
 practice for a custom auth stack; NOT SMS/Twilio — SIM-swap-vulnerable, NIST-discouraged). Migration
 `0035_mfa.sql`: `control.users.mfa_pending_secret` + `mfa_enrolled_at` (two-phase enrol) + `control.

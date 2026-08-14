@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kaenal — MFA Screens</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles/tokens.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  @keyframes k-spin { to { transform: rotate(360deg); } }
+  .k-spin { animation: k-spin 0.8s linear infinite; display: inline-block; }
+  a { color: var(--accent); }
+  a:hover { color: var(--accent-hover); }
+  /* Print: only the recovery-codes modal content is meaningful when printing */
+  @media print { body { background: #fff; } .no-print { display: none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+// Minimal stand-ins — mfa/primitives need Icon; settings' SettingsPage needs PageHeader.
+window.userById = window.userById || (() => ({ name: 'Priya Iyer' }));
+</script>
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel">
+// Lightweight PageHeader shim (real one lives in shell.jsx, not loaded here).
+window.PageHeader = ({ title, subtitle, actions }) => (
+  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '20px 24px', borderBottom: '1px solid var(--border)' }}>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.01em' }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 3 }}>{subtitle}</div>}
+    </div>
+    {actions && <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>{actions}</div>}
+  </div>
+);
+</script>
+<script type="text/babel" src="src/settings.jsx"></script>
+<script type="text/babel" src="src/mfa.jsx"></script>
+<script type="text/babel" src="src/mfa-settings.jsx"></script>
+
+<script type="text/babel">
+const { useState } = React;
+
+// ---- Scene registry: every screen + every state ----
+const SCENES = [
+  { group: 'Sign-in challenge', items: [
+    { id: 'ch-idle', label: 'Code entry', frame: 'auth', render: () => <MfaChallenge forceState="idle"/> },
+    { id: 'ch-busy', label: 'Verifying (busy)', frame: 'auth', render: () => <MfaChallenge forceState="busy"/> },
+    { id: 'ch-error', label: 'Invalid code (error)', frame: 'auth', render: () => <MfaChallenge forceState="error"/> },
+    { id: 'ch-success', label: 'Verified (success)', frame: 'auth', render: () => <MfaChallenge forceState="success"/> },
+    { id: 'ch-recovery', label: 'Recovery-code mode', frame: 'auth', render: () => <RecoveryChallenge/> },
+    { id: 'ch-blocked', label: 'Supplier blocked (MFA required)', frame: 'auth', render: () => <MfaRequiredBlocked/> },
+  ]},
+  { group: 'Settings › 2FA panel', items: [
+    { id: 'set-loading', label: 'Loading', frame: 'settings', render: () => <TwoFactorPanel loading/> },
+    { id: 'set-not-enrolled', label: 'Not enrolled', frame: 'settings', render: () => <TwoFactorPanel initial="not-enrolled"/> },
+    { id: 'set-active', label: 'Active (8 codes left)', frame: 'settings', render: () => <TwoFactorPanel initial="active" recoveryRemaining={8}/> },
+    { id: 'set-low', label: 'Active · low codes warning', frame: 'settings', render: () => <TwoFactorPanel initial="active" recoveryRemaining={2}/> },
+  ]},
+  { group: 'Enrollment flow (modal)', items: [
+    { id: 'en-1', label: 'Step 1 — Scan QR + key', frame: 'settings-bg', render: (props) => <MfaEnrollModal startStep={1} onClose={props.reset} onDone={props.reset}/> },
+    { id: 'en-2', label: 'Step 2 — Confirm code', frame: 'settings-bg', render: (props) => <MfaEnrollModal startStep={2} onClose={props.reset} onDone={props.reset}/> },
+    { id: 'en-2-err', label: 'Step 2 — Invalid code', frame: 'settings-bg', render: (props) => <MfaEnrollModal startStep={2} startState="confirm-error" onClose={props.reset} onDone={props.reset}/> },
+    { id: 'en-3', label: 'Step 3 — Recovery codes', frame: 'settings-bg', render: (props) => <MfaEnrollModal startStep={3} onClose={props.reset} onDone={props.reset}/> },
+  ]},
+  { group: 'Manage (confirm modals)', items: [
+    { id: 'md-regen', label: 'Regenerate codes', frame: 'settings-bg', render: (props) => <MfaConfirmModal variant="regen" onClose={props.reset} onConfirm={props.reset}/> },
+    { id: 'md-disable', label: 'Turn off two-factor', frame: 'settings-bg', render: (props) => <MfaConfirmModal variant="disable" onClose={props.reset} onConfirm={props.reset}/> },
+    { id: 'md-disable-err', label: 'Turn off — invalid code', frame: 'settings-bg', render: (props) => <MfaConfirmModal variant="disable" startState="error" onClose={props.reset} onConfirm={props.reset}/> },
+  ]},
+];
+
+// Recovery-mode challenge: mount challenge then flip to recovery input for the still shot.
+function RecoveryChallenge() {
+  const [k, setK] = useState(0);
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      const btn = [...document.querySelectorAll('.k-link')].find(b => /recovery code instead/i.test(b.textContent));
+      if (btn) btn.click();
+    }, 60);
+    return () => clearTimeout(t);
+  }, [k]);
+  return <MfaChallenge forceState="idle"/>;
+}
+
+// Settings shell backdrop (so modals sit over realistic context)
+const SettingsBackdrop = () => (
+  <div style={{ pointerEvents: 'none', filter: 'saturate(0.9)' }}>
+    <TwoFactorPanel initial="not-enrolled"/>
+  </div>
+);
+
+function Stage({ scene, reset }) {
+  if (scene.frame === 'auth') {
+    return (
+      <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
+        <div style={{ width: 940, maxWidth: '100%', minWidth: 760, minHeight: 660, borderRadius: 'var(--r-lg)', overflow: 'hidden', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)', background: 'var(--surface)', display: 'flex' }}>
+          <AuthShell>{scene.render({ reset })}</AuthShell>
+        </div>
+      </div>
+    );
+  }
+  if (scene.frame === 'settings') {
+    return (
+      <div style={{ borderRadius: 'var(--r-lg)', overflow: 'hidden', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)', background: 'var(--surface)' }}>
+        {scene.render({ reset })}
+      </div>
+    );
+  }
+  // settings-bg: modal over settings backdrop
+  return (
+    <div style={{ position: 'relative', borderRadius: 'var(--r-lg)', overflow: 'hidden', border: '1px solid var(--border)', boxShadow: 'var(--shadow-lg)', background: 'var(--surface)', minHeight: 620 }}>
+      <SettingsBackdrop/>
+      <ModalHost>{scene.render({ reset })}</ModalHost>
+    </div>
+  );
+}
+
+// Renders modal scenes with position:absolute inside the stage (not fixed viewport)
+function ModalHost({ children }) {
+  const ref = React.useRef();
+  React.useEffect(() => {
+    // Re-scope the fixed-position overlay to the stage container
+    const el = ref.current?.firstElementChild;
+    if (el) { el.style.position = 'absolute'; }
+  });
+  return <div ref={ref} style={{ position: 'absolute', inset: 0 }}>{children}</div>;
+}
+
+function App() {
+  const [active, setActive] = useState('ch-idle');
+  const [nonce, setNonce] = useState(0);
+  const scene = SCENES.flatMap(g => g.items).find(s => s.id === active);
+  const reset = () => setNonce(n => n + 1);
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
+      {/* Navigator rail */}
+      <div className="no-print" style={{ width: 268, flexShrink: 0, borderRight: '1px solid var(--border)', background: 'var(--surface)', overflowY: 'auto', padding: '18px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px 4px' }}>
+          <span style={{ color: 'var(--accent)' }}><Icon name="logo" size={20}/></span>
+          <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: '0.06em' }}>KAENAL</span>
+        </div>
+        <div style={{ padding: '0 8px 16px', fontSize: 11.5, color: 'var(--text-muted)' }}>MFA — screens & states</div>
+        {SCENES.map(g => (
+          <div key={g.group} style={{ marginBottom: 16 }}>
+            <div className="k-overline" style={{ padding: '0 8px 6px' }}>{g.group}</div>
+            {g.items.map(it => (
+              <button key={it.id} onClick={() => { setActive(it.id); reset(); }} style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 10px',
+                borderRadius: 'var(--r-md)', background: active === it.id ? 'var(--accent-soft)' : 'transparent',
+                color: active === it.id ? 'var(--accent)' : 'var(--text)', fontSize: 12.5, fontWeight: 500,
+                textAlign: 'left', marginBottom: 1,
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: active === it.id ? 'var(--accent)' : 'var(--border-strong)', flexShrink: 0 }}/>
+                <span style={{ flex: 1 }}>{it.label}</span>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Stage */}
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+        <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 24px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 5 }}>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{scene.label}</div>
+          <span className="k-chip" style={{ background: 'var(--bg-subtle)', color: 'var(--text-muted)' }}>{scene.frame === 'auth' ? 'Sign-in flow' : scene.frame === 'settings' ? 'Settings shell' : 'Modal'}</span>
+          <button onClick={reset} className="k-btn k-btn-ghost k-btn-sm" style={{ marginLeft: 'auto' }}><Icon name="refresh" size={12}/> Reset state</button>
+        </div>
+        <div style={{ padding: 28, maxWidth: scene.frame === 'auth' ? 1080 : 1000, margin: '0 auto' }}>
+          <div key={active + '-' + nonce}>
+            <Stage scene={scene} reset={reset}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

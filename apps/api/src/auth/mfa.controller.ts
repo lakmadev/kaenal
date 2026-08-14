@@ -51,13 +51,21 @@ export class MfaController {
     return { ok: true };
   }
 
+  /** Reissue recovery codes — requires a current code; invalidates the old set. */
+  @Post("recovery-codes/regenerate")
+  async regenerateRecoveryCodes(@Body() body: unknown): Promise<{ recoveryCodes: string[] }> {
+    const result = await this.mfa.regenerateRecoveryCodes(this.userId(), parseCode(body));
+    await this.audit("recovery_codes_regenerated");
+    return result;
+  }
+
   private userId(): string {
     const id = currentContext().userId;
     if (id === null) throw new ApiError("UNAUTHENTICATED", "Authentication required");
     return id;
   }
 
-  private async audit(state: "enabled" | "disabled"): Promise<void> {
+  private async audit(state: "enabled" | "disabled" | "recovery_codes_regenerated"): Promise<void> {
     const ctx = currentContext();
     await withAudit(
       currentTx(),

@@ -106,6 +106,18 @@ describe("MfaService — enrol → activate → verify → recover → disable",
     expect(await mfa.verifyLogin(userId, recovery)).toBe(false);
     expect((await mfa.status(userId)).recoveryCodesRemaining).toBe(9);
 
+    // status now reports an enrolment timestamp (drives the Settings "Active" card).
+    expect((await mfa.status(userId)).enrolledAt).not.toBeNull();
+
+    // Regenerate: needs a valid code, replaces the whole set (back to 10), and
+    // the previously-issued codes stop working.
+    await expect(mfa.regenerateRecoveryCodes(userId, wrong)).rejects.toThrow(/not valid/i);
+    const { recoveryCodes: fresh } = await mfa.regenerateRecoveryCodes(userId, codesFor(otpauthUri).valid);
+    expect(fresh).toHaveLength(10);
+    expect((await mfa.status(userId)).recoveryCodesRemaining).toBe(10);
+    expect(await mfa.verifyLogin(userId, recoveryCodes[1]!)).toBe(false); // old set invalidated
+    expect(await mfa.verifyLogin(userId, fresh[0]!)).toBe(true); // new set works
+
     // Enrolling again is refused while active.
     await expect(mfa.startEnrollment(userId)).rejects.toThrow(/already enabled/i);
 

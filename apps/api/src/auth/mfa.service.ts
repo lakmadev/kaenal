@@ -27,6 +27,8 @@ export interface MfaStatus {
   readonly enrolled: boolean;
   readonly pending: boolean;
   readonly recoveryCodesRemaining: number;
+  /** When the active factor was enrolled (ISO), or null if not enrolled. */
+  readonly enrolledAt: string | null;
 }
 
 interface MfaRow {
@@ -52,6 +54,7 @@ export class MfaService {
       enrolled: row.mfa_secret !== null,
       pending: row.mfa_pending_secret !== null,
       recoveryCodesRemaining: rows[0]?.n ?? 0,
+      enrolledAt: row.mfa_enrolled_at === null ? null : row.mfa_enrolled_at.toISOString(),
     };
   }
 
@@ -156,6 +159,38 @@ export class MfaService {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Issue a fresh set of recovery codes, invalidating every existing one —
+   * requires proving a current factor first (same gate as `disable`). Used when a
+   * user is running low or believes their saved codes were exposed. Returns the
+   * new plaintext codes ONCE; only their hashes are stored.
+   */
+  async regenerateRecoveryCodes(userId: string, code: string): Promise<{ recoveryCodes: string[] }> {
+    const ok = await this.verifyLogin(userId, code);
+    if (!ok) throw new ApiError("VALIDATION_FAILED", "That code is not valid");
+
+    const codes = Array.from({ length: RECOVERY_CODE_COUNT }, () => randomBytes(10).toString("hex"));
+    const client = await this.control.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("DELETE FROM control.mfa_recovery_codes WHERE user_id = $1", [userId]);
+      for (const c of codes) {
+        await client.query("INSERT INTO control.mfa_recovery_codes (user_id, code_hash) VALUES ($1, $2)", [
+          userId,
+          hashToken(c),
+        ]);
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    return { recoveryCodes: codes.map(formatRecoveryCode) };
   }
 
   private async redeemRecoveryCode(userId: string, input: string): Promise<boolean> {

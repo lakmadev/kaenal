@@ -38,23 +38,15 @@ function readCookie(name: string): string | undefined {
   return undefined;
 }
 
-async function authPost<T>(
-  path: string,
-  body: Record<string, unknown>,
-  opts: { tenant?: string | undefined } = {},
-): Promise<T> {
+function authHeaders(tenant?: string): Record<string, string> {
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (opts.tenant !== undefined && opts.tenant !== "") headers[TENANT_HEADER] = opts.tenant;
+  if (tenant !== undefined && tenant !== "") headers[TENANT_HEADER] = tenant;
   const csrf = readCookie(CSRF_COOKIE);
   if (csrf !== undefined) headers[CSRF_HEADER] = csrf;
+  return headers;
+}
 
-  const res = await fetch(`${env.apiBaseUrl}${path}`, {
-    method: "POST",
-    credentials: "include",
-    headers,
-    body: JSON.stringify(body),
-  });
-
+async function readOrThrow<T>(res: Response): Promise<T> {
   const data: unknown = await res.json().catch(() => ({}));
   if (!res.ok) {
     const envelope =
@@ -64,6 +56,29 @@ async function authPost<T>(
     throw new AuthError(res.status, envelope?.code ?? "REQUEST_FAILED", envelope?.message ?? "Sign-in failed");
   }
   return data as T;
+}
+
+async function authPost<T>(
+  path: string,
+  body: Record<string, unknown>,
+  opts: { tenant?: string | undefined } = {},
+): Promise<T> {
+  const res = await fetch(`${env.apiBaseUrl}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: authHeaders(opts.tenant),
+    body: JSON.stringify(body),
+  });
+  return readOrThrow<T>(res);
+}
+
+async function authGet<T>(path: string, opts: { tenant?: string | undefined } = {}): Promise<T> {
+  const res = await fetch(`${env.apiBaseUrl}${path}`, {
+    method: "GET",
+    credentials: "include",
+    headers: authHeaders(opts.tenant),
+  });
+  return readOrThrow<T>(res);
 }
 
 /** Sign-in returns a session, or asks for a second factor when MFA is active. */
@@ -120,4 +135,56 @@ export function acceptInvite(input: {
     { token: input.token, name: input.name, password: input.password },
     { tenant: input.tenant },
   );
+}
+
+/**
+ * Self-service MFA management (07 §4). These routes are AUTHENTICATED — a session
+ * already exists — but live outside ts-rest like the other auth calls, so they
+ * are typed fetch wrappers here. Every user manages their own second factor
+ * (including external partners, for whom it is mandatory). Sent with the active
+ * tenant + CSRF header, same as every mutation.
+ */
+export interface MfaStatus {
+  enrolled: boolean;
+  pending: boolean;
+  recoveryCodesRemaining: number;
+  enrolledAt: string | null;
+}
+
+export function mfaStatus(): Promise<MfaStatus> {
+  return authGet<MfaStatus>("/v1/auth/mfa", { tenant: getActiveTenant() });
+}
+
+/** Begin enrolment: returns the otpauth URI + a ready-to-`<img>` QR data-URI. */
+export function mfaEnroll(): Promise<{ otpauthUri: string; qrDataUri: string }> {
+  return authPost<{ otpauthUri: string; qrDataUri: string }>("/v1/auth/mfa/enroll", {}, { tenant: getActiveTenant() });
+}
+
+/** Activate a pending enrolment with a first code; returns the one-time recovery codes. */
+export function mfaActivate(code: string): Promise<{ recoveryCodes: string[] }> {
+  return authPost<{ recoveryCodes: string[] }>("/v1/auth/mfa/activate", { code }, { tenant: getActiveTenant() });
+}
+
+/** Turn MFA off — requires a current TOTP or recovery code. */
+export function mfaDisable(code: string): Promise<{ ok: true }> {
+  return authPost<{ ok: true }>("/v1/auth/mfa/disable", { code }, { tenant: getActiveTenant() });
+}
+
+/** Reissue recovery codes (invalidates the old set) — requires a current code. */
+export function mfaRegenerateRecoveryCodes(code: string): Promise<{ recoveryCodes: string[] }> {
+  return authPost<{ recoveryCodes: string[] }>(
+    "/v1/auth/mfa/recovery-codes/regenerate",
+    { code },
+    { tenant: getActiveTenant() },
+  );
+}
+
+/**
+ * A partner (or any account the workspace mandates MFA for) that has no factor
+ * configured is hard-stopped at sign-in with a 403 — the password already
+ * verified, so this is not a credential oracle. The sign-in form shows the
+ * "two-factor required" blocked screen for it.
+ */
+export function isMfaBlocked(error: unknown): boolean {
+  return error instanceof AuthError && error.status === 403;
 }

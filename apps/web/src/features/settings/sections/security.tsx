@@ -1,20 +1,14 @@
 "use client";
 
-import { ShieldCheck, KeyRound, Smartphone, Phone, Mail, PanelLeft, X, Clock } from "lucide-react";
+import { ShieldCheck, KeyRound, Smartphone, PanelLeft, X, Clock } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useSessionPolicy } from "@/hooks/use-session-policy";
-import { SettingsPage, SettingsCard, SettingsRow, Toggle } from "../settings-bits";
+import { TwoFactorPanel } from "@/features/mfa/two-factor-panel";
+import { SettingsPage, SettingsCard, SettingsRow } from "../settings-bits";
 
-/** Security & devices (settings.jsx `Security`): sign-in method, MFA methods, and
- *  active sessions. Rendered as the design shows it; live session/MFA management
- *  lands with the account API (07 §7). */
-
-const MFA_METHODS: { icon: LucideIcon; label: string; sub: string; on: boolean; primary?: boolean }[] = [
-  { icon: Smartphone, label: "Authenticator app", sub: "TOTP · added 4 months ago", on: true, primary: true },
-  { icon: KeyRound, label: "Security key", sub: "FIDO2 / WebAuthn · last used yesterday", on: true },
-  { icon: Phone, label: "SMS backup", sub: "Backup only — not recommended as primary", on: false },
-  { icon: Mail, label: "Email codes", sub: "Sent to your verified work email", on: false },
-];
+/** Security & devices (settings.jsx `Security`): sign-in method, the real
+ *  two-factor panel (TOTP enrol/verify/recovery, wired to /v1/auth/mfa), the
+ *  read-only session policy, and active sessions. */
 
 const SESSIONS: { icon: LucideIcon; label: string; loc: string; when: string; current?: boolean }[] = [
   { icon: PanelLeft, label: "MacBook Pro · Chrome", loc: "Pune, IN · 192.168.4.18", when: "Active now", current: true },
@@ -53,32 +47,7 @@ export function SecuritySection(): React.ReactElement {
         </SettingsRow>
       </SettingsCard>
 
-      <SettingsCard title="Multi-factor authentication" desc="Required by workspace policy. Add at least 2 methods for resilience.">
-        <div className="flex flex-col gap-2">
-          {MFA_METHODS.map((m) => {
-            const Icon = m.icon;
-            return (
-              <div key={m.label} className="flex items-center gap-3 rounded-md border border-border p-3">
-                <div className="flex items-center justify-center rounded-md" style={{ width: 36, height: 36, background: "var(--bg-subtle)" }}>
-                  <Icon size={16} />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5 text-[13px] font-semibold">
-                    {m.label}
-                    {m.primary === true && (
-                      <span className="k-chip" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
-                        Primary
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[11px] text-muted">{m.sub}</div>
-                </div>
-                <Toggle on={m.on} />
-              </div>
-            );
-          })}
-        </div>
-      </SettingsCard>
+      <TwoFactorPanel />
 
       {policy !== undefined && (
         <SettingsCard title="Session policy" desc="Set by your workspace administrator (read-only)">
