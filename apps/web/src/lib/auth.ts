@@ -188,3 +188,32 @@ export function mfaRegenerateRecoveryCodes(code: string): Promise<{ recoveryCode
 export function isMfaBlocked(error: unknown): boolean {
   return error instanceof AuthError && error.status === 403;
 }
+
+/**
+ * Active-session management (07 §7). Authenticated, self-service — a user sees
+ * and signs out their own devices in the current workspace. Sessions are
+ * tenant-scoped, so the list reflects this workspace only; the session the
+ * request comes from is flagged `current` and is never offered for sign-out.
+ */
+export interface SessionSummary {
+  id: string;
+  current: boolean;
+  ip: string | null;
+  userAgent: string | null;
+  signedInAt: string;
+  expiresAt: string;
+}
+
+export function listSessions(): Promise<{ sessions: SessionSummary[] }> {
+  return authGet<{ sessions: SessionSummary[] }>("/v1/auth/sessions", { tenant: getActiveTenant() });
+}
+
+/** Sign out one other device. */
+export function revokeSession(id: string): Promise<{ ok: true }> {
+  return authPost<{ ok: true }>(`/v1/auth/sessions/${encodeURIComponent(id)}/revoke`, {}, { tenant: getActiveTenant() });
+}
+
+/** Sign out every other device, keeping the current one. */
+export function revokeOtherSessions(): Promise<{ revoked: number }> {
+  return authPost<{ revoked: number }>("/v1/auth/sessions/revoke-others", {}, { tenant: getActiveTenant() });
+}

@@ -383,6 +383,139 @@ export class AuthService {
     };
   }
 
+  /**
+   * The caller's own live sessions in THIS tenant (07 §7 — sessions are
+   * tenant-scoped). RLS on `sessions` already limits the query to the current
+   * tenant; the `user_id` filter limits it to the caller, so this is never a
+   * window onto anyone else's devices. The session matching the caller's own
+   * token is flagged `current` so the UI can protect it from being signed out.
+   */
+  async listSessions(
+    tx: Tx,
+    userId: string,
+    currentToken: string | null,
+  ): Promise<
+    {
+      id: string;
+      current: boolean;
+      ip: string | null;
+      userAgent: string | null;
+      signedInAt: Date;
+      expiresAt: Date;
+    }[]
+  > {
+    const { rows } = await tx.query<{
+      id: string;
+      refresh_token_hash: string;
+      ip: string | null;
+      user_agent: string | null;
+      created_at: Date;
+      expires_at: Date;
+    }>(
+      `SELECT id, refresh_token_hash, ip::text AS ip, user_agent, created_at, expires_at
+         FROM sessions
+        WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+        ORDER BY created_at DESC`,
+      [userId],
+    );
+
+    const currentHash = currentToken === null ? null : hashToken(currentToken);
+    return rows.map((r) => ({
+      id: r.id,
+      current: currentHash !== null && r.refresh_token_hash === currentHash,
+      ip: r.ip,
+      userAgent: r.user_agent,
+      signedInAt: r.created_at,
+      expiresAt: r.expires_at,
+    }));
+  }
+
+  /**
+   * Revoke one of the caller's sessions by id. Scoped to the caller's own rows
+   * under RLS, so a session id belonging to another user or tenant simply is not
+   * found — reported as 404, never 403 (rule 8: no cross-tenant/user existence
+   * leak). Idempotent: revoking an already-revoked session is a no-op 404.
+   */
+  async revokeSession(
+    tx: Tx,
+    tenantId: string,
+    userId: string,
+    sessionId: string,
+    context: { ip: string | null; userAgent: string | null; requestId: string | null },
+  ): Promise<void> {
+    const { rows } = await tx.query<{ id: string }>(
+      `SELECT id FROM sessions WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+      [sessionId, userId],
+    );
+    if (rows[0] === undefined) throw new ApiError("NOT_FOUND", "Session not found");
+
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId: userId,
+        actorKind: "user",
+        entityKind: "session",
+        entityId: sessionId,
+        action: "signed_out",
+        after: { revoked: "device" },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        await t.query(
+          `UPDATE sessions SET revoked_at = now(), updated_by = $2 WHERE id = $1 AND revoked_at IS NULL`,
+          [sessionId, userId],
+        );
+      },
+    );
+  }
+
+  /**
+   * "Sign out everywhere else": revoke every live session the caller holds in
+   * this tenant EXCEPT the one they are calling from. A null current token would
+   * mean "revoke all" — refused, so a bearer client that can't identify its own
+   * session cannot accidentally lock itself out. Returns how many were revoked.
+   */
+  async revokeOtherSessions(
+    tx: Tx,
+    tenantId: string,
+    userId: string,
+    currentToken: string | null,
+    context: { ip: string | null; userAgent: string | null; requestId: string | null },
+  ): Promise<number> {
+    if (currentToken === null) {
+      throw new ApiError("VALIDATION_FAILED", "Cannot identify the current session");
+    }
+    let revoked = 0;
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId: userId,
+        actorKind: "user",
+        entityKind: "session",
+        entityId: userId,
+        action: "signed_out",
+        after: { revoked: "others" },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const res = await t.query(
+          `UPDATE sessions SET revoked_at = now(), updated_by = $1
+            WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()
+              AND refresh_token_hash <> $2`,
+          [userId, hashToken(currentToken)],
+        );
+        revoked = res.rowCount ?? 0;
+      },
+    );
+    return revoked;
+  }
+
   async signOut(tx: Tx, tenantId: string, token: string, userId: string): Promise<void> {
     await withAudit(
       tx,

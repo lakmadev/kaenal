@@ -15,6 +15,7 @@ import { AuthService } from "./auth/auth.service.js";
 import { SessionAuthenticator } from "./auth/session.authenticator.js";
 import { AuthController } from "./auth/auth.controller.js";
 import { MfaController } from "./auth/mfa.controller.js";
+import { SessionsController } from "./auth/sessions.controller.js";
 import { MfaService } from "./auth/mfa.service.js";
 import { MfaCrypto } from "./auth/mfa-crypto.js";
 import { WorkspaceController } from "./auth/workspace.controller.js";
@@ -144,6 +145,7 @@ import {
     MembersController,
     AuthController,
     MfaController,
+    SessionsController,
     WorkspaceController,
     OpenApiController,
     TemplatesController,

@@ -551,3 +551,120 @@ describe("sign-in with MFA (07 §4)", () => {
     expect(res.headers["set-cookie"]).toBeUndefined();
   });
 });
+
+describe("session management — list + revoke (07 §7)", () => {
+  const EMAIL = "ada@acme.test";
+
+  async function clearSessions(): Promise<void> {
+    await control.query(
+      "DELETE FROM sessions WHERE user_id IN (SELECT id FROM control.users WHERE email = $1)",
+      [EMAIL],
+    );
+  }
+
+  beforeEach(async () => {
+    await resetCredentials(EMAIL);
+    await clearSessions();
+  });
+
+  const list = (cookie: string) =>
+    request(server()).get("/v1/auth/sessions").set("X-Tenant-Id", ACME).set("Cookie", cookie);
+
+  const me = (cookie: string) =>
+    request(server()).get("/v1/me").set("X-Tenant-Id", ACME).set("Cookie", cookie);
+
+  it("supports multiple concurrent logins, capped by policy (default 3)", async () => {
+    await authedSession(EMAIL);
+    await authedSession(EMAIL);
+    await authedSession(EMAIL);
+    const fourth = await authedSession(EMAIL); // 4th sign-in evicts the oldest
+
+    const res = await list(fourth.cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.sessions).toHaveLength(3);
+    expect(res.body.sessions.filter((s: { current: boolean }) => s.current)).toHaveLength(1);
+  });
+
+  it("lists the caller's own sessions and flags exactly the current one", async () => {
+    const a = await authedSession(EMAIL);
+    await authedSession(EMAIL);
+
+    const res = await list(a.cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.sessions).toHaveLength(2);
+    const current = res.body.sessions.filter((s: { current: boolean }) => s.current);
+    expect(current).toHaveLength(1);
+  });
+
+  it("signs out one other device by id, killing that session only", async () => {
+    const a = await authedSession(EMAIL);
+    const b = await authedSession(EMAIL);
+
+    const listed = await list(a.cookie);
+    const other = listed.body.sessions.find((s: { current: boolean }) => !s.current) as { id: string };
+
+    const rev = await request(server())
+      .post(`/v1/auth/sessions/${other.id}/revoke`)
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", a.cookie)
+      .set("X-CSRF-Token", a.csrf);
+    expect(rev.status).toBeLessThan(300);
+
+    // B's cookie no longer authenticates; A still does.
+    expect((await me(b.cookie)).status).toBe(401);
+    expect((await me(a.cookie)).status).toBe(200);
+
+    const after = await list(a.cookie);
+    expect(after.body.sessions).toHaveLength(1);
+    expect(after.body.sessions[0].current).toBe(true);
+  });
+
+  it("returns 404 for an unknown session id (no existence leak, rule 8)", async () => {
+    const a = await authedSession(EMAIL);
+    const res = await request(server())
+      .post("/v1/auth/sessions/00000000-0000-7000-8000-0000000000aa/revoke")
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", a.cookie)
+      .set("X-CSRF-Token", a.csrf);
+    expect(res.status).toBe(404);
+  });
+
+  it("cannot revoke another user's session (scoped to the caller → 404)", async () => {
+    const a = await authedSession(EMAIL);
+    // grace signs in; her session id is invisible to ada and un-revokable.
+    const grace = await authedSession("grace@acme.test");
+    const graceList = await list(grace.cookie);
+    const graceSessionId = graceList.body.sessions[0].id as string;
+
+    const res = await request(server())
+      .post(`/v1/auth/sessions/${graceSessionId}/revoke`)
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", a.cookie)
+      .set("X-CSRF-Token", a.csrf);
+    expect(res.status).toBe(404);
+    // grace's session is untouched.
+    expect((await me(grace.cookie)).status).toBe(200);
+    await control.query(
+      "DELETE FROM sessions WHERE user_id IN (SELECT id FROM control.users WHERE email = 'grace@acme.test')",
+    );
+  });
+
+  it("signs out every OTHER device, keeping the current one", async () => {
+    await authedSession(EMAIL);
+    await authedSession(EMAIL);
+    const current = await authedSession(EMAIL);
+
+    const res = await request(server())
+      .post("/v1/auth/sessions/revoke-others")
+      .set("X-Tenant-Id", ACME)
+      .set("Cookie", current.cookie)
+      .set("X-CSRF-Token", current.csrf);
+    expect(res.status).toBeLessThan(300);
+    expect(res.body.revoked).toBe(2);
+
+    const after = await list(current.cookie);
+    expect(after.body.sessions).toHaveLength(1);
+    expect(after.body.sessions[0].current).toBe(true);
+    expect((await me(current.cookie)).status).toBe(200);
+  });
+});

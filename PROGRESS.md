@@ -5,6 +5,23 @@
 
 ## Current status
 
+**Active-session management — list + revoke, real (2026-08-14).** The Security & devices "Active
+sessions" card was static mock data with dead buttons; now it's a live vertical slice. **Multiple
+concurrent logins already worked** (each sign-in inserts a `sessions` row; `maxConcurrentSessions`
+policy caps them, default 3, oldest auto-revoked — verified by test) — what was missing was list +
+per-device/all-others sign-out. **Backend:** `AuthService.listSessions` (own sessions in this tenant,
+RLS-scoped, flags the request's own session `current` by token-hash), `revokeSession` (by id, 404 on
+foreign/unknown per rule 8, audited `signed_out`), `revokeOtherSessions` (keep current, returns count,
+audited); `SessionsController` (`GET /v1/auth/sessions`, `POST /v1/auth/sessions/:id/revoke`, `POST
+/v1/auth/sessions/revoke-others` — authenticated, capability-free, reads the current token from the
+session cookie/bearer). **Web:** `lib/auth.ts` `listSessions/revokeSession/revokeOtherSessions` +
+`SessionSummary`; `hooks/use-sessions.ts` (TanStack); `security.tsx` Active-sessions card wired to live
+data with UA→label + relative-time + loopback-IP formatting, per-row Sign out, and Sign-out-all-others
+(disabled when none). **Tests:** `auth.test.ts` +6 (multi-login cap, current-flag, revoke-one kills only
+that session, unknown-id 404, cross-user 404, revoke-others keeps current) — 27/27. **Verified live:** two
+real sessions (Chrome/macOS "This device" + Safari/iOS) → per-device Sign out removed the iOS session and
+the list refetched to one. Typecheck 6/6, lint clean.
+
 **MFA UI — Claude Design screens integrated + verified in-browser (2026-08-14).** The polished MFA
 enrollment + challenge + settings screens (Claude Design deliverable, source pinned as binding design at
 `project_brain/project/src/mfa.jsx` + `mfa-settings.jsx` + `MFA Screens.html`, per rule #9) are now real,
