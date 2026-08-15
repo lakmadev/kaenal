@@ -147,7 +147,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   {
     group: "System",
     items: [
-      { id: "audit", label: "Audit log", icon: History },
+      { id: "audit", label: "Audit log", icon: History, built: true },
       { id: "billing", label: "Billing & plan", icon: FileText },
     ],
   },

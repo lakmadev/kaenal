@@ -5,6 +5,32 @@
 
 ## Current status
 
+**Tenant-wide Audit log — Settings › System (2026-08-14).** The `audit` settings tab was a static
+`settings.jsx` mock (hard-coded rows, dead Filter/Export); it's now a real, admin-only vertical slice
+over the append-only `audit_events` table. **Design fidelity (rule #9):** reproduced `settings.jsx`
+`AuditLog` — the When/Who/Action/Target/IP-Source table, sensitive rows highlighted `warning-50`, the
+System (bot-icon) actor, mono `verb.entity` action — and made the two inert header buttons functional.
+**RBAC:** new `auditlog:read` capability (packages/core rbac + matrix + 228-cell test), admin-only —
+distinct from the QMS `audit:*` module (process audits) and held apart from `settings:manage` so it can
+be delegated to a compliance role later. Decision recorded below. **Backend (strong + performant):**
+`AuditLogService.listTenant` runs the hot query on `audit_events` alone against the
+`(tenant_id, created_at DESC)` index; actor names (`control.users`) and target codes (per-kind whitelist
+tables) resolve in two **batched `= ANY($1)` lookups per page**, not an N-way join, so enrichment cost is
+bounded by page size. Structured filters (actor / action / module / date / sensitive-only) are all pushed
+to SQL; `sensitive` is derived server-side from a narrow action set; still **no before/after payloads**
+(07 §1). `GET /v1/audit-log` (paged) + `GET /v1/audit-log/export` (CSV, capped, filter-honoring), both
+`@RequireCapability("auditlog:read")`. **Latent bug fixed:** the shared keyset cursor derives its
+timestamp from a JS `Date` (millisecond precision), but `created_at` is microsecond — so a batched
+`withAudit` write (many events sharing one `now()`) paginated to an empty page 2. The audit log uses a
+**full-precision cursor** (`to_char(... US ...)` text) that stays exact while keeping the index; shared
+`toPage`/`encodeCursor` left untouched (mutation-tested). **Web:** `use-audit-log.ts` (`useInfiniteQuery`
++ real Load-more; `downloadAuditLogCsv` credentialed fetch→blob), `sections/audit-log.tsx` (table + Filter
+panel + Export), wired into `settings-shell`, gated on `useCan("auditlog:read")`. **Tests:**
+`audit-log.test.ts` 9/9 (resolution of member name / real NCR code / "System"; each filter; keyset
+pagination proves the batched-write case; viewer 403 on list+export; cross-tenant RLS isolation).
+Verified live as `admin@acme.test`: list 200, sensitive-only filter narrows to the amber rows, Export 200
+honoring the active filter. `pnpm typecheck` 6/6, `pnpm lint` clean, rbac 228/228, audit-log 9/9.
+
 **Change password + real "Last sign-in" (2026-08-14).** The Security "Sign-in method" card was static;
 now both bits are live. **Backend:** `AuthService.changePassword` (verifies current password — naming a
 wrong one plainly is correct here, the user is proving it's them; enforces the same `checkPasswordPolicy`

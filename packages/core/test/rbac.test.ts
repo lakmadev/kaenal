@@ -58,6 +58,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "members:manage",
     "apikeys:manage",
     "billing:manage",
+    "auditlog:read",
     "portal:view",
     "portal:respond",
   ],

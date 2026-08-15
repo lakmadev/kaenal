@@ -61,6 +61,13 @@ export const CAPABILITIES = [
   "members:manage",
   "apikeys:manage",
   "billing:manage",
+  // Tenant-wide audit log (07 §1 / FEATURES §9). Distinct from the QMS `audit:*`
+  // module (process audits): this reads the append-only security/compliance
+  // trail across the whole workspace — who did what, when, from where — so it is
+  // an admin-only governance capability, held apart from `settings:manage` so it
+  // can be delegated to a compliance role without also handing over write access
+  // to workspace settings.
+  "auditlog:read",
   // External supplier portal (P11). `portal:view` gates the read-only namespace;
   // `portal:respond` gates the narrow audited writes (respond to a SCAR,
   // re-submit a PPAP). Internal roles never carry either (except admin, which
