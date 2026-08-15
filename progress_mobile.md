@@ -74,10 +74,19 @@ resume from **Current status**, update it in the same commit as the work.
   `useLayout` hook (phone/tablet 768pt breakpoint, split-view reactive). Dev role-picker welcome so the
   role-aware shell is testable pre-M4. Verified in browser: welcome → dev sign-in → role-aware tabs →
   navigation, tablet + phone form factors, live theme toggle. Typecheck clean.
-- [ ] **M3 — Offline foundation (SQLite + Drizzle + sync engine).** ← key factor. Local schema (mirror
-  subset + `mutation_queue` + `pending_files`); delta-pull client; push-replay with Idempotency-Key;
-  conflict resolution (§2.3); persisted Query cache; unit tests for queue/conflict reducers. Verify
-  `/v1/sync/*` contract coverage; flag any backend gap honestly.
+- [x] **M3 — Offline foundation (SQLite + Drizzle + sync engine).** ✅ ← key factor. Pure, unit-tested
+  core in `src/sync/`: `types` (domain), `ids` (uuidv7 = Idempotency-Key), `cursor` (delta keyset),
+  `queue` (FIFO-per-entity + file-dependency ordering + backoff), `conflict` (§2.3 policy → decision),
+  `pusher` (HTTP→PushOutcome normaliser + kind-dispatch table), `read-source` (delta-pull seam), and
+  `engine` (pull→push→pull orchestrator, re-entrant-safe, pause-on-auth). Persistence via a domain
+  `SyncStorePort`: Drizzle SQLite schema + expo-sqlite adapter (native, `store.native.ts`) and an
+  in-memory adapter (web/test, `store.web.ts`) chosen by Metro platform-extension resolution. Persisted
+  TanStack Query cache (`PersistQueryClientProvider` + KV persister) for instant cold-start. Sign-out
+  wipes the store (§2/§4). Engine boots on authentication and drives the header sync pill. **31 unit
+  tests green** (queue/conflict/cursor/ids/pusher + full engine round-trips: offline-hold→flush, transient
+  retry+backoff, stale_write→needs-review, validation→failed, auth→pause→resume, delta-pull→mirror).
+  Typecheck clean; app boots on Expo Web with the engine wired (pill "Synced"). **Backend gap logged
+  below**: no `/v1/sync/*` delta endpoints → read path uses the cursor-list fallback behind `SyncReadSource`.
 - [ ] **M4 — Auth & onboarding.** Welcome → Workspace (slug + recent chips) → Sign in → MFA (6-box) →
   recovery code; invite set-password; permission priming; biometric unlock; SecureStore tokens;
   workspace switcher; sign-out guard (unsynced). Wired to real API.
@@ -106,19 +115,44 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M3 — Offline foundation (SQLite + Drizzle + sync engine): NEXT.** ← the key phase.
-Branch `feat/mobile-app`. M0–M2 done, committed, browser-verified. Next: local Drizzle/SQLite schema
-(mirror subset + `mutation_queue` + `pending_files`), delta-pull read path, push-replay with
-Idempotency-Key, conflict resolution (spec §2.3), persisted Query cache, and unit tests for the
-queue/conflict reducers. First step: confirm the API's `/v1/sync/*` contract coverage; log any gap.
+**M4 — Auth & onboarding: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M3 done, committed,
+browser-verified. Next (M4): Welcome → Workspace (slug + recent chips) → Sign in → MFA (6-box) → recovery
+code; invite set-password; permission priming; biometric unlock (BiometricPort); SecureStore tokens;
+workspace switcher; sign-out guard when unsynced mutations exist (the store wipe in `session.signOut`
+is unconditional — M4 must gate it behind the "N items not synced" dialog per §4). Wire the real
+`signIn`/`/v1/me` flow, replacing the dev role-picker + `dev/mock-session.ts`. Register the first push
+handlers + read pullers into `sync/index.ts` (`pushDispatch`/`readPullers`) as M6/M8 screens land.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
 - (M-plan) Chose `apps/mobile` in-workspace over a standalone repo — shares contract, tooling, CI.
+- (M3) **Offline persistence is a domain `SyncStorePort`, not a raw-SQL `DbPort`.** Keeping it
+  domain-shaped makes the native (expo-sqlite/Drizzle) and in-memory (web/test) adapters interchangeable
+  and the engine unit-testable. Adapter chosen by Metro **platform-extension resolution**
+  (`store.native.ts`/`store.web.ts`/`store.ts`) — a `require()` guard did NOT work (Metro statically
+  bundles it, and expo-sqlite's web build imports a wasm worker the preview can't resolve).
+- (M3) **The conflict reducer is client-side reaction, not merge.** The SERVER owns field-level merge +
+  LWW (it sees before/after); the client maps the responses it can receive (ok/STALE_WRITE/transition/
+  404/validation/auth) to done/retry/needs-review/failed/pause, and NEVER silently drops a rejected write.
+- (M3) **Engine ordering bug found + fixed by the round-trip test:** `run()` must not touch the
+  re-entrancy `active` flag — a synchronous early-return (offline) cleared it before `sync()` set it,
+  wedging all later cycles. Lifecycle now lives entirely in `sync()`'s IIFE.
 
 ## Known issues / open questions
-- Verify the API exposes the delta-sync endpoints (`GET /v1/sync/<table>?since=`) the offline spec
-  assumes; if absent, M3 builds the client against the real contract and the gap is logged here.
+- **BACKEND GAP (confirmed): no `/v1/sync/<table>?since=` delta endpoints exist.** The contract exposes
+  cursor-paginated lists (`PageQuery`) with `updatedAt`+`version` on every DTO, plus server-side
+  Idempotency-Key (Redis `IdempotencyStore`) and optimistic concurrency (`version`→`STALE_WRITE`). So the
+  **write path is fully backed**; the **read path** uses `createListReadSource` (walk cursor pages,
+  delta-filter by `updatedAt`) behind the `SyncReadSource` seam. Two honest limitations until the real
+  endpoints land: (1) no tombstones from lists → deletes reconcile on full refresh, not incrementally;
+  (2) pull is O(changed) not O(1). Swapping in a `/v1/sync/*` adapter later leaves the engine unchanged.
+  → Recommend a backend follow-up to add the delta endpoints (own PR, web/API track).
+- **Mobile lint is a no-op:** root `eslint.config.js` ignores `apps/mobile/**` (M0 decision), but
+  `expo lint` reads that same root flat config and finds everything ignored, so it errors. Root
+  `pnpm lint` (the pre-push gate) is unaffected. Fix = give `apps/mobile` its own `eslint.config.js`
+  (eslint-config-expo) that doesn't inherit the root ignore. Deferred; not an M3 regression.
+- End-to-end network pull/push verification is deferred to M4+ (needs real auth + the M6/M8 screens that
+  register handlers). M3's engine is proven by the 31-test suite + a clean web boot.
 
 ## Verification log
 - **M0** — `expo start --web` (port 8082) boots; page shows "shared api-client linked: yes", proving
@@ -129,4 +163,10 @@ queue/conflict reducers. First step: confirm the API's `/v1/sync/*` contract cov
   (Home/Tasks/+/NCRs/Me) with server-resolved capabilities shown on Home; tab navigation to the Tasks
   placeholder; live sync pill; theme toggle; tablet (800px) and phone (375px) form factors both clean.
   Typecheck clean.
+- **M3** — `pnpm --filter @kaenal/mobile test` → **31 passing** (queue, conflict, cursor/ids/pusher, and
+  7 full-engine round-trips). Typecheck clean; root `pnpm lint` green. Browser: fixed a Metro web-bundle
+  break (expo-sqlite's wasm worker) via platform-extension store resolution, then Expo Web boots to the
+  welcome screen → sign-in as Inspector → authenticated Home renders with the offline engine wired
+  (module graph loads, header pill engine-driven → "Synced"). The engine's runtime behaviour is proven
+  by the unit suite; network pull/push E2E deferred to M4+ (needs real auth + M6/M8 handlers).
 </content>

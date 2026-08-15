@@ -26,6 +26,38 @@ export interface DbPort {
   transaction(work: (tx: DbPort) => Promise<void>): Promise<void>;
 }
 
+/**
+ * Domain-level offline store (05 §2) — the persistence port the sync engine and
+ * feature repos depend on. Deliberately NOT raw SQL: keeping it domain-shaped means
+ * the native (expo-sqlite + Drizzle) and in-memory (web/test) adapters are
+ * interchangeable and the engine is unit-testable. Wired in M3.
+ */
+export interface SyncStorePort {
+  init(): Promise<void>;
+
+  // Read mirror (delta-pull target).
+  upsertMirror(rows: import("../sync/types.js").MirrorRow[]): Promise<void>;
+  getMirror(entityType: string, id: string): Promise<import("../sync/types.js").MirrorRow | null>;
+  listMirror(entityType: string): Promise<import("../sync/types.js").MirrorRow[]>;
+
+  // Per-table delta cursors (encoded via sync/cursor.ts).
+  getCursor(entityType: string): Promise<string | null>;
+  setCursor(entityType: string, cursor: string): Promise<void>;
+
+  // Write queue (05 §2.2).
+  listMutations(): Promise<import("../sync/types.js").MutationRecord[]>;
+  putMutation(rec: import("../sync/types.js").MutationRecord): Promise<void>;
+  deleteMutation(id: string): Promise<void>;
+
+  // Pending files (05 §2.2).
+  listFiles(): Promise<import("../sync/types.js").PendingFile[]>;
+  putFile(f: import("../sync/types.js").PendingFile): Promise<void>;
+  deleteFile(id: string): Promise<void>;
+
+  /** Sign-out / tenant-switch wipe (05 §2, §4). */
+  wipe(): Promise<void>;
+}
+
 export interface LocalFile {
   uri: string;
   name: string;
@@ -84,6 +116,9 @@ export interface BiometricPort {
 export interface Services {
   kv: KvPort;
   secureStore: SecureStorePort;
+  /** Offline mirror + queues (05 §2), wired in M3. */
+  syncStore: SyncStorePort;
+  /** Optional low-level SQL handle for ad-hoc queries / the storage gauge. */
   db?: DbPort;
   files?: FilesPort;
   camera?: CameraPort;

@@ -60,9 +60,13 @@ export const useSession = create<SessionState>((set, get) => ({
   setMe: (me) => set({ me }),
 
   signOut: async () => {
+    // Sign-out wipes the local mirror + queues alongside the secrets (05 §2, §4).
+    // NOTE (M4): when there are unsynced mutations, the UI must block sign-out with a
+    // "N items not synced" dialog BEFORE calling this — this is the unconditional wipe.
     await Promise.all([
       services.secureStore.removeItem(TOKEN_KEY),
       services.secureStore.removeItem(TENANT_KEY),
+      services.syncStore.wipe(),
     ]);
     set({ token: null, tenant: null, me: null, status: "unauthenticated" });
   },
