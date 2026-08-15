@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kaenal — Mobile & Tablet App</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../styles/tokens.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  @keyframes k-spin { to { transform: rotate(360deg); } }
+  .k-spin { animation: k-spin 0.9s linear infinite; display: inline-flex; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  a { color: var(--accent); }
+  a:hover { color: var(--accent-hover); }
+  .navbtn:hover { background: var(--bg-subtle); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; border: 2px solid var(--bg); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">window.userById = window.userById || (() => ({ name: 'Sara Chen' }));</script>
+<script type="text/babel" src="../src/primitives.jsx"></script>
+<script type="text/babel" src="../starters/ios-frame.jsx"></script>
+<script type="text/babel" src="../starters/android-frame.jsx"></script>
+<script type="text/babel" src="src/mobile-kit.jsx"></script>
+<script type="text/babel" src="src/m-auth.jsx"></script>
+<script type="text/babel" src="src/m-auth-extra.jsx"></script>
+<script type="text/babel" src="src/m-home.jsx"></script>
+<script type="text/babel" src="src/m-inspections.jsx"></script>
+<script type="text/babel" src="src/m-capture.jsx"></script>
+<script type="text/babel" src="src/m-ncr.jsx"></script>
+<script type="text/babel" src="src/m-work.jsx"></script>
+<script type="text/babel" src="src/m-oversight.jsx"></script>
+<script type="text/babel" src="src/m-system.jsx"></script>
+<script type="text/babel" src="src/m-settings-detail.jsx"></script>
+<script type="text/babel" src="src/m-tablet.jsx"></script>
+
+<script type="text/babel">
+const { useState } = React;
+
+const PHONE_W = 340, PHONE_H = 720;
+
+// role color coding for gallery labels
+const ROLE_COLORS = {
+  Inspector: '#0d9488', Viewer: '#64748b', Auditor: '#7c3aed', Manager: '#2563eb', Admin: '#b45309', All: '#18181b',
+};
+const RoleTag = ({ r }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 20, padding: '0 8px', borderRadius: 999,
+    background: 'var(--bg-subtle)', color: 'var(--text-muted)', fontSize: 11, fontWeight: 600 }}>
+    <span style={{ width: 7, height: 7, borderRadius: '50%', background: ROLE_COLORS[r] || '#999' }}/>{r}
+  </span>
+);
+const DeviceTag = ({ d }) => {
+  const map = { iOS: '#0071e3', Android: '#3ddc84', 'iOS + Android': '#8b5cf6', Tablet: '#f59e0b' };
+  return <span style={{ height: 20, padding: '0 8px', borderRadius: 999, background: 'var(--bg-subtle)', color: 'var(--text-muted)', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+    <span style={{ width: 7, height: 7, borderRadius: 2, background: map[d] || '#999' }}/>{d}</span>;
+};
+
+// ── Device frame wrappers ──
+function PhoneFrame({ platform, dark, children }) {
+  const content = <div style={{ height: '100%' }}>{children}</div>;
+  if (platform === 'android') {
+    return <div className="phone-shadow-android" style={{ borderRadius: 26, overflow: 'hidden' }}>
+      <AndroidDevice width={PHONE_W} height={PHONE_H} dark={dark}>{content}</AndroidDevice></div>;
+  }
+  return <div className="phone-shadow" style={{ borderRadius: 50, overflow: 'hidden' }}>
+    <IOSDevice width={PHONE_W} height={PHONE_H} dark={dark}>{content}</IOSDevice></div>;
+}
+
+function ThemedPhone({ Comp, platform, dark, forceDark, extra }) {
+  const isDark = forceDark ? true : dark;
+  const T = mkTheme(isDark);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{forceDark ? 'Capture' : isDark ? 'Dark' : 'Light'}</span>
+      <PhoneFrame platform={platform} dark={isDark}><Comp T={T} platform={platform} {...(extra || {})}/></PhoneFrame>
+    </div>
+  );
+}
+
+// scaled tablet
+function ThemedTablet({ Comp, dark }) {
+  const T = mkTheme(dark);
+  const W = 1000, H = 750, scale = 0.66;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{dark ? 'Dark · landscape' : 'Light · landscape'}</span>
+      <div style={{ width: W * scale + 28, height: H * scale + 28 }}>
+        <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}>
+          <TabletFrame width={W} height={H} dark={dark} landscape><Comp T={T}/></TabletFrame>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Scene registry ──
+const GROUPS = [
+  { g: 'Overview', items: [
+    { id: 'cover', label: 'Cover — scope, roles & offline', cover: true, roles: ['All'], device: 'iOS + Android' },
+  ]},
+  { g: 'Auth & onboarding', items: [
+    { id: 'welcome', label: 'Welcome', comp: AuthWelcome, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Entry point with get-started / invite paths.' },
+    { id: 'workspace', label: 'Workspace picker', comp: AuthWorkspace, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Tenant slug + recent-workspace chips for multi-tenant users.' },
+    { id: 'signin', label: 'Sign in (+ SSO)', comp: AuthSignIn, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Email + password AND enterprise SSO (SAML/Okta), scoped to the workspace.' },
+    { id: 'sso', label: 'SSO / IdP handoff', comp: AuthSSORedirect, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Secure redirect to the company identity provider and back.' },
+    { id: 'mfa', label: 'MFA — code entry', comp: AuthMFA, platform: 'ios', roles: ['All'], device: 'iOS', desc: '6-digit boxes matching the web MFA language.' },
+    { id: 'mfa-busy', label: 'MFA — verifying', comp: AuthMFA, props: { state: 'busy' }, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Busy state while the code is checked.' },
+    { id: 'mfa-err', label: 'MFA — invalid code', comp: AuthMFA, props: { state: 'error' }, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Error state with attempts remaining.' },
+    { id: 'mfa-ok', label: 'MFA — verified', comp: AuthMFA, props: { state: 'success' }, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Success state before sign-in completes.' },
+    { id: 'recovery', label: 'Recovery-code entry', comp: AuthRecovery, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'One-time recovery code fallback for two-factor.' },
+    { id: 'forgot', label: 'Forgot password', comp: AuthForgot, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Request a secure reset link.' },
+    { id: 'reset-sent', label: 'Reset link sent', comp: AuthResetSent, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Confirmation with expiry + resend.' },
+    { id: 'setpw', label: 'Invite — set password', comp: AuthSetPassword, platform: 'android', roles: ['All'], device: 'Android', desc: 'New user via invite link: name + password with the web strength UI.' },
+    { id: 'priming', label: 'Permission priming', comp: AuthPriming, platform: 'android', roles: ['All'], device: 'Android', desc: 'Explains why, before the OS prompt: camera, location, notifications.' },
+    { id: 'biometric', label: 'Biometric unlock', comp: AuthBiometric, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Later launches use Face ID / fingerprint instead of password.' },
+    { id: 'biometric-fail', label: 'Biometric — fallback', comp: AuthBiometricFail, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'After repeated failures, fall back to password.' },
+    { id: 'switcher', label: 'Workspace switcher', comp: WorkspaceSwitcher, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Multi-tenant users switch orgs; warns on unsynced items.' },
+  ]},
+  { g: 'Home — role-aware', items: [
+    { id: 'home-insp', label: 'Inspector home', comp: HomeInspector, platform: 'ios', roles: ['Inspector'], device: 'iOS', desc: 'My queue: KPIs + today\'s work + items assigned to me.' },
+    { id: 'home-view', label: 'Viewer home (role-reduced)', comp: HomeViewer, platform: 'ios', roles: ['Viewer'], device: 'iOS', desc: 'Read-only: no perform/create/approve, no FAB — actions are absent, not disabled.' },
+    { id: 'home-mgr', label: 'Manager snapshot', comp: HomeManager, platform: 'android', roles: ['Manager'], device: 'Android', desc: 'Inspector surfaces + approvals inbox + team-today.' },
+    { id: 'home-admin', label: 'Admin — Workspace pulse', comp: HomeAdmin, platform: 'ios', roles: ['Admin'], device: 'iOS', desc: 'Active people, anomalies, failed syncs, approvals + read-only audit highlights.' },
+  ]},
+  { g: 'Inspections', items: [
+    { id: 'insp-list', label: 'Work queue', comp: InspList, platform: 'ios', roles: ['Inspector', 'Manager'], device: 'iOS', desc: 'Assigned / overdue / done with resume-in-progress.' },
+    { id: 'insp-empty', label: 'Queue — empty', comp: InspEmpty, platform: 'ios', roles: ['Inspector'], device: 'iOS', desc: 'All caught up: no assigned work.' },
+    { id: 'insp-start', label: 'Pre-start overview', comp: InspStart, platform: 'ios', roles: ['Inspector'], device: 'iOS', desc: 'Sections, duration and autosave note before starting.' },
+    { id: 'insp-run', label: 'Section runner', comp: InspRunner, platform: 'android', roles: ['Inspector'], device: 'Android', desc: 'Pass/fail/score/photo/note, inline NCR flag, autosave, offline.' },
+    { id: 'insp-review', label: 'Submit review', comp: InspReview, platform: 'ios', roles: ['Inspector'], device: 'iOS', desc: 'Pass/fail tally, linked NCR, signature sign-off.' },
+    { id: 'insp-saved', label: 'Saved on device (offline)', comp: InspSaved, platform: 'ios', roles: ['Inspector'], device: 'iOS', desc: 'Completion confirmed offline in green — never blocks fieldwork.' },
+    { id: 'insp-load', label: 'Loading (skeleton)', comp: InspLoading, platform: 'ios', roles: ['Inspector'], device: 'iOS', desc: 'Skeleton state while the queue loads.' },
+    { id: 'insp-err', label: 'Error state', comp: ErrorState, platform: 'ios', roles: ['Inspector'], device: 'iOS', desc: 'Server failure with local drafts kept safe.' },
+  ]},
+  { g: 'Capture & AI', items: [
+    { id: 'cap-ql', label: 'Quick-Log sheet', comp: CapQuickLog, platform: 'ios', roles: ['Inspector'], device: 'iOS', desc: 'Voice → transcript → AI-structured chips + auto context.' },
+    { id: 'cap-cam', label: 'Camera + AI defect', comp: CapCamera, platform: 'ios', forceDark: true, roles: ['Inspector'], device: 'iOS', desc: 'In-app capture with on-device defect suggestions.' },
+    { id: 'cap-voice', label: 'Voice-to-NCR', comp: CapVoice, platform: 'android', roles: ['Inspector'], device: 'Android', desc: 'Dictate an issue; AI extracts location, asset, severity.' },
+    { id: 'cap-annot', label: 'Tap-to-annotate', comp: CapAnnotate, platform: 'ios', forceDark: true, roles: ['Inspector'], device: 'iOS', desc: 'Circle / arrow / measure on the photo; stylus-ready on tablet.' },
+  ]},
+  { g: 'NCR', items: [
+    { id: 'ncr-1', label: 'Create — step 1 (intake)', comp: NcrCreateStep1, platform: 'ios', roles: ['Inspector', 'Manager'], device: 'iOS', desc: 'Choose capture method, confirm location & asset.' },
+    { id: 'ncr-create', label: 'Create — step 2 (details)', comp: NcrCreate, platform: 'ios', roles: ['Inspector', 'Manager'], device: 'iOS', desc: 'AI pre-fill, severity, containment, 8D suggestion.' },
+    { id: 'ncr-3', label: 'Create — step 3 (review)', comp: NcrCreateStep3, platform: 'ios', roles: ['Inspector', 'Manager'], device: 'iOS', desc: 'Final summary; saves on device when offline.' },
+    { id: 'ncr-detail', label: 'NCR detail + 8D banner', comp: NcrDetail, platform: 'ios', roles: ['Inspector', 'Auditor', 'Manager'], device: 'iOS', desc: 'Read-mostly detail with escalate-to-8D banner.' },
+    { id: 'ncr-verify', label: 'NCR verify (auditor)', comp: NcrVerify, platform: 'ios', roles: ['Auditor'], device: 'iOS', desc: 'ncr:verify — confirm corrective action effective and close.' },
+  ]},
+  { g: 'My work — tasks, 8D, CAPA', items: [
+    { id: 'tasks', label: 'My Tasks (unified inbox)', comp: MyTasks, platform: 'ios', roles: ['Inspector', 'Manager'], device: 'iOS', desc: 'Everything assigned to me across modules.' },
+    { id: 'tasks-empty', label: 'My Tasks — all clear', comp: MyTasksEmpty, platform: 'ios', roles: ['Inspector'], device: 'iOS', desc: 'Empty inbox state.' },
+    { id: 'eightd', label: '8D follow-up', comp: EightDFollow, platform: 'ios', roles: ['Auditor', 'Manager'], device: 'iOS', desc: 'View D1–D8, advance/complete the steps I own, attach evidence.' },
+    { id: 'capa', label: 'CAPA action check-off', comp: CapaCheckoff, platform: 'android', roles: ['Inspector', 'Manager'], device: 'Android', desc: 'Complete my assigned action + evidence.' },
+  ]},
+  { g: 'Oversight — manager/admin', items: [
+    { id: 'appr-inbox', label: 'Approvals inbox', comp: ApprovalsInbox, platform: 'android', roles: ['Manager', 'Admin'], device: 'Android', desc: 'Document approvals & NCR dispositions, approve/reject.' },
+    { id: 'appr-item', label: 'Approval item (reason)', comp: ApprovalItem, platform: 'ios', roles: ['Manager', 'Admin'], device: 'iOS', desc: 'Required reason field recorded on the audit trail.' },
+    { id: 'assign', label: 'Assign / reassign', comp: AssignSheet, platform: 'ios', roles: ['Manager', 'Admin'], device: 'iOS', desc: 'Bottom-sheet picker with per-person load.' },
+    { id: 'team', label: 'Team & plant snapshot', comp: TeamSnapshot, platform: 'android', roles: ['Manager', 'Admin'], device: 'Android', desc: 'Pass rate by line + people on shift.' },
+    { id: 'manageweb', label: 'Manage in web app', comp: ManageInWeb, platform: 'ios', roles: ['Admin'], device: 'iOS', desc: 'Config-heavy areas represented as a tidy web hand-off, not native screens.' },
+  ]},
+  { g: 'Sync, alerts & settings', items: [
+    { id: 'sync', label: 'Sync queue + conflict', comp: SyncQueue, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Per-item queue, storage gauge, one-tap conflict resolve.' },
+    { id: 'sync-ok', label: 'Sync — all synced', comp: SyncSynced, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Online, nothing pending.' },
+    { id: 'notif', label: 'Notifications', comp: Notifications, platform: 'android', roles: ['All'], device: 'Android', desc: 'Assignment / due-soon / sync-failed, deep-linking to the record.' },
+    { id: 'notif-empty', label: 'Notifications — empty', comp: NotifEmpty, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'No new notifications.' },
+    { id: 'settings', label: 'Settings (root)', comp: SettingsRoot, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Account, security, storage, appearance, workspace, sign-out guard.' },
+    { id: 'profile', label: 'Profile edit', comp: ProfileEdit, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Name, title, phone; email is SSO-managed.' },
+    { id: 'security', label: 'Security', comp: SettingsSecurity, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'MFA, recovery codes, biometric, active sessions, sign-out others.' },
+    { id: 'storage', label: 'Offline & storage', comp: SettingsStorage, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Storage gauge, offline behaviour, clear synced cache.' },
+    { id: 'notifprefs', label: 'Notification prefs', comp: SettingsNotifPrefs, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Per-type push toggles, quiet hours, email digest.' },
+    { id: 'appearance', label: 'Appearance & accessibility', comp: SettingsAppearance, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Light/dark/system, Dynamic Type, contrast, reduce-motion.' },
+    { id: 'signout', label: 'Sign-out unsynced guard', comp: SignOutGuard, platform: 'ios', roles: ['All'], device: 'iOS', desc: 'Warns before sign-out when items are unsynced.' },
+  ]},
+  { g: 'Platform patterns (iOS vs Android)', items: [
+    { id: 'pat-run', label: 'Runner — HIG vs Material', comp: InspRunner, platforms: ['ios', 'android'], roles: ['Inspector'], device: 'iOS + Android', desc: 'Same screen, native to each: large-title header & sheets vs top app bar & Material spacing.' },
+    { id: 'pat-ncr', label: 'NCR create — HIG vs Material', comp: NcrCreate, platforms: ['ios', 'android'], roles: ['Inspector'], device: 'iOS + Android', desc: 'Stepper, controls and action bar adapted per platform.' },
+  ]},
+  { g: 'Tablet — master–detail', items: [
+    { id: 'tab-insp', label: 'Inspections list + runner', comp: TabletInspections, tablet: true, roles: ['Inspector', 'Manager'], device: 'Tablet', desc: 'Bottom tabs become a side rail; single column becomes two-pane. Two-column question grid + stylus capture.' },
+    { id: 'tab-appr', label: 'Approvals inbox + item', comp: TabletApprovals, tablet: true, roles: ['Manager', 'Admin'], device: 'Tablet', desc: 'Persistent list on the left, decision + reason on the right.' },
+    { id: 'tab-dash', label: 'Dashboard KPI board', comp: TabletDashboard, tablet: true, roles: ['Manager', 'Admin'], device: 'Tablet', desc: 'Multi-column KPI board with charts — never a stretched phone column.' },
+  ]},
+];
+const ALL = GROUPS.flatMap(g => g.items);
+
+// ── Cover ──
+function Cover() {
+  const surfaces = [
+    { r: 'Inspector', s: 'Home · My Tasks · Inspections · Quick-Log · Camera/Voice · NCR create + detail · Notifications · Settings' },
+    { r: 'Viewer', s: 'Read-only Home + records they may see · Notifications · Settings' },
+    { r: 'Auditor', s: 'Inspections (view) · NCR view + verify · 8D follow-up · read-oriented dashboard' },
+    { r: 'Manager', s: 'All Inspector surfaces + Approvals · Assign/reassign · Team & plant · 8D · CAPA' },
+    { r: 'Admin', s: 'Everything + Workspace pulse + read-only audit highlights + “Manage in web app”' },
+  ];
+  return (
+    <div style={{ maxWidth: 940, margin: '0 auto', padding: '8px 8px 48px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span style={{ color: 'var(--accent)' }}><Icon name="logo" size={30}/></span>
+        <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: '0.12em' }}>KAENAL</span>
+        <span style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>· Mobile & Tablet</span>
+      </div>
+      <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: '-0.03em', marginTop: 22, lineHeight: 1.1 }}>
+        The QMS field app — native, offline-first, role-aware.
+      </div>
+      <div style={{ fontSize: 15, color: 'var(--text-muted)', marginTop: 12, maxWidth: 680, lineHeight: 1.6 }}>
+        Expo (iOS + Android) with NativeWind, sharing the web app's data layer and status vocabulary.
+        Inspectors run checks and raise NCRs on the floor; managers approve and assign; admins supervise —
+        the UI is curated by role while the server enforces every capability. A pixel-for-pixel binding
+        reference, not shipped code.
+      </div>
+
+      {/* offline model */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 30 }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', background: 'var(--surface)', padding: 20 }}>
+          <div className="k-overline" style={{ marginBottom: 10 }}>Offline-first model</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, color: 'var(--text)', lineHeight: 1.8 }}>
+            <li>Persistent <strong>sync pill</strong> in every header: Synced · Pending · Failed · Offline.</li>
+            <li>Offline completion is confirmed in <strong>green</strong> — “Saved on device — will sync”.</li>
+            <li>Dedicated sync queue with storage gauge and one-tap <strong>conflict resolve</strong>.</li>
+            <li>Fieldwork is never blocked on connectivity.</li>
+          </ul>
+        </div>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', background: 'var(--surface)', padding: 20 }}>
+          <div className="k-overline" style={{ marginBottom: 10 }}>Native standards</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, color: 'var(--text)', lineHeight: 1.8 }}>
+            <li>Bottom tab bar (thumb-reach) with badges; FAB for capture/raise.</li>
+            <li>iOS HIG large titles & sheets · Android Material 3 top bar & FAB.</li>
+            <li>Safe areas: notch / Dynamic Island / home indicator / gesture nav.</li>
+            <li>Empty · loading · error · offline states; ≥44pt targets; WCAG AA.</li>
+          </ul>
+        </div>
+      </div>
+
+      {/* role → surface */}
+      <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-xl)', background: 'var(--surface)', padding: 20, marginTop: 16 }}>
+        <div className="k-overline" style={{ marginBottom: 12 }}>Role → surface map (RBAC · presentation only)</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {surfaces.map(x => (
+            <div key={x.r} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div style={{ width: 96, flexShrink: 0 }}><RoleTag r={x.r}/></div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>{x.s}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-subtle)', marginTop: 12, lineHeight: 1.5 }}>
+          External partner/supplier is web-only and not a user of this app. When a role lacks a capability the action is <strong>absent</strong>, not a disabled teaser.
+        </div>
+      </div>
+
+      {/* legend */}
+      <div style={{ display: 'flex', gap: 24, marginTop: 20, flexWrap: 'wrap' }}>
+        <div>
+          <div className="k-overline" style={{ marginBottom: 8 }}>Devices</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{['iOS', 'Android', 'iOS + Android', 'Tablet'].map(d => <DeviceTag key={d} d={d}/>)}</div>
+        </div>
+        <div>
+          <div className="k-overline" style={{ marginBottom: 8 }}>Roles</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{Object.keys(ROLE_COLORS).map(r => <RoleTag key={r} r={r}/>)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Stage ──
+function Stage({ scene, view }) {
+  if (scene.cover) return <Cover/>;
+  const themes = view === 'dark' ? [true] : view === 'light' ? [false] : [false, true];
+
+  let frames;
+  if (scene.tablet) {
+    frames = themes.map(d => <ThemedTablet key={String(d)} Comp={scene.comp} dark={d}/>);
+  } else if (scene.platforms) {
+    // iOS vs Android comparison — single (first) theme to keep it side-by-side
+    const d = themes[0];
+    frames = scene.platforms.map(p => (
+      <div key={p} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{p === 'ios' ? 'iOS · HIG' : 'Android · Material 3'}</span>
+        <PhoneFrame platform={p} dark={d}>{React.createElement(scene.comp, { T: mkTheme(d), platform: p })}</PhoneFrame>
+      </div>
+    ));
+  } else {
+    frames = themes.map(d => <ThemedPhone key={String(d)} Comp={scene.comp} platform={scene.platform} dark={d} forceDark={scene.forceDark} extra={scene.props}/>);
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 40, flexWrap: 'wrap', justifyContent: 'center', padding: '8px 0 40px' }}>
+      {frames}
+    </div>
+  );
+}
+
+function App() {
+  const [active, setActive] = useState('cover');
+  const [view, setView] = useState('both');
+  const scene = ALL.find(s => s.id === active);
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)' }}>
+      {/* Navigator */}
+      <div style={{ width: 272, flexShrink: 0, borderRight: '1px solid var(--border)', background: 'var(--surface)', overflowY: 'auto', padding: '18px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px 2px' }}>
+          <span style={{ color: 'var(--accent)' }}><Icon name="logo" size={20}/></span>
+          <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: '0.08em' }}>KAENAL</span>
+        </div>
+        <div style={{ padding: '0 8px 16px', fontSize: 11.5, color: 'var(--text-muted)' }}>Mobile & tablet — screens by role</div>
+        {GROUPS.map(grp => (
+          <div key={grp.g} style={{ marginBottom: 14 }}>
+            <div className="k-overline" style={{ padding: '0 8px 6px' }}>{grp.g}</div>
+            {grp.items.map(it => (
+              <button key={it.id} className="navbtn" onClick={() => setActive(it.id)} style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 10px',
+                borderRadius: 'var(--r-md)', background: active === it.id ? 'var(--accent-soft)' : 'transparent',
+                color: active === it.id ? 'var(--accent)' : 'var(--text)', fontSize: 12.5, fontWeight: 500,
+                textAlign: 'left', marginBottom: 1, border: 'none',
+              }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: active === it.id ? 'var(--accent)' : 'var(--border-strong)', flexShrink: 0 }}/>
+                <span style={{ flex: 1 }}>{it.label}</span>
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Stage */}
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 28px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', position: 'sticky', top: 0, zIndex: 5 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>{scene.label}</div>
+            {scene.desc && <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 560 }}>{scene.desc}</div>}
+          </div>
+          <div style={{ flex: 1 }}/>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {scene.device && <DeviceTag d={scene.device}/>}
+            {scene.roles && scene.roles.map(r => <RoleTag key={r} r={r}/>)}
+          </div>
+          {!scene.cover && !scene.platforms && (
+            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', overflow: 'hidden', marginLeft: 6 }}>
+              {['light', 'dark', 'both'].map(v => (
+                <button key={v} onClick={() => setView(v)} style={{
+                  padding: '6px 11px', fontSize: 12, fontWeight: 600, border: 'none',
+                  background: view === v ? 'var(--accent)' : 'var(--surface)',
+                  color: view === v ? 'var(--accent-fg)' : 'var(--text-muted)', textTransform: 'capitalize',
+                }}>{v}</button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ padding: 28, background: 'radial-gradient(circle at 50% 0%, var(--bg-subtle), var(--bg) 70%)', minHeight: 'calc(100vh - 60px)' }}>
+          <Stage scene={scene} view={view}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

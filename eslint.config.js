@@ -19,6 +19,7 @@ export default tseslint.config(
       "**/.next/**",
       "**/node_modules/**",
       "project_brain/**", // the spec + visual prototype; never compiled
+      "apps/mobile/**", // React Native app; linted by its own `expo lint` toolchain
       "**/*.config.js",
       "**/*.config.ts",
       "**/*.config.mjs",
