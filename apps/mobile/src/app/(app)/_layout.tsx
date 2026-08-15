@@ -37,7 +37,12 @@ function AppTabBar({ state, navigation }: TabBarProps) {
 
 export default function AppLayout() {
   const status = useSession((s) => s.status);
+  const primed = useSession((s) => s.primed);
+  if (status === "locked") return <Redirect href="/(auth)/unlock" />;
   if (status !== "authenticated") return <Redirect href="/(auth)/welcome" />;
+  // One-time permission priming before the shell (05 §3 / design AuthPriming).
+  // Top-level route (not in a group) so neither auth/app redirect can loop it.
+  if (!primed) return <Redirect href="/priming" />;
 
   return (
     <Tabs screenOptions={{ headerShown: false }} tabBar={(props) => <AppTabBar {...props} />}>

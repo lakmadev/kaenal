@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { View } from "react-native";
 
+import { confirmIfUnsynced } from "@/features/auth/guard";
 import { useLayout } from "@/hooks/use-layout";
 import { useRole, useSession } from "@/stores/session";
 import { useSync } from "@/stores/sync";
@@ -38,6 +39,12 @@ export default function Home() {
   const { contentMaxWidth } = useLayout();
 
   const firstName = me?.name?.split(" ")[0] ?? "there";
+
+  async function handleSignOut() {
+    if (!(await confirmIfUnsynced("sign out"))) return;
+    await signOut();
+    router.replace("/(auth)/welcome");
+  }
 
   return (
     <Screen>
@@ -78,8 +85,11 @@ export default function Home() {
             ))}
           </Card>
 
-          <View style={{ padding: 16, marginTop: 8 }}>
-            <Button variant="ghost" icon="logOut" onPress={() => void signOut().then(() => router.replace("/(auth)/welcome"))}>
+          <View style={{ padding: 16, marginTop: 8, gap: 10 }}>
+            <Button variant="ghost" icon="building" onPress={() => router.push("/switch-workspace")}>
+              Switch workspace
+            </Button>
+            <Button variant="ghost" icon="logOut" onPress={() => void handleSignOut()}>
               Sign out
             </Button>
           </View>

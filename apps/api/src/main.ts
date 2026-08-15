@@ -23,6 +23,20 @@ async function bootstrap(): Promise<void> {
   // recorded on every audit event, so getting it wrong makes the trail wrong.
   app.set("trust proxy", 1);
 
+  // CORS. The web app is same-origin (its dev server proxies /api), so it needs
+  // nothing here. The Expo mobile app runs cross-origin ONLY in web/dev preview
+  // (localhost:8081/8082); native builds make same-process fetches with no CORS at
+  // all. So enable a tight allow-list for localhost dev origins, never in
+  // production. Bearer auth means we don't allow credentials (no cookies cross-site).
+  if (env.NODE_ENV !== "production") {
+    app.enableCors({
+      origin: [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/],
+      methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+      allowedHeaders: ["content-type", "authorization", "x-tenant-id", "x-auth-mode", "idempotency-key"],
+      credentials: false,
+    });
+  }
+
   app.enableShutdownHooks();
 
   await app.listen(env.PORT);

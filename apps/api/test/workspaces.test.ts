@@ -146,6 +146,24 @@ describe("switching workspace", () => {
     expect(me.body.role).toBe("manager"); // the globex role, not the acme admin one
   });
 
+  it("returns the target-tenant token in the body (no cookies) for a bearer client (mobile)", async () => {
+    const acmeTok = await signIn(ACME, "ws-both@acme.test");
+    const sw = await authed("post", "/v1/me/switch-workspace", ACME, acmeTok)
+      .set("X-Auth-Mode", "bearer")
+      .send({ slug: GLOBEX });
+
+    expect(sw.status).toBe(200);
+    expect(sw.body.tenantSlug).toBe(GLOBEX);
+    expect(typeof sw.body.sessionToken).toBe("string");
+    expect(sw.body.sessionToken.length).toBeGreaterThan(0);
+    expect(sw.headers["set-cookie"]).toBeUndefined();
+
+    // The body token authenticates in the target tenant.
+    const me = await authed("get", "/v1/me", GLOBEX, sw.body.sessionToken as string).send();
+    expect(me.status).toBe(200);
+    expect(me.body.role).toBe("manager");
+  });
+
   it("404s a switch to a workspace the caller does not belong to (no leak)", async () => {
     const tok = await signIn(ACME, "ws-acme@acme.test"); // acme-only member
     const res = await authed("post", "/v1/me/switch-workspace", ACME, tok).send({ slug: GLOBEX });

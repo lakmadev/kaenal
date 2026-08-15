@@ -878,6 +878,13 @@ export const WorkspaceDto = z.object({
   role: z.string(),
   /** True for the workspace the current request is scoped to. */
   active: z.boolean(),
+  /**
+   * The target-workspace session token, returned ONLY on `switch-workspace` and
+   * ONLY to bearer clients (the mobile app, which sends `X-Auth-Mode: bearer` and
+   * has no cookie jar — 05 §3). Web clients receive the session as an httpOnly
+   * cookie and never see this field. Absent on the workspaces list.
+   */
+  sessionToken: z.string().optional(),
 });
 export type WorkspaceDto = z.infer<typeof WorkspaceDto>;
 

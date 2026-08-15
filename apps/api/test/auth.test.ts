@@ -171,6 +171,29 @@ describe("sign-in", () => {
     expect(cookies.some((c) => c.startsWith("kaenal_csrf="))).toBe(true);
   });
 
+  it("returns the token in the body and sets NO cookies for a bearer client (mobile, 05 §3)", async () => {
+    const res = await request(server())
+      .post("/v1/auth/sign-in")
+      .set("X-Tenant-Id", ACME)
+      .set("X-Auth-Mode", "bearer")
+      .send({ email: "ada@acme.test", password: PASSWORD });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ role: "admin" });
+    expect(typeof res.body.sessionToken).toBe("string");
+    expect(res.body.sessionToken.length).toBeGreaterThan(0);
+    // No cookies for the mobile flow — the token lives in SecureStore, not a jar.
+    expect(res.headers["set-cookie"]).toBeUndefined();
+
+    // And the returned token authenticates a subsequent request.
+    const me = await request(server())
+      .get("/v1/me")
+      .set("X-Tenant-Id", ACME)
+      .set("Authorization", `Bearer ${res.body.sessionToken as string}`);
+    expect(me.status).toBe(200);
+    expect(me.body.role).toBe("admin");
+  });
+
   it("rejects a wrong password with UNAUTHENTICATED", async () => {
     const res = await signIn(ACME, "ada@acme.test", "wrong-password-here");
     expect(res.status).toBe(401);

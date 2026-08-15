@@ -87,9 +87,19 @@ resume from **Current status**, update it in the same commit as the work.
   retry+backoff, stale_write→needs-review, validation→failed, auth→pause→resume, delta-pull→mirror).
   Typecheck clean; app boots on Expo Web with the engine wired (pill "Synced"). **Backend gap logged
   below**: no `/v1/sync/*` delta endpoints → read path uses the cursor-list fallback behind `SyncReadSource`.
-- [ ] **M4 — Auth & onboarding.** Welcome → Workspace (slug + recent chips) → Sign in → MFA (6-box) →
-  recovery code; invite set-password; permission priming; biometric unlock; SecureStore tokens;
-  workspace switcher; sign-out guard (unsynced). Wired to real API.
+- [x] **M4 — Auth & onboarding.** ✅ Full flow wired to the REAL API, all screens reproduced from
+  `m-auth.jsx`/`m-auth-extra.jsx` (rule #9): Welcome → Workspace (slug + recent chips) → Sign in →
+  MFA (6-box, auto-verify, error/success states) → recovery code; invite set-password (paste-link +
+  strength meter); forgot-password + reset-sent; permission priming (one-time gate); biometric unlock
+  (`unlock` screen, expo-local-authentication behind `BiometricPort`); workspace switcher (bottom sheet,
+  real `/v1/me/workspaces`); unsynced sign-out/switch guard (§4). SecureStore holds the bearer token;
+  last-known `me` cached in KV for offline cold-start. **Backend:** sign-in and switch-workspace now
+  return the session token in the body for bearer clients (opt-in `X-Auth-Mode: bearer` header, no
+  cookies) — web cookie/CSRF path untouched; `WorkspaceDto.sessionToken?` added (optional, web ignores).
+  Dev-only CORS (localhost) added so the Expo web preview can call the API. Browser-verified end-to-end:
+  welcome → workspace `acme` → sign in `demo@acme.test` → **34 real capabilities from /v1/me** → priming →
+  home; workspace switcher lists the real membership. `apps/api` auth (32) + workspaces (6) tests green
+  incl. new bearer cases; 31 mobile unit tests green; typecheck + lint clean.
 - [ ] **M5 — Home / role-aware dashboards.** Inspector / Viewer / Manager / Admin, curated by `/v1/me`
   capabilities (presentation only; server still enforces).
 - [ ] **M6 — Inspections.** List → section-by-section runner (pass/fail/score/photo/note, inline NCR
@@ -115,13 +125,12 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M4 — Auth & onboarding: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M3 done, committed,
-browser-verified. Next (M4): Welcome → Workspace (slug + recent chips) → Sign in → MFA (6-box) → recovery
-code; invite set-password; permission priming; biometric unlock (BiometricPort); SecureStore tokens;
-workspace switcher; sign-out guard when unsynced mutations exist (the store wipe in `session.signOut`
-is unconditional — M4 must gate it behind the "N items not synced" dialog per §4). Wire the real
-`signIn`/`/v1/me` flow, replacing the dev role-picker + `dev/mock-session.ts`. Register the first push
-handlers + read pullers into `sync/index.ts` (`pushDispatch`/`readPullers`) as M6/M8 screens land.
+**M5 — Home / role-aware dashboards: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M4 done,
+committed, browser-verified against the live API. Next (M5): replace the M2/M4 identity-dump home with the
+role-aware dashboards from `m-home.jsx` (Inspector / Viewer / Manager / Admin), curated by `/v1/me`
+capabilities (presentation only; server still enforces) — KPIs + Today's queue. As inspection/NCR screens
+land (M6/M8), register their push handlers + read pullers into `sync/index.ts`
+(`pushDispatch`/`readPullers`) so the offline engine starts carrying real traffic.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -137,6 +146,23 @@ handlers + read pullers into `sync/index.ts` (`pushDispatch`/`readPullers`) as M
 - (M3) **Engine ordering bug found + fixed by the round-trip test:** `run()` must not touch the
   re-entrancy `active` flag — a synchronous early-return (offline) cleared it before `sync()` set it,
   wedging all later cycles. Lifecycle now lives entirely in `sync()`'s IIFE.
+- (M4) **Mobile gets its bearer token via a gated header, not a new endpoint.** `POST /v1/auth/sign-in`
+  and `POST /v1/me/switch-workspace` return the raw session token in the body ONLY when the client sends
+  `X-Auth-Mode: bearer` (and then set no cookies). Web (no header) keeps httpOnly-cookie + double-submit
+  CSRF unchanged; the token is never exposed to browser JS. The session authenticator already accepted
+  `Authorization: Bearer`, so this only closed the "how does mobile obtain the token" gap. `WorkspaceDto`
+  gained an optional `sessionToken` (web ignores it). Both paths have backend tests.
+- (M4) **Auth routes are called with plain fetch, not the ts-rest client** (`lib/auth-api.ts`) — sign-in/
+  MFA/accept-invite/forgot live outside the contract (they negotiate cookies/MFA). Switch-workspace IS in
+  the contract, so it uses the typed client with `extraHeaders: { 'x-auth-mode': 'bearer' }`.
+- (M4) **Last-known `me` is cached in KV.** On an offline cold-start we trust the stored token AND a
+  cached identity to render the shell (§4); without a cached `me` we can't show a coherent shell, so we
+  fall back to sign-in rather than showing an empty one.
+- (M4) **Dev-only CORS** (`main.ts`, localhost origins, `credentials:false`, non-production) so the Expo
+  **web** preview can call the API cross-origin. Native builds are same-process (no CORS). Never enabled
+  in production.
+- (M4) **Priming is a top-level route** (not in `(auth)`/`(app)`) so neither group redirect can loop it,
+  with its own `authenticated && !primed` guard; the `(app)` layout redirects unprimed sessions to it.
 
 ## Known issues / open questions
 - **BACKEND GAP (confirmed): no `/v1/sync/<table>?since=` delta endpoints exist.** The contract exposes
@@ -153,6 +179,13 @@ handlers + read pullers into `sync/index.ts` (`pushDispatch`/`readPullers`) as M
   (eslint-config-expo) that doesn't inherit the root ignore. Deferred; not an M3 regression.
 - End-to-end network pull/push verification is deferred to M4+ (needs real auth + the M6/M8 screens that
   register handlers). M3's engine is proven by the 31-test suite + a clean web boot.
+- (M4) **"Add another workspace"** in the switcher signs out (guarded on unsynced) and returns to the
+  workspace picker — the session model is single-token, so joining another tenant is a fresh sign-in.
+  True multi-account (staying signed into several workspaces at once, instant switch) is a future
+  enhancement; surfaced here rather than silently dropped (rule #9).
+- (M4) Benign Metro warning: `session.ts → lib/api.ts → session.ts` require cycle. Safe — the api-client
+  reads token/tenant through lazy getters (`() => useSession.getState()`), so no uninitialised access.
+  Could be broken later by injecting the getters instead of importing the store.
 
 ## Verification log
 - **M0** — `expo start --web` (port 8082) boots; page shows "shared api-client linked: yes", proving
@@ -169,4 +202,13 @@ handlers + read pullers into `sync/index.ts` (`pushDispatch`/`readPullers`) as M
   welcome screen → sign-in as Inspector → authenticated Home renders with the offline engine wired
   (module graph loads, header pill engine-driven → "Synced"). The engine's runtime behaviour is proven
   by the unit suite; network pull/push E2E deferred to M4+ (needs real auth + M6/M8 handlers).
+- **M4** — Backend: `apps/api` auth (32) + workspaces (6) tests green, incl. new "bearer sign-in returns
+  token, no cookies" and "bearer switch-workspace returns token" cases. Mobile: 31 unit tests still green;
+  typecheck (mobile + api + types) + root lint clean. Browser E2E against the LIVE API (dev CORS on): welcome
+  → workspace `acme` → sign in `demo@acme.test`/`demo-password-1234` → **/v1/me resolved 34 real
+  capabilities** (role admin) → permission priming (verified the gate shows once, then Continue → home) →
+  home with live "Synced" pill; opened the workspace switcher → real `/v1/me/workspaces` listed "Acme ·
+  Admin". Not browser-exercisable on web: MFA/recovery (demo account has MFA disabled — covered by the
+  server's `mfa_required` path + the built UI) and biometric unlock (device-only; web reports unavailable
+  and falls back to the password path).
 </content>

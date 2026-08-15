@@ -1,3 +1,4 @@
+import { biometricAdapter } from "./biometric";
 import { createSyncStore } from "./db";
 import { kvAdapter } from "./kv";
 import type { Services } from "./ports";
@@ -11,6 +12,7 @@ export const services: Services = {
   kv: kvAdapter,
   secureStore: secureStoreAdapter,
   syncStore: createSyncStore(),
+  biometric: biometricAdapter,
 };
 
 export type { Services } from "./ports";

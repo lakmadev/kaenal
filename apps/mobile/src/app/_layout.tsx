@@ -53,6 +53,8 @@ export default function RootLayout() {
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(app)" />
               <Stack.Screen name="(auth)" />
+              <Stack.Screen name="priming" />
+              <Stack.Screen name="switch-workspace" options={{ presentation: "transparentModal", animation: "fade" }} />
             </Stack>
             <StatusBar style="auto" />
           </ThemeProvider>
