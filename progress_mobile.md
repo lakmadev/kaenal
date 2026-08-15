@@ -57,10 +57,13 @@ resume from **Current status**, update it in the same commit as the work.
   `resolveRequest` that retries ESM `.js` specifiers as `.ts` so the shared TS packages resolve). Wired
   `@kaenal/api-client` + `@kaenal/types`; demo template stripped. Boots on Expo Web with the shared
   client linked. `apps/mobile` excluded from root ESLint (uses its own `expo lint`).
-- [ ] **M1 — Theme & component common library.** `tokens.ts` (light/dark), `ThemeProvider`+`useTheme`
-  (system/light/dark, persisted), icon system, and the full kit from `mobile-kit.jsx`: Screen, Body,
-  Header (large-title), TabBar+FAB+badges, SyncPill, StatusPill, Sev, Avatar, SectionLabel, Card,
-  PrimaryBtn/GhostBtn, ActionBar, Skeleton, EmptyState, Row. Kitchen-sink verify screen, both themes.
+- [x] **M1 — Theme & component common library.** ✅ `theme/` (tokens light/dark ported from the design
+  kit + spacing/radius/type scale, `ThemeProvider`/`useTheme`/`useThemeContext` with light/dark/system
+  and an `onModeChange` hook for M2 persistence, Archivo + JetBrains Mono via expo-font). `ui/` kit:
+  Icon (design names → lucide, typed union), Text/Mono, Screen/Body/Card/SectionLabel/ActionBar (real
+  safe-area insets), SyncPill/StatusPill/Sev/Avatar, Button, Row, Skeleton/EmptyState, Header/BellButton/
+  Badge, TabBar (+FAB +badges). Kitchen-sink screen verified in-browser in **both light and dark** with
+  instant in-app toggle. Typecheck clean.
 - [ ] **M2 — App shell, navigation & ports/adapters.** Router layouts (auth vs tabs), role-aware tab
   config, adaptive-layout hook (phone/tablet), Zustand stores, all platform ports + Expo adapters
   (stubbed where deep).
@@ -96,9 +99,10 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M0 — Scaffold & monorepo wiring: IN PROGRESS.**
-Branch `feat/mobile-app`. Plan authored. Next: scaffold the Expo app under `apps/mobile` and get it
-booting on Expo Web (Browser pane) + iOS Simulator.
+**M2 — App shell, navigation & ports/adapters: NEXT.**
+Branch `feat/mobile-app`. M0 (scaffold) and M1 (theme + UI kit) done, committed, and browser-verified
+(light + dark). Next: Expo Router layouts (auth stack vs role-aware tabs), adaptive-layout hook,
+Zustand stores, and the platform ports + Expo adapters.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -109,5 +113,8 @@ booting on Expo Web (Browser pane) + iOS Simulator.
   assumes; if absent, M3 builds the client against the real contract and the gap is logged here.
 
 ## Verification log
-- (pending M0)
+- **M0** — `expo start --web` (port 8082) boots; page shows "shared api-client linked: yes", proving
+  Metro resolves the workspace contract package. Typecheck clean.
+- **M1** — Kitchen-sink screen renders all kit components; verified light + dark via the in-app mode
+  toggle (instant recolor). Archivo/JetBrains Mono loaded. Typecheck clean.
 </content>
