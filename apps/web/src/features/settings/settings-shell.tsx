@@ -17,6 +17,7 @@ import { CostCentersSection } from "./sections/cost-centers";
 import { IntegrationsSection } from "./sections/integrations";
 import { BulkImportSection } from "./sections/bulk-import";
 import { CrossTenantSection } from "./sections/cross-tenant";
+import { AuditLogSection } from "./sections/audit-log";
 
 /**
  * The active settings section's content. The section rail lives in the settings
@@ -54,6 +55,8 @@ export function SettingsContent({ section }: { section: string }): React.ReactEl
       return <BulkImportSection />;
     case "cross-tenant":
       return <CrossTenantSection />;
+    case "audit":
+      return <AuditLogSection />;
     default:
       return <ComingSoon section={section} />;
   }

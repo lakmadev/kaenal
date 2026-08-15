@@ -38,6 +38,7 @@ import {
   TemplateStatus,
 } from "./enums.js";
 import { FormResponses, FormSchema } from "./form.js";
+import { PageQuery } from "./http.js";
 
 /**
  * Wire representations (03 §1). camelCase, the API's public shape — distinct
@@ -990,6 +991,60 @@ export const AuditEventDto = z.object({
   createdAt: z.string().datetime(),
 });
 export type AuditEventDto = z.infer<typeof AuditEventDto>;
+
+/**
+ * A row of the tenant-wide audit log (Settings › System › Audit log; 07 §1,
+ * FEATURES §9). This is the workspace-scoped security/compliance trail — every
+ * mutation across every module — read only by an admin (`auditlog:read`). It is
+ * a richer projection than the per-record `AuditEventDto`: the actor is resolved
+ * to a display name and the target to a human code, so the table reads without a
+ * second round-trip. It still carries NO before/after payloads — the trail
+ * reveals who/what/when/from-where, never the field values a role otherwise
+ * can't read (the same rule the per-record log follows). `sensitive` is derived
+ * server-side from the action (permission/role/settings/security events) so the
+ * UI can flag high-signal rows consistently rather than re-deriving the list.
+ */
+export const AuditLogEntryDto = z.object({
+  id: z.string().uuid(),
+  createdAt: z.string().datetime(),
+  actorId: z.string().uuid().nullable(),
+  actorKind: z.string(),
+  /** Resolved display name, or a stand-in ("System", "Former member") when the
+   *  actor is a job or a since-removed membership. Never null — the column shows
+   *  something for every row. */
+  actorName: z.string(),
+  action: AuditAction,
+  entityKind: z.string(),
+  entityId: z.string().uuid(),
+  /** Human label for the affected record — the record's code where resolvable
+   *  (e.g. "NCR-2026-0142"), else a readable "<Kind> ·<short id>" fallback. */
+  targetLabel: z.string(),
+  reason: z.string().nullable(),
+  ip: z.string().nullable(),
+  sensitive: z.boolean(),
+});
+export type AuditLogEntryDto = z.infer<typeof AuditLogEntryDto>;
+
+/**
+ * Filters for the tenant-wide audit log. All optional and combined with AND;
+ * every filter is pushed into SQL (never applied in memory) so the keyset page
+ * stays correct under filtering. `from`/`to` bound `created_at`. Target-code
+ * free-text search is intentionally omitted from v1: the code lives on the
+ * source record, not on `audit_events`, so a faithful search needs a
+ * denormalised label column (a future migration) rather than an 8-way join.
+ */
+export const AuditLogQuery = z
+  .object({
+    actorId: z.string().uuid().optional(),
+    action: AuditAction.optional(),
+    entityKind: EntityKind.optional(),
+    /** Only high-signal (security / permission / support) events. */
+    sensitiveOnly: z.coerce.boolean().optional(),
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+  })
+  .merge(PageQuery);
+export type AuditLogQuery = z.infer<typeof AuditLogQuery>;
 
 /**
  * A directed link between two records (FEATURES §329). `relation` is a free

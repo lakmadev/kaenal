@@ -56,6 +56,8 @@ import {
   PresignFileBody,
   PresignFileResult,
   AuditEventDto,
+  AuditLogEntryDto,
+  AuditLogQuery,
   CommentDto,
   CreateCommentBody,
   CreateEntityLinkBody,
@@ -780,6 +782,13 @@ export const contract = c.router(
       query: EntityRefQuery.merge(PageQuery),
       responses: { 200: page(AuditEventDto), ...commonErrors },
       summary: "A record's access log (audit events, newest first; no payloads)",
+    },
+    listTenantAuditLog: {
+      method: "GET",
+      path: "/v1/audit-log",
+      query: AuditLogQuery,
+      responses: { 200: page(AuditLogEntryDto), ...commonErrors },
+      summary: "Tenant-wide audit log (admin only; filterable, newest first, no payloads)",
     },
     listEntityLinks: {
       method: "GET",
