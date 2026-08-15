@@ -27,6 +27,7 @@ export function Button({
   const { palette, radius } = useTheme();
   const isPrimary = variant === "primary";
   const isDanger = variant === "danger";
+  const isGhost = variant === "ghost";
   const bg = isPrimary ? palette.accent : isDanger ? palette.danger : palette.surface;
   const fg = isPrimary ? palette.accentFg : isDanger ? "#ffffff" : palette.text;
   const isDisabled = disabled || loading;
@@ -46,7 +47,11 @@ export function Button({
           alignItems: "center",
           justifyContent: "center",
           gap: 8,
-          flex: 1,
+          // Full-width in a column (design PrimaryBtn/GhostBtn), fixed 48pt tall.
+          // NOT flex:1 — that expands to flex-basis:0 and collapses the height in a
+          // vertical stack, rendering the 12pt radius as a pill. Callers that place
+          // buttons side-by-side in a row pass `style={{ flex: 1 }}` (spread last).
+          alignSelf: "stretch",
           opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1,
         },
         style,
@@ -56,8 +61,11 @@ export function Button({
         <ActivityIndicator color={fg} />
       ) : (
         <>
-          {icon && <Icon name={icon} size={18} stroke={2.2} color={fg} />}
-          <Text size={15} weight="bold" color={fg}>
+          {/* Design (mobile-kit.jsx): PrimaryBtn/DangerBtn are bold (700) with a
+              thicker 2.2 icon stroke; GhostBtn is semibold (600) with the default
+              icon stroke. Keep these two weights distinct — don't flatten them. */}
+          {icon && <Icon name={icon} size={18} stroke={isGhost ? undefined : 2.2} color={fg} />}
+          <Text size={15} weight={isGhost ? "semibold" : "bold"} color={fg}>
             {children}
           </Text>
         </>
