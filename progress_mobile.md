@@ -64,9 +64,16 @@ resume from **Current status**, update it in the same commit as the work.
   safe-area insets), SyncPill/StatusPill/Sev/Avatar, Button, Row, Skeleton/EmptyState, Header/BellButton/
   Badge, TabBar (+FAB +badges). Kitchen-sink screen verified in-browser in **both light and dark** with
   instant in-app toggle. Typecheck clean.
-- [ ] **M2 — App shell, navigation & ports/adapters.** Router layouts (auth vs tabs), role-aware tab
-  config, adaptive-layout hook (phone/tablet), Zustand stores, all platform ports + Expo adapters
-  (stubbed where deep).
+- [x] **M2 — App shell, navigation & ports/adapters.** ✅ Expo Router groups `(auth)` / `(app)` with a
+  session gate; `(app)` tabs render the custom design `TabBar` (FAB + badges) driven by `tabsForRole`
+  (role→tab map from the design). Ports (`services/ports.ts`) + real adapters for KV (async-storage) and
+  secure store (expo-secure-store, web→KV fallback); db/files/camera/location/notifications/biometric
+  are typed interfaces wired in later phases via the `services` registry. Zustand stores: appearance
+  (persisted via KV), session (token/tenant/me in secure store, `useRole`/`useCapabilities` selectors),
+  sync (placeholder for M3). Shared api-client bound to the session store; TanStack QueryClient.
+  `useLayout` hook (phone/tablet 768pt breakpoint, split-view reactive). Dev role-picker welcome so the
+  role-aware shell is testable pre-M4. Verified in browser: welcome → dev sign-in → role-aware tabs →
+  navigation, tablet + phone form factors, live theme toggle. Typecheck clean.
 - [ ] **M3 — Offline foundation (SQLite + Drizzle + sync engine).** ← key factor. Local schema (mirror
   subset + `mutation_queue` + `pending_files`); delta-pull client; push-replay with Idempotency-Key;
   conflict resolution (§2.3); persisted Query cache; unit tests for queue/conflict reducers. Verify
@@ -99,10 +106,11 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M2 — App shell, navigation & ports/adapters: NEXT.**
-Branch `feat/mobile-app`. M0 (scaffold) and M1 (theme + UI kit) done, committed, and browser-verified
-(light + dark). Next: Expo Router layouts (auth stack vs role-aware tabs), adaptive-layout hook,
-Zustand stores, and the platform ports + Expo adapters.
+**M3 — Offline foundation (SQLite + Drizzle + sync engine): NEXT.** ← the key phase.
+Branch `feat/mobile-app`. M0–M2 done, committed, browser-verified. Next: local Drizzle/SQLite schema
+(mirror subset + `mutation_queue` + `pending_files`), delta-pull read path, push-replay with
+Idempotency-Key, conflict resolution (spec §2.3), persisted Query cache, and unit tests for the
+queue/conflict reducers. First step: confirm the API's `/v1/sync/*` contract coverage; log any gap.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -117,4 +125,8 @@ Zustand stores, and the platform ports + Expo adapters.
   Metro resolves the workspace contract package. Typecheck clean.
 - **M1** — Kitchen-sink screen renders all kit components; verified light + dark via the in-app mode
   toggle (instant recolor). Archivo/JetBrains Mono loaded. Typecheck clean.
+- **M2** — Flow verified in-browser: welcome dev-picker → sign in as Inspector → role-aware tab shell
+  (Home/Tasks/+/NCRs/Me) with server-resolved capabilities shown on Home; tab navigation to the Tasks
+  placeholder; live sync pill; theme toggle; tablet (800px) and phone (375px) form factors both clean.
+  Typecheck clean.
 </content>
