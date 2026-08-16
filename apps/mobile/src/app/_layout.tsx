@@ -3,6 +3,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
+import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -14,6 +15,21 @@ import { startSync } from "@/sync";
 import { ThemeProvider, useAppFonts } from "@/theme";
 
 void SplashScreen.preventAutoHideAsync();
+
+// Web only: React Native Web renders every TextInput as a DOM <input>/<textarea>,
+// which shows the browser's default focus outline (the orange inner box). Our fields
+// draw their own focus treatment (accent border + ring, per m-auth.jsx), so suppress
+// the UA outline app-wide — once, at module load. No-op on native.
+if (Platform.OS === "web" && typeof document !== "undefined") {
+  const STYLE_ID = "kaenal-input-focus-reset";
+  if (!document.getElementById(STYLE_ID)) {
+    const el = document.createElement("style");
+    el.id = STYLE_ID;
+    el.textContent =
+      "input,textarea,select,[contenteditable]{outline:none!important;-webkit-tap-highlight-color:transparent;}";
+    document.head.appendChild(el);
+  }
+}
 
 export default function RootLayout() {
   const fontsLoaded = useAppFonts();
