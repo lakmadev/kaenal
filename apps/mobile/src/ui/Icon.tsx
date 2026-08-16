@@ -1,4 +1,5 @@
 import {
+  Activity,
   AlertTriangle,
   ArrowRight,
   Bell,
@@ -51,6 +52,7 @@ import {
   ShieldCheck,
   Signal,
   Smartphone,
+  Settings,
   Sparkles,
   SquarePen,
   Sun,
@@ -74,6 +76,7 @@ import { useTheme } from "../theme";
 // new screen that references an unlisted name is a typecheck error (the union below),
 // which keeps the map honest.
 const ICONS = {
+  activity: Activity,
   alert: AlertTriangle,
   arrowRight: ArrowRight,
   bell: Bell,
@@ -123,6 +126,7 @@ const ICONS = {
   reports: Boxes,
   search: Search,
   send: Send,
+  settings: Settings,
   shield: Shield,
   shieldCheck: ShieldCheck,
   signal: Signal,

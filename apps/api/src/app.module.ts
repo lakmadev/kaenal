@@ -20,6 +20,7 @@ import { MfaService } from "./auth/mfa.service.js";
 import { MfaCrypto } from "./auth/mfa-crypto.js";
 import { WorkspaceController } from "./auth/workspace.controller.js";
 import { MeController } from "./me.controller.js";
+import { DashboardController } from "./dashboard/dashboard.controller.js";
 import { MembersController } from "./members/members.controller.js";
 import { MembersService } from "./members/members.service.js";
 import { OpenApiController } from "./openapi.controller.js";
@@ -142,6 +143,7 @@ import {
   controllers: [
     HealthController,
     MeController,
+    DashboardController,
     MembersController,
     AuthController,
     MfaController,

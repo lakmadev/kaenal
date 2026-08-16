@@ -1978,3 +1978,112 @@ export const CreateFmeaItemBody = FmeaItemShape;
 export type CreateFmeaItemBody = z.infer<typeof CreateFmeaItemBody>;
 export const UpdateFmeaItemBody = FmeaItemShape.extend({ version: z.number().int().nonnegative() });
 export type UpdateFmeaItemBody = z.infer<typeof UpdateFmeaItemBody>;
+
+// ── Home dashboard (05 §M5) ──────────────────────────────────────────────────
+// The role-aware mobile home (project_brain/mobile/src/m-home.jsx). The server
+// computes every metric live inside the request's tenant-scoped transaction (so
+// RLS confines it to the caller's workspace) and returns the shape for the
+// caller's role. Presentation strings ("Due 2h") are formatted on the client
+// from the raw fields below — the server sends data, not copy.
+
+/** Severity vocabulary shared by the queue/severity chips (superset of the
+ *  domain enums so an inspection risk or an NCR priority both map cleanly). */
+export const DashSeverity = z.enum(["critical", "high", "major", "medium", "minor", "low"]);
+export type DashSeverity = z.infer<typeof DashSeverity>;
+
+/** A single KPI stat tile. `value` is null when the metric has no data source
+ *  yet (rendered as "—", never a fabricated number). */
+export const DashKpi = z.object({
+  label: z.string(),
+  value: z.string().nullable(),
+  tone: z.enum(["default", "danger", "warn", "success"]).default("default"),
+  delta: z.string().optional(),
+});
+export type DashKpi = z.infer<typeof DashKpi>;
+
+/** Deep-link target for a queue item / row so the client can navigate. */
+export const DashRef = z.object({
+  kind: z.enum(["inspection", "ncr", "capa", "document", "audit"]),
+  id: z.string().uuid(),
+});
+export type DashRef = z.infer<typeof DashRef>;
+
+/** A work-queue card (Inspector's "Today's work queue"). */
+export const DashQueueItem = z.object({
+  ref: DashRef,
+  code: z.string(),
+  title: z.string(),
+  sev: DashSeverity.optional(),
+  /** Due timestamp (ISO) or null; the client formats "Due 2h" / "Overdue 1d". */
+  dueAt: z.string().datetime().nullable(),
+  overdue: z.boolean(),
+  site: z.string(),
+  meta: z.string(),
+});
+export type DashQueueItem = z.infer<typeof DashQueueItem>;
+
+/** A list row (assigned-to-me / recent records / needs-attention). */
+export const DashRow = z.object({
+  ref: DashRef,
+  icon: z.string(),
+  iconTone: z.enum(["danger", "info", "success", "warn", "accent", "muted"]).default("accent"),
+  title: z.string(),
+  sub: z.string(),
+  status: z.object({ tone: z.string(), label: z.string() }).optional(),
+});
+export type DashRow = z.infer<typeof DashRow>;
+
+/** A teammate row on the Manager's "Team today". */
+export const DashTeamMember = z.object({
+  userId: z.string().uuid(),
+  initials: z.string(),
+  name: z.string(),
+  summary: z.string(),
+  online: z.boolean(),
+});
+export type DashTeamMember = z.infer<typeof DashTeamMember>;
+
+/** An audit-log highlight row on the Admin pulse. */
+export const DashAuditItem = z.object({
+  id: z.string(),
+  icon: z.string(),
+  title: z.string(),
+  detail: z.string(),
+  at: z.string().datetime(),
+});
+export type DashAuditItem = z.infer<typeof DashAuditItem>;
+
+const DashCommon = { kpis: z.array(DashKpi) };
+
+/** Role-shaped dashboard. Discriminated by `variant`, which the server derives
+ *  from the caller's membership role (auditor is served the viewer shape). */
+export const DashboardDto = z.discriminatedUnion("variant", [
+  z.object({
+    variant: z.literal("inspector"),
+    ...DashCommon,
+    queue: z.array(DashQueueItem),
+    assigned: z.array(DashRow),
+  }),
+  z.object({
+    variant: z.literal("viewer"),
+    ...DashCommon,
+    recent: z.array(DashRow),
+  }),
+  z.object({
+    variant: z.literal("manager"),
+    ...DashCommon,
+    approvals: z.object({
+      documents: z.number().int().nonnegative(),
+      ncrDispositions: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+    }),
+    team: z.array(DashTeamMember),
+  }),
+  z.object({
+    variant: z.literal("admin"),
+    ...DashCommon,
+    needsAttention: z.array(DashRow),
+    auditHighlights: z.array(DashAuditItem),
+  }),
+]);
+export type DashboardDto = z.infer<typeof DashboardDto>;

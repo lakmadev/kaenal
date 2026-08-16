@@ -1,23 +1,11 @@
-import { useRouter } from "expo-router";
 import { View } from "react-native";
 
-import { confirmIfUnsynced } from "@/features/auth/guard";
+import { DashboardBody } from "@/features/home/dashboards";
+import { useDashboard } from "@/features/home/use-dashboard";
 import { useLayout } from "@/hooks/use-layout";
 import { useRole, useSession } from "@/stores/session";
 import { useSync } from "@/stores/sync";
-import {
-  BellButton,
-  Body,
-  Button,
-  Card,
-  Header,
-  Row,
-  Screen,
-  SectionLabel,
-  StatusPill,
-  Text,
-  ThemeToggle,
-} from "@/ui";
+import { BellButton, Body, Card, Header, Screen, Skeleton, Text } from "@/ui";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Admin",
@@ -27,78 +15,96 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: "Viewer",
 };
 
-// M2 home: proves the shell end-to-end — session identity, resolved role +
-// capabilities (server-provided), live sync pill, theme toggle, sign-out. The real
-// role-aware dashboard (KPIs + Today's queue per m-home.jsx) lands in M5.
+/** Time-of-day greeting for the inspector's big title (design: "Good morning, Sara"). */
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+/** The role-aware home title (m-home.jsx). */
+function titleFor(role: string, firstName: string): string {
+  switch (role) {
+    case "inspector":
+      return `${greeting()}, ${firstName}`;
+    case "manager":
+      return "Plant snapshot";
+    case "admin":
+      return "Workspace pulse";
+    default:
+      return "Overview";
+  }
+}
+
+// M5 home: role-aware dashboards (Inspector / Viewer / Manager / Admin) from
+// m-home.jsx, curated by the caller's role + capabilities. Every metric is real,
+// computed by GET /v1/me/dashboard inside the tenant-scoped tx (RLS-scoped);
+// presentation-only curation, since the server re-enforces every capability.
 export default function Home() {
-  const router = useRouter();
   const me = useSession((s) => s.me);
   const role = useRole();
-  const signOut = useSession((s) => s.signOut);
   const sync = useSync((s) => s.state);
   const { contentMaxWidth } = useLayout();
+  const { data, isLoading, isError, refetch, isRefetching } = useDashboard();
 
   const firstName = me?.name?.split(" ")[0] ?? "there";
-
-  async function handleSignOut() {
-    if (!(await confirmIfUnsynced("sign out"))) return;
-    await signOut();
-    router.replace("/(auth)/welcome");
-  }
+  const plantName = me?.plants[0]?.name;
+  const overline = me ? `${plantName ?? me.tenantName} · ${ROLE_LABEL[role]}` : undefined;
 
   return (
     <Screen>
-      <Header
-        overline={me ? `${me.tenantName} · ${ROLE_LABEL[role]}` : undefined}
-        title={`Good morning, ${firstName}`}
-        sync={sync}
-        right={
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <ThemeToggle />
-            <BellButton count={3} />
-          </View>
-        }
-      />
+      <Header overline={overline} title={titleFor(role, firstName)} sync={sync} right={<BellButton />} />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth }}>
-          <Card style={{ margin: 16, padding: 16, gap: 4 }}>
-            <Text size={16} weight="bold">
-              {me?.name}
-            </Text>
-            <Text size={13} tone="muted">
-              {me?.email}
-            </Text>
-            <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-              <StatusPill tone="accent">{ROLE_LABEL[role]}</StatusPill>
-              <StatusPill tone="neutral">
-                {me?.openNcrs ?? 0} NCRs · {me?.openCapas ?? 0} CAPAs
-              </StatusPill>
-            </View>
-          </Card>
-
-          <SectionLabel style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 }}>
-            Resolved capabilities ({me?.capabilities.length ?? 0})
-          </SectionLabel>
-          <Card style={{ marginHorizontal: 16 }}>
-            {(me?.capabilities ?? []).slice(0, 6).map((c, i, a) => (
-              <Row key={c} icon="check" iconTone="#16a34a" title={c} last={i === a.length - 1} />
-            ))}
-          </Card>
-
-          <View style={{ padding: 16, marginTop: 8, gap: 10 }}>
-            <Button variant="ghost" icon="building" onPress={() => router.push("/switch-workspace")}>
-              Switch workspace
-            </Button>
-            <Button variant="ghost" icon="logOut" onPress={() => void handleSignOut()}>
-              Sign out
-            </Button>
-          </View>
-
-          <Text size={11} weight="semibold" tone="subtle" style={{ textAlign: "center" }}>
-            Role-aware dashboard (KPIs + Today's queue) arrives in M5
-          </Text>
+          {data ? (
+            <DashboardBody data={data} />
+          ) : isLoading ? (
+            <LoadingState />
+          ) : isError ? (
+            <ErrorState onRetry={() => void refetch()} busy={isRefetching} />
+          ) : null}
         </View>
       </Body>
     </Screen>
+  );
+}
+
+/** KPI + card skeleton while the first dashboard pull is in flight. */
+function LoadingState() {
+  return (
+    <>
+      <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 14 }}>
+        {[0, 1, 2].map((i) => (
+          <Card key={i} style={{ flex: 1, paddingVertical: 14, paddingHorizontal: 14, gap: 8 }}>
+            <Skeleton width="70%" height={10} />
+            <Skeleton width="45%" height={22} />
+          </Card>
+        ))}
+      </View>
+      <View style={{ paddingHorizontal: 16, paddingTop: 24 }}>
+        <Card style={{ padding: 14, gap: 14 }}>
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} width="100%" height={40} />
+          ))}
+        </Card>
+      </View>
+    </>
+  );
+}
+
+function ErrorState({ onRetry, busy }: { onRetry: () => void; busy: boolean }) {
+  return (
+    <View style={{ padding: 16, paddingTop: 40, alignItems: "center", gap: 10 }}>
+      <Text size={15} weight="bold">
+        Couldn't load your dashboard
+      </Text>
+      <Text size={13} tone="muted" style={{ textAlign: "center", maxWidth: 260, lineHeight: 19 }}>
+        You may be offline. Your last synced view returns automatically once you reconnect.
+      </Text>
+      <Text size={13} weight="semibold" tone="accent" onPress={busy ? undefined : onRetry}>
+        {busy ? "Retrying…" : "Try again"}
+      </Text>
+    </View>
   );
 }

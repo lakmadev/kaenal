@@ -42,6 +42,7 @@ import {
   FindingDto,
   InspectionDto,
   MeDto,
+  DashboardDto,
   WorkspacesDto,
   WorkspaceDto,
   SwitchWorkspaceBody,
@@ -208,6 +209,12 @@ export const contract = c.router(
       path: "/v1/me",
       responses: { 200: MeDto, 401: ErrorBody },
       summary: "The current session's identity and capabilities",
+    },
+    getDashboard: {
+      method: "GET",
+      path: "/v1/me/dashboard",
+      responses: { 200: DashboardDto, ...commonErrors },
+      summary: "The role-aware home dashboard (KPIs + queues) for the caller",
     },
     myWorkspaces: {
       method: "GET",

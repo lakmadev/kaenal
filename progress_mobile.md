@@ -100,8 +100,10 @@ resume from **Current status**, update it in the same commit as the work.
   welcome → workspace `acme` → sign in `demo@acme.test` → **34 real capabilities from /v1/me** → priming →
   home; workspace switcher lists the real membership. `apps/api` auth (32) + workspaces (6) tests green
   incl. new bearer cases; 31 mobile unit tests green; typecheck + lint clean.
-- [ ] **M5 — Home / role-aware dashboards.** Inspector / Viewer / Manager / Admin, curated by `/v1/me`
-  capabilities (presentation only; server still enforces).
+- [x] **M5 — Home / role-aware dashboards.** ✅ Inspector / Viewer / Manager / Admin, curated by role +
+  `/v1/me` capabilities (presentation only; server still enforces). NEW backend `GET /v1/me/dashboard`
+  computes every metric live in the tenant-scoped tx (RLS); the four dashboards from `m-home.jsx` are
+  reproduced pixel-for-pixel and wired to it. Interim: sign-out/switch moved to the `Me` tab.
 - [ ] **M6 — Inspections.** List → section-by-section runner (pass/fail/score/photo/note, inline NCR
   flag) → review → submit; autosave-to-SQLite + resume; loading/empty/offline states; tablet
   master-detail.
@@ -125,12 +127,14 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M5 — Home / role-aware dashboards: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M4 done,
-committed, browser-verified against the live API. Next (M5): replace the M2/M4 identity-dump home with the
-role-aware dashboards from `m-home.jsx` (Inspector / Viewer / Manager / Admin), curated by `/v1/me`
-capabilities (presentation only; server still enforces) — KPIs + Today's queue. As inspection/NCR screens
-land (M6/M8), register their push handlers + read pullers into `sync/index.ts`
-(`pushDispatch`/`readPullers`) so the offline engine starts carrying real traffic.
+**M6 — Inspections: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M5 done, committed,
+browser-verified against the live API. M5 shipped a real `GET /v1/me/dashboard` aggregation endpoint
+(backend) + the four role-aware home dashboards from `m-home.jsx`, curated by role/capabilities — every
+metric computed live under RLS. Next (M6): Inspections — list → section runner (pass/fail/score/photo/note,
+inline NCR flag) → review → submit; autosave-to-SQLite + resume; tablet master-detail. As the inspection/NCR
+screens land (M6/M8), register their push handlers + read pullers into `sync/index.ts`
+(`pushDispatch`/`readPullers`) so the offline engine starts carrying real traffic; the home queue/assigned
+lists then deep-link into them.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -163,6 +167,20 @@ land (M6/M8), register their push handlers + read pullers into `sync/index.ts`
   in production.
 - (M4) **Priming is a top-level route** (not in `(auth)`/`(app)`) so neither group redirect can loop it,
   with its own `authenticated && !primed` guard; the `(app)` layout redirects unprimed sessions to it.
+- (M5) **Dashboards are backed by a real aggregation endpoint, not client math.** `GET /v1/me/dashboard`
+  (`apps/api/src/dashboard/`) returns a role-discriminated `DashboardDto` (`variant: inspector|viewer|
+  manager|admin`; auditor → viewer). Pure query functions (`dashboard.queries.ts`) compute every metric
+  live inside the request's tenant-scoped tx, so RLS confines them exactly like every other service —
+  the builder never adds a tenant predicate. Server sends **data** (raw counts, ISO timestamps, refs);
+  the client formats copy ("Due 2h", "09:41"). Chosen (user call) over client-side list crunching so the
+  numbers are correct and cross-tenant-safe by construction.
+- (M5) **One metric is an honest gap, not a fake number.** Admin "Failed syncs" has NO tenant-wide
+  telemetry server-side (the offline engine is client-only), so the KPI returns `value: null` and renders
+  as "—" (never 0). The design's "sign-in anomalies" / "failed syncs" needs-attention rows are sourced
+  from the real audit trail instead (failed sign-ins today, breached-SLA NCRs); shown only when > 0.
+- (M5) **Sign-out + switch-workspace moved to the `Me` tab.** The design home carries no account actions
+  (they live in profile/settings, M11). To keep the home pixel-faithful without stranding users before
+  M11, the interim `Me` tab holds identity + Switch workspace + unsynced-guarded Sign out + theme toggle.
 
 ## Known issues / open questions
 - **BACKEND GAP (confirmed): no `/v1/sync/<table>?since=` delta endpoints exist.** The contract exposes
@@ -186,6 +204,15 @@ land (M6/M8), register their push handlers + read pullers into `sync/index.ts`
 - (M4) Benign Metro warning: `session.ts → lib/api.ts → session.ts` require cycle. Safe — the api-client
   reads token/tenant through lazy getters (`() => useSession.getState()`), so no uninitialised access.
   Could be broken later by injecting the getters instead of importing the store.
+- **(M5) BACKEND GAP: no tenant-wide sync-failure telemetry.** The admin dashboard's "Failed syncs" tile
+  has no server data source (device sync state is client-only), so it renders "—". → Recommend a
+  device→server sync-failure report channel (M11 System/Settings or M13 device integration); the tile
+  then lights up with real counts. Every other dashboard metric is real.
+- **(M5) Only the Admin dashboard was browser-rendered; the other three variants are shape-verified by
+  the backend test, not visually.** The seeded demo account (`demo@acme.test`) is an admin, so the web
+  preview showed the Admin pulse. Inspector/Viewer/Manager shapes + role dispatch + the honest admin null
+  + cross-tenant RLS are covered by `apps/api/test/dashboard.test.ts` (5 tests). A quick way to eyeball
+  the others is to seed a non-admin membership and sign in as them.
 
 ## Verification log
 - **M0** — `expo start --web` (port 8082) boots; page shows "shared api-client linked: yes", proving
@@ -211,4 +238,17 @@ land (M6/M8), register their push handlers + read pullers into `sync/index.ts`
   Admin". Not browser-exercisable on web: MFA/recovery (demo account has MFA disabled — covered by the
   server's `mfa_required` path + the built UI) and biometric unlock (device-only; web reports unavailable
   and falls back to the password path).
+- **M5** — Backend: `apps/api/test/dashboard.test.ts` → **5 passing** (role dispatch for all four
+  variants, a real owned NCR surfacing in the inspector's "assigned", the honest `null` on the admin
+  "Failed syncs" tile, cross-tenant RLS keeping one tenant's NCR out of another's counts). Mobile: 31 unit
+  tests still green; typecheck (mobile + api + types, 7/7) + root lint clean. Also fixed three UI defects
+  found this session (Button height/weight, LAN API base for physical devices, web focus-outline) —
+  separate commits. Browser E2E against the LIVE API: signed in as `demo@acme.test` (admin) → **Admin
+  "Workspace pulse"** renders pixel-faithfully — KPIs "Active today 5/5", "Failed syncs —" (honest null),
+  "Awaiting 0"; **real audit highlights** ("Settings changed", "Record deleted · fmea · by Demo Admin",
+  "Bulk export · ncr", "Role changed") from `/v1/me/dashboard → 200`; "Needs attention" correctly omitted
+  (0 real signals); "Open web" card; tab bar Pulse/+/Me. `Me` tab renders identity + Switch workspace +
+  Sign out. Console/network clean (`/v1/me` + `/v1/me/dashboard` both 200; the lone 500 was a stale
+  buffered entry). Inspector/Viewer/Manager render only shape-verified (demo user is admin) — see Known
+  issues.
 </content>
