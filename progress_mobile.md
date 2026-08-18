@@ -104,9 +104,11 @@ resume from **Current status**, update it in the same commit as the work.
   `/v1/me` capabilities (presentation only; server still enforces). NEW backend `GET /v1/me/dashboard`
   computes every metric live in the tenant-scoped tx (RLS); the four dashboards from `m-home.jsx` are
   reproduced pixel-for-pixel and wired to it. Interim: sign-out/switch moved to the `Me` tab.
-- [ ] **M6 — Inspections.** List → section-by-section runner (pass/fail/score/photo/note, inline NCR
-  flag) → review → submit; autosave-to-SQLite + resume; loading/empty/offline states; tablet
-  master-detail.
+- [x] **M6 — Inspections.** ✅ List (Tasks tab) → start overview → section-by-section runner
+  (pass/fail/yes-no/score/number/text/select/multiselect, autosave + resume) → review (tally + sign-off)
+  → complete → saved-on-device. Completion is a durable, idempotent offline mutation through the M3
+  engine; inspections are mirrored via a registered read-puller. Photo/signature capture + inline NCR
+  flag are honest seams to M7/M8 (rendered, deferred). Loading/empty/offline states throughout.
 - [ ] **M7 — Capture.** Camera + AI-defect chip, voice-to-NCR (hold-to-talk), quick-log sheet, QR scan,
   annotate; image compression, `pending_files`, presign-at-push.
 - [ ] **M8 — NCR.** Guided create (steps 1–3, AI pre-fill, severity, containment) + read-mostly detail
@@ -127,14 +129,15 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M6 — Inspections: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M5 done, committed,
-browser-verified against the live API. M5 shipped a real `GET /v1/me/dashboard` aggregation endpoint
-(backend) + the four role-aware home dashboards from `m-home.jsx`, curated by role/capabilities — every
-metric computed live under RLS. Next (M6): Inspections — list → section runner (pass/fail/score/photo/note,
-inline NCR flag) → review → submit; autosave-to-SQLite + resume; tablet master-detail. As the inspection/NCR
-screens land (M6/M8), register their push handlers + read pullers into `sync/index.ts`
-(`pushDispatch`/`readPullers`) so the offline engine starts carrying real traffic; the home queue/assigned
-lists then deep-link into them.
+**M7 — Capture: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M6 done, committed,
+browser-verified against the live API. M6 shipped the full inspection flow (list → start → runner → review
+→ complete → saved) wired to the real `/v1/inspections` API and the M3 offline engine: completion is a
+durable idempotent mutation (`inspection.complete` in `pushDispatch`), and inspections mirror through a
+registered read-puller (`readPullers['inspection']`). Next (M7): Capture — camera + AI-defect chip,
+voice-to-NCR, quick-log sheet, QR scan, annotate; image compression, `pending_files`, presign-at-push.
+M7 fills the two M6 seams: **photo/signature fields** in the runner and the **sign-off pad** on review
+(both currently render an honest "arrives in M7" affordance). The **inline NCR flag** button is M8.
+The home Inspector "Today's work queue" should deep-link to `/inspection/[id]` (wire when convenient).
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -181,6 +184,19 @@ lists then deep-link into them.
 - (M5) **Sign-out + switch-workspace moved to the `Me` tab.** The design home carries no account actions
   (they live in profile/settings, M11). To keep the home pixel-faithful without stranding users before
   M11, the interim `Me` tab holds identity + Switch workspace + unsynced-guarded Sign out + theme toggle.
+- (M6) **Inspection completion is the single durable mutation; the draft is separate.** In-progress
+  answers autosave to a local KV draft (`features/inspections/drafts.ts`) — offline-durable and resumable,
+  NOT sent to the server per-answer. Only `complete` is a queued `MutationRecord` (`inspection.complete`,
+  mutation-id = Idempotency-Key, last-seen `lockVersion` = optimistic token). This avoids the
+  version-chaining problem (a queued start then complete would carry a stale version): `start` is a direct
+  online transition, `complete` carries the current version, and there is exactly one queued write per
+  inspection. Completing offline shows "saved on device" and syncs on reconnect.
+- (M6) **The Tasks tab is the inspection work queue for now.** The design's `InspList` sits on the Tasks
+  tab ("Today's work"); M9 (unified inbox) later augments it with NCRs/CAPAs/8D. Detail/runner/review/done
+  are top-level `inspection/[id]/*` routes (full-screen, no tab bar), matching the design.
+- (M6) **The client never scores.** `features/inspections/scoring.ts` computes progress, visibility
+  (visibleWhen), the required-complete gate and the pass/fail/NA tally for the UI; the official score is
+  the server's on `complete` (a client score is forgeable). Unit-tested (4 cases).
 
 ## Known issues / open questions
 - **BACKEND GAP (confirmed): no `/v1/sync/<table>?since=` delta endpoints exist.** The contract exposes
@@ -213,6 +229,15 @@ lists then deep-link into them.
   preview showed the Admin pulse. Inspector/Viewer/Manager shapes + role dispatch + the honest admin null
   + cross-tenant RLS are covered by `apps/api/test/dashboard.test.ts` (5 tests). A quick way to eyeball
   the others is to seed a non-admin membership and sign in as them.
+- **(M6) Photo/signature capture + inline NCR flag are deferred seams, rendered honestly.** The runner's
+  `photo`/`signature` items and the review sign-off pad show an "arrives in M7" affordance (not a fake
+  control); the runner's "Flag NCR" button explains it "arrives in M8". A template whose REQUIRED items
+  include a photo/signature therefore can't be completed on mobile until M7 — acceptable for M6 (the seed
+  template is pass/fail/score/text). Wire real capture (`pending_files` + presign-at-push) in M7.
+- **(M6) `start` is online-only.** Beginning a scheduled inspection is a direct API transition; if it
+  fails offline the runner still opens (draft is local) but a later `complete` may hit a server
+  precondition. Full offline-start (queued transition with version reconciliation) is a future refinement;
+  in practice you have connectivity when you pick up work. Flagged rather than silently assumed.
 
 ## Verification log
 - **M0** — `expo start --web` (port 8082) boots; page shows "shared api-client linked: yes", proving
@@ -251,4 +276,15 @@ lists then deep-link into them.
   Sign out. Console/network clean (`/v1/me` + `/v1/me/dashboard` both 200; the lone 500 was a stale
   buffered entry). Inspector/Viewer/Manager render only shape-verified (demo user is admin) — see Known
   issues.
+- **M6** — Mobile: **35 unit tests** green (incl. 4 new inspection-scoring: presentational exclusion,
+  conditional visibility, NA tally, required-complete gate). Typecheck (7/7) + root lint clean. Browser
+  E2E against the LIVE API as `demo@acme.test`: Tasks tab → "Today's work" list with real inspections
+  (chips Assigned·6 / Overdue·2 / Done·1, real codes/templates/statuses) → opened INS-2026-0187 → start
+  overview (real "Safety checks · 4 checks" section) → **runner** rendered the real template questions
+  (pass_fail / yes_no+NA / score / textarea); answered three → progress advanced **0/4 → 3/4**, green
+  answered-badges, "✓ Autosaved" fired (draft persisted to KV) → **review** tally **Pass 2 / Fail 0 /
+  N/A 0** (score correctly excluded from the pass/fail tally) → **Complete** → **`POST
+  /v1/inspections/:id/complete → 200 OK`** through the offline queue → done screen with "Synced". Also
+  fixed a real layout bug found here (single-button ActionBars rendered content-width because a Button
+  has no `flex` in a row — added `flex:1`).
 </content>

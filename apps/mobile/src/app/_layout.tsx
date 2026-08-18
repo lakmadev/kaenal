@@ -7,6 +7,8 @@ import { Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import "@/features/inspections/offline"; // registers the inspection puller + push handler
+
 import { PERSIST_BUSTER, queryPersister } from "@/lib/persist-query";
 import { queryClient } from "@/lib/query-client";
 import { useAppearance } from "@/stores/appearance";
