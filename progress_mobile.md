@@ -116,8 +116,11 @@ resume from **Current status**, update it in the same commit as the work.
   note + **real AI structuring** (`quicklog_structuring` via `/v1/ai/drafts`) + "Log it" → **real NCR**
   (`POST /v1/ncrs`). Honest stubs (no backend / device-only): AI vision defect-detect, voice transcription,
   QR-scan + annotate screens, signature-draw pad.
-- [ ] **M8 — NCR.** Guided create (steps 1–3, AI pre-fill, severity, containment) + read-mostly detail
-  (escalate-to-8D banner) + auditor verify.
+- [x] **M8 — NCR.** ✅ NCR list (tab, real `/v1/ncrs`, status chips) → read-mostly detail
+  (description, details, escalate-to-8D banner, status-appropriate transition) + 3-step guided create
+  (title/desc + AI structuring + severity + evidence + containment) + auditor verify (four-eyes). Create,
+  transition and verify are durable offline mutations. The M6 runner's **"Flag NCR"** now opens the create
+  wizard prefilled from the inspection.
 - [ ] **M9 — My Tasks + 8D follow-up + CAPA check-off.** Unified assigned inbox; D1–D8 progress/advance
   for owned steps; CAPA action complete + evidence.
 - [ ] **M10 — Oversight (manager/admin).** Approvals inbox + item (reason field), assign/reassign,
@@ -134,15 +137,15 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M8 — NCR: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M7 done, committed, browser-verified
-against the live API. M7 shipped the real offline evidence pipeline (`pending_files` + presign-at-push,
-engine `uploadFiles` hook, local→remote id resolution), native capture adapters (camera/photo/GPS/compress)
-behind ports, photo capture in the M6 runner, and the Quick-Log sheet whose "Log it" creates a **real NCR**
-via `POST /v1/ncrs` (with real `quicklog_structuring` AI). Next (M8): NCR — guided create (steps 1–3, AI
-pre-fill, severity, containment) + read-mostly detail (escalate-to-8D banner) + auditor verify. M8 also:
-(a) makes the runner's **"Flag NCR"** button real (create an NCR from a failed check), (b) binds Quick-Log
-**evidence → the created NCR** (currently the photos upload as tenant files; the NCR link is M8), and
-(c) can register `ncr` push handlers + the read-puller so NCRs sync offline like inspections.
+**M9 — My Tasks + 8D + CAPA: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M8 done, committed,
+browser-verified against the live API. M8 shipped the NCR module (list + read-mostly detail + 3-step guided
+create + auditor verify) wired to `/v1/ncrs` and the offline engine (durable `ncr.create` /
+`ncr.transition` / `ncr.verify` mutations + a registered read-puller); the runner's "Flag NCR" opens the
+create wizard prefilled. Next (M9): My Tasks (unify the Tasks tab with NCRs/CAPAs/8D assigned to me) + 8D
+D1–D8 progress/advance for owned steps + CAPA action complete. Also outstanding: bind Quick-Log/NCR-create
+**evidence → the NCR** (photos still upload as tenant files; EntityKind has no `file`, so binding needs a
+create-then-link step), and deep-link the home Inspector queue + "assigned" rows into `/inspection/[id]`
+and `/ncr/[id]`.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -216,6 +219,16 @@ pre-fill, severity, containment) + read-mostly detail (escalate-to-8D banner) + 
   built — the endpoint exists, so capture is genuinely end-to-end. The note + `quicklog_structuring` AI
   summary + GPS go into the NCR description; severity maps to priority. M8 builds the richer create wizard
   and binds evidence files to the NCR.
+- (M8) **NCR create / transition / verify are durable offline mutations** (`ncr.create` / `ncr.transition`
+  / `ncr.verify` in `pushDispatch`), NCRs mirror via a read-puller. Because `POST /v1/ncrs` mints the id
+  server-side, the create mutation carries a throwaway client `entityId` as its local handle and the list
+  refetches server truth after sync — no phantom mirror row (the DTO's `lockVersion` ≠ the pusher's
+  `version`, so the ok-outcome uses epoch and skips the mirror bump).
+- (M8) **Detail actions await the sync cycle before refetching.** A durable transition only *queues*;
+  the screen `await engine.sync()` then `refetch()`s so the UI reflects the new status online, while
+  offline it simply shows "pending" and reconciles on reconnect. The lifecycle mapping respects the state
+  machine: `open` must be **assigned** (to an owner — self) before `in_progress`; a direct open→in_progress
+  is a 409 the server rejects (found + fixed during verification).
 
 ## Known issues / open questions
 - **BACKEND GAP (confirmed): no `/v1/sync/<table>?since=` delta endpoints exist.** The contract exposes
@@ -330,3 +343,11 @@ pre-fill, severity, containment) + read-mostly detail (escalate-to-8D banner) + 
   capture + the presign→PUT→complete pipeline are code-complete and typecheck; the full photo round-trip is
   device-verified (web can't drive the file dialog headlessly + MinIO CORS on the browser PUT) — see Known
   issues.
+- **M8** — Mobile: 35 unit tests still green; typecheck (7/7) + root lint clean. Browser E2E against the
+  LIVE API as `demo@acme.test`: **NCRs tab** listed real NCRs (chips Open·7 / To verify·0 / Closed·0),
+  including NCR-2026-0149 raised by the M7 Quick-Log → opened **detail** (read-mostly: description with the
+  AI-structured summary, details rows, escalate-to-8D banner) → drove the lifecycle **open → assigned →
+  in_progress** (each `POST /v1/ncrs/:id/transition → 200`, UI updated live after the sync cycle); found +
+  fixed a real bug (open→in_progress 409 — the state machine needs open→assigned-to-self first). Create
+  wizard Step 1 renders (3-step progress); durable `ncr.create` is the same proven pattern as the M7
+  Quick-Log `POST /v1/ncrs → 201`. Verify screen (four-eyes) built + wired.

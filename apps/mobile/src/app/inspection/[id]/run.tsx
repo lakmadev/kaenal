@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Platform, Pressable, View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { FormResponses } from "@kaenal/types";
@@ -159,9 +159,10 @@ export default function InspectionRunner() {
           icon="flag"
           style={{ flex: 1 }}
           onPress={() =>
-            Platform.OS === "web"
-              ? window.alert("Raising an NCR from a failed check arrives in M8 (NCR).")
-              : Alert.alert("Flag NCR", "Raising an NCR from a failed check arrives in M8 (NCR).")
+            router.push({
+              pathname: "/ncr/new",
+              params: { title: insp.data?.title ? `${insp.data.title} — failed check` : "", inspectionId: id },
+            })
           }
         >
           Flag NCR

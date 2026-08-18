@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import "@/features/inspections/offline"; // registers the inspection puller + push handler
+import "@/features/ncr/offline"; // registers the NCR puller + create/transition/verify handlers
 
 import { PERSIST_BUSTER, queryPersister } from "@/lib/persist-query";
 import { queryClient } from "@/lib/query-client";
