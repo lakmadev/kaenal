@@ -121,8 +121,11 @@ resume from **Current status**, update it in the same commit as the work.
   (title/desc + AI structuring + severity + evidence + containment) + auditor verify (four-eyes). Create,
   transition and verify are durable offline mutations. The M6 runner's **"Flag NCR"** now opens the create
   wizard prefilled from the inspection.
-- [ ] **M9 — My Tasks + 8D follow-up + CAPA check-off.** Unified assigned inbox; D1–D8 progress/advance
-  for owned steps; CAPA action complete + evidence.
+- [x] **M9 — My Tasks + 8D follow-up + CAPA check-off.** ✅ Tasks tab is now the unified assigned inbox
+  (NCRs + CAPAs + inspections + 8D steps owned by me, grouped by due, per-kind filters, deep-linked). 8D
+  follow screen: D1–D8 vertical stepper from the real `steps` record; advance the owned/current step
+  (durable). CAPA check-off: action checklist toggled via real status writes + evidence. Aggregation is
+  client-side (no `/v1/me/tasks` endpoint) — flagged.
 - [ ] **M10 — Oversight (manager/admin).** Approvals inbox + item (reason field), assign/reassign,
   team & plant snapshot, audit-log highlights, "Manage in web app" list.
 - [ ] **M11 — System & Settings.** Sync queue (+ conflict "needs review"), Notifications, Settings root
@@ -137,15 +140,14 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M9 — My Tasks + 8D + CAPA: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M8 done, committed,
-browser-verified against the live API. M8 shipped the NCR module (list + read-mostly detail + 3-step guided
-create + auditor verify) wired to `/v1/ncrs` and the offline engine (durable `ncr.create` /
-`ncr.transition` / `ncr.verify` mutations + a registered read-puller); the runner's "Flag NCR" opens the
-create wizard prefilled. Next (M9): My Tasks (unify the Tasks tab with NCRs/CAPAs/8D assigned to me) + 8D
-D1–D8 progress/advance for owned steps + CAPA action complete. Also outstanding: bind Quick-Log/NCR-create
-**evidence → the NCR** (photos still upload as tenant files; EntityKind has no `file`, so binding needs a
-create-then-link step), and deep-link the home Inspector queue + "assigned" rows into `/inspection/[id]`
-and `/ncr/[id]`.
+**M10 — Oversight: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M9 done, committed,
+browser-verified against the live API. M9 shipped the unified My-Tasks inbox (client-side aggregation of my
+NCRs/CAPAs/inspections/8D-steps, grouped by due), the 8D follow screen (D1–D8 stepper + durable step
+advance) and the CAPA check-off (action-status writes + evidence). Next (M10): Oversight (manager/admin) —
+approvals inbox + item (reason field), assign/reassign, team & plant snapshot, audit-log highlights,
+"Manage in web app" list. Still outstanding across phases: bind capture/NCR/CAPA **evidence → its entity**
+(photos upload as tenant files; EntityKind has no `file`), a backend **`/v1/me/tasks`** aggregation to make
+the inbox exhaustive, and home-queue deep-links.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -224,6 +226,15 @@ and `/ncr/[id]`.
   server-side, the create mutation carries a throwaway client `entityId` as its local handle and the list
   refetches server truth after sync — no phantom mirror row (the DTO's `lockVersion` ≠ the pusher's
   `version`, so the ok-outcome uses epoch and skips the mirror bump).
+- (M9) **The unified inbox is client-side aggregation, not a backend endpoint.** `buildTasks`
+  (`features/work/tasks.ts`, pure + unit-tested) merges my NCRs (owner=me) + CAPAs (owner=me) + inspections
+  (inspector=me) + 8Ds I'm on the team for, from the existing plant-scoped lists. Honest limitation: it only
+  sees in-scope items — a `/v1/me/tasks` aggregation (like M5's dashboard) would make it exhaustive. 8D +
+  CAPA writes (`eightd.step`, `capa.action.status`) are durable offline mutations.
+- (M9) **8D step state comes from the `steps` record, not just `currentStep`.** The server marks a step
+  `complete` (updateEightDStep) but does NOT auto-bump `currentStep`, so the UI derives done/current from
+  `ed.steps["d{n}"].status` (lowercase keys — found during verification) and treats the first non-complete
+  step as current. Advancing a step is `updateEightDStep(n, "complete")`.
 - (M8) **Detail actions await the sync cycle before refetching.** A durable transition only *queues*;
   the screen `await engine.sync()` then `refetch()`s so the UI reflects the new status online, while
   offline it simply shows "pending" and reconciles on reconnect. The lifecycle mapping respects the state
@@ -351,3 +362,10 @@ and `/ncr/[id]`.
   fixed a real bug (open→in_progress 409 — the state machine needs open→assigned-to-self first). Create
   wizard Step 1 renders (3-step progress); durable `ncr.create` is the same proven pattern as the M7
   Quick-Log `POST /v1/ncrs → 201`. Verify screen (four-eyes) built + wired.
+- **M9** — Mobile: **39 unit tests** green (4 new `buildTasks` cases); typecheck (7/7) + root lint clean.
+  Browser E2E against the LIVE API: **My Tasks** rendered the real unified inbox (All·5 / NCR·4 / 8D·1,
+  grouped Overdue/This-week/Later — an 8D step + my owned NCRs incl. the M7 Quick-Log one) → opened the
+  **8D** (D1–D8 stepper, real currentStep + `steps`) → **Complete D4** → `POST /v1/eight-ds/:id/steps/4 →
+  200`; the stepper then correctly showed D1–D4 done, D5 current (fixed two real bugs live: the state must
+  read the per-step `steps` record since the server doesn't bump `currentStep`, and its keys are lowercase
+  `d{n}`). CAPA check-off built on the same durable pattern (no CAPA seeded to exercise on web).
