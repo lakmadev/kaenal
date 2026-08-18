@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import { type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
@@ -219,6 +220,7 @@ function TeamMemberRow({ member, last }: { member: DashTeamMember; last: boolean
 // ── Admin ─────────────────────────────────────────────────────────────────────
 function AdminBody({ data }: { data: Extract<DashboardDto, { variant: "admin" }> }) {
   const { palette } = useTheme();
+  const router = useRouter();
   return (
     <>
       <KpiRow kpis={data.kpis} />
@@ -255,18 +257,20 @@ function AdminBody({ data }: { data: Extract<DashboardDto, { variant: "admin" }>
         )}
       </Card>
       <Card style={{ margin: 16, backgroundColor: palette.bgSubtle, borderWidth: 0 }}>
-        <View style={{ flexDirection: "row", gap: 12, alignItems: "center", paddingVertical: 13, paddingHorizontal: 14 }}>
-          <Icon name="globe" size={18} color={palette.muted} />
-          <Text size={12.5} weight="semibold" style={{ flex: 1 }}>
-            Config, reports & members
-          </Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-            <Text size={12} weight="semibold" color={palette.accent}>
-              Open web
+        <Pressable onPress={() => router.push("/manage-web")} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center", paddingVertical: 13, paddingHorizontal: 14 }}>
+            <Icon name="globe" size={18} color={palette.muted} />
+            <Text size={12.5} weight="semibold" style={{ flex: 1 }}>
+              Config, reports & members
             </Text>
-            <Icon name="arrowRight" size={13} color={palette.accent} />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+              <Text size={12} weight="semibold" color={palette.accent}>
+                Open web
+              </Text>
+              <Icon name="arrowRight" size={13} color={palette.accent} />
+            </View>
           </View>
-        </View>
+        </Pressable>
       </Card>
       <View style={{ height: 16 }} />
     </>

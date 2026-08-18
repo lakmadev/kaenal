@@ -10,6 +10,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import "@/features/inspections/offline"; // registers the inspection puller + push handler
 import "@/features/ncr/offline"; // registers the NCR puller + create/transition/verify handlers
 import "@/features/work/offline"; // registers the 8D-step + CAPA-action-status handlers
+import "@/features/oversight/offline"; // registers the document-review approval handler
 
 import { PERSIST_BUSTER, queryPersister } from "@/lib/persist-query";
 import { queryClient } from "@/lib/query-client";

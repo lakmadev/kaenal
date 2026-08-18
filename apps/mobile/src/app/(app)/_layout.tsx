@@ -49,6 +49,9 @@ export default function AppLayout() {
       <Tabs.Screen name="home" />
       <Tabs.Screen name="tasks" />
       <Tabs.Screen name="ncr" />
+      <Tabs.Screen name="approvals" />
+      <Tabs.Screen name="team" />
+      <Tabs.Screen name="audit" />
       <Tabs.Screen name="me" />
       {/* Not a tab — opened by the FAB. Hidden from the bar. */}
       <Tabs.Screen name="capture" options={{ href: null }} />

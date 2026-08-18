@@ -126,8 +126,10 @@ resume from **Current status**, update it in the same commit as the work.
   follow screen: D1–D8 vertical stepper from the real `steps` record; advance the owned/current step
   (durable). CAPA check-off: action checklist toggled via real status writes + evidence. Aggregation is
   client-side (no `/v1/me/tasks` endpoint) — flagged.
-- [ ] **M10 — Oversight (manager/admin).** Approvals inbox + item (reason field), assign/reassign,
-  team & plant snapshot, audit-log highlights, "Manage in web app" list.
+- [x] **M10 — Oversight (manager/admin).** ✅ Approvals inbox (documents pending) + item with a required
+  reason field (durable approve/reject), team & plant snapshot (real members), audit-log highlights (real
+  `/v1/audit-log`), and the admin "Manage in web app" list. New `approvals` / `team` / `audit` tabs
+  registered (role-filtered). Assign/reassign sheet deferred (assign endpoints exist; P25 is web-side).
 - [ ] **M11 — System & Settings.** Sync queue (+ conflict "needs review"), Notifications, Settings root
   + sub-pages (profile, security/MFA/biometric/sessions/password, offline & storage gauge, notif prefs,
   appearance, sign-out guard).
@@ -140,14 +142,16 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M10 — Oversight: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M9 done, committed,
-browser-verified against the live API. M9 shipped the unified My-Tasks inbox (client-side aggregation of my
-NCRs/CAPAs/inspections/8D-steps, grouped by due), the 8D follow screen (D1–D8 stepper + durable step
-advance) and the CAPA check-off (action-status writes + evidence). Next (M10): Oversight (manager/admin) —
-approvals inbox + item (reason field), assign/reassign, team & plant snapshot, audit-log highlights,
-"Manage in web app" list. Still outstanding across phases: bind capture/NCR/CAPA **evidence → its entity**
-(photos upload as tenant files; EntityKind has no `file`), a backend **`/v1/me/tasks`** aggregation to make
-the inbox exhaustive, and home-queue deep-links.
+**M11 — System & Settings: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M10 done, committed,
+browser-verified against the live API. M10 shipped Oversight — approvals inbox + item (durable
+document approve/reject with a required reason), team snapshot (real members), the audit-log tab (real
+`/v1/audit-log`, showing this session's own actions), and the admin Manage-in-web list; new
+approvals/team/audit tabs registered. Next (M11): System & Settings — the **sync queue** (with conflict
+"needs review"), Notifications, Settings root + sub-pages (profile, security/MFA/biometric/sessions/
+password, offline & storage gauge, notif prefs, appearance, sign-out guard). This is where the persistent
+offline queue + the failed/needs-review mutations finally get a UI. Still outstanding across phases: bind
+capture/NCR/CAPA **evidence → its entity** (EntityKind has no `file`), a backend **`/v1/me/tasks`**
+aggregation, home-queue deep-links, and the assign/reassign sheet.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -231,6 +235,15 @@ the inbox exhaustive, and home-queue deep-links.
   (inspector=me) + 8Ds I'm on the team for, from the existing plant-scoped lists. Honest limitation: it only
   sees in-scope items — a `/v1/me/tasks` aggregation (like M5's dashboard) would make it exhaustive. 8D +
   CAPA writes (`eightd.step`, `capa.action.status`) are durable offline mutations.
+- (M10) **Oversight approvals = document review, durable + reason-gated.** The approvals inbox lists
+  documents in status `pending`; the item enqueues a durable `document.review` mutation
+  (approve/reject + the required reason, recorded on the audit trail; optimistic `version`). The audit tab
+  and team tab are read-only over `/v1/audit-log` and `/v1/members`. New `approvals`/`team`/`audit` tabs
+  are registered in the Tabs navigator and role-filtered by `tabsForRole` (admin sees Pulse/Approvals/
+  Audit; manager sees Approvals/Team). **KNOWN:** a `document.review` the caller isn't authorised for
+  returns 403, which the M3 conflict reducer maps to `auth → pause` — aggressive for an RBAC denial (vs a
+  token expiry). A friendlier inline "not permitted" + not pausing the whole queue on a 403 is a polish
+  item for M11's sync-queue screen.
 - (M9) **8D step state comes from the `steps` record, not just `currentStep`.** The server marks a step
   `complete` (updateEightDStep) but does NOT auto-bump `currentStep`, so the UI derives done/current from
   `ed.steps["d{n}"].status` (lowercase keys — found during verification) and treats the first non-complete
@@ -369,3 +382,12 @@ the inbox exhaustive, and home-queue deep-links.
   200`; the stepper then correctly showed D1–D4 done, D5 current (fixed two real bugs live: the state must
   read the per-step `steps` record since the server doesn't bump `currentStep`, and its keys are lowercase
   `d{n}`). CAPA check-off built on the same durable pattern (no CAPA seeded to exercise on web).
+- **M10** — Mobile: 39 unit tests still green; typecheck (7/7) + root lint clean. Browser E2E as
+  `demo@acme.test` (admin): the tab bar now shows Pulse / **Approvals** / + / **Audit** / Me. **Approvals**
+  listed real pending documents (DOC-2026-0086/0085) → opened the **item** (real summary, required reason,
+  Approve/Reject gated until a reason is typed) → typed a reason + Approve → `POST /v1/documents/:id/review`
+  fired and the server returned **403** (correct RBAC — admin isn't the designated approver; the client
+  didn't fake it). **Audit** tab rendered the real audit trail, including this session's own actions
+  ("Updated eight_d", "Status changed / Created ncr", "Status changed inspection", sign-ins). Team snapshot
+  (real members) + Manage-in-web (linked from the admin home card) built; team is manager-only so not
+  exercised by the admin demo.
