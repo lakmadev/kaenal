@@ -2,6 +2,7 @@ import { Pressable, TextInput, View } from "react-native";
 
 import { NOT_APPLICABLE, type FormItem, type InspectionDto } from "@kaenal/types";
 
+import { PhotoField } from "@/features/capture/PhotoField";
 import { useTheme } from "@/theme";
 import { Card, Icon, Mono, Sev, Text, type SevLevel } from "@/ui";
 
@@ -327,9 +328,9 @@ function Control({
         <FieldInput value={typeof value === "string" ? value : ""} onChangeText={(t) => onChange(t)} placeholder="Notes" multiline />
       );
     case "photo":
-      return <DeferredField icon="camera" label="Photo capture arrives in M7 (Capture)" />;
+      return <PhotoField value={value} onChange={onChange} />;
     case "signature":
-      return <DeferredField icon="pen" label="Signature capture arrives in M7 (Capture)" />;
+      return <DeferredField icon="pen" label="On-device signature pad — capture on your phone" />;
     default:
       return null;
   }

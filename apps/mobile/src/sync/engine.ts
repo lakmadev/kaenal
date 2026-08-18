@@ -22,6 +22,12 @@ export interface EngineDeps {
   pullEntities: string[];
   /** Connectivity probe; the engine skips network work when offline. */
   isOnline: () => boolean;
+  /**
+   * Upload any queued `pending_files` (presign → PUT → complete) before the push
+   * pass, so that mutations gated on `dependsOnFileIds` become runnable once their
+   * evidence is on the server (05 §2.2 presign-at-push). Optional/no-op when unset.
+   */
+  uploadFiles?: () => Promise<void>;
   /** Called after any state change so the UI (sync store / pill) can refresh. */
   onChange?: (summary: SyncSummary) => void;
   /** Wall clock, injectable for deterministic tests. */
@@ -112,6 +118,8 @@ export class SyncEngine {
       this.queuedRerun = false;
       if (!this.d.isOnline() || this.paused) break;
       await this.pull();
+      // Upload queued evidence first, so file-dependent mutations can run this pass.
+      if (this.d.uploadFiles) await this.d.uploadFiles();
       const pushed = await this.push();
       if (pushed > 0 && this.d.isOnline()) await this.pull();
     } while (this.queuedRerun);

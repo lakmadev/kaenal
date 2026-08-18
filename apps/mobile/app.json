@@ -34,7 +34,26 @@
         }
       ],
       "expo-secure-store",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-audio",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Kaenal uses the camera to photograph defects and scan asset QR codes while you inspect."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Kaenal attaches photos from your library as evidence on inspections and NCRs."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Kaenal auto-stamps the plant, line and station on every capture."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

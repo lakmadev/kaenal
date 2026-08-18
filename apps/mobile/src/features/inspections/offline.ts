@@ -1,5 +1,6 @@
 import type { FormResponses, InspectionDto } from "@kaenal/types";
 
+import { pendingFileIdsIn, resolveResponseFileIds } from "@/features/capture/files";
 import { apiClient } from "@/lib/api";
 import { engine, pushDispatch, readPullers, uuidv7 } from "@/sync";
 
@@ -28,9 +29,12 @@ readPullers["inspection"] = async (pageCursor) => {
 
 pushDispatch["inspection.complete"] = async (mutation) => {
   const { responses } = mutation.payload as { responses: FormResponses };
+  // The engine only runs this once every dependsOnFileIds photo/signature has
+  // uploaded; swap the local evidence ids for the server file ids before submit.
+  const resolved = await resolveResponseFileIds(responses);
   const res = await apiClient.completeInspection({
     params: { id: mutation.entityId },
-    body: { responses, version: mutation.baseVersion ?? 0 },
+    body: { responses: resolved, version: mutation.baseVersion ?? 0 },
     extraHeaders: { "idempotency-key": mutation.id },
   });
   return { status: res.status, body: res.body };
@@ -38,6 +42,8 @@ pushDispatch["inspection.complete"] = async (mutation) => {
 
 /** Queue a durable, offline-safe completion for `insp` with the given responses. */
 export async function enqueueComplete(insp: InspectionDto, responses: FormResponses): Promise<void> {
+  // Gate the completion on any captured evidence finishing its upload first.
+  const dependsOnFileIds = await pendingFileIdsIn(responses);
   await engine.enqueue({
     id: uuidv7(),
     kind: "inspection.complete",
@@ -46,6 +52,6 @@ export async function enqueueComplete(insp: InspectionDto, responses: FormRespon
     payload: { responses },
     baseUpdatedAt: insp.updatedAt,
     baseVersion: insp.lockVersion,
-    dependsOnFileIds: [],
+    dependsOnFileIds,
   });
 }

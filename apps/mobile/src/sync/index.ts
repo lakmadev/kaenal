@@ -2,6 +2,7 @@
 // live sync store. Feature phases register their push handlers into `pushDispatch`
 // and their pull pullers into `readPullers`; the engine itself never changes.
 
+import { uploadPendingFiles } from "../features/capture/files.js";
 import { services } from "../services/index.js";
 import { useSync } from "../stores/sync.js";
 import { SyncEngine } from "./engine.js";
@@ -30,6 +31,7 @@ export const engine = new SyncEngine({
   store: services.syncStore,
   readSource: createListReadSource(readPullers),
   push: createPusher(pushDispatch),
+  uploadFiles: uploadPendingFiles,
   pullEntities: ["inspection", "ncr"],
   isOnline: () => online,
   onChange: (s) => applyToStore(s),

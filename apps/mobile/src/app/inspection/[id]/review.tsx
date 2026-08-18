@@ -118,7 +118,7 @@ export default function InspectionReview() {
                   >
                     <Icon name="pen" size={16} color={palette.subtle} />
                     <Text size={12.5} weight="semibold" tone="subtle">
-                      Signature capture arrives in M7
+                      On-device signature pad — capture on your phone
                     </Text>
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>

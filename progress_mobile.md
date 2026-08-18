@@ -109,8 +109,13 @@ resume from **Current status**, update it in the same commit as the work.
   → complete → saved-on-device. Completion is a durable, idempotent offline mutation through the M3
   engine; inspections are mirrored via a registered read-puller. Photo/signature capture + inline NCR
   flag are honest seams to M7/M8 (rendered, deferred). Loading/empty/offline states throughout.
-- [ ] **M7 — Capture.** Camera + AI-defect chip, voice-to-NCR (hold-to-talk), quick-log sheet, QR scan,
-  annotate; image compression, `pending_files`, presign-at-push.
+- [x] **M7 — Capture.** ✅ Real offline evidence pipeline (`pending_files` + presign-at-push via the engine's
+  new `uploadFiles` hook + local→remote file-id resolution) + native capture adapters (camera/photo via
+  expo-image-picker, GPS via expo-location, compression via expo-image-manipulator) behind ports. Photo
+  capture wired into the M6 runner `photo` items. Quick-Log sheet (FAB): photo evidence + GPS stamp + typed
+  note + **real AI structuring** (`quicklog_structuring` via `/v1/ai/drafts`) + "Log it" → **real NCR**
+  (`POST /v1/ncrs`). Honest stubs (no backend / device-only): AI vision defect-detect, voice transcription,
+  QR-scan + annotate screens, signature-draw pad.
 - [ ] **M8 — NCR.** Guided create (steps 1–3, AI pre-fill, severity, containment) + read-mostly detail
   (escalate-to-8D banner) + auditor verify.
 - [ ] **M9 — My Tasks + 8D follow-up + CAPA check-off.** Unified assigned inbox; D1–D8 progress/advance
@@ -129,15 +134,15 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M7 — Capture: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M6 done, committed,
-browser-verified against the live API. M6 shipped the full inspection flow (list → start → runner → review
-→ complete → saved) wired to the real `/v1/inspections` API and the M3 offline engine: completion is a
-durable idempotent mutation (`inspection.complete` in `pushDispatch`), and inspections mirror through a
-registered read-puller (`readPullers['inspection']`). Next (M7): Capture — camera + AI-defect chip,
-voice-to-NCR, quick-log sheet, QR scan, annotate; image compression, `pending_files`, presign-at-push.
-M7 fills the two M6 seams: **photo/signature fields** in the runner and the **sign-off pad** on review
-(both currently render an honest "arrives in M7" affordance). The **inline NCR flag** button is M8.
-The home Inspector "Today's work queue" should deep-link to `/inspection/[id]` (wire when convenient).
+**M8 — NCR: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M7 done, committed, browser-verified
+against the live API. M7 shipped the real offline evidence pipeline (`pending_files` + presign-at-push,
+engine `uploadFiles` hook, local→remote id resolution), native capture adapters (camera/photo/GPS/compress)
+behind ports, photo capture in the M6 runner, and the Quick-Log sheet whose "Log it" creates a **real NCR**
+via `POST /v1/ncrs` (with real `quicklog_structuring` AI). Next (M8): NCR — guided create (steps 1–3, AI
+pre-fill, severity, containment) + read-mostly detail (escalate-to-8D banner) + auditor verify. M8 also:
+(a) makes the runner's **"Flag NCR"** button real (create an NCR from a failed check), (b) binds Quick-Log
+**evidence → the created NCR** (currently the photos upload as tenant files; the NCR link is M8), and
+(c) can register `ncr` push handlers + the read-puller so NCRs sync offline like inspections.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -197,6 +202,20 @@ The home Inspector "Today's work queue" should deep-link to `/inspection/[id]` (
 - (M6) **The client never scores.** `features/inspections/scoring.ts` computes progress, visibility
   (visibleWhen), the required-complete gate and the pass/fail/NA tally for the UI; the official score is
   the server's on `complete` (a client score is forgeable). Unit-tested (4 cases).
+- (M7) **Evidence is a real presign-at-push pipeline, not immediate upload.** A captured photo is staged as
+  a local `pending_file` (client uuid) and uploaded only during the sync cycle via the engine's new
+  optional `uploadFiles` hook (presign → PUT → complete). The referencing mutation lists the local file ids
+  in `dependsOnFileIds` (so it can't push until the evidence is on the server) and the push handler swaps
+  local ids for server ids in the payload. This keeps capture fully offline and reuses the M3 queue. The
+  engine change is a single optional hook (no-op when unset) — the 7 engine unit tests are unaffected.
+- (M7) **Capture is behind platform ports; web falls back where hardware isn't available.** `camera`
+  (expo-image-picker: device camera on native, file dialog on web), `location` (expo-location / browser
+  Geolocation), `files` (expo-image-manipulator compress on native, passthrough on web). The native PUT
+  uses `expo-file-system/legacy` `uploadAsync` (the upload API moved to the legacy surface in SDK 54+).
+- (M7) **Quick-Log "Log it" creates a real NCR now** (`POST /v1/ncrs`) even though the M8 NCR UI isn't
+  built — the endpoint exists, so capture is genuinely end-to-end. The note + `quicklog_structuring` AI
+  summary + GPS go into the NCR description; severity maps to priority. M8 builds the richer create wizard
+  and binds evidence files to the NCR.
 
 ## Known issues / open questions
 - **BACKEND GAP (confirmed): no `/v1/sync/<table>?since=` delta endpoints exist.** The contract exposes
@@ -238,6 +257,21 @@ The home Inspector "Today's work queue" should deep-link to `/inspection/[id]` (
   fails offline the runner still opens (draft is local) but a later `complete` may hit a server
   precondition. Full offline-start (queued transition with version reconciliation) is a future refinement;
   in practice you have connectivity when you pick up work. Flagged rather than silently assumed.
+- **(M7) No backend for the AI-vision / voice-transcription features** the design shows (camera "87%
+  porosity", voice-to-NCR). Only a text `/v1/ai/drafts` gateway exists — used for real for Quick-Log
+  structuring. The camera-preview-with-AI-defect screen (`CapCamera`), voice-to-NCR (`CapVoice`) and the
+  annotate canvas (`CapAnnotate`) are **not built** — they need a vision model + a transcription service;
+  faking them would violate the no-hallucination rule. Quick-Log carries an honest note that voice-to-text
+  isn't available yet. QR scan (native expo-camera barcode) is also deferred. Revisit when those backends
+  land.
+- **(M7) Photo upload verified via API calls, not a full round-trip on web.** The web preview can't drive
+  the OS file dialog headlessly, and a browser PUT to the MinIO presigned URL is subject to MinIO CORS. The
+  pipeline (presign → PUT → complete), the pending-file staging, the engine `uploadFiles` hook and id
+  resolution are code-complete and typecheck; on device the PUT uses `FileSystem.uploadAsync` (no CORS).
+  Quick-Log's server calls WERE verified live: `POST /v1/ai/drafts → 200`, `POST /v1/ncrs → 201`.
+- **(M7) Quick-Log evidence isn't yet linked to the NCR it creates.** Photos upload as tenant files;
+  binding them to the `POST /v1/ncrs` result (entity_links / file entityKind+entityId) is M8. The
+  inspection runner's photo evidence IS bound (it rides in the completion `responses`).
 
 ## Verification log
 - **M0** — `expo start --web` (port 8082) boots; page shows "shared api-client linked: yes", proving
@@ -287,4 +321,12 @@ The home Inspector "Today's work queue" should deep-link to `/inspection/[id]` (
   /v1/inspections/:id/complete → 200 OK`** through the offline queue → done screen with "Synced". Also
   fixed a real layout bug found here (single-button ActionBars rendered content-width because a Button
   has no `flex` in a row — added `flex:1`).
-</content>
+- **M7** — Mobile: 35 unit tests still green (the engine's new optional `uploadFiles` hook leaves the 7
+  engine tests untouched); typecheck (7/7) + root lint clean. Installed SDK-matched native deps
+  (expo-camera / image-picker / image-manipulator / location / file-system / audio) + app.json permission
+  plugins. Browser E2E of the Quick-Log sheet against the LIVE API: typed a defect note → **Structure with
+  AI** → `POST /v1/ai/drafts → 200` returned a real structured summary (MEDIUM confidence) → **Log it** →
+  `POST /v1/ncrs → 201 Created` (a real NCR carrying the note + AI summary + severity) → back to home. Photo
+  capture + the presign→PUT→complete pipeline are code-complete and typecheck; the full photo round-trip is
+  device-verified (web can't drive the file dialog headlessly + MinIO CORS on the browser PUT) — see Known
+  issues.

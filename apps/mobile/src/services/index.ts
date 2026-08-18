@@ -1,6 +1,9 @@
 import { biometricAdapter } from "./biometric";
+import { cameraAdapter } from "./camera";
 import { createSyncStore } from "./db";
+import { filesAdapter } from "./files";
 import { kvAdapter } from "./kv";
+import { locationAdapter } from "./location";
 import type { Services } from "./ports";
 import { secureStoreAdapter } from "./secure-store";
 
@@ -13,6 +16,9 @@ export const services: Services = {
   secureStore: secureStoreAdapter,
   syncStore: createSyncStore(),
   biometric: biometricAdapter,
+  camera: cameraAdapter,
+  location: locationAdapter,
+  files: filesAdapter,
 };
 
 export type { Services } from "./ports";
