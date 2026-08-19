@@ -90,3 +90,80 @@ same commit. No feature marked done while any designed control is a stub (CLAUDE
 - Voice→text quick-log (no transcription backend).
 - AI vision defect-detection on live camera (no vision model wired).
 - Any endpoint proven absent after grepping BOTH the contract and the controllers.
+
+---
+
+# MOCK COMPLETION AUDIT + M20+ PLAN (post-M19)
+
+Full pass over `project_brain/mobile/src/m-*.jsx`, every exported component cross-referenced with the
+built routes. **Most of the design is built and faithful** — all auth screens (incl. recovery/forgot/
+reset/biometric), the 4 role dashboards, inspections (list→start→runner→review→saved), the **NCR 3-step
+guided create** + detail + verify, My-Tasks/8D/CAPA, approvals/team/manage-web, every settings sub-page,
+sync-queue, notifications, and the tablet **side rail**. Remaining, grounded gaps below.
+
+## Confirmed gaps to build (real; endpoints/where-needed noted)
+1. **AssignSheet** (`m-oversight.jsx`) — assign/reassign bottom sheet: teammate search + workload + select →
+   assign. Endpoints EXIST: `/v1/{inspections,ncrs,capa,eight-d,scar}/:id/assign` + `/v1/members`. Not on
+   mobile yet. → **M20**
+2. **CapAnnotate** (`m-capture.jsx`) — tap-to-annotate photo editor (arrows/circles/freehand). No backend
+   (annotated image becomes the evidence). → **M21**
+3. **CapVoice** (`m-capture.jsx`) — voice quick-log. REAL half: hold-to-talk record (expo-audio, installed) →
+   attach **audio as evidence** (needs audio mimes added to `packages/core/src/file-policy.ts` allowlist —
+   small backend change). Voice→text→chips stays flagged (no transcription backend). → **M22**
+4. **Tablet two-pane master-detail** (`m-tablet.jsx` TabletInspections/TabletApprovals/TabletDashboard) —
+   list+detail split-view at ≥768pt beside the existing SideRail. → **M23**
+5. **State fidelity** — verify/fill the designed loading + empty + error states: `InspLoading`, `InspEmpty`,
+   `MyTasksEmpty`, `ErrorState`, `SyncSynced` (`NotifEmpty` already done). Plus FlashList + Dynamic-Type
+   perf/a11y polish (the standing M12 carry-forward). → **M24**
+
+## Deferred (need a backend/service that doesn't exist — flag, never fake)
+- **CapCamera** live-camera **AI defect detection** — needs a vision model. (Plain camera capture already
+  works via the picker; only the on-frame AI overlay is deferred.)
+- **Voice→text transcription** → structured chips — needs a transcription service.
+- **AuthSSORedirect** (`m-auth-extra.jsx`) — SSO/IdP handoff isn't wired server-side.
+- Signature capture (05 §3, no mock component) — revisit if a design lands.
+
+---
+
+## M20 — Assign / reassign work (AssignSheet)
+- [ ] `AssigneeSheet` bottom-sheet component (design `m-oversight.jsx AssignSheet`): drag handle, entity ref,
+  teammate **search** over `/v1/members`, per-teammate workload hint + selectable row, primary "Assign to X".
+- [ ] `account`/entity assign calls (typed client): `assignInspection/assignNcr/assignCapa/assignEightD/
+  assignScar` with `Assign*Body`. Offline-queued mutation (reuse the M3 engine) with optimistic UI.
+- [ ] Wire the sheet where the role can assign (manager/admin, RBAC-gated via `can()`): NCR detail, inspection
+  start, My-Tasks rows, 8D, CAPA.
+- [ ] Tests (pure `buildAssignPayload`/eligibility where logic exists) + browser-verify + audit event.
+
+## M21 — Photo annotation (CapAnnotate)
+- [ ] Annotate editor over a captured photo: `react-native-svg` draw layer (arrow / circle / freehand),
+  color + undo, per `m-capture.jsx CapAnnotate`.
+- [ ] Flatten photo+overlay to a new image (`react-native-view-shot` or canvas) → replace the staged
+  `pending_file` so the annotated version is what uploads. No backend.
+- [ ] Hook an "Annotate" affordance into `PhotoField` / capture after a photo is added; web falls back
+  gracefully (annotate on native; web keeps the plain photo).
+
+## M22 — Voice quick-log (CapVoice) — real recording + audio evidence
+- [ ] Add audio mimes (`audio/m4a`, `audio/mp4`, `audio/aac`, `audio/mpeg`) to `ALLOWED_MIME_TYPES`
+  (`packages/core/src/file-policy.ts`) + a policy test.
+- [ ] Hold-to-talk recorder (expo-audio) with level meter, per `m-capture.jsx CapVoice`; on release, stage the
+  audio as a `pending_file` and attach it as evidence on the quick-log/NCR (reuses the M7 presign pipeline).
+- [ ] Voice→text→severity/area/part chips stays an **honest flagged note** (no transcription backend) — the
+  audio itself is captured, stored and attached for real ("audio file always kept as evidence", 05 §3).
+
+## M23 — Tablet master-detail two-pane
+- [ ] At ≥768pt, a `<TwoPane list detail>` layout beside the SideRail: list on the left, selected-item detail
+  on the right (`m-tablet.jsx TabletInspections/TabletApprovals/TabletDashboard`).
+- [ ] Apply to inspections/My-Tasks and approvals; keep phone single-pane. Selection state in the URL/route so
+  deep-links + back behave. FlashList for the list pane.
+
+## M24 — State-fidelity + perf/a11y polish
+- [ ] Verify + fill the designed states on every list/detail: loading skeleton (`InspLoading`), empty
+  (`InspEmpty`, `MyTasksEmpty`), error (`ErrorState`), all-synced (`SyncSynced`).
+- [ ] FlashList migration on the hot lists (tasks, NCRs, notifications, sessions).
+- [ ] Dynamic-Type (respect OS text size) + contrast pass; larger-touch-target option from Appearance.
+
+## Sequencing
+M20 (assign — highest workflow value, endpoints ready) → M21 (annotate) → M22 (voice+audio) → M23 (tablet
+two-pane) → M24 (states + perf/a11y). Each an independent committed + gated + browser-verified slice;
+`progress_mobile.md` updated in the same commit. Same non-negotiables (CLAUDE.md #10/#11: never fake/stub;
+native edge-to-edge).
