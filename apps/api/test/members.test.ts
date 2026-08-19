@@ -179,3 +179,25 @@ describe("GET /v1/members", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("GET /v1/members/workload (assign sheet)", () => {
+  it("returns each member with an open-NCR count + workload band (ncr:manage)", async () => {
+    const res = await authed("/v1/members/workload", adminTok);
+    expect(res.status).toBe(200);
+    const items = res.body.items as { userId: string; name: string; openNcrs: number; band: string }[];
+    expect(items.length).toBeGreaterThan(0);
+    for (const m of items) {
+      expect(typeof m.userId).toBe("string");
+      expect(m.name.length).toBeGreaterThan(0);
+      expect(m.openNcrs).toBeGreaterThanOrEqual(0);
+      expect(["light", "steady", "busy"]).toContain(m.band);
+    }
+    // Own-tenant only (RLS) — Globex's people never appear.
+    expect(items.some((m) => m.name === "Gil Globex")).toBe(false);
+  });
+
+  it("refuses a viewer (no ncr:manage) and a supplier partner", async () => {
+    expect((await authed("/v1/members/workload", viewerTok)).status).toBe(403);
+    expect((await authed("/v1/members/workload", partnerTok)).status).toBe(403);
+  });
+});

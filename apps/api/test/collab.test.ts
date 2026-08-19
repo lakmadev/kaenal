@@ -124,12 +124,17 @@ describe("comments", () => {
     });
     expect(posted.status).toBe(201);
     expect(posted.body.body).toContain("first review pass");
+    // The author's display name is resolved server-side (thread reads without a round-trip).
+    expect(typeof posted.body.authorName).toBe("string");
+    expect(posted.body.authorName).not.toBe("");
     const commentId = posted.body.id as string;
 
     // A second member can read the thread…
     const list = await authed("get", `/v1/comments?entityKind=document&entityId=${doc.id}`, otherTok);
     expect(list.status).toBe(200);
-    expect((list.body.items as { id: string }[]).some((c) => c.id === commentId)).toBe(true);
+    const listed = (list.body.items as { id: string; authorName: string | null }[]).find((c) => c.id === commentId);
+    expect(listed).toBeDefined();
+    expect(listed?.authorName).not.toBe("");
 
     // …but cannot delete someone else's comment.
     const foreignDelete = await authed("post", `/v1/comments/${commentId}/delete`, otherTok).send({});

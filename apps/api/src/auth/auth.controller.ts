@@ -57,6 +57,11 @@ const ResetBody = z.object({
   password: z.string().min(1).max(256),
 });
 
+/** Whether the caller wants a bearer session (mobile) instead of the cookie flow. */
+function wantsBearer(req: Request): boolean {
+  return req.header("x-auth-mode")?.toLowerCase() === "bearer";
+}
+
 function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   const result = schema.safeParse(body);
   if (!result.success) {
@@ -91,8 +96,12 @@ export class AuthController {
   @Post("sign-in")
   async signIn(
     @Body() body: unknown,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ userId: string; role: string; expiresAt: string } | { mfaRequired: true }> {
+  ): Promise<
+    | { userId: string; role: string; expiresAt: string; sessionToken?: string }
+    | { mfaRequired: true }
+  > {
     const { email, password, code } = parse(SignInBody, body);
     const ctx = currentContext();
     await this.throttleLogin(ctx.ip);
@@ -106,14 +115,23 @@ export class AuthController {
     // Password accepted, second factor still needed: no cookies, no session.
     if (outcome.kind === "mfa_required") return { mfaRequired: true };
 
-    const csrfToken = generateToken();
-    this.setCookies(res, outcome.result.sessionToken, csrfToken);
-
-    return {
+    const base = {
       userId: outcome.result.userId,
       role: outcome.result.role,
       expiresAt: outcome.result.expiresAt.toISOString(),
     };
+
+    // Bearer clients (the mobile app) have no cookie jar and hold the session in
+    // SecureStore (05 §3). When they opt in via `X-Auth-Mode: bearer` we return the
+    // raw token in the body and set NO cookies. The session authenticator already
+    // accepts `Authorization: Bearer <token>`, so nothing else changes. Web clients
+    // send no such header and keep the httpOnly-cookie + double-submit-CSRF path
+    // untouched — the token is never exposed to browser JS.
+    if (wantsBearer(req)) return { ...base, sessionToken: outcome.result.sessionToken };
+
+    const csrfToken = generateToken();
+    this.setCookies(res, outcome.result.sessionToken, csrfToken);
+    return base;
   }
 
   @Post("sign-out")

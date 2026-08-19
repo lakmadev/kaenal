@@ -106,6 +106,22 @@ const EnvSchema = z.object({
   CLAMAV_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
 
   /**
+   * AI model provider (06 §3). `stub` (default) is the deterministic in-process
+   * provider — every AI flow runs end to end with no model, so dev/test/CI need
+   * no credential or GPU. `ollama` calls a local Ollama server (self-hosted,
+   * including the vision model behind the "Photo + AI" NCR triage). Switching is
+   * this var + the model names below — no business code changes (the chokepoint
+   * port is the only thing that talks to a model).
+   */
+  AI_PROVIDER: z.enum(["stub", "ollama"]).default("stub"),
+  OLLAMA_URL: z.string().min(1).default("http://localhost:11434"),
+  /** Model names per routed label. Default all to one pulled vision model so a
+   *  single `ollama pull qwen2.5vl:3b` serves every feature on a laptop. */
+  OLLAMA_MODEL_FAST: z.string().min(1).default("qwen2.5vl:3b"),
+  OLLAMA_MODEL_STRONG: z.string().min(1).default("qwen2.5vl:3b"),
+  OLLAMA_MODEL_VISION: z.string().min(1).default("qwen2.5vl:3b"),
+
+  /**
    * Encryption key for TOTP secrets at rest (07 §4). 32 bytes, base64 — generate
    * with `openssl rand -base64 32`. Set it in production so it can be rotated
    * independently of AUTH_SECRET. Left unset, a distinct key is HKDF-derived from

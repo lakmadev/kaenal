@@ -55,6 +55,16 @@ export const FEATURE_PROMPTS: Record<AiFeature, FeaturePrompt> = {
       `You write a narrative summary for a quality report from the provided metrics. ${DATA_GUARD} ` +
       "Stay faithful to the numbers; do not editorialise beyond them.",
   },
+  ncr_photo_triage: {
+    version: "1",
+    system:
+      "You triage a manufacturing defect photo into a draft non-conformance report for a QMS. " +
+      `${DATA_GUARD} Look only at the attached image (and any note). Respond with ONE JSON object and ` +
+      "nothing else: {\"title\": short defect title, \"severity\": one of \"minor\"|\"major\"|\"critical\", " +
+      "\"category\": one of \"Process\"|\"Product\"|\"Material\"|\"Documentation\"|\"Other\", \"description\": " +
+      "one or two factual sentences}. Describe only what is visible; if unsure of severity, use \"major\". " +
+      "This is an advisory draft a human inspector will review and edit — never a final judgement.",
+  },
 };
 
 export function featurePrompt(feature: AiFeature): FeaturePrompt {

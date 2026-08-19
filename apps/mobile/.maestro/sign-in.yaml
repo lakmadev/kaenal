@@ -1,0 +1,34 @@
+# Maestro E2E — sign-in smoke (05 §8 mobile testing).
+# Drives the real onboarding flow: welcome → workspace → email/password → home tab.
+# Credentials come from env so no secrets live in the repo:
+#   maestro test .maestro/sign-in.yaml \
+#     -e WORKSPACE=acme -e EMAIL=admin@acme.test -e PASSWORD=…
+# Requires the API reachable at the build's EXPO_PUBLIC_API_URL and a seeded tenant.
+appId: com.kaenal.mobile
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Get started"
+- tapOn: "Get started"
+
+# Workspace slug
+- assertVisible: "Continue"
+- tapOn:
+    id: "your-team" # placeholder
+- inputText: ${WORKSPACE}
+- tapOn: "Continue"
+
+# Credentials
+- assertVisible: "Sign in"
+- tapOn:
+    id: "you@company.com" # email placeholder
+- inputText: ${EMAIL}
+- tapOn:
+    id: "Password" # password placeholder
+- inputText: ${PASSWORD}
+- tapOn: "Sign in"
+
+# Landed in the authenticated shell. Home renders a role-titled greeting header
+# and the bottom tab bar; "Me" is present for every role.
+- assertVisible: "Me"
+- takeScreenshot: signed-in-home

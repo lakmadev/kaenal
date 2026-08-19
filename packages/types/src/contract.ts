@@ -42,10 +42,12 @@ import {
   FindingDto,
   InspectionDto,
   MeDto,
+  DashboardDto,
   WorkspacesDto,
   WorkspaceDto,
   SwitchWorkspaceBody,
   MemberDto,
+  MemberWorkloadList,
   NcrActionDto,
   NcrDto,
   CountDto,
@@ -209,6 +211,12 @@ export const contract = c.router(
       responses: { 200: MeDto, 401: ErrorBody },
       summary: "The current session's identity and capabilities",
     },
+    getDashboard: {
+      method: "GET",
+      path: "/v1/me/dashboard",
+      responses: { 200: DashboardDto, ...commonErrors },
+      summary: "The role-aware home dashboard (KPIs + queues) for the caller",
+    },
     myWorkspaces: {
       method: "GET",
       path: "/v1/me/workspaces",
@@ -230,6 +238,12 @@ export const contract = c.router(
       query: PageQuery,
       responses: { 200: page(MemberDto), ...commonErrors },
       summary: "List this tenant's members (id → name + role) so the UI can resolve people",
+    },
+    listMemberWorkload: {
+      method: "GET",
+      path: "/v1/members/workload",
+      responses: { 200: MemberWorkloadList, ...commonErrors },
+      summary: "Members with a live workload signal (open assigned NCRs) — the assign sheet",
     },
 
     // --- Search ------------------------------------------------------------

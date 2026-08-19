@@ -1,5 +1,5 @@
 import { Controller, Get, Inject, Query } from "@nestjs/common";
-import { PageQuery, type MemberDto, type Page } from "@kaenal/types";
+import { PageQuery, type MemberDto, type MemberWorkloadDto, type Page } from "@kaenal/types";
 import { currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
@@ -27,5 +27,13 @@ export class MembersController {
       ...(q.cursor !== undefined ? { cursor: q.cursor } : {}),
       limit: q.limit,
     });
+  }
+
+  /** The assign sheet's roster + live workload. Gated on `ncr:manage` — the
+   *  people who can actually (re)assign work are the ones who see the loads. */
+  @Get("v1/members/workload")
+  @RequireCapability("ncr:manage")
+  async workload(): Promise<{ items: MemberWorkloadDto[] }> {
+    return { items: await this.members.workload(currentTx()) };
   }
 }

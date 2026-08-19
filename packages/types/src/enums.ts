@@ -367,6 +367,8 @@ export const AiFeature = defineEnum([
   "eightd_draft",
   "compliance_qa",
   "report_narrative",
+  // Vision: triage a defect photo into a draft NCR (title/severity/category).
+  "ncr_photo_triage",
 ]);
 export type AiFeature = z.infer<typeof AiFeature>;
 

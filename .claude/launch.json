@@ -12,6 +12,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@kaenal/api", "dev"],
       "port": 3001
+    },
+    {
+      "name": "mobile-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@kaenal/mobile", "exec", "expo", "start", "--web", "--port", "8082"],
+      "port": 8082
     }
   ]
 }

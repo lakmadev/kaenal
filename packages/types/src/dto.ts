@@ -61,6 +61,20 @@ export const MemberDto = z.object({
 });
 export type MemberDto = z.infer<typeof MemberDto>;
 
+/** A member plus a live workload signal — the AssignSheet's teammate rows
+ *  (m-oversight.jsx): open assigned NCRs, banded Light/Steady/Busy. */
+export const MemberWorkloadDto = z.object({
+  userId: z.string().uuid(),
+  name: z.string(),
+  role: Role,
+  openNcrs: z.number().int().nonnegative(),
+  band: z.enum(["light", "steady", "busy"]),
+});
+export type MemberWorkloadDto = z.infer<typeof MemberWorkloadDto>;
+
+export const MemberWorkloadList = z.object({ items: z.array(MemberWorkloadDto) });
+export type MemberWorkloadList = z.infer<typeof MemberWorkloadList>;
+
 // --- Inspection templates ---------------------------------------------------
 
 export const TemplateDto = z.object({
@@ -220,10 +234,25 @@ export const NcrDto = z.object({
   source: NcrSource,
   sourceId: z.string().uuid().nullable(),
   priority: NcrPriority,
+  /** Optional risk band (independent of severity/priority) — mobile detail "Details". */
+  risk: z.enum(["low", "medium", "high", "critical"]).nullable(),
+  /** Free-text category (e.g. "Weld defect / porosity") — mobile detail + create. */
+  category: z.string().nullable(),
   status: NcrStatus,
   ownerId: z.string().uuid().nullable(),
+  /** Owner's display name (resolved) — the detail "Owner" row. */
+  ownerName: z.string().nullable(),
+  /** Who raised the NCR (=created_by) — the detail's "Reporter" row. */
+  reporterId: z.string().uuid().nullable(),
+  /** Reporter's display name (resolved) — the detail "Reporter" row. */
+  reporterName: z.string().nullable(),
   plantId: z.string().uuid().nullable(),
   areaId: z.string().uuid().nullable(),
+  /** Resolved display names for the detail header meta ("Plant A · Line 2"). */
+  plantName: z.string().nullable(),
+  areaName: z.string().nullable(),
+  /** Units affected, lifted from `impact` — shown in the create review + detail. */
+  unitsAffected: z.number().int().nonnegative().nullable(),
   dueAt: z.string().datetime().nullable(),
   slaState: SlaState,
   /** The 8D raised from this NCR, if any — the list's "Linked 8D" column and
@@ -244,12 +273,19 @@ export const CreateNcrBody = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(8000).nullable().optional(),
   priority: NcrPriority,
+  /** Free-text category (m-ncr create step 2) — persisted on the NCR. */
+  category: z.string().max(120).nullable().optional(),
   source: NcrSource.optional(),
   sourceId: z.string().uuid().nullable().optional(),
   /** Raising an NCR from a finding links the finding and defaults the source. */
   findingId: z.string().uuid().optional(),
   plantId: z.string().uuid().nullable().optional(),
   areaId: z.string().uuid().nullable().optional(),
+  /** Immediate-containment checklist selections — each becomes a done
+   *  ncr_actions(kind='containment') row in the same transaction. */
+  containment: z.array(z.string().min(1).max(2000)).max(20).optional(),
+  /** Evidence files already uploaded via presign; linked to this NCR on create. */
+  evidenceFileIds: z.array(z.string().uuid()).max(20).optional(),
 });
 export type CreateNcrBody = z.infer<typeof CreateNcrBody>;
 
@@ -878,6 +914,13 @@ export const WorkspaceDto = z.object({
   role: z.string(),
   /** True for the workspace the current request is scoped to. */
   active: z.boolean(),
+  /**
+   * The target-workspace session token, returned ONLY on `switch-workspace` and
+   * ONLY to bearer clients (the mobile app, which sends `X-Auth-Mode: bearer` and
+   * has no cookie jar — 05 §3). Web clients receive the session as an httpOnly
+   * cookie and never see this field. Absent on the workspaces list.
+   */
+  sessionToken: z.string().optional(),
 });
 export type WorkspaceDto = z.infer<typeof WorkspaceDto>;
 
@@ -911,6 +954,9 @@ export const AiDraftRequest = z.object({
   input: z.string().min(1).max(20_000),
   entityRefs: z.array(AiEntityRef).max(20).optional(),
   maxTokens: z.number().int().positive().max(4096).optional(),
+  /** Base64-encoded images (no data: prefix) for vision features like
+   *  `ncr_photo_triage`. Capped small — a phone sends one compressed photo. */
+  imagesBase64: z.array(z.string().min(1).max(15_000_000)).max(4).optional(),
 });
 export type AiDraftRequest = z.infer<typeof AiDraftRequest>;
 
@@ -959,6 +1005,9 @@ export const CommentDto = z.object({
   entityKind: EntityKind,
   entityId: z.string().uuid(),
   authorId: z.string().uuid(),
+  /** Author's display name, resolved server-side (null if unknown) — so the
+   *  comment thread reads without a second round-trip. */
+  authorName: z.string().nullable(),
   body: z.string(),
   parentId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
@@ -985,6 +1034,9 @@ export const AuditEventDto = z.object({
   entityKind: z.string(),
   entityId: z.string().uuid(),
   actorId: z.string().uuid().nullable(),
+  /** Actor's display name, resolved server-side (null for system/unknown
+   *  actors) — the access-log / activity-feed line ("Raised by Sara Chen"). */
+  actorName: z.string().nullable(),
   actorKind: z.string(),
   action: AuditAction,
   reason: z.string().nullable(),
@@ -1971,3 +2023,112 @@ export const CreateFmeaItemBody = FmeaItemShape;
 export type CreateFmeaItemBody = z.infer<typeof CreateFmeaItemBody>;
 export const UpdateFmeaItemBody = FmeaItemShape.extend({ version: z.number().int().nonnegative() });
 export type UpdateFmeaItemBody = z.infer<typeof UpdateFmeaItemBody>;
+
+// ── Home dashboard (05 §M5) ──────────────────────────────────────────────────
+// The role-aware mobile home (project_brain/mobile/src/m-home.jsx). The server
+// computes every metric live inside the request's tenant-scoped transaction (so
+// RLS confines it to the caller's workspace) and returns the shape for the
+// caller's role. Presentation strings ("Due 2h") are formatted on the client
+// from the raw fields below — the server sends data, not copy.
+
+/** Severity vocabulary shared by the queue/severity chips (superset of the
+ *  domain enums so an inspection risk or an NCR priority both map cleanly). */
+export const DashSeverity = z.enum(["critical", "high", "major", "medium", "minor", "low"]);
+export type DashSeverity = z.infer<typeof DashSeverity>;
+
+/** A single KPI stat tile. `value` is null when the metric has no data source
+ *  yet (rendered as "—", never a fabricated number). */
+export const DashKpi = z.object({
+  label: z.string(),
+  value: z.string().nullable(),
+  tone: z.enum(["default", "danger", "warn", "success"]).default("default"),
+  delta: z.string().optional(),
+});
+export type DashKpi = z.infer<typeof DashKpi>;
+
+/** Deep-link target for a queue item / row so the client can navigate. */
+export const DashRef = z.object({
+  kind: z.enum(["inspection", "ncr", "capa", "document", "audit"]),
+  id: z.string().uuid(),
+});
+export type DashRef = z.infer<typeof DashRef>;
+
+/** A work-queue card (Inspector's "Today's work queue"). */
+export const DashQueueItem = z.object({
+  ref: DashRef,
+  code: z.string(),
+  title: z.string(),
+  sev: DashSeverity.optional(),
+  /** Due timestamp (ISO) or null; the client formats "Due 2h" / "Overdue 1d". */
+  dueAt: z.string().datetime().nullable(),
+  overdue: z.boolean(),
+  site: z.string(),
+  meta: z.string(),
+});
+export type DashQueueItem = z.infer<typeof DashQueueItem>;
+
+/** A list row (assigned-to-me / recent records / needs-attention). */
+export const DashRow = z.object({
+  ref: DashRef,
+  icon: z.string(),
+  iconTone: z.enum(["danger", "info", "success", "warn", "accent", "muted"]).default("accent"),
+  title: z.string(),
+  sub: z.string(),
+  status: z.object({ tone: z.string(), label: z.string() }).optional(),
+});
+export type DashRow = z.infer<typeof DashRow>;
+
+/** A teammate row on the Manager's "Team today". */
+export const DashTeamMember = z.object({
+  userId: z.string().uuid(),
+  initials: z.string(),
+  name: z.string(),
+  summary: z.string(),
+  online: z.boolean(),
+});
+export type DashTeamMember = z.infer<typeof DashTeamMember>;
+
+/** An audit-log highlight row on the Admin pulse. */
+export const DashAuditItem = z.object({
+  id: z.string(),
+  icon: z.string(),
+  title: z.string(),
+  detail: z.string(),
+  at: z.string().datetime(),
+});
+export type DashAuditItem = z.infer<typeof DashAuditItem>;
+
+const DashCommon = { kpis: z.array(DashKpi) };
+
+/** Role-shaped dashboard. Discriminated by `variant`, which the server derives
+ *  from the caller's membership role (auditor is served the viewer shape). */
+export const DashboardDto = z.discriminatedUnion("variant", [
+  z.object({
+    variant: z.literal("inspector"),
+    ...DashCommon,
+    queue: z.array(DashQueueItem),
+    assigned: z.array(DashRow),
+  }),
+  z.object({
+    variant: z.literal("viewer"),
+    ...DashCommon,
+    recent: z.array(DashRow),
+  }),
+  z.object({
+    variant: z.literal("manager"),
+    ...DashCommon,
+    approvals: z.object({
+      documents: z.number().int().nonnegative(),
+      ncrDispositions: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+    }),
+    team: z.array(DashTeamMember),
+  }),
+  z.object({
+    variant: z.literal("admin"),
+    ...DashCommon,
+    needsAttention: z.array(DashRow),
+    auditHighlights: z.array(DashAuditItem),
+  }),
+]);
+export type DashboardDto = z.infer<typeof DashboardDto>;

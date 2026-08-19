@@ -42,6 +42,7 @@ export class AiService {
       input: body.input,
       ...(body.entityRefs !== undefined ? { entityRefs: body.entityRefs } : {}),
       ...(body.maxTokens !== undefined ? { maxTokens: body.maxTokens } : {}),
+      ...(body.imagesBase64 !== undefined ? { images: body.imagesBase64 } : {}),
       // Route the gateway's own transactions to this tenant's DB (Model B).
       ...(pool !== undefined ? { pool } : {}),
     });

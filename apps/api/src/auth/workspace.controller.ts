@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, Res } from "@nestjs/common";
-import type { Response } from "express";
+import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res } from "@nestjs/common";
+import type { Request, Response } from "express";
 import { WEB_SESSION_TTL_MS } from "@kaenal/core";
 import { SwitchWorkspaceBody, type WorkspaceDto, type WorkspacesDto } from "@kaenal/types";
 import { currentContext } from "../context.js";
@@ -37,6 +37,7 @@ export class WorkspaceController {
   @HttpCode(200)
   async switch(
     @Body() body: unknown,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<WorkspaceDto> {
     const { slug } = parse(SwitchWorkspaceBody, body);
@@ -47,9 +48,16 @@ export class WorkspaceController {
       requestId: ctx.requestId,
     });
 
-    // Issue the target-tenant session + a fresh CSRF token. The client updates
-    // its readable workspace cookie (kaenal_tenant) and reloads, so the next
-    // request rides the new session into the new workspace.
+    // Bearer clients (mobile) hold the session in SecureStore (05 §3): return the
+    // target-tenant token in the body and set no cookies. The client stores it and
+    // re-scopes its next requests to the new workspace.
+    if (req.header("x-auth-mode")?.toLowerCase() === "bearer") {
+      return { ...result.workspace, sessionToken: result.sessionToken };
+    }
+
+    // Web: issue the target-tenant session + a fresh CSRF token as httpOnly cookies.
+    // The client updates its readable workspace cookie (kaenal_tenant) and reloads,
+    // so the next request rides the new session into the new workspace.
     const secure = this.env.NODE_ENV === "production";
     res.cookie(SESSION_COOKIE, result.sessionToken, {
       httpOnly: true,

@@ -46,6 +46,9 @@ export interface AiRunParams {
   readonly input: string;
   readonly entityRefs?: readonly AiEntityRef[];
   readonly maxTokens?: number;
+  /** Base64 images for a vision feature (defect photo) — passed to the provider
+   *  as-is; not PII-redacted (redaction is text-only). */
+  readonly images?: readonly string[];
   /** Extra literals to mask pre-flight (e.g. names of non-team members). */
   readonly extraRedactionTerms?: readonly string[];
   /**
@@ -137,6 +140,7 @@ export class AiGatewayService {
         system: prompt.system,
         input: redaction.redacted,
         maxTokens,
+        ...(params.images !== undefined && params.images.length > 0 ? { images: params.images } : {}),
       });
     } catch (err) {
       // 06 §4: a model failure never blocks the manual workflow — record it and

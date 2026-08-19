@@ -1,6 +1,6 @@
 import type pg from "pg";
 import type { Tx } from "@kaenal/db";
-import type { MemberDto, Page, Role } from "@kaenal/types";
+import type { MemberDto, MemberWorkloadDto, Page, Role } from "@kaenal/types";
 import { clampLimit, decodeCursor, keysetPredicate, toPage, type Cursor } from "../http/pagination.js";
 
 interface MembershipRow {
@@ -63,5 +63,47 @@ export class MembersService {
       name: names.get(r.user_id) ?? "Unknown member",
       role: r.role,
     }));
+  }
+
+  /**
+   * The roster plus a live workload signal for the AssignSheet: each active
+   * member's count of OPEN owned NCRs (anything not yet closed/verified/draft),
+   * banded Light/Steady/Busy. The count query is RLS-scoped (ncrs is a tenant
+   * table), the JOIN keys owner_id → the member; names resolve on the control
+   * pool exactly as `list` does. No cursor — a roster is small and the sheet
+   * searches it client-side; capped for safety.
+   */
+  async workload(tx: Tx): Promise<MemberWorkloadDto[]> {
+    const { rows } = await tx.query<{ user_id: string; role: Role; open_ncrs: string }>(
+      `SELECT m.user_id, m.role,
+              COUNT(n.id) FILTER (WHERE n.status NOT IN ('closed','verified','draft')) AS open_ncrs
+         FROM memberships m
+         LEFT JOIN ncrs n ON n.owner_id = m.user_id AND n.deleted_at IS NULL
+        WHERE m.status = 'active' AND m.deleted_at IS NULL
+        GROUP BY m.user_id, m.role, m.created_at, m.id
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT 200`,
+    );
+
+    const userIds = [...new Set(rows.map((r) => r.user_id))];
+    const names = new Map<string, string>();
+    if (userIds.length > 0) {
+      const { rows: people } = await this.control.query<{ id: string; name: string }>(
+        `SELECT id, name FROM control.users WHERE id = ANY($1::uuid[])`,
+        [userIds],
+      );
+      for (const p of people) names.set(p.id, p.name);
+    }
+
+    return rows.map((r) => {
+      const open = Number(r.open_ncrs);
+      return {
+        userId: r.user_id,
+        name: names.get(r.user_id) ?? "Unknown member",
+        role: r.role,
+        openNcrs: open,
+        band: open <= 2 ? ("light" as const) : open <= 4 ? ("steady" as const) : ("busy" as const),
+      };
+    });
   }
 }

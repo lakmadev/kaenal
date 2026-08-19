@@ -200,6 +200,59 @@ afterAll(async () => {
   await app.close();
 });
 
+describe("NCR detail enrichment (m-ncr fidelity: category, reporter, plant name, containment, activity)", () => {
+  it("persists category + containment on create and exposes them on read", async () => {
+    const created = await authed("post", "/v1/ncrs", adminTok).send({
+      title: "NCRTEST enriched",
+      priority: "critical",
+      category: "Weld defect / porosity",
+      plantId: plantA,
+      containment: ["NCRTEST cell stopped", "NCRTEST customer notified"],
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.id as string;
+
+    // The create response carries the new fields (category + resolved plant name +
+    // reporter = the creating admin).
+    expect(created.body.category).toBe("Weld defect / porosity");
+    expect(created.body.plantName).toBe("NCRTESTPA");
+    expect(created.body.reporterId).toBe(adminUserId);
+    expect(created.body.risk).toBeNull();
+    expect(created.body.unitsAffected).toBeNull();
+
+    // GET returns the same enriched shape.
+    const got = await authed("get", `/v1/ncrs/${id}`, adminTok);
+    expect(got.body.category).toBe("Weld defect / porosity");
+    expect(got.body.plantName).toBe("NCRTESTPA");
+    expect(got.body.reporterId).toBe(adminUserId);
+
+    // Containment selections are real ncr_actions(kind='containment'), returned by listNcrActions.
+    const actions = await authed("get", `/v1/ncrs/${id}/actions`, adminTok);
+    const containment = (actions.body.items as { kind: string; description: string; status: string }[]).filter(
+      (a) => a.kind === "containment",
+    );
+    expect(containment).toHaveLength(2);
+    expect(containment.every((a) => a.status === "done")).toBe(true);
+    expect(containment.map((a) => a.description).sort()).toEqual(["NCRTEST cell stopped", "NCRTEST customer notified"]);
+  });
+
+  it("activity feed (audit-events) resolves the actor's display name", async () => {
+    const created = await authed("post", "/v1/ncrs", adminTok).send({ title: "NCRTEST activity", priority: "minor" });
+    const id = created.body.id as string;
+
+    const feed = await authed("get", `/v1/audit-events?entityKind=ncr&entityId=${id}`, adminTok);
+    expect(feed.status).toBe(200);
+    const created_ev = (feed.body.items as { action: string; actorId: string | null; actorName: string | null }[]).find(
+      (e) => e.action === "created",
+    );
+    expect(created_ev).toBeDefined();
+    expect(created_ev?.actorId).toBe(adminUserId);
+    // The admin was seeded with a real name — the feed reads it, not just the id.
+    expect(typeof created_ev?.actorName).toBe("string");
+    expect(created_ev?.actorName).not.toBe("");
+  });
+});
+
 describe("findings → NCR", () => {
   it("records a finding and raises a linked NCR from it", async () => {
     const inspectionId = await anInspection();

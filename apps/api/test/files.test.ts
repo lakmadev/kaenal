@@ -260,3 +260,24 @@ describe("the AV scan download gate (07 §3)", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("files by entity (NCR evidence strip)", () => {
+  it("lists only the files attached to the given entity id", async () => {
+    const ncrId = randomUUID();
+    const otherNcrId = randomUUID();
+
+    const a = await presign(uploaderTok, { filename: "FILETEST-a.pdf", entityKind: "ncr", entityId: ncrId });
+    const b = await presign(uploaderTok, { filename: "FILETEST-b.pdf", entityKind: "ncr", entityId: ncrId });
+    await presign(uploaderTok, { filename: "FILETEST-c.pdf", entityKind: "ncr", entityId: otherNcrId });
+
+    const listed = await authed("get", `/v1/files?entityKind=ncr&entityId=${ncrId}`, uploaderTok);
+    expect(listed.status).toBe(200);
+    const ids = (listed.body.items as { id: string }[]).map((f) => f.id).sort();
+    expect(ids).toEqual([a.fileId, b.fileId].sort());
+
+    // A different entity id (or an entity with no evidence) returns an empty list, not a leak.
+    const empty = await authed("get", `/v1/files?entityKind=ncr&entityId=${randomUUID()}`, uploaderTok);
+    expect(empty.status).toBe(200);
+    expect(empty.body.items).toHaveLength(0);
+  });
+});
