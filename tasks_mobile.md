@@ -220,13 +220,20 @@ pixel-for-pixel with a real backend.** Next: **M20 — AssignSheet**.
   workload endpoint are reusable; each just needs its `assign*` offline mutation + an entry point). In-app click
   capture blocked by a browser-pane hang this cycle (functional path proven via API).
 
-## M21 — Photo annotation (CapAnnotate)
-- [ ] Annotate editor over a captured photo: `react-native-svg` draw layer (arrow / circle / freehand),
-  color + undo, per `m-capture.jsx CapAnnotate`.
-- [ ] Flatten photo+overlay to a new image (`react-native-view-shot` or canvas) → replace the staged
-  `pending_file` so the annotated version is what uploads. No backend.
-- [ ] Hook an "Annotate" affordance into `PhotoField` / capture after a photo is added; web falls back
-  gracefully (annotate on native; web keeps the plain photo).
+## M21 — Photo annotation (CapAnnotate) ✅ DONE (commit) — browser-verified render
+- [x] Annotate editor (`app/annotate.tsx`, design `m-capture.jsx CapAnnotate`): `react-native-svg` overlay with
+  **Draw (freehand) / Circle / Arrow / Text** tools (PanResponder drag; text = tap→inline input), 4-colour
+  palette, undo, Done. Marks stored in the photo's pixel space (`features/capture/annotate/marks.ts`).
+- [x] **Flatten** photo+overlay to a new image, then replace the staged `pending_file` IN PLACE (same id →
+  the create's `evidenceFileIds` still points at it): `flatten.native.ts` (view-shot `captureRef`) /
+  `flatten.web.ts` (2D canvas from the same marks) / `flatten.ts` base — Metro platform split keeps view-shot
+  out of the web bundle (verified: `/annotate` bundles + renders clean on web, console shows no resolution error).
+- [x] Entry point: a **pen** button on each `PhotoField` thumbnail → `/annotate?id=`; `useFocusEffect` re-reads
+  thumbs on return so the marked-up version shows. Gate: typecheck 7/7 · lint · browser render verified.
+- Honest deferral: the mock's 5th tool **Measure** (real-world mm) needs a scale/calibration reference the
+  photo doesn't carry — shown-and-faked would violate rule #10, so it's dropped + flagged (Draw/Circle/Arrow/
+  Text are the four real tools). Drawing-gesture + flatten output not screenshot-verified (needs a staged photo;
+  file-picker not drivable in the harness) — render + bundle verified, logic typechecked.
 
 ## M22 — Voice quick-log (CapVoice) — real recording + audio evidence
 - [ ] Add audio mimes (`audio/m4a`, `audio/mp4`, `audio/aac`, `audio/mpeg`) to `ALLOWED_MIME_TYPES`
