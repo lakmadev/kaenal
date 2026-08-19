@@ -7,6 +7,12 @@ describe("file upload policy (03 §7, 07 §3)", () => {
     expect(validateUpload({ mime: "image/png", sizeBytes: MAX_FILE_BYTES }).ok).toBe(true);
   });
 
+  it("accepts audio voice-note evidence (native m4a/aac + web webm)", () => {
+    for (const mime of ["audio/mp4", "audio/m4a", "audio/aac", "audio/webm", "audio/ogg"]) {
+      expect(validateUpload({ mime, sizeBytes: 64_000 }).ok).toBe(true);
+    }
+  });
+
   it("rejects a type not on the allowlist", () => {
     const d = validateUpload({ mime: "application/x-msdownload", sizeBytes: 10 });
     expect(d.ok).toBe(false);

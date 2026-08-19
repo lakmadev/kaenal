@@ -235,13 +235,20 @@ pixel-for-pixel with a real backend.** Next: **M20 — AssignSheet**.
   Text are the four real tools). Drawing-gesture + flatten output not screenshot-verified (needs a staged photo;
   file-picker not drivable in the harness) — render + bundle verified, logic typechecked.
 
-## M22 — Voice quick-log (CapVoice) — real recording + audio evidence
-- [ ] Add audio mimes (`audio/m4a`, `audio/mp4`, `audio/aac`, `audio/mpeg`) to `ALLOWED_MIME_TYPES`
-  (`packages/core/src/file-policy.ts`) + a policy test.
-- [ ] Hold-to-talk recorder (expo-audio) with level meter, per `m-capture.jsx CapVoice`; on release, stage the
-  audio as a `pending_file` and attach it as evidence on the quick-log/NCR (reuses the M7 presign pipeline).
-- [ ] Voice→text→severity/area/part chips stays an **honest flagged note** (no transcription backend) — the
-  audio itself is captured, stored and attached for real ("audio file always kept as evidence", 05 §3).
+## M22 — Voice quick-log (CapVoice) — real recording + audio evidence ✅ DONE (commit) — render verified
+- [x] Audio mimes (`audio/mp4`,`audio/m4a`,`audio/aac`,`audio/mpeg`,`audio/webm`,`audio/ogg`,`audio/wav`) added
+  to `ALLOWED_MIME_TYPES` (`packages/core/src/file-policy.ts`) + policy test (native m4a/aac + web webm accepted).
+- [x] Voice screen (`app/voice.tsx`, design `CapVoice`): mic button (tap start/stop), timer + live level-meter
+  waveform (expo-audio `useAudioRecorder`/`useAudioRecorderState`, works native + web). On stop the audio is
+  staged as a `pending_file` (`addBytesEvidence`, mime inferred from uri) and attached as `evidenceFileIds` on
+  the new NCR (reuses M19.5 evidence linking + M7 presign pipeline). Web mic is secure-context-gated → honest
+  "Voice needs the app" fallback on the http-LAN PWA (mirrors camera/location).
+- [x] Wired: NCR create step-1 **Voice** method un-deferred → routes to `/voice`. `SubHeader` gained a subtitle.
+- [x] **Honest flag (rule #10):** live speech-to-text → severity/area/part chips needs a transcription service
+  we don't have — the screen says so plainly and offers a typed/dictated note that the **existing** AI
+  `quicklog_structuring` feature structures; the **audio is always captured + attached for real**.
+- [x] Verified: `/voice` bundles clean on web (expo-audio) + renders pixel-faithfully; file-policy 7/7; typecheck
+  7/7; lint. (Live record round-trip needs a device mic + permission prompt — not drivable in the harness.)
 
 ## M23 — Tablet master-detail two-pane
 - [ ] At ≥768pt, a `<TwoPane list detail>` layout beside the SideRail: list on the left, selected-item detail
