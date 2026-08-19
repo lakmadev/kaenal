@@ -162,7 +162,33 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M0–M13 COMPLETE — the mobile/tablet app is done.** Branch `feat/mobile-app`, pushed; PR #9 open. Every
+**M14+ FIDELITY / "MAKE IT REAL" PROGRAM (post-review).** A user review of the shipped app found
+stubbed features presented as done, settings/logout divergence from the mocks, and a PWA/home-screen
+safe-area cut-off. New governing rules landed in **CLAUDE.md #10** (never fake/stub/hallucinate — wire
+real endpoints, prove gaps by grepping controllers) and **#11** (native edge-to-edge + real insets on
+device AND installed PWA). Full plan: **`tasks_mobile.md`** (M14 native shell → M15 settings-root
+fidelity → M16 security-made-real → M17 capture hardware → M18 profile/prefs + per-role audit).
+
+- [x] **M14 — Native edge-to-edge shell + real safe-area insets.** ✅ Root cause of the "boxed / clipped"
+  PWA: the Expo web export shipped no `viewport-fit=cover`, no standalone PWA metas, and no manifest, so
+  `env(safe-area-inset-*)` stayed 0 and the page rendered inside the browser-chrome safe box. Added
+  `src/app/+html.tsx` (custom root document: cover viewport, `apple-mobile-web-app-capable` +
+  `status-bar-style=black-translucent`, theme-color light/dark, manifest + apple-touch-icon links, and
+  CSS pinning `html,body,#root` to `100dvh` with `overflow:hidden`/`overscroll:none` so only in-app
+  ScrollViews move) + `public/manifest.json` (`display:standalone`, icons) + `public/icon-1024.png`.
+  Verified in the mobile preview: served `<head>` carries the cover viewport + PWA metas + manifest link
+  (manifest.json + icon both 200); computed `body` height = full `100dvh` (812px), `overflow:hidden`,
+  `overscroll:none`, document **not** page-scrollable; `env(safe-area-inset-top)` resolves (0px on the
+  desktop preview with no notch → the notch height on a real device via viewport-fit=cover). Console
+  clean. Note: on-device notch/home-indicator padding rides on `react-native-safe-area-context` v5.7
+  reading `env()` on web (standard Expo path); the Header/TabBar/Body/ActionBar already consume
+  `useSafeAreaInsets()`. Clarified for the reviewer: the Pulse/Approvals/Audit/Me nav is the **admin**
+  role's tab set (by design, `m-home.jsx` HomeAdmin) — Inspector = Home/Tasks/+/NCRs/Me; all four role
+  dashboards exist and match the mocks.
+
+## Superseded status (M0–M13)
+
+**M0–M13 COMPLETE — the mobile/tablet app is done (feature build).** Branch `feat/mobile-app`, pushed; PR #9 open. Every
 phase committed, gate-green (typecheck 7/7 · root lint · **44** mobile unit tests) and browser-verified
 against the live API. M13 (final) shipped the deep-link resolver + interactive notification centre
 (verified in-browser: real feed loads, rows are now `button`s, an `export`-kind row correctly shows no

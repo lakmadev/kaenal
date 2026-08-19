@@ -25,10 +25,25 @@ All spec paths below are relative to `project_brain/project/`.
 7. A feature = migration + API contract + UI + tests + audit events. Missing any → not done.
 8. Never reveal cross-tenant existence: foreign-tenant ids → 404, not 403.
 9. **Design fidelity is a completion gate.** Any screen with a `project_brain/project/src/*.jsx`
-   design MUST match that jsx pixel-for-pixel — every view, panel, and state, not a simplified
-   subset. Read the whole jsx first, reproduce all of it, verify in-browser side-by-side. A screen
-   that diverges from its jsx is a defect. Full rule + process: `apps/web/docs/design-rules.md`.
-   You may not silently simplify or drop a designed element — surface it and get sign-off first.
+   (web) or `project_brain/mobile/src/m-*.jsx` (mobile) design MUST match that jsx pixel-for-pixel —
+   every view, panel, and state, not a simplified subset. Read the whole jsx first, reproduce all of
+   it, verify in-browser side-by-side. A screen that diverges from its jsx is a defect. Full rule +
+   process: `apps/web/docs/design-rules.md`. You may not silently simplify or drop a designed element
+   — surface it and get sign-off first.
+10. **Never fake, never stub, never hallucinate a feature.** A control the design shows (a button,
+    toggle, form, screen) must be *wired to real behaviour* before the screen is "done" — not a dead
+    row, not an `alert("managed in the desktop app")`, not a placeholder. Before claiming a feature
+    can't be built, PROVE the gap: grep the ts-rest contract AND the NestJS controllers
+    (`apps/api/src/**/*.controller.ts`) — many real endpoints (change-password, MFA enroll/activate/
+    disable, recovery-codes, sessions list/revoke) live as plain REST routes OUTSIDE the ts-rest
+    contract and are callable via `fetch` (see `apps/mobile/src/lib/auth-api.ts`). Only when an
+    endpoint genuinely does not exist may you defer — and then you flag it honestly in
+    `progress_mobile.md` "Known issues", never disguise it as working. Deferring designed, buildable
+    behaviour to "the web app" is a defect, not a decision.
+11. **The mobile app must feel native, edge-to-edge, on device AND as an installed PWA.** Full
+    height (`100dvh`), `viewport-fit=cover`, real safe-area insets (top notch + bottom home indicator)
+    honoured on iOS/Android standalone (Add to Home Screen) and native builds alike. A screen that
+    letterboxes or clips at the system insets is a defect.
 
 ## Settled architecture decisions (do not re-litigate; see PROGRESS.md Decisions log for why)
 - **Identity is shared, not per-tenant.** A person is one row in `control.users` (email globally
