@@ -226,7 +226,19 @@ fidelity → M16 security-made-real → M17 capture hardware → M18 profile/pre
     on html/body/#root so a content drag can't trigger a browser/OS history-back that slides the whole page
     (tab bar included). (Honest limit: iOS still owns the very-edge *system* swipe on a standalone PWA — no
     web API disables that — but the content-drag navigation that caused the awkward motion is gone.)
-  - ⏳ **QR/asset scan** (real expo-camera barcode) — next slice of M17.
+  - ✅ **QR/asset scan** (`app/scan.tsx` + `stores/scan.ts`): full-screen scanner — **native** live
+    barcode/QR via `expo-camera` `CameraView` (`onBarcodeScanned`, camera-permission-gated through the
+    shared flow), **web/no-camera** falls back to honest manual entry (no fake camera). `expo-camera` is
+    isolated behind a Metro platform extension (`ScanCamera.native/.web/.tsx`) so it never enters the web
+    bundle. Wired into Quick-Log: a scan button hands the code back via the scan store → shows an asset
+    chip → included in the logged NCR. Browser-verified: `/scan` renders the manual fallback, no bundle
+    error after the platform split.
+  - ✅ **Bug found + fixed:** the M16 Two-factor screen went blank when its MFA-status fetch raced ahead
+    of session hydration (mode→"status" with null status). Now tenant-gated (skeletons until the session
+    is ready) with an error+retry fallback; verified it renders the real not-enrolled state.
+  - Note: `expo-clipboard` threw an `UnableToResolveError` only because the dev Metro server predated its
+    install — it's in `package.json` (`~57.0.1`) + installed, so a fresh build/CI/device resolves it; a
+    server restart cleared the stale cache.
   - ⏳ Voice→text quick-log stays honestly flagged (no transcription backend).
 
 ## Superseded status (M0–M13)

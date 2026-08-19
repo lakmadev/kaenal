@@ -15,11 +15,13 @@ import {
   type AccountApiError,
   type MfaStatus,
 } from "@/lib/account-api";
+import { useSession } from "@/stores/session";
 import { useTheme } from "@/theme";
-import { Body, Button, Card, Icon, Mono, Screen, SectionLabel, Skeleton, Text } from "@/ui";
+import { Body, Button, Card, EmptyState, Icon, Mono, Screen, SectionLabel, Skeleton, Text } from "@/ui";
 
 type Mode =
   | { k: "loading" }
+  | { k: "error" }
   | { k: "status" }
   | { k: "enroll"; qr: string; secret: string; code: string; err: string | null; busy: boolean }
   | { k: "codes"; codes: string[]; heading: string }
@@ -41,22 +43,26 @@ export default function TwoFactor() {
   const router = useRouter();
   const { palette, radius } = useTheme();
   const { contentMaxWidth } = useLayout();
+  const tenant = useSession((s) => s.tenant);
   const [status, setStatus] = useState<MfaStatus | null>(null);
   const [mode, setMode] = useState<Mode>({ k: "loading" });
 
   const refresh = useCallback(async () => {
+    setMode({ k: "loading" });
     try {
       const s = await getMfaStatus();
       setStatus(s);
       setMode({ k: "status" });
     } catch {
-      setMode({ k: "status" });
+      // A failed status fetch must not leave a blank screen (05 §4 offline).
+      setMode({ k: "error" });
     }
   }, []);
 
+  // Wait for the session to hydrate before the first fetch (avoids a 401 race).
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (tenant !== null) void refresh();
+  }, [tenant, refresh]);
 
   async function beginEnroll(): Promise<void> {
     setMode({ k: "loading" });
@@ -111,6 +117,15 @@ export default function TwoFactor() {
                 <Skeleton key={i} width="100%" height={30} />
               ))}
             </Card>
+          )}
+
+          {mode.k === "error" && (
+            <View style={{ gap: 12 }}>
+              <EmptyState icon="cloudOff" title="Couldn't load two-factor" body="You may be offline. It returns when you reconnect." />
+              <Button variant="ghost" icon="refresh" onPress={() => void refresh()}>
+                Try again
+              </Button>
+            </View>
           )}
 
           {mode.k === "status" && status && !status.enrolled && (

@@ -11,6 +11,7 @@ import { useLayout } from "@/hooks/use-layout";
 import { apiClient } from "@/lib/api";
 import { services } from "@/services";
 import { ensurePermission, promptOpenSettings } from "@/services/permissions";
+import { useScan } from "@/stores/scan";
 import { useTheme } from "@/theme";
 import { Body, Button, Card, Icon, Screen, SectionLabel, StatusPill, Text } from "@/ui";
 
@@ -28,6 +29,17 @@ export default function Capture() {
   const [photoIds, setPhotoIds] = useState<string[]>([]);
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locBlocked, setLocBlocked] = useState(false);
+  const [asset, setAsset] = useState<string | null>(null);
+  const scanResult = useScan((s) => s.result);
+  const clearScan = useScan((s) => s.clear);
+
+  // Consume a scanned asset/area code handed back from the /scan route.
+  useEffect(() => {
+    if (scanResult) {
+      setAsset(scanResult);
+      clearScan();
+    }
+  }, [scanResult, clearScan]);
   const [structured, setStructured] = useState<{ value: string; confidence: string } | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [logging, setLogging] = useState(false);
@@ -71,7 +83,12 @@ export default function Capture() {
     setLogging(true);
     try {
       const title = note.trim().split("\n")[0]!.slice(0, 120);
-      const description = [note.trim(), structured ? `\n\nAI structured:\n${structured.value}` : "", coords ? `\n\nGPS: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}` : ""].join("");
+      const description = [
+        note.trim(),
+        asset ? `\n\nAsset: ${asset}` : "",
+        structured ? `\n\nAI structured:\n${structured.value}` : "",
+        coords ? `\n\nGPS: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}` : "",
+      ].join("");
       const res = await apiClient.createNcr({ body: { title, description, priority: severity, source: "manual" } });
       if (res.status === 201) {
         router.replace("/(app)/home");
@@ -190,6 +207,25 @@ export default function Capture() {
             </StatusPill>
           </Card>
 
+          {asset && (
+            <Card style={{ padding: 12, flexDirection: "row", gap: 10, alignItems: "center" }}>
+              <View style={{ width: 32, height: 32, borderRadius: radius.md, backgroundColor: palette.accentSoft, alignItems: "center", justifyContent: "center" }}>
+                <Icon name="hash" size={16} color={palette.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text size={13.5} weight="semibold">
+                  Asset {asset}
+                </Text>
+                <Text size={11} tone="muted">
+                  Scanned · added to this log
+                </Text>
+              </View>
+              <Pressable onPress={() => setAsset(null)} hitSlop={8}>
+                <Icon name="x" size={16} color={palette.muted} />
+              </Pressable>
+            </Card>
+          )}
+
           <Card style={{ padding: 12, backgroundColor: palette.bgSubtle, borderWidth: 0, flexDirection: "row", gap: 10, alignItems: "center" }}>
             <Icon name="mic" size={16} color={palette.muted} />
             <Text size={12} tone="muted" style={{ flex: 1, lineHeight: 17 }}>
@@ -204,6 +240,17 @@ export default function Capture() {
         <Pressable onPress={() => void addFromCamera()}>
           <View style={{ width: 48, height: 48, borderRadius: radius.lg, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" }}>
             <Icon name="camera" size={19} color={palette.text} />
+          </View>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            clearScan();
+            router.push("/scan");
+          }}
+          accessibilityLabel="Scan asset code"
+        >
+          <View style={{ width: 48, height: 48, borderRadius: radius.lg, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" }}>
+            <Icon name="hash" size={19} color={palette.text} />
           </View>
         </Pressable>
         <Button icon="arrowRight" style={{ flex: 1 }} loading={logging} disabled={!canLog} onPress={() => void logIt()}>
