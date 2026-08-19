@@ -3,10 +3,11 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { enqueueEightDStep } from "@/features/work/offline";
+import { AssigneeSheet } from "@/features/assign/AssigneeSheet";
+import { enqueueAssignEightD, enqueueEightDStep } from "@/features/work/offline";
 import { useEightD } from "@/features/work/queries";
 import { useLayout } from "@/hooks/use-layout";
-import { useSession } from "@/stores/session";
+import { useCapabilities, useSession } from "@/stores/session";
 import { useTheme } from "@/theme";
 import { Body, Button, Card, Icon, Mono, Screen, SectionLabel, Skeleton, StatusPill, SyncPill, Text } from "@/ui";
 import { engine } from "@/sync";
@@ -22,10 +23,20 @@ export default function EightDFollow() {
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
   const userId = useSession((s) => s.me?.userId);
+  const caps = useCapabilities();
   const { data: ed, isLoading, refetch } = useEightD(id ?? "");
   const [busy, setBusy] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
 
   const mine = ed !== undefined && (ed.teamLeadId === userId || ed.championId === userId || ed.memberIds.includes(userId ?? ""));
+  const canManage = caps.includes("ncr:manage");
+
+  async function assignLead(teamLeadId: string | null): Promise<void> {
+    if (!ed) return;
+    await enqueueAssignEightD(ed, teamLeadId);
+    await engine.sync();
+    await refetch();
+  }
 
   async function completeStep(step: number): Promise<void> {
     if (!ed) return;
@@ -50,6 +61,11 @@ export default function EightDFollow() {
             {ed?.code ?? "…"}
           </Mono>
           <View style={{ flex: 1 }} />
+          {ed && canManage && (
+            <Pressable onPress={() => setAssignOpen(true)} hitSlop={8} style={{ padding: 4, marginRight: 4 }} accessibilityLabel="Reassign team lead">
+              <Icon name="users" size={19} color={palette.muted} />
+            </Pressable>
+          )}
           {ed ? <StatusPill tone="progress">D{ed.currentStep} of 8</StatusPill> : <SyncPill state="synced" />}
         </View>
         <View style={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: 14 }}>
@@ -146,6 +162,17 @@ export default function EightDFollow() {
           )}
         </View>
       </Body>
+
+      {ed && (
+        <AssigneeSheet
+          visible={assignOpen}
+          onClose={() => setAssignOpen(false)}
+          title="Assign 8D team lead"
+          code={ed.code}
+          currentOwnerId={ed.teamLeadId}
+          onPick={(userId2) => assignLead(userId2)}
+        />
+      )}
     </Screen>
   );
 }

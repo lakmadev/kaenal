@@ -1,6 +1,8 @@
 import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 
+import { ApprovalDetailView } from "@/features/oversight/ApprovalDetailView";
 import { usePendingApprovals } from "@/features/oversight/queries";
 import { useLayout } from "@/hooks/use-layout";
 import { useRole, useSession } from "@/stores/session";
@@ -19,21 +21,36 @@ function ago(iso: string): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
-// m-oversight.jsx ApprovalsInbox — documents awaiting the manager's approval.
+// m-oversight.jsx ApprovalsInbox — documents awaiting the manager's approval. On
+// a phone a row → the approval route; on a tablet (≥768pt) it's a master-detail
+// two-pane (m-tablet.jsx): the inbox on the left, the item review on the right.
 export default function Approvals() {
   const router = useRouter();
   const me = useSession((s) => s.me);
   const role = useRole();
   const sync = useSync((s) => s.state);
-  const { contentMaxWidth } = useLayout();
-  const { data, isLoading, isError } = usePendingApprovals();
+  const { palette } = useTheme();
+  const { contentMaxWidth, isTablet } = useLayout();
+  const { data, isLoading, isError, refetch } = usePendingApprovals();
   const items = data ?? [];
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  return (
+  useEffect(() => {
+    if (!isTablet) return;
+    if (items.length === 0) setSelectedId(null);
+    else if (selectedId === null || !items.some((d) => d.id === selectedId)) setSelectedId(items[0]!.id);
+  }, [isTablet, items, selectedId]);
+
+  function onRow(docId: string): void {
+    if (isTablet) setSelectedId(docId);
+    else router.push(`/approval/${docId}`);
+  }
+
+  const master = (
     <Screen>
       <Header overline={me ? `${ROLE_LABEL[role]} · ${me.plants[0]?.name ?? me.tenantName}` : undefined} title="Approvals" sync={sync} />
       <Body contentStyle={{ alignItems: "center" }}>
-        <View style={{ width: "100%", maxWidth: contentMaxWidth }}>
+        <View style={{ width: "100%", maxWidth: isTablet ? undefined : contentMaxWidth }}>
           {isLoading ? (
             <LoadingRows />
           ) : isError ? (
@@ -41,20 +58,58 @@ export default function Approvals() {
           ) : items.length === 0 ? (
             <EmptyState icon="check" title="Nothing to approve" body="No documents are waiting on your sign-off. Requests appear here and notify you." />
           ) : (
-            items.map((doc) => <ApprovalCard key={doc.id} doc={doc} onPress={() => router.push(`/approval/${doc.id}`)} time={ago(doc.updatedAt)} />)
+            items.map((doc) => (
+              <ApprovalCard key={doc.id} doc={doc} selected={isTablet && doc.id === selectedId} onPress={() => onRow(doc.id)} time={ago(doc.updatedAt)} />
+            ))
           )}
           <View style={{ height: 16 }} />
         </View>
       </Body>
     </Screen>
   );
+
+  if (!isTablet) return master;
+
+  return (
+    <View style={{ flex: 1, flexDirection: "row" }}>
+      <View style={{ width: 360, flexShrink: 0, borderRightWidth: 1, borderRightColor: palette.border }}>{master}</View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {selectedId ? (
+          <ApprovalDetailView id={selectedId} embedded onDone={() => void refetch()} />
+        ) : (
+          <Screen>
+            <Body contentStyle={{ alignItems: "center", justifyContent: "center" }}>
+              <EmptyState icon="check" title="Nothing selected" body="Pick a request from the inbox to review and sign off here." />
+            </Body>
+          </Screen>
+        )}
+      </View>
+    </View>
+  );
 }
 
-function ApprovalCard({ doc, onPress, time }: { doc: { id: string; code: string; title: string; category: string }; onPress: () => void; time: string }) {
+function ApprovalCard({
+  doc,
+  onPress,
+  time,
+  selected = false,
+}: {
+  doc: { id: string; code: string; title: string; category: string };
+  onPress: () => void;
+  time: string;
+  selected?: boolean;
+}) {
   const { palette, radius } = useTheme();
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-      <Card style={{ marginHorizontal: 16, marginTop: 10, padding: 14 }}>
+      <Card
+        style={{
+          marginHorizontal: 16,
+          marginTop: 10,
+          padding: 14,
+          ...(selected ? { backgroundColor: palette.accentSoft, borderColor: palette.accent, borderLeftWidth: 3 } : {}),
+        }}
+      >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <View style={{ width: 38, height: 38, borderRadius: radius.md, backgroundColor: palette.info + (palette.dark ? "26" : "16"), alignItems: "center", justifyContent: "center" }}>
             <Icon name="doc" size={18} color={palette.info} />
