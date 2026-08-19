@@ -16,6 +16,14 @@ All spec paths below are relative to `project_brain/project/`.
 - Build order: backend before frontend; within a phase: database → API → UI. Phases per `implementation/README.md`.
 
 ## Non-negotiable rules (every commit)
+0. **NEVER EVER HALLUCINATE AND START YOUR OWN IMPLEMENTATION. ALWAYS OBEY WHAT IS GIVEN. IF A
+   DESIGN IS GIVEN AND ASKED TO IMPLEMENT, ALWAYS IMPLEMENT PIXEL TO PIXEL INCLUDING FULLY
+   FUNCTIONAL BACKEND WITHOUT MESSING WEB AND MOBILE PLATFORMS.** A designed element is never
+   "buildable but skipped" or "deferred to the web app." If the backend it needs does not exist,
+   **design and build that backend** (migration + contract/REST route + service + tests) as part of
+   the same work. If mobile needs a shape the web endpoint doesn't return, **add a mobile-appropriate
+   endpoint or field** — never degrade the web API and never reshape web behaviour to serve mobile.
+   Web and mobile are independent surfaces that may have their own endpoints; keep both fully working.
 1. TypeScript strict; no `any`.
 2. Every tenant-owned table has `tenant_id` + forced RLS policy + leading-tenant_id index (exact SQL: 02 §1). Run the RLS test suite on every schema change.
 3. Every mutation writes an audit event in the same DB transaction (`withAudit`).

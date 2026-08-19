@@ -191,6 +191,19 @@ export class FilesService {
     return toFileDto(row);
   }
 
+  /** Evidence attached to one entity (files.entity_kind/entity_id), newest first.
+   *  RLS scopes to the tenant; a foreign entity id simply returns an empty list.
+   *  Backs the NCR detail/verify photo strips. */
+  async listByEntity(tx: Tx, entityKind: string, entityId: string): Promise<FileDto[]> {
+    const { rows } = await tx.query<FileRow>(
+      `SELECT ${FILE_COLUMNS} FROM files
+        WHERE entity_kind = $1 AND entity_id = $2 AND deleted_at IS NULL
+        ORDER BY created_at ASC, id ASC LIMIT 100`,
+      [entityKind, entityId],
+    );
+    return rows.map(toFileDto);
+  }
+
   async download(
     tx: Tx,
     tenantId: string,

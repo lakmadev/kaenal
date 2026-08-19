@@ -279,6 +279,25 @@ fidelity → M16 security-made-real → M17 capture hardware → M18 profile/pre
     from a sub-step (scan QR / code prompt / recovery codes) it returns to the status view; from the status
     view it leaves, falling back to `/settings/security` when there's no history to pop.
 
+- [~] **M19.5 — NCR screens: pixel-for-pixel + full backend (rule #0).** IN PROGRESS. Trigger: the five
+  `m-ncr.jsx` screens were wired-but-simplified (designed elements dropped). New governing rule **CLAUDE.md #0**:
+  implement pixel-to-pixel INCLUDING the backend, additive only, without touching web behaviour.
+  - ✅ **M19.5a — Backend (additive, web-safe).** The audit found the schema already carried most of it, just
+    unexposed. **`NcrDto` enriched:** `risk`, `category`, `reporterId` (=`created_by`), `plantName`/`areaName`
+    (correlated sub-selects — no table alias, so the shared keyset/where helpers stay valid), `unitsAffected`
+    (new nullable column, migration `0037`). **`CreateNcrBody`** gained `category`, `containment[]`,
+    `evidenceFileIds[]`: create now persists each containment selection as a real `ncr_actions(kind='containment',
+    status='done')` row and links uploaded evidence files (`files.entity_kind='ncr'`) — all in the audited tx;
+    `listNcrActions` (already fetched by mobile) returns the containment. **`GET /v1/files?entityKind=&entityId=`**
+    (files-by-entity list) backs the detail/verify photo strips. **Activity feed** needs no new endpoint — the
+    existing `GET /v1/audit-events?entityKind=ncr&entityId=` is it; enriched `AuditEventDto` with `actorName`
+    (batched `control.users` lookup) so it reads "Raised by <name>" (also improves the web access log). Gate:
+    typecheck 7/7 · lint · `db:check` 49 tables · api tests green (ncr 11, files 12, audit-log 9, +new: category/
+    containment/reporter/plantName persistence, activity actorName, files-by-entity scoping). **Next: M19.5b**
+    (Detail + Verify pixel-perfect) → **M19.5c** (Create steps 1–3 pixel-perfect).
+  - Honest note (flagged, not faked): `units_affected` is modeled + exposed but no `m-ncr` create step *inputs*
+    it (the mock shows it only in review/detail), so it stays null from mobile until an input exists elsewhere.
+
 ## Superseded status (M0–M13)
 
 **M0–M13 COMPLETE — the mobile/tablet app is done (feature build).** Branch `feat/mobile-app`, pushed; PR #9 open. Every

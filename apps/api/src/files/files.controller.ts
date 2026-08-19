@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
-import { DownloadFileQuery, PresignFileBody, type DownloadFileResult, type FileDto, type PresignFileResult } from "@kaenal/types";
+import { DownloadFileQuery, EntityRefQuery, PresignFileBody, type DownloadFileResult, type FileDto, type PresignFileResult } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
 import { Internal } from "../decorators.js";
 import { parse } from "../http/validate.js";
@@ -38,6 +38,12 @@ export class FilesController {
   @HttpCode(200)
   async complete(@Param("id") id: string): Promise<FileDto> {
     return this.files.complete(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
+  }
+
+  @Get("v1/files")
+  async listByEntity(@Query() query: unknown): Promise<{ items: FileDto[] }> {
+    const q = parse(EntityRefQuery, query);
+    return { items: await this.files.listByEntity(currentTx(), q.entityKind, q.entityId) };
   }
 
   @Get("v1/files/:id")

@@ -45,10 +45,14 @@ interface NcrRow {
   source: string;
   source_id: string | null;
   priority: string;
+  risk: string | null;
+  category: string | null;
   status: string;
   owner_id: string | null;
+  created_by: string | null;
   plant_id: string | null;
   area_id: string | null;
+  units_affected: number | null;
   due_at: Date | null;
   sla_state: string;
   eight_d_id: string | null;
@@ -60,11 +64,22 @@ interface NcrRow {
   lock_version: number;
   created_at: Date;
   updated_at: Date;
+  // Present on the read paths (list/get) via correlated sub-selects; absent on
+  // RETURNING-only paths, where they default to null.
+  plant_name?: string | null;
+  area_name?: string | null;
 }
 
-const NCR_COLUMNS = `id, code, title, description, source, source_id, priority, status, owner_id,
-  plant_id, area_id, due_at, sla_state, eight_d_id, resolved_by, resolved_at, verified_by,
-  verified_at, closed_at, lock_version, created_at, updated_at`;
+const NCR_COLUMNS = `id, code, title, description, source, source_id, priority, risk, category, status,
+  owner_id, created_by, plant_id, area_id, units_affected, due_at, sla_state, eight_d_id, resolved_by,
+  resolved_at, verified_by, verified_at, closed_at, lock_version, created_at, updated_at`;
+
+// Resolved display names for the detail header meta ("Plant A · Line 2"). Kept as
+// correlated sub-selects (not a JOIN) so the table stays un-aliased — the shared
+// keyset/where/ORDER BY helpers reference bare `ncrs` columns unambiguously.
+const NCR_NAME_SUBSELECTS = `,
+  (SELECT name FROM plants WHERE id = ncrs.plant_id) AS plant_name,
+  (SELECT name FROM areas WHERE id = ncrs.area_id) AS area_name`;
 
 const iso = (d: Date | null): string | null => (d === null ? null : d.toISOString());
 
@@ -77,10 +92,16 @@ function toNcrDto(row: NcrRow): NcrDto {
     source: row.source as NcrDto["source"],
     sourceId: row.source_id,
     priority: row.priority as NcrPriority,
+    risk: (row.risk as NcrDto["risk"]) ?? null,
+    category: row.category,
     status: row.status as NcrStatus,
     ownerId: row.owner_id,
+    reporterId: row.created_by,
     plantId: row.plant_id,
     areaId: row.area_id,
+    plantName: row.plant_name ?? null,
+    areaName: row.area_name ?? null,
+    unitsAffected: row.units_affected,
     dueAt: iso(row.due_at),
     slaState: row.sla_state as NcrDto["slaState"],
     eightDId: row.eight_d_id,
@@ -171,7 +192,7 @@ export class NcrService {
     params.push(limit + 1);
 
     const { rows } = await tx.query<NcrRow>(
-      `SELECT ${NCR_COLUMNS} FROM ncrs ${where} ${keyset.sql}
+      `SELECT ${NCR_COLUMNS}${NCR_NAME_SUBSELECTS} FROM ncrs ${where} ${keyset.sql}
         ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,
       params,
     );
@@ -256,10 +277,10 @@ export class NcrService {
 
         const { rows } = await t.query<NcrRow>(
           `INSERT INTO ncrs
-             (id, tenant_id, code, title, description, source, source_id, priority, status,
+             (id, tenant_id, code, title, description, source, source_id, priority, category, status,
               plant_id, area_id, due_at, sla_state, created_by, updated_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'open',$9,$10,$11,'on_track',$12,$12)
-           RETURNING ${NCR_COLUMNS}`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,'on_track',$13,$13)
+           RETURNING ${NCR_COLUMNS}${NCR_NAME_SUBSELECTS}`,
           [
             id,
             tenantId,
@@ -269,6 +290,7 @@ export class NcrService {
             source,
             sourceId,
             body.priority,
+            body.category ?? null,
             plantId,
             body.areaId ?? null,
             dueAt,
@@ -277,6 +299,32 @@ export class NcrService {
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "NCR was not created");
+
+        // Persist selected immediate containment as real ncr_actions rows
+        // (kind='containment') — the create design's checklist, made durable and
+        // returned by listNcrActions. Each is audited implicitly by the parent tx.
+        if (body.containment !== undefined && body.containment.length > 0) {
+          for (const text of body.containment) {
+            const label = text.trim();
+            if (label.length === 0) continue;
+            await t.query(
+              `INSERT INTO ncr_actions (id, tenant_id, ncr_id, kind, description, status, created_by, updated_by)
+               VALUES ($1,$2,$3,'containment',$4,'done',$5,$5)`,
+              [randomUUID(), tenantId, id, label.slice(0, 2000), actorId],
+            );
+          }
+        }
+
+        // Link uploaded evidence files to this NCR (files.entity_kind/entity_id)
+        // so the detail/verify photo strips can list them. Only files that are
+        // still unattached and owned by this tenant are claimed.
+        if (body.evidenceFileIds !== undefined && body.evidenceFileIds.length > 0) {
+          await t.query(
+            `UPDATE files SET entity_kind = 'ncr', entity_id = $1, updated_at = now()
+              WHERE id = ANY($2::uuid[]) AND entity_id IS NULL AND deleted_at IS NULL`,
+            [id, body.evidenceFileIds],
+          );
+        }
 
         if (finding !== null) {
           // Link the finding. The WHERE re-checks it is still unlinked, so two
@@ -596,7 +644,7 @@ export class NcrService {
 
   private async fetch(tx: Tx, id: string): Promise<NcrRow | null> {
     const { rows } = await tx.query<NcrRow>(
-      `SELECT ${NCR_COLUMNS} FROM ncrs WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT ${NCR_COLUMNS}${NCR_NAME_SUBSELECTS} FROM ncrs WHERE id = $1 AND deleted_at IS NULL`,
       [id],
     );
     return rows[0] ?? null;
@@ -695,7 +743,7 @@ export class NcrService {
     extraParams: unknown[],
   ): Promise<NcrDto> {
     const { rows } = await tx.query<NcrRow>(
-      `UPDATE ncrs SET ${setClause} WHERE id = $1 AND lock_version = $2 RETURNING ${NCR_COLUMNS}`,
+      `UPDATE ncrs SET ${setClause} WHERE id = $1 AND lock_version = $2 RETURNING ${NCR_COLUMNS}${NCR_NAME_SUBSELECTS}`,
       [id, expectedVersion, ...extraParams],
     );
     const row = rows[0];

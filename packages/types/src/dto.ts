@@ -220,10 +220,21 @@ export const NcrDto = z.object({
   source: NcrSource,
   sourceId: z.string().uuid().nullable(),
   priority: NcrPriority,
+  /** Optional risk band (independent of severity/priority) — mobile detail "Details". */
+  risk: z.enum(["low", "medium", "high", "critical"]).nullable(),
+  /** Free-text category (e.g. "Weld defect / porosity") — mobile detail + create. */
+  category: z.string().nullable(),
   status: NcrStatus,
   ownerId: z.string().uuid().nullable(),
+  /** Who raised the NCR (=created_by) — the detail's "Reporter" row. */
+  reporterId: z.string().uuid().nullable(),
   plantId: z.string().uuid().nullable(),
   areaId: z.string().uuid().nullable(),
+  /** Resolved display names for the detail header meta ("Plant A · Line 2"). */
+  plantName: z.string().nullable(),
+  areaName: z.string().nullable(),
+  /** Units affected, lifted from `impact` — shown in the create review + detail. */
+  unitsAffected: z.number().int().nonnegative().nullable(),
   dueAt: z.string().datetime().nullable(),
   slaState: SlaState,
   /** The 8D raised from this NCR, if any — the list's "Linked 8D" column and
@@ -244,12 +255,19 @@ export const CreateNcrBody = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(8000).nullable().optional(),
   priority: NcrPriority,
+  /** Free-text category (m-ncr create step 2) — persisted on the NCR. */
+  category: z.string().max(120).nullable().optional(),
   source: NcrSource.optional(),
   sourceId: z.string().uuid().nullable().optional(),
   /** Raising an NCR from a finding links the finding and defaults the source. */
   findingId: z.string().uuid().optional(),
   plantId: z.string().uuid().nullable().optional(),
   areaId: z.string().uuid().nullable().optional(),
+  /** Immediate-containment checklist selections — each becomes a done
+   *  ncr_actions(kind='containment') row in the same transaction. */
+  containment: z.array(z.string().min(1).max(2000)).max(20).optional(),
+  /** Evidence files already uploaded via presign; linked to this NCR on create. */
+  evidenceFileIds: z.array(z.string().uuid()).max(20).optional(),
 });
 export type CreateNcrBody = z.infer<typeof CreateNcrBody>;
 
@@ -992,6 +1010,9 @@ export const AuditEventDto = z.object({
   entityKind: z.string(),
   entityId: z.string().uuid(),
   actorId: z.string().uuid().nullable(),
+  /** Actor's display name, resolved server-side (null for system/unknown
+   *  actors) — the access-log / activity-feed line ("Raised by Sara Chen"). */
+  actorName: z.string().nullable(),
   actorKind: z.string(),
   action: AuditAction,
   reason: z.string().nullable(),

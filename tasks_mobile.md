@@ -125,6 +125,50 @@ sync-queue, notifications, and the tablet **side rail**. Remaining, grounded gap
 
 ---
 
+## M19.5 — NCR screens: pixel-for-pixel + full backend (rule #0)  ← IN PROGRESS
+Trigger: the five `m-ncr.jsx` screens are wired-but-simplified — designed elements dropped. Rule #0
+(CLAUDE.md): implement pixel-to-pixel INCLUDING the backend, additive only, without touching web behaviour.
+
+**Grounding (verified — the schema already carries most of this):**
+- `ncrs` table already has `category`, `risk`, `created_by` (reporter), `impact jsonb`, `plant_id`,
+  `area_id`, `created_at` — just not exposed in `NcrDto`.
+- `ncr_actions.kind IN ('containment','corrective','preventive')` already models containment;
+  `listNcrActions` exists AND mobile already fetches it (`useNcrActions`) but never renders it.
+- `files.entityKind/entityId` already attach evidence to any entity; presign accepts them.
+- `audit_events(entity_kind,entity_id,action,actor_id,created_at)` — every `withAudit` NCR mutation
+  is an activity row. This is the Activity feed source.
+- Comments API (`listComments`/`createComment`) exists; mobile's Comment button is a dead `alert()`.
+
+**M19.5a — Backend (additive, web-safe; one migration if any, contract + service + tests):**
+- [ ] Enrich `NcrDto`: `category`, `risk`, `reporterId` (=created_by), `plantName`, `areaName`
+  (LEFT JOIN plants/areas), `unitsAffected` (from `impact`). Map existing columns; 2 joins. Web ignores new fields.
+- [ ] `CreateNcrBody`: add `category?`, `containment?: string[]`, `evidenceFileIds?: string[]`. Create
+  persists containment as `ncr_actions(kind='containment')` and links files (`entity_kind='ncr'`) — all in the audited tx.
+- [ ] `GET /v1/files?entityKind=&entityId=` list (reuse the comments/links `?entityKind&entityId` selector
+  pattern) → evidence strips on detail/verify. Returns download URLs.
+- [ ] `GET /v1/ncrs/:id/activity` → audit_events for the NCR (actor name + action + ts), newest first,
+  cursor-paged. The detail Activity feed.
+- [ ] Tests: DTO fields populated; create persists containment+evidence; files-by-entity list scoped + RLS;
+  activity list scoped + RLS; cross-tenant 404. `pnpm db:check` if a migration lands.
+
+**M19.5b — Mobile Detail + Verify pixel-perfect:**
+- [ ] Detail: evidence **photo strip**, location+timestamp **meta line**, full **Details** (Reporter, Owner,
+  Category, Severity, Due), **Activity feed** (render `useNcrActions`→lifecycle via the new activity endpoint),
+  real **Comment** (comments sheet, not `alert()`), 8D banner. All per `NcrDetail`.
+- [ ] Verify: **"Evidence to verify"** list (resolution `ncr_actions` corrective/preventive + attached files),
+  decision, note, action — per `NcrVerify`.
+
+**M19.5c — Mobile Create Steps 1–3 pixel-perfect:**
+- [ ] Step 1 `NcrCreateStep1`: **method chooser** (Photo+AI / Voice / Manual / Scan — Voice/AI honestly
+  flagged, Scan → /scan), Location card + hint, Asset/part scan row.
+- [ ] Step 2 `NcrCreate`: evidence grid w/ AI badge, Severity **+ Category** selector, location/part card,
+  containment checklist (persists), **"Open an 8D?" banner**.
+- [ ] Step 3 `NcrCreateStep3`: summary + review rows (Containment / 8D / Notify) with **Edit** links + thumbnails.
+- [ ] Any element that still can't be backed (e.g. AI-from-photo vision) stays an **honest flagged note**,
+  never a fake — logged in `progress_mobile.md`.
+
+**Sequencing:** M19.5a (backend) → M19.5b → M19.5c, each committed + gated + browser-verified, before M20.
+
 ## M20 — Assign / reassign work (AssignSheet)
 - [ ] `AssigneeSheet` bottom-sheet component (design `m-oversight.jsx AssignSheet`): drag handle, entity ref,
   teammate **search** over `/v1/members`, per-teammate workload hint + selectable row, primary "Assign to X".

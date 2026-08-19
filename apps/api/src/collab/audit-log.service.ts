@@ -137,12 +137,13 @@ function humanizeKind(kind: string): string {
   );
 }
 
-function toDto(row: AuditEventRow): AuditEventDto {
+function toDto(row: AuditEventRow, actorNames?: ReadonlyMap<string, string>): AuditEventDto {
   return {
     id: row.id,
     entityKind: row.entity_kind,
     entityId: row.entity_id,
     actorId: row.actor_id,
+    actorName: row.actor_id !== null ? (actorNames?.get(row.actor_id) ?? null) : null,
     actorKind: row.actor_kind,
     action: row.action as AuditAction,
     reason: row.reason,
@@ -189,7 +190,10 @@ export class AuditLogService {
         ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,
       params,
     );
-    return toPage(rows, limit, toDto);
+    // Resolve actor display names in one batched lookup so the activity feed
+    // reads "Raised by Sara Chen" without an N-way join or a client round-trip.
+    const actorNames = await resolveActorNames(tx, rows);
+    return toPage(rows, limit, (r) => toDto(r, actorNames));
   }
 
   /**
@@ -281,7 +285,7 @@ function buildTenantWhere(filters: AuditLogFilters): { where: string; params: un
 /** Batched actor → display name, resolved from shared identity (`control.users`). */
 async function resolveActorNames(
   tx: Tx,
-  rows: readonly TenantAuditRow[],
+  rows: readonly { actor_id: string | null }[],
 ): Promise<Map<string, string>> {
   const ids = [...new Set(rows.map((r) => r.actor_id).filter((id): id is string => id !== null))];
   const out = new Map<string, string>();
