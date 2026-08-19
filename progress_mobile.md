@@ -196,6 +196,23 @@ fidelity → M16 security-made-real → M17 capture hardware → M18 profile/pre
   Build (1.0.0 / — / development / Expo SDK 57 · web) + Workspace (Acme / demo@acme.test) + Legal links,
   edge-to-edge under the M14 shell. Gate: typecheck 7/7 · lint · 44 tests.
 
+- [x] **M16 — Security section made real (no more "manage in desktop" stubs).** ✅ Wired the real REST
+  endpoints (outside the ts-rest contract, called via `lib/account-api.ts` with bearer + tenant; bearer
+  skips CSRF like every other mobile mutation). **`settings/security.tsx`** reworked to `m-settings-detail`
+  fidelity: **real MFA status** (`GET /v1/auth/mfa`), **real active sessions** (`GET /v1/auth/sessions`)
+  with per-device **Revoke** (`POST …/:id/revoke`) + **Sign out all other devices** (`revoke-others`),
+  biometric toggle, and links to the real Two-factor / Change-password screens. **`settings/two-factor.tsx`**
+  — full flow: status → enrol (scan real QR from `POST …/mfa/enroll` + manual secret) → verify code
+  (`activate`) → show one-time recovery codes; plus disable + regenerate recovery codes (each code-gated).
+  **`settings/change-password.tsx`** — current + new (strength meter) + confirm → `POST …/change-password`.
+  Added a danger-tinted ghost `tone`, a `copy` icon, `expo-clipboard`, and a generic `confirmDestructive`.
+  Browser-verified as `demo@acme.test`: Security showed real MFA=Off + **3 real sessions** (incl. the
+  reviewer's iPhone·Safari at 192.168.178.42 and "this device" = Current); Two-factor rendered the real
+  not-enrolled state; a direct round-trip proved `mfa` (enrolled:false), `mfa/enroll` (real `data:image`
+  QR + `otpauth://…` secret) and `sessions` (3). Change-password renders with a full-width action. Gate:
+  typecheck 7/7 · lint · 44 tests. (Verification note: the browser automation can't fire RN-web
+  `Pressable.onPress` reliably, so the enrol *button* tap was proven via the API round-trip, not a click.)
+
 ## Superseded status (M0–M13)
 
 **M0–M13 COMPLETE — the mobile/tablet app is done (feature build).** Branch `feat/mobile-app`, pushed; PR #9 open. Every

@@ -28,3 +28,20 @@ export function confirmIfUnsynced(action: "sign out" | "switch workspace"): Prom
     ]);
   });
 }
+
+/**
+ * Generic destructive-action confirm (revoke a session, sign out other devices…).
+ * Resolves true if the user confirmed. Native Alert on device, window.confirm on web.
+ */
+export function confirmDestructive(title: string, message: string, confirmLabel = "Confirm"): Promise<boolean> {
+  if (Platform.OS === "web") {
+    const ok = typeof globalThis.confirm === "function" ? globalThis.confirm(`${title}\n\n${message}`) : true;
+    return Promise.resolve(ok);
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+      { text: confirmLabel, style: "destructive", onPress: () => resolve(true) },
+    ]);
+  });
+}
