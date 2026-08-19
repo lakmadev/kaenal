@@ -12,7 +12,7 @@ import { useLayout } from "@/hooks/use-layout";
 import { useCapabilities, useSession } from "@/stores/session";
 import { useSync } from "@/stores/sync";
 import { useTheme } from "@/theme";
-import { Body, Card, EmptyState, Header, Icon, Screen, Skeleton } from "@/ui";
+import { Body, Card, EmptyState, ErrorState, Header, Icon, Screen, Skeleton } from "@/ui";
 
 const OPEN = new Set<NcrDto["status"]>(["draft", "open", "assigned", "in_progress", "reopened", "escalated"]);
 type Filter = "open" | "verify" | "closed";
@@ -29,7 +29,7 @@ export default function Ncr() {
   const { contentMaxWidth, isTablet } = useLayout();
   const [filter, setFilter] = useState<Filter>("open");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const { data, isLoading, isError } = useNcrs();
+  const { data, isLoading, isError, refetch } = useNcrs();
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const counts = useMemo(() => {
@@ -102,7 +102,9 @@ export default function Ncr() {
           {isLoading ? (
             <LoadingRows />
           ) : isError ? (
-            <EmptyState icon="cloudOff" title="Couldn't load NCRs" body="You may be offline. Your last synced list returns when you reconnect." />
+            <View style={{ minHeight: 320 }}>
+              <ErrorState title="Couldn't load NCRs" body="You may be offline. Your last synced list returns when you reconnect." onRetry={() => void refetch()} />
+            </View>
           ) : filtered.length === 0 ? (
             <EmptyState icon="check" title="Nothing here" body="No non-conformances in this view. Raise one from a failed check or the Quick-Log." />
           ) : (
