@@ -18,4 +18,5 @@ export { Row, type RowProps } from "./Row";
 export { Skeleton, EmptyState } from "./feedback";
 export { Header, BellButton, Badge, type HeaderProps } from "./Header";
 export { TabBar, type TabItem } from "./TabBar";
+export { SideRail } from "./SideRail";
 export { ThemeToggle } from "./ThemeToggle";

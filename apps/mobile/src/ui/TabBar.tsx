@@ -46,6 +46,8 @@ export function TabBar({
             <View key={t.id} style={{ flex: 1, alignItems: "center" }}>
               <Pressable
                 onPress={() => onPress?.(t.id)}
+                accessibilityRole="button"
+                accessibilityLabel="Capture"
                 style={({ pressed }) => ({
                   width: 48,
                   height: 48,
@@ -73,7 +75,10 @@ export function TabBar({
           <Pressable
             key={t.id}
             onPress={() => onPress?.(t.id)}
-            style={{ flex: 1, alignItems: "center", gap: 3, paddingVertical: 2 }}
+            accessibilityRole="tab"
+            accessibilityLabel={t.label}
+            accessibilityState={{ selected: on }}
+            style={{ flex: 1, alignItems: "center", gap: 3, paddingVertical: 2, minHeight: 44, justifyContent: "flex-end" }}
           >
             <View>
               {t.icon && <Icon name={t.icon} size={22} stroke={on ? 2.3 : 1.9} color={color} />}

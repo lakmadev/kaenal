@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { Animated, Easing, View, type DimensionValue } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { AccessibilityInfo, Animated, Easing, View, type DimensionValue } from "react-native";
 
 import { useTheme } from "../theme";
 import { Icon, type IconName } from "./Icon";
@@ -19,8 +19,24 @@ export function Skeleton({
 }) {
   const { palette, radius } = useTheme();
   const pulse = useRef(new Animated.Value(0.4)).current;
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  // Honour the OS "reduce motion" setting: a static block instead of a pulse.
+  useEffect(() => {
+    let alive = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then((v) => alive && setReduceMotion(v));
+    const sub = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    return () => {
+      alive = false;
+      sub.remove();
+    };
+  }, []);
 
   useEffect(() => {
+    if (reduceMotion) {
+      pulse.setValue(0.6);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 750, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -29,7 +45,7 @@ export function Skeleton({
     );
     loop.start();
     return () => loop.stop();
-  }, [pulse]);
+  }, [pulse, reduceMotion]);
 
   return (
     <Animated.View

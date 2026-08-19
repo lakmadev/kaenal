@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
 import { useTheme } from "../theme";
@@ -17,8 +17,9 @@ export interface RowProps {
   onPress?: () => void;
 }
 
-/** List item with an optional leading icon tile, title/subtitle, and trailing slot. */
-export function Row({ title, sub, icon, iconTone, right, chevron, last, onPress }: RowProps) {
+/** List item with an optional leading icon tile, title/subtitle, and trailing slot.
+ *  Memoised — list rows re-render only when their own props change (05 §9 perf). */
+function RowBase({ title, sub, icon, iconTone, right, chevron, last, onPress }: RowProps) {
   const { palette, radius } = useTheme();
   const tint = iconTone ?? palette.accent;
   const body = (
@@ -64,8 +65,15 @@ export function Row({ title, sub, icon, iconTone, right, chevron, last, onPress 
 
   if (!onPress) return body;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={sub ? `${title}, ${sub}` : title}
+      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+    >
       {body}
     </Pressable>
   );
 }
+
+export const Row = memo(RowBase);

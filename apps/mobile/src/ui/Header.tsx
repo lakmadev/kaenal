@@ -67,6 +67,8 @@ export function BellButton({ count = 0, onPress }: { count?: number; onPress?: (
     <Pressable
       onPress={onPress}
       hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={count > 0 ? `Notifications, ${count} unread` : "Notifications"}
       style={{
         width: 34,
         height: 34,

@@ -136,8 +136,12 @@ resume from **Current status**, update it in the same commit as the work.
   Security (MFA status + biometric toggle), Offline & storage (real gauge + prefs + clear cache),
   Notification prefs (device toggles), Appearance (real theme → instant recolor), and the unsynced
   sign-out guard. Sync pill → queue, bell → notifications wired.
-- [ ] **M12 — Tablet adaptive polish + accessibility + perf pass.** Master-detail/side-rail/split-view;
-  Dynamic Type, reduced-motion, VoiceOver/TalkBack labels, WCAG AA; FlashList/memo/Hermes/bundle audit.
+- [x] **M12 — Tablet adaptive polish + accessibility + perf pass.** ✅ Tablet **side rail** (bottom tabs
+  promoted to a left rail at ≥768pt via a `<Slot>`-based layout, m-tablet.jsx) with working nav + active
+  state; **accessibility** roles/labels on the shared UI (Button/Row/TabBar/SideRail/BellButton — `tab`/
+  `button` roles + spoken labels + selected/disabled state, ≥44pt targets); **reduced-motion** honoured in
+  the Skeleton; **perf** — `Row` memoised. Master-detail two-pane split-view + FlashList migration +
+  Dynamic-Type/contrast audit flagged as remaining polish.
 - [ ] **M13 — Device integration + E2E + EAS.** Push deep-links, biometric, real device flows end-to-end;
   Maestro smoke; EAS build/update config.
 
@@ -145,16 +149,16 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M12 — Tablet + a11y + perf: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M11 done,
-committed, browser-verified against the live API. M11 shipped System & Settings — the real sync queue
-(pending/failed/needs-review + retry/discard + storage gauge, backed by the live offline engine), real
-Notifications, and the Settings root + 5 sub-pages (Profile / Security / Storage / Notif-prefs /
-Appearance) with the theme selector recoloring the app live. Next (M12): Tablet adaptive polish
-(master-detail / side-rail / split-view), accessibility (Dynamic Type, reduced-motion, VoiceOver/TalkBack
-labels, WCAG AA), and a perf pass (FlashList / memo / Hermes / bundle audit). Still outstanding across
-phases: bind capture/NCR/CAPA **evidence → its entity** (EntityKind has no `file`), a backend
-**`/v1/me/tasks`** aggregation, home-queue deep-links, the assign/reassign sheet, session revocation +
-a mark-read endpoint for notifications, and the 403→pause conflict-reducer nuance.
+**M13 — Device integration + E2E + EAS: NEXT (final phase).** Branch `feat/mobile-app`, pushed; PR #9
+open. M0–M12 done, committed, browser-verified against the live API. M12 shipped the tablet side rail
+(left-edge nav at ≥768pt, verified by resizing the preview to 1100px), the accessibility pass (tab/button
+roles + labels across the shared UI, confirmed in the AT tree), reduced-motion in the Skeleton, and Row
+memoisation. Next (M13, the last phase): push deep-links, biometric + real device flows end-to-end;
+Maestro smoke tests; EAS build/update config. Still outstanding across phases (candidates to fold into
+M13 or a follow-up PR): master-detail two-pane split-view + FlashList migration (M12 polish), bind
+capture/NCR/CAPA **evidence → its entity** (EntityKind has no `file`), a backend **`/v1/me/tasks`**
+aggregation, home-queue deep-links, the assign/reassign sheet, session revocation + a notifications
+mark-read endpoint, and the 403→pause conflict-reducer nuance.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -238,6 +242,16 @@ a mark-read endpoint for notifications, and the 403→pause conflict-reducer nua
   (inspector=me) + 8Ds I'm on the team for, from the existing plant-scoped lists. Honest limitation: it only
   sees in-scope items — a `/v1/me/tasks` aggregation (like M5's dashboard) would make it exhaustive. 8D +
   CAPA writes (`eightd.step`, `capa.action.status`) are durable offline mutations.
+- (M12) **Tablet nav switches to a `<Slot>` layout, not a restyled bottom bar.** At ≥768pt the `(app)`
+  layout renders `SideRail` + `<Slot />` (a real left rail beside the content); below it keeps `<Tabs>`.
+  React Navigation can't dock a bottom-tab bar to the left, and the breakpoint rarely flips, so switching
+  navigator shape at the boundary is acceptable (state lives in stores + the query cache). The rail drives
+  navigation via `router.navigate` and derives its active tab from `usePathname`.
+- (M12) **Accessibility is on the shared primitives, so it covers every screen.** `Button` (button role +
+  label + disabled/busy state), `Row` (button role + "title, subtitle" label, and memoised), `TabBar` +
+  `SideRail` (tab role + label + selected state, ≥44pt), `BellButton` (button + unread-count label). The
+  Skeleton honours `AccessibilityInfo.isReduceMotionEnabled` (static block, no pulse). Verified in the AT
+  tree (read_page showed `tab "Pulse"`, `button "Notifications"`, …).
 - (M11) **The sync queue is a real view over the offline engine, not a mock.** `sync-queue.tsx` reads
   `services.syncStore.listMutations()/listFiles()` and re-reads on every `useSync` pill change; the engine
   gained `retryMutation(id)` (reset failed/needs-review → pending, kick a cycle) and `discardMutation(id)`
@@ -415,3 +429,8 @@ a mark-read endpoint for notifications, and the 403→pause conflict-reducer nua
   storage gauge) → **Appearance** → tapped **Dark** and the whole app recoloured instantly (after fixing
   the store-vs-context bug), then back to Light. Notifications / Security / Storage / Notif-prefs / Profile
   sub-pages build + typecheck; the bell → notifications and sync-pill → queue are wired.
+- **M12** — Mobile: 39 unit tests still green; typecheck (7/7) + root lint clean. Browser E2E: at the
+  phone width (688px) the bottom tab bar shows; **resized the preview to 1100px** and the **side rail**
+  appeared on the left (logo + Pulse/Approvals/+/Audit/Me), bottom bar gone, content constrained beside
+  it — tapped **Pulse** → navigated to the home dashboard with the rail item active. The accessibility
+  tree (read_page) confirmed `tab "Pulse"/"Approvals"/"Audit"/"Me"` + `button "Capture"/"Notifications"`.
