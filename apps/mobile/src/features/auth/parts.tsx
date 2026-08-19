@@ -106,7 +106,7 @@ export function OtpInput({
   const stateColor = state === "error" ? palette.danger : state === "success" ? palette.success : palette.accent;
 
   return (
-    <Pressable onPress={() => ref.current?.focus()} style={{ flexDirection: "row", gap: 9 }}>
+    <Pressable onPress={() => ref.current?.focus()} style={{ flexDirection: "row", gap: 9, alignSelf: "stretch", width: "100%" }}>
       {chars.map((c, i) => {
         const isCursor = state === "idle" && i === value.length && value.length < length;
         const stated = state === "error" || state === "success";
