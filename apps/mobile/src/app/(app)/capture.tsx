@@ -29,6 +29,7 @@ export default function Capture() {
   const [photoIds, setPhotoIds] = useState<string[]>([]);
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locBlocked, setLocBlocked] = useState(false);
+  const [locStatus, setLocStatus] = useState<"locating" | "on" | "off" | "unavailable">("locating");
   const [asset, setAsset] = useState<string | null>(null);
   const scanResult = useScan((s) => s.result);
   const clearScan = useScan((s) => s.clear);
@@ -46,17 +47,32 @@ export default function Capture() {
   const [severity, setSeverity] = useState<NcrPriority>("major");
 
   // Auto-stamp location: request quietly (no Settings modal on open — a capture must
-  // never be blocked on location, 05 §3). If it's blocked, surface a tappable hint.
+  // never be blocked on location, 05 §3). Resolves to a FINAL state so the pill never
+  // spins "Locating…" forever: `unavailable` (web without a secure/HTTPS origin, where
+  // the browser won't provide geolocation), `off` (denied / no fix), or `on`.
   useEffect(() => {
     void (async () => {
       const state = await ensurePermission("location", "Location stamping", { promptSettings: false });
-      if (state === "blocked") {
-        setLocBlocked(true);
+      if (state === "unsupported") {
+        setLocStatus("unavailable");
         return;
       }
-      if (state !== "granted") return;
+      if (state === "blocked") {
+        setLocBlocked(true);
+        setLocStatus("off");
+        return;
+      }
+      if (state !== "granted") {
+        setLocStatus("off");
+        return;
+      }
       const c = await services.location?.current();
-      if (c) setCoords({ latitude: c.latitude, longitude: c.longitude });
+      if (c) {
+        setCoords({ latitude: c.latitude, longitude: c.longitude });
+        setLocStatus("on");
+      } else {
+        setLocStatus("off");
+      }
     })();
   }, []);
 
@@ -109,9 +125,25 @@ export default function Capture() {
             disabled={!locBlocked}
             style={{ flexDirection: "row", alignItems: "center", gap: 7 }}
           >
-            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: coords ? palette.success : locBlocked ? palette.warn : palette.subtle }} />
+            <View
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: 4,
+                backgroundColor:
+                  locStatus === "on" ? palette.success : locStatus === "locating" ? palette.subtle : palette.warn,
+              }}
+            />
             <Text size={12} weight="semibold" tone={locBlocked ? "accent" : "muted"}>
-              {coords ? "Location stamped" : locBlocked ? "Location off · Enable" : "Locating…"}
+              {locStatus === "on"
+                ? "Location stamped"
+                : locStatus === "locating"
+                  ? "Locating…"
+                  : locStatus === "unavailable"
+                    ? "Location needs the app"
+                    : locBlocked
+                      ? "Location off · Enable"
+                      : "Location off"}
             </Text>
           </Pressable>
           <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: 4 }}>

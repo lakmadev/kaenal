@@ -56,7 +56,15 @@ export async function checkPermission(kind: PermKind): Promise<PermState> {
   if (Platform.OS === "web") {
     // The browser gates camera (file dialog) / geolocation inline at use; treat as
     // available so features proceed and the browser shows its own prompt.
-    if (kind === "location") return typeof navigator !== "undefined" && "geolocation" in navigator ? "granted" : "unsupported";
+    if (kind === "location") {
+      if (typeof navigator === "undefined" || !("geolocation" in navigator)) return "unsupported";
+      // Browsers only prompt for / allow geolocation on a SECURE origin (HTTPS or
+      // localhost). An installed PWA served over plain http://<lan-ip> is NOT a
+      // secure context, so Safari never prompts and getCurrentPosition just fails —
+      // report "unsupported" so the UI explains it instead of spinning "Locating…".
+      if (typeof window !== "undefined" && window.isSecureContext === false) return "unsupported";
+      return "granted";
+    }
     return "granted";
   }
   const r = await nativeGet(kind);
