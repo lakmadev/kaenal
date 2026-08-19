@@ -61,6 +61,20 @@ export const MemberDto = z.object({
 });
 export type MemberDto = z.infer<typeof MemberDto>;
 
+/** A member plus a live workload signal — the AssignSheet's teammate rows
+ *  (m-oversight.jsx): open assigned NCRs, banded Light/Steady/Busy. */
+export const MemberWorkloadDto = z.object({
+  userId: z.string().uuid(),
+  name: z.string(),
+  role: Role,
+  openNcrs: z.number().int().nonnegative(),
+  band: z.enum(["light", "steady", "busy"]),
+});
+export type MemberWorkloadDto = z.infer<typeof MemberWorkloadDto>;
+
+export const MemberWorkloadList = z.object({ items: z.array(MemberWorkloadDto) });
+export type MemberWorkloadList = z.infer<typeof MemberWorkloadList>;
+
 // --- Inspection templates ---------------------------------------------------
 
 export const TemplateDto = z.object({

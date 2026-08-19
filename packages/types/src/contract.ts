@@ -47,6 +47,7 @@ import {
   WorkspaceDto,
   SwitchWorkspaceBody,
   MemberDto,
+  MemberWorkloadList,
   NcrActionDto,
   NcrDto,
   CountDto,
@@ -237,6 +238,12 @@ export const contract = c.router(
       query: PageQuery,
       responses: { 200: page(MemberDto), ...commonErrors },
       summary: "List this tenant's members (id → name + role) so the UI can resolve people",
+    },
+    listMemberWorkload: {
+      method: "GET",
+      path: "/v1/members/workload",
+      responses: { 200: MemberWorkloadList, ...commonErrors },
+      summary: "Members with a live workload signal (open assigned NCRs) — the assign sheet",
     },
 
     // --- Search ------------------------------------------------------------

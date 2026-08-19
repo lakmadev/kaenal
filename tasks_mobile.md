@@ -204,14 +204,21 @@ Trigger: the five `m-ncr.jsx` screens are wired-but-simplified — designed elem
 **Sequencing:** M19.5a (backend) → M19.5b → M19.5c ✅ all committed + gated + browser-verified. **NCR is now
 pixel-for-pixel with a real backend.** Next: **M20 — AssignSheet**.
 
-## M20 — Assign / reassign work (AssignSheet)
-- [ ] `AssigneeSheet` bottom-sheet component (design `m-oversight.jsx AssignSheet`): drag handle, entity ref,
-  teammate **search** over `/v1/members`, per-teammate workload hint + selectable row, primary "Assign to X".
-- [ ] `account`/entity assign calls (typed client): `assignInspection/assignNcr/assignCapa/assignEightD/
-  assignScar` with `Assign*Body`. Offline-queued mutation (reuse the M3 engine) with optimistic UI.
-- [ ] Wire the sheet where the role can assign (manager/admin, RBAC-gated via `can()`): NCR detail, inspection
-  start, My-Tasks rows, 8D, CAPA.
-- [ ] Tests (pure `buildAssignPayload`/eligibility where logic exists) + browser-verify + audit event.
+## M20 — Assign / reassign work (AssignSheet) ✅ DONE (commit)
+- [x] **Real workload backend** (rule #0 — the mock's "N open · Light/Busy" needs data `MemberDto` lacks):
+  `MemberWorkloadDto` + `GET /v1/members/workload` (`MembersService.workload` — per-member open-NCR count via
+  RLS-scoped `LEFT JOIN ncrs`, banded light/steady/busy; names on the control pool). Gated `ncr:manage`.
+- [x] `AssigneeSheet` bottom-sheet (`features/assign/AssigneeSheet.tsx`, design `m-oversight.jsx AssignSheet`):
+  drag handle, entity ref, teammate **search**, workload rows (avatar/name/role·N open/band/radio), "Assign to X"
+  + Unassign. Reusable — caller passes title + currentOwner + onPick.
+- [x] NCR assign wired: `ncr.assign` offline mutation (`enqueueAssignNcr` → `assignNcr`, optimistic version);
+  NCR detail's **Owner** row (manager-gated) opens the sheet.
+- [x] Tests: `members.test` workload (payload + band + RLS + `ncr:manage`/partner 403). **Live-verified** via
+  fresh session: `/v1/members/workload` returns the real roster w/ bands; `POST /ncrs/:id/assign` → assigned to
+  "Demo Inspector" (200), repeat 409 on stale version (concurrency proof). Gate: typecheck 7/7 · lint · api tests.
+- Deferred to a follow-up: wiring the same sheet into inspection-start / My-Tasks / 8D / CAPA (the component +
+  workload endpoint are reusable; each just needs its `assign*` offline mutation + an entry point). In-app click
+  capture blocked by a browser-pane hang this cycle (functional path proven via API).
 
 ## M21 — Photo annotation (CapAnnotate)
 - [ ] Annotate editor over a captured photo: `react-native-svg` draw layer (arrow / circle / freehand),

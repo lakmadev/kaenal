@@ -44,6 +44,16 @@ pushDispatch["ncr.transition"] = async (mutation) => {
   return { status: res.status, body: res.body };
 };
 
+pushDispatch["ncr.assign"] = async (mutation) => {
+  const p = mutation.payload as { ownerId: string | null };
+  const res = await apiClient.assignNcr({
+    params: { id: mutation.entityId },
+    body: { ownerId: p.ownerId, version: mutation.baseVersion ?? 0 },
+    extraHeaders: { "idempotency-key": mutation.id },
+  });
+  return { status: res.status, body: res.body };
+};
+
 pushDispatch["ncr.verify"] = async (mutation) => {
   const p = mutation.payload as { reason?: string };
   const res = await apiClient.verifyNcr({
@@ -83,6 +93,20 @@ export async function enqueueTransition(
     entityType: "ncr",
     entityId: ncr.id,
     payload: { to, ...extra },
+    baseUpdatedAt: ncr.updatedAt,
+    baseVersion: ncr.lockVersion,
+    dependsOnFileIds: [],
+  });
+}
+
+/** Assign, reassign, or clear (ownerId=null) an NCR's owner (durable). */
+export async function enqueueAssignNcr(ncr: NcrDto, ownerId: string | null): Promise<void> {
+  await engine.enqueue({
+    id: uuidv7(),
+    kind: "ncr.assign",
+    entityType: "ncr",
+    entityId: ncr.id,
+    payload: { ownerId },
     baseUpdatedAt: ncr.updatedAt,
     baseVersion: ncr.lockVersion,
     dependsOnFileIds: [],

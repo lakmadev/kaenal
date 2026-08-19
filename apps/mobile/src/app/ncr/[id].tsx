@@ -5,7 +5,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { AuditEventDto, NcrDto } from "@kaenal/types";
 
-import { enqueueTransition } from "@/features/ncr/offline";
+import { AssigneeSheet } from "@/features/assign/AssigneeSheet";
+import { enqueueAssignNcr, enqueueTransition } from "@/features/ncr/offline";
 import { useNcrEvidence } from "@/features/ncr/evidence";
 import { ncrDue, ncrStatusLabel, ncrStatusTone, severityOf } from "@/features/ncr/parts";
 import { useNcr, useNcrActivity } from "@/features/ncr/queries";
@@ -76,6 +77,14 @@ export default function NcrDetail() {
   const { data: evidence } = useNcrEvidence(id ?? "");
   const { data: activity } = useNcrActivity(id ?? "");
   const [busy, setBusy] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+
+  async function assign(ownerId: string | null): Promise<void> {
+    if (!ncr) return;
+    await enqueueAssignNcr(ncr, ownerId);
+    await engine.sync();
+    await refetch();
+  }
 
   const canManage = caps.includes("ncr:manage");
   const canVerify = caps.includes("ncr:verify");
@@ -191,7 +200,11 @@ export default function NcrDetail() {
               <SectionLabel style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 }}>Details</SectionLabel>
               <Card style={{ marginHorizontal: 16 }}>
                 <DetailRow label="Reporter" value={ncr.reporterName ?? "—"} />
-                <DetailRow label="Owner" value={ncr.ownerName ?? (ncr.ownerId ? "Assigned" : "Unassigned")} />
+                <DetailRow
+                  label="Owner"
+                  value={ncr.ownerName ?? (ncr.ownerId ? "Assigned" : "Unassigned")}
+                  onPress={canManage ? () => setAssignOpen(true) : undefined}
+                />
                 {ncr.category && <DetailRow label="Category" value={ncr.category} />}
                 <DetailRow label="Severity" value={severityValue} />
                 <DetailRow label="Due" value={due ? due.text : "No due date"} last />
@@ -282,20 +295,35 @@ export default function NcrDetail() {
           ) : null}
         </ActionBar>
       )}
+
+      {ncr && (
+        <AssigneeSheet
+          visible={assignOpen}
+          onClose={() => setAssignOpen(false)}
+          title="Assign NCR"
+          code={ncr.code}
+          currentOwnerId={ncr.ownerId}
+          onPick={(userId) => assign(userId)}
+        />
+      )}
     </Screen>
   );
 }
 
-function DetailRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
+function DetailRow({ label, value, last, onPress }: { label: string; value: string; last?: boolean; onPress?: () => void }) {
   const { palette } = useTheme();
-  return (
+  const body = (
     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 11, paddingHorizontal: 14, borderBottomWidth: last ? 0 : 1, borderBottomColor: palette.border }}>
       <Text size={13} tone="muted">
         {label}
       </Text>
-      <Text size={13} weight="semibold" style={{ flexShrink: 1, textAlign: "right", marginLeft: 12 }}>
-        {value}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1, marginLeft: 12 }}>
+        <Text size={13} weight="semibold" style={{ flexShrink: 1, textAlign: "right" }}>
+          {value}
+        </Text>
+        {onPress && <Icon name="chevronRight" size={14} color={palette.subtle} />}
+      </View>
     </View>
   );
+  return onPress ? <Pressable onPress={onPress}>{body}</Pressable> : body;
 }

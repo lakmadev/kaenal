@@ -56,9 +56,9 @@ describe("OllamaAiProvider", () => {
     expect(body.model).toBe("qwen2.5vl:3b");
     expect(body.stream).toBe(false);
     // system + user turns; the image rides on the user turn.
-    expect(body.messages[0].role).toBe("system");
-    expect(body.messages[1].role).toBe("user");
-    expect(body.messages[1].images).toEqual(["BASE64DATA"]);
+    expect(body.messages[0]!.role).toBe("system");
+    expect(body.messages[1]!.role).toBe("user");
+    expect(body.messages[1]!.images).toEqual(["BASE64DATA"]);
     expect(body.options.num_predict).toBe(512);
   });
 
