@@ -277,8 +277,28 @@ pixel-for-pixel with a real backend.** Next: **M20 — AssignSheet**.
   correctness gap — the lists render correctly at current data volumes via mapped `ScrollView`. Deferred as a
   follow-up (swap in `@shopify/flash-list` behind the same row components) rather than half-migrated here.
 
-## Sequencing
-M20 (assign — highest workflow value, endpoints ready) → M21 (annotate) → M22 (voice+audio) → M23 (tablet
-two-pane) → M24 (states + perf/a11y). Each an independent committed + gated + browser-verified slice;
-`progress_mobile.md` updated in the same commit. Same non-negotiables (CLAUDE.md #10/#11: never fake/stub;
-native edge-to-edge).
+## M25 — Fast-follows (the deferrals flagged when M20/M23 landed) ✅ DONE (commits)
+- [x] **AssigneeSheet everywhere** — extended the M20 sheet + `/v1/members/workload` to **CAPA** (owner),
+  **8D** (team lead) and **inspection** (inspector): manager-gated reassign action in each detail header;
+  new durable offline mutations `capa.assign` / `eightd.assign` / `inspection.assign`.
+- [x] **Two-pane for approvals** — extracted `ApprovalDetailView` (shared by the `/approval/[id]` route and the
+  tablet detail column) and made the approvals inbox a master-detail two-pane at ≥768pt, mirroring the verified
+  NCR two-pane (m-tablet.jsx TabletApprovals).
+- Gate for both: typecheck 7/7 · lint. Same reusable patterns (`NcrDetailView`/`ApprovalDetailView` +
+  `AssigneeSheet`) — extending to any other module is now a small wiring job.
+
+## Genuinely remaining (blocked or non-fidelity — NOT rushed)
+- **FlashList** on the hot lists — a **perf optimization, not a fidelity/correctness gap**. It requires making
+  the list the scroll container (out of `Body`'s ScrollView) on each screen incl. the new two-pane masters,
+  with RN-web virtualization nuances; deliberately deferred rather than rushed into working screens at the tail
+  of this program. Lists render correctly at current volumes.
+- **Voice→text transcription** → chips (needs a speech-to-text service) — audio is captured + attached for real.
+- **Live on-frame AI defect grading** (needs a fine-tuned YOLO detector) — photo-triage vision already ships.
+- **CapAnnotate "Measure"** (needs a real-world scale reference the photo lacks).
+- **AuthSSORedirect** (no IdP/SSO wired server-side).
+These are honest gaps: each needs a backend/service that does not exist, or is pure perf — never faked.
+
+## Sequencing (done)
+M20 (assign) → M21 (annotate) → M22 (voice+audio) → M23 (tablet two-pane) → M24 (states + a11y) → M25
+(fast-follows: assign-everywhere + approvals two-pane). Every slice committed + gated + PR'd + merged;
+`progress_mobile.md` updated alongside. Non-negotiables held throughout (CLAUDE.md #0/#10/#11).
