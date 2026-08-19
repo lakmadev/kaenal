@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Platform, View } from "react-native";
+import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useInspection } from "@/features/inspections/queries";
@@ -92,15 +92,7 @@ export default function InspectionDone() {
 
       <View style={{ paddingHorizontal: 24, paddingBottom: insets.bottom + 24, gap: 10 }}>
         <Button onPress={() => router.replace("/(app)/tasks")}>Back to work queue</Button>
-        <Button
-          variant="ghost"
-          icon="eye"
-          onPress={() =>
-            Platform.OS === "web"
-              ? window.alert("The sync queue screen arrives in M11 (System & Settings).")
-              : router.replace("/(app)/tasks")
-          }
-        >
+        <Button variant="ghost" icon="eye" onPress={() => router.replace("/sync-queue")}>
           View sync queue
         </Button>
       </View>

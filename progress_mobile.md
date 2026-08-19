@@ -130,9 +130,12 @@ resume from **Current status**, update it in the same commit as the work.
   reason field (durable approve/reject), team & plant snapshot (real members), audit-log highlights (real
   `/v1/audit-log`), and the admin "Manage in web app" list. New `approvals` / `team` / `audit` tabs
   registered (role-filtered). Assign/reassign sheet deferred (assign endpoints exist; P25 is web-side).
-- [ ] **M11 — System & Settings.** Sync queue (+ conflict "needs review"), Notifications, Settings root
-  + sub-pages (profile, security/MFA/biometric/sessions/password, offline & storage gauge, notif prefs,
-  appearance, sign-out guard).
+- [x] **M11 — System & Settings.** ✅ The **sync queue** (real engine data — pending/inflight/failed/
+  needs-review + retry/discard + storage gauge; engine gained `retryMutation`/`discardMutation`),
+  Notifications (real `/v1/notifications`), and the Settings root + sub-pages: Profile (identity),
+  Security (MFA status + biometric toggle), Offline & storage (real gauge + prefs + clear cache),
+  Notification prefs (device toggles), Appearance (real theme → instant recolor), and the unsynced
+  sign-out guard. Sync pill → queue, bell → notifications wired.
 - [ ] **M12 — Tablet adaptive polish + accessibility + perf pass.** Master-detail/side-rail/split-view;
   Dynamic Type, reduced-motion, VoiceOver/TalkBack labels, WCAG AA; FlashList/memo/Hermes/bundle audit.
 - [ ] **M13 — Device integration + E2E + EAS.** Push deep-links, biometric, real device flows end-to-end;
@@ -142,16 +145,16 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**M11 — System & Settings: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M10 done, committed,
-browser-verified against the live API. M10 shipped Oversight — approvals inbox + item (durable
-document approve/reject with a required reason), team snapshot (real members), the audit-log tab (real
-`/v1/audit-log`, showing this session's own actions), and the admin Manage-in-web list; new
-approvals/team/audit tabs registered. Next (M11): System & Settings — the **sync queue** (with conflict
-"needs review"), Notifications, Settings root + sub-pages (profile, security/MFA/biometric/sessions/
-password, offline & storage gauge, notif prefs, appearance, sign-out guard). This is where the persistent
-offline queue + the failed/needs-review mutations finally get a UI. Still outstanding across phases: bind
-capture/NCR/CAPA **evidence → its entity** (EntityKind has no `file`), a backend **`/v1/me/tasks`**
-aggregation, home-queue deep-links, and the assign/reassign sheet.
+**M12 — Tablet + a11y + perf: NEXT.** Branch `feat/mobile-app`, pushed; PR #9 open. M0–M11 done,
+committed, browser-verified against the live API. M11 shipped System & Settings — the real sync queue
+(pending/failed/needs-review + retry/discard + storage gauge, backed by the live offline engine), real
+Notifications, and the Settings root + 5 sub-pages (Profile / Security / Storage / Notif-prefs /
+Appearance) with the theme selector recoloring the app live. Next (M12): Tablet adaptive polish
+(master-detail / side-rail / split-view), accessibility (Dynamic Type, reduced-motion, VoiceOver/TalkBack
+labels, WCAG AA), and a perf pass (FlashList / memo / Hermes / bundle audit). Still outstanding across
+phases: bind capture/NCR/CAPA **evidence → its entity** (EntityKind has no `file`), a backend
+**`/v1/me/tasks`** aggregation, home-queue deep-links, the assign/reassign sheet, session revocation +
+a mark-read endpoint for notifications, and the 403→pause conflict-reducer nuance.
 
 ## Decisions log
 - (M-plan) Chose theme-object + StyleSheet kit over NativeWind — see decision #3 above.
@@ -235,6 +238,20 @@ aggregation, home-queue deep-links, and the assign/reassign sheet.
   (inspector=me) + 8Ds I'm on the team for, from the existing plant-scoped lists. Honest limitation: it only
   sees in-scope items — a `/v1/me/tasks` aggregation (like M5's dashboard) would make it exhaustive. 8D +
   CAPA writes (`eightd.step`, `capa.action.status`) are durable offline mutations.
+- (M11) **The sync queue is a real view over the offline engine, not a mock.** `sync-queue.tsx` reads
+  `services.syncStore.listMutations()/listFiles()` and re-reads on every `useSync` pill change; the engine
+  gained `retryMutation(id)` (reset failed/needs-review → pending, kick a cycle) and `discardMutation(id)`
+  (never silent). Needs-review mutations are the `failed` ones whose `error` starts `REVIEW:`; the storage
+  gauge sums staged `pending_files` bytes. Reachable from the sync pill, the bell (→ notifications), the
+  settings Sync-queue row, and the inspection done screen.
+- (M11) **Theme is owned by the ThemeProvider context, not the appearance store.** The appearance screen
+  must call `useThemeContext().setMode` (which recolors the app AND persists via `onModeChange` → the
+  store); writing the store directly updates persistence but does NOT recolor. Found + fixed live during
+  verification (Dark selected but background stayed light until the context call was used).
+- (M11) **Sessions + notif-mark-read + full notif matrix aren't in the mobile contract.** Session
+  revocation and password change route to the web with an honest note; notification prefs are device push
+  toggles (KV), with the server channel matrix (email digests) flagged as web-managed; the notifications
+  list is read-only (no mark-read endpoint). All flagged, none faked.
 - (M10) **Oversight approvals = document review, durable + reason-gated.** The approvals inbox lists
   documents in status `pending`; the item enqueues a durable `document.review` mutation
   (approve/reject + the required reason, recorded on the audit trail; optimistic `version`). The audit tab
@@ -391,3 +408,10 @@ aggregation, home-queue deep-links, and the assign/reassign sheet.
   ("Updated eight_d", "Status changed / Created ncr", "Status changed inspection", sign-ins). Team snapshot
   (real members) + Manage-in-web (linked from the admin home card) built; team is manager-only so not
   exercised by the admin demo.
+- **M11** — Mobile: 39 unit tests still green (the engine's new retry/discard methods leave the 7 engine
+  tests untouched); typecheck (7/7) + root lint clean. Browser E2E as `demo@acme.test` (admin): **Settings**
+  root rendered real identity + Two-factor Off (real MFA status) + Theme Light + Sync-queue "All synced" →
+  **Sync queue** showed the real engine state ("0 pending · 0 needs review", real last-sync time, real 0 B
+  storage gauge) → **Appearance** → tapped **Dark** and the whole app recoloured instantly (after fixing
+  the store-vs-context bug), then back to Light. Notifications / Security / Storage / Notif-prefs / Profile
+  sub-pages build + typecheck; the bell → notifications and sync-pill → queue are wired.

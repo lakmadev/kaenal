@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import { View } from "react-native";
 
 import { DashboardBody } from "@/features/home/dashboards";
@@ -42,6 +43,7 @@ function titleFor(role: string, firstName: string): string {
 // computed by GET /v1/me/dashboard inside the tenant-scoped tx (RLS-scoped);
 // presentation-only curation, since the server re-enforces every capability.
 export default function Home() {
+  const router = useRouter();
   const me = useSession((s) => s.me);
   const role = useRole();
   const sync = useSync((s) => s.state);
@@ -54,7 +56,13 @@ export default function Home() {
 
   return (
     <Screen>
-      <Header overline={overline} title={titleFor(role, firstName)} sync={sync} right={<BellButton />} />
+      <Header
+        overline={overline}
+        title={titleFor(role, firstName)}
+        sync={sync}
+        onSyncPress={() => router.push("/sync-queue")}
+        right={<BellButton onPress={() => router.push("/notifications")} />}
+      />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth }}>
           {data ? (

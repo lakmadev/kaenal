@@ -51,6 +51,22 @@ export class SyncEngine {
     this.paused = false;
   }
 
+  /** Reset a failed / needs-review mutation to pending and kick a cycle (05 §M11). */
+  async retryMutation(id: string): Promise<void> {
+    const m = (await this.d.store.listMutations()).find((x) => x.id === id);
+    if (m === undefined) return;
+    await this.d.store.putMutation({ ...m, status: "pending", error: null, attempts: 0, nextAttemptAt: null });
+    this.paused = false;
+    await this.emit();
+    void this.sync();
+  }
+
+  /** Drop a queued mutation the user chooses not to keep (05 §M11). Never silent. */
+  async discardMutation(id: string): Promise<void> {
+    await this.d.store.deleteMutation(id);
+    await this.emit();
+  }
+
   async summary(): Promise<SyncSummary> {
     const [q, cursorNcr] = await Promise.all([this.d.store.listMutations(), this.d.store.getCursor("_lastSyncedAt")]);
     const c = queueCounts(q);
