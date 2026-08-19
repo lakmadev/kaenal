@@ -1,5 +1,6 @@
 import type { CreateNcrBody, NcrDto, NcrTransition } from "@kaenal/types";
 
+import { resolveFileIds } from "@/features/capture/files";
 import { apiClient } from "@/lib/api";
 import { engine, pushDispatch, readPullers, uuidv7 } from "@/sync";
 
@@ -22,7 +23,14 @@ readPullers["ncr"] = async (pageCursor) => {
 
 pushDispatch["ncr.create"] = async (mutation) => {
   const { body } = mutation.payload as { body: CreateNcrBody };
-  const res = await apiClient.createNcr({ body, extraHeaders: { "idempotency-key": mutation.id } });
+  // Evidence ids are staged as LOCAL pending-file ids; the mutation is gated on
+  // their upload (dependsOnFileIds), so by now they resolve to server ids.
+  const evidenceFileIds =
+    body.evidenceFileIds && body.evidenceFileIds.length > 0 ? await resolveFileIds(body.evidenceFileIds) : undefined;
+  const res = await apiClient.createNcr({
+    body: { ...body, ...(evidenceFileIds ? { evidenceFileIds } : {}) },
+    extraHeaders: { "idempotency-key": mutation.id },
+  });
   return { status: res.status, body: res.body };
 };
 
@@ -46,7 +54,9 @@ pushDispatch["ncr.verify"] = async (mutation) => {
   return { status: res.status, body: res.body };
 };
 
-/** Raise an NCR (durable, offline-safe). Returns the local mutation entity id. */
+/** Raise an NCR (durable, offline-safe). `body.evidenceFileIds` (if any) are
+ *  local pending-file ids; pass them as the upload gate so the create only pushes
+ *  once every photo has uploaded (then the dispatch swaps them for server ids). */
 export async function enqueueCreateNcr(body: CreateNcrBody): Promise<string> {
   const entityId = uuidv7();
   await engine.enqueue({
@@ -57,7 +67,7 @@ export async function enqueueCreateNcr(body: CreateNcrBody): Promise<string> {
     payload: { body },
     baseUpdatedAt: null,
     baseVersion: null,
-    dependsOnFileIds: [],
+    dependsOnFileIds: body.evidenceFileIds ?? [],
   });
   return entityId;
 }

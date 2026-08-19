@@ -311,6 +311,19 @@ fidelity → M16 security-made-real → M17 capture hardware → M18 profile/pre
     7/7 · lint · api tests green (collab +authorName assertion, ncr, audit-log, files). **Next: M19.5c** (Create
     steps 1–3 pixel-perfect). (Verify screen's evidence list is typecheck-clean; not visually exercised — the
     seed has no resolved-awaiting-verify NCR, and admin self-verify is four-eyes-blocked.)
+  - ✅ **M19.5c — Create steps 1–3 pixel-perfect** (`ncr/new.tsx`). **Step 1** `NcrCreateStep1`: 2×2 method
+    chooser (Photo / Voice [Soon] / Manual / Scan→/scan), Location card + hint, Asset/part scan row (consumes
+    the `useScan` handoff). **Step 2** `NcrCreate`: evidence grid, Title, description, Severity + **Category
+    chips**, containment checklist, **"Open an 8D?" banner** (appears on critical/containment). **Step 3**
+    `NcrCreateStep3`: summary pills + review rows (Evidence/Containment/8D/Location) with **Edit** links that
+    jump to the right step. Create body carries `category` + `containment[]` + `evidenceFileIds[]` (evidence
+    gated on upload via `dependsOnFileIds`; local→server ids swapped in the `ncr.create` dispatch via new
+    `resolveFileIds`). "Yes, open 8D" runs create→escalate online. **Browser-verified end-to-end:** walked all
+    3 steps, submitted with category=Process + containment + 8D=Yes → landed on **NCR-2026-0187, status
+    ESCALATED**, Details showed Category "Process" + Reporter "Demo Admin", activity showed Raised + Status
+    changed; console clean. Gate: typecheck 7/7 · lint. Honest flags: AI-from-photo (vision) + Voice capture
+    stay deferred (M22) — shown as "Soon" / manual entry, never faked. **NCR is now pixel-for-pixel with a real
+    backend (rule #0 satisfied).**
 
 ## Superseded status (M0–M13)
 

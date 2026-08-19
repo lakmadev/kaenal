@@ -11,70 +11,101 @@ import { useLayout } from "@/hooks/use-layout";
 import { apiClient } from "@/lib/api";
 import { services } from "@/services";
 import { ensurePermission } from "@/services/permissions";
+import { useScan } from "@/stores/scan";
 import { useTheme } from "@/theme";
-import { ActionBar, Body, Button, Card, Icon, Screen, SectionLabel, StatusPill, Text } from "@/ui";
+import { ActionBar, Body, Button, Card, Icon, Screen, SectionLabel, StatusPill, Text, type IconName } from "@/ui";
 
 const CONTAINMENTS = ["Cell stopped & quarantined", "Customer Quality notified", "WIP re-inspection started"];
+const CATEGORIES = ["Process", "Product", "Material", "Documentation", "Other"];
 
-// m-ncr.jsx guided create (NcrCreateStep1/2/3) — a 3-step stepper. Durable create
-// through the offline engine, so raising an NCR works offline ("saved on device").
+type Method = "photo" | "voice" | "manual" | "scan";
+const METHODS: { key: Method; icon: IconName; label: string; ready: boolean }[] = [
+  { key: "photo", icon: "camera", label: "Photo", ready: true },
+  { key: "voice", icon: "mic", label: "Voice", ready: false },
+  { key: "manual", icon: "edit", label: "Manual", ready: true },
+  { key: "scan", icon: "qr", label: "Scan asset", ready: true },
+];
+
+// m-ncr.jsx guided create (NcrCreateStep1/2/3) — a 3-step stepper, pixel-for-pixel:
+// (1) how-to-start method chooser + location + asset, (2) evidence + title +
+// severity + category + containment + open-8D, (3) review & submit. Durable create
+// through the offline engine (containment + evidence persisted for real).
 export default function NcrNew() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { palette, radius, fonts } = useTheme();
   const { contentMaxWidth } = useLayout();
   const params = useLocalSearchParams<{ title?: string; inspectionId?: string }>();
+  const scanResult = useScan((s) => s.result);
+  const clearScan = useScan((s) => s.clear);
 
   const [step, setStep] = useState(0);
+  const [method, setMethod] = useState<Method>("photo");
+  const [asset, setAsset] = useState<string | null>(null);
   const [title, setTitle] = useState(params.title ?? "");
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState<NcrPriority>("major");
+  const [category, setCategory] = useState<string | null>(null);
   const [photoIds, setPhotoIds] = useState<string[]>([]);
   const [containment, setContainment] = useState<Set<string>>(new Set());
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [structured, setStructured] = useState<string | null>(null);
-  const [aiBusy, setAiBusy] = useState(false);
+  const [open8d, setOpen8d] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Auto-stamp location quietly; never block the form on it (05 §3).
   useEffect(() => {
     void (async () => {
-      // Auto-stamp: request quietly, never block the form on location (05 §3).
       if ((await ensurePermission("location", "Location stamping", { promptSettings: false })) !== "granted") return;
       const c = await services.location?.current();
       if (c) setCoords({ latitude: c.latitude, longitude: c.longitude });
     })();
   }, []);
 
-  async function structure(): Promise<void> {
-    if (description.trim().length === 0) return;
-    setAiBusy(true);
-    try {
-      const res = await apiClient.requestAiDraft({ body: { feature: "quicklog_structuring", input: description.trim() } });
-      if (res.status === 200) setStructured(res.body.value);
-    } catch {
-      /* gateway unavailable — the raw description still submits */
-    } finally {
-      setAiBusy(false);
+  // Consume an asset/part code handed back from the /scan route.
+  useEffect(() => {
+    if (scanResult) {
+      setAsset(scanResult);
+      clearScan();
     }
-  }
+  }, [scanResult, clearScan]);
 
   async function submit(): Promise<void> {
     setBusy(true);
     try {
       const parts = [
         description.trim(),
-        structured ? `\n\nAI structured:\n${structured}` : "",
-        containment.size > 0 ? `\n\nContainment:\n- ${[...containment].join("\n- ")}` : "",
+        asset ? `\n\nAsset: ${asset}` : "",
         coords ? `\n\nGPS: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}` : "",
         params.inspectionId ? `\n\nRaised from inspection ${params.inspectionId}` : "",
       ];
-      await enqueueCreateNcr({
+      const body = {
         title: title.trim().slice(0, 120),
         description: parts.join("") || null,
         priority: severity,
-        source: params.inspectionId ? "inspection" : "manual",
+        category,
+        containment: [...containment],
+        evidenceFileIds: photoIds,
+        source: (params.inspectionId ? "inspection" : "manual") as "inspection" | "manual",
         ...(params.inspectionId ? { sourceId: params.inspectionId } : {}),
-      });
+      };
+
+      if (open8d) {
+        // "Yes, open 8D" — online path: create then escalate immediately so the
+        // 8D really opens on submit. Offline, fall through to the durable queue
+        // (the NCR's own detail then offers "Escalate to 8D").
+        try {
+          const created = await apiClient.createNcr({ body });
+          if (created.status === 201) {
+            await apiClient.transitionNcr({ params: { id: created.body.id }, body: { to: "escalated", version: created.body.lockVersion } });
+            router.replace(`/ncr/${created.body.id}`);
+            return;
+          }
+        } catch {
+          /* offline — fall back to the durable queue below */
+        }
+      }
+
+      await enqueueCreateNcr(body);
       router.replace("/(app)/ncr");
     } finally {
       setBusy(false);
@@ -82,7 +113,12 @@ export default function NcrNew() {
   }
 
   const stepTitle = step === 0 ? "What & where" : step === 1 ? "Details" : "Review & submit";
-  const canNext = step === 0 ? title.trim().length > 0 : true;
+  const canNext = step === 0 ? true : step === 1 ? title.trim().length > 0 : true;
+
+  function openScan(): void {
+    clearScan();
+    router.push("/scan");
+  }
 
   return (
     <Screen>
@@ -108,9 +144,89 @@ export default function NcrNew() {
       </View>
 
       <Body contentStyle={{ alignItems: "center" }}>
-        <View style={{ width: "100%", maxWidth: contentMaxWidth, padding: 16, gap: 14 }}>
+        <View style={{ width: "100%", maxWidth: contentMaxWidth, padding: 16, gap: 16 }}>
           {step === 0 && (
             <>
+              <View>
+                <SectionLabel style={{ marginBottom: 8 }}>How do you want to start?</SectionLabel>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {METHODS.map((m) => {
+                    const on = method === m.key;
+                    return (
+                      <Pressable
+                        key={m.key}
+                        onPress={() => {
+                          setMethod(m.key);
+                          if (m.key === "scan") openScan();
+                        }}
+                        style={{ width: "48%" }}
+                      >
+                        <Card style={{ padding: 14, gap: 8, borderWidth: 1.5, borderColor: on ? palette.accent : palette.border, backgroundColor: on ? palette.accentSoft : palette.surface }}>
+                          <View style={{ width: 34, height: 34, borderRadius: radius.md, backgroundColor: on ? palette.accent : palette.bgSubtle, alignItems: "center", justifyContent: "center" }}>
+                            <Icon name={m.icon} size={17} color={on ? palette.accentFg : palette.text} />
+                          </View>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                            <Text size={13.5} weight="semibold">
+                              {m.label}
+                            </Text>
+                            {!m.ready && (
+                              <StatusPill tone="neutral" size="sm">
+                                Soon
+                              </StatusPill>
+                            )}
+                          </View>
+                        </Card>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {method === "voice" && (
+                  <Text size={11.5} tone="muted" style={{ marginTop: 8 }}>
+                    Voice capture (hold-to-talk + audio evidence) arrives next — for now, use Photo or Manual.
+                  </Text>
+                )}
+              </View>
+
+              <View>
+                <SectionLabel style={{ marginBottom: 8 }}>Location</SectionLabel>
+                <Card style={{ padding: 12, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Icon name="mapPin" size={15} color={palette.accent} />
+                  <Text size={13} weight="semibold" style={{ flex: 1 }}>
+                    {coords ? `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}` : "Location"}
+                  </Text>
+                  <StatusPill tone={coords ? "done" : "neutral"} size="sm">
+                    {coords ? "GPS" : "Off"}
+                  </StatusPill>
+                </Card>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <Icon name="info" size={13} color={palette.muted} />
+                  <Text size={11.5} tone="muted">
+                    Detected from GPS. Add the asset below or on the next step.
+                  </Text>
+                </View>
+              </View>
+
+              <View>
+                <SectionLabel style={{ marginBottom: 8 }}>Asset / part</SectionLabel>
+                <Pressable onPress={openScan}>
+                  <Card style={{ padding: 12, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text size={13} tone={asset ? "text" : "subtle"} weight={asset ? "semibold" : "regular"} style={{ flex: 1 }}>
+                      {asset ?? "Scan QR or tap to add…"}
+                    </Text>
+                    <Icon name="qr" size={17} color={palette.accent} />
+                  </Card>
+                </Pressable>
+              </View>
+            </>
+          )}
+
+          {step === 1 && (
+            <>
+              <View>
+                <SectionLabel style={{ marginBottom: 7 }}>Evidence</SectionLabel>
+                <PhotoField value={photoIds} onChange={setPhotoIds} />
+              </View>
+
               <View>
                 <SectionLabel style={{ marginBottom: 7 }}>Title</SectionLabel>
                 <Card style={{ padding: 12 }}>
@@ -123,23 +239,7 @@ export default function NcrNew() {
                   />
                 </Card>
               </View>
-              <Card style={{ padding: 12, flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Icon name="mapPin" size={15} color={palette.accent} />
-                <Text size={13} weight="semibold" style={{ flex: 1 }}>
-                  {coords ? `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}` : "Location"}
-                </Text>
-                <StatusPill tone={coords ? "done" : "neutral"} size="sm">
-                  {coords ? "GPS" : "Off"}
-                </StatusPill>
-              </Card>
-              <Text size={11.5} tone="muted">
-                Location is auto-detected from GPS. Add the part/asset in the description on the next step.
-              </Text>
-            </>
-          )}
 
-          {step === 1 && (
-            <>
               <View>
                 <SectionLabel style={{ marginBottom: 7 }}>What happened?</SectionLabel>
                 <Card style={{ padding: 12 }}>
@@ -149,46 +249,47 @@ export default function NcrNew() {
                     placeholder="Describe the non-conformity: what, where, how many affected."
                     placeholderTextColor={palette.subtle}
                     multiline
-                    style={{ minHeight: 80, fontSize: 14, lineHeight: 20, color: palette.text, fontFamily: fonts.sans, textAlignVertical: "top" }}
+                    style={{ minHeight: 72, fontSize: 14, lineHeight: 20, color: palette.text, fontFamily: fonts.sans, textAlignVertical: "top" }}
                   />
-                  <Pressable onPress={() => void structure()} disabled={aiBusy || description.trim().length === 0} style={{ marginTop: 8, alignSelf: "flex-start" }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 5, paddingHorizontal: 9, borderRadius: radius.full, backgroundColor: palette.accentSoft, opacity: description.trim().length === 0 ? 0.5 : 1 }}>
-                      <Icon name="sparkles" size={12} color={palette.accent} />
-                      <Text size={11} weight="bold" color={palette.accent}>
-                        {aiBusy ? "Structuring…" : "Structure with AI"}
-                      </Text>
-                    </View>
-                  </Pressable>
-                  {structured && (
-                    <Text size={12.5} tone="muted" style={{ marginTop: 8, lineHeight: 18 }}>
-                      {structured}
-                    </Text>
-                  )}
                 </Card>
               </View>
 
-              <View>
-                <SectionLabel style={{ marginBottom: 7 }}>Severity</SectionLabel>
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  {(["minor", "major", "critical"] as NcrPriority[]).map((s) => {
-                    const on = severity === s;
-                    const crit = s === "critical";
-                    return (
-                      <Pressable key={s} onPress={() => setSeverity(s)} style={{ flex: 1 }}>
-                        <View style={{ height: 40, borderRadius: radius.lg, alignItems: "center", justifyContent: "center", backgroundColor: on ? (crit ? palette.danger : palette.accent) : palette.surface, borderWidth: 1.5, borderColor: on ? (crit ? palette.danger : palette.accent) : palette.border }}>
-                          <Text size={13} weight="semibold" color={on ? (crit ? "#ffffff" : palette.accentFg) : palette.muted} style={{ textTransform: "capitalize" }}>
-                            {s}
-                          </Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <SectionLabel style={{ marginBottom: 7 }}>Severity</SectionLabel>
+                  <View style={{ flexDirection: "row", gap: 4 }}>
+                    {(["minor", "major", "critical"] as NcrPriority[]).map((s) => {
+                      const on = severity === s;
+                      const crit = s === "critical";
+                      return (
+                        <Pressable key={s} onPress={() => setSeverity(s)} style={{ flex: 1 }}>
+                          <View style={{ height: 38, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: on ? (crit ? palette.danger : palette.accent) : palette.surface, borderWidth: 1, borderColor: on ? (crit ? palette.danger : palette.accent) : palette.border }}>
+                            <Text size={12} weight="bold" color={on ? (crit ? "#ffffff" : palette.accentFg) : palette.muted}>
+                              {s === "minor" ? "Min" : s === "major" ? "Maj" : "Crit"}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 </View>
-              </View>
-
-              <View>
-                <SectionLabel style={{ marginBottom: 7 }}>Evidence</SectionLabel>
-                <PhotoField value={photoIds} onChange={setPhotoIds} />
+                <View style={{ flex: 1 }}>
+                  <SectionLabel style={{ marginBottom: 7 }}>Category</SectionLabel>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+                    {CATEGORIES.map((c) => {
+                      const on = category === c;
+                      return (
+                        <Pressable key={c} onPress={() => setCategory(on ? null : c)}>
+                          <View style={{ paddingHorizontal: 10, height: 30, borderRadius: radius.full, alignItems: "center", justifyContent: "center", backgroundColor: on ? palette.accentSoft : palette.surface, borderWidth: 1, borderColor: on ? palette.accent : palette.border }}>
+                            <Text size={11.5} weight="semibold" color={on ? palette.accent : palette.muted}>
+                              {c}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
               </View>
 
               <View>
@@ -221,6 +322,37 @@ export default function NcrNew() {
                   })}
                 </View>
               </View>
+
+              {/* "Open an 8D?" — a real choice; on submit it escalates the NCR. */}
+              {(severity === "critical" || containment.size > 0) && (
+                <Card style={{ padding: 12, backgroundColor: palette.infoBg, borderColor: palette.border }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <Icon name="brain" size={15} color={palette.info} />
+                    <Text size={12} weight="bold" color={palette.info}>
+                      Open an 8D for this NCR?
+                    </Text>
+                  </View>
+                  <Text size={11} color={palette.info} style={{ lineHeight: 16, marginBottom: 8, opacity: 0.9 }}>
+                    Critical severity or logged containment usually triggers an 8D investigation.
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <Pressable onPress={() => setOpen8d(true)} style={{ flex: 1 }}>
+                      <View style={{ height: 32, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: open8d ? palette.accent : palette.surface, borderWidth: 1, borderColor: open8d ? palette.accent : palette.border }}>
+                        <Text size={12} weight="semibold" color={open8d ? palette.accentFg : palette.info}>
+                          Yes, open 8D
+                        </Text>
+                      </View>
+                    </Pressable>
+                    <Pressable onPress={() => setOpen8d(false)}>
+                      <View style={{ height: 32, paddingHorizontal: 14, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: !open8d ? palette.bgSubtle : palette.surface, borderWidth: 1, borderColor: palette.border }}>
+                        <Text size={12} weight="semibold" color={palette.info}>
+                          Later
+                        </Text>
+                      </View>
+                    </Pressable>
+                  </View>
+                </Card>
+              )}
             </>
           )}
 
@@ -231,9 +363,11 @@ export default function NcrNew() {
                   <StatusPill tone={severity === "critical" ? "danger" : "warn"} size="sm">
                     {severity}
                   </StatusPill>
-                  <StatusPill tone="neutral" size="sm">
-                    {params.inspectionId ? "From inspection" : "Manual"}
-                  </StatusPill>
+                  {category && (
+                    <StatusPill tone="neutral" size="sm">
+                      {category}
+                    </StatusPill>
+                  )}
                 </View>
                 <Text size={15} weight="bold" style={{ lineHeight: 20 }}>
                   {title || "Untitled non-conformity"}
@@ -244,9 +378,10 @@ export default function NcrNew() {
                   </Text>
                 )}
               </Card>
-              <ReviewRow label="Evidence" value={`${photoIds.length} photo${photoIds.length === 1 ? "" : "s"}`} />
-              <ReviewRow label="Containment" value={containment.size > 0 ? `${containment.size} action${containment.size === 1 ? "" : "s"} logged` : "None"} />
-              <ReviewRow label="Location" value={coords ? "GPS stamped" : "Not available"} />
+              <ReviewRow label="Evidence" value={`${photoIds.length} photo${photoIds.length === 1 ? "" : "s"}`} onEdit={() => setStep(1)} />
+              <ReviewRow label="Containment" value={containment.size > 0 ? `${containment.size} action${containment.size === 1 ? "" : "s"} logged` : "None"} onEdit={() => setStep(1)} />
+              <ReviewRow label="8D investigation" value={open8d ? "Will open on submit" : "Not now"} onEdit={() => setStep(1)} />
+              <ReviewRow label="Location" value={coords ? "GPS stamped" : "Not available"} onEdit={() => setStep(0)} />
               <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 2 }}>
                 <Icon name="cloudOff" size={14} color={palette.warnFg} />
                 <Text size={12} tone="muted">
@@ -273,7 +408,7 @@ export default function NcrNew() {
   );
 }
 
-function ReviewRow({ label, value }: { label: string; value: string }) {
+function ReviewRow({ label, value, onEdit }: { label: string; value: string; onEdit: () => void }) {
   const { palette } = useTheme();
   return (
     <Card style={{ padding: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
@@ -288,6 +423,11 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
           {value}
         </Text>
       </View>
+      <Pressable onPress={onEdit} hitSlop={8}>
+        <Text size={12.5} weight="semibold" color={palette.accent}>
+          Edit
+        </Text>
+      </Pressable>
     </Card>
   );
 }

@@ -113,6 +113,14 @@ export async function resolveResponseFileIds(responses: FormResponses): Promise<
   return out;
 }
 
+/** Map local pending-file ids → their uploaded server ids. Unresolved ids are
+ *  dropped (a create gated on `dependsOnFileIds` only runs once all uploaded). */
+export async function resolveFileIds(localIds: string[]): Promise<string[]> {
+  const files = await services.syncStore.listFiles();
+  const map = new Map(files.filter((f) => f.remoteId !== null).map((f) => [f.id, f.remoteId!]));
+  return localIds.map((id) => map.get(id)).filter((id): id is string => id !== undefined);
+}
+
 /** Collect string ids from array-valued responses (photo/signature fields). */
 function collectIds(responses: FormResponses): Set<string> {
   const ids = new Set<string>();
