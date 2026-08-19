@@ -10,6 +10,7 @@ import { enqueueCreateNcr } from "@/features/ncr/offline";
 import { useLayout } from "@/hooks/use-layout";
 import { apiClient } from "@/lib/api";
 import { services } from "@/services";
+import { ensurePermission } from "@/services/permissions";
 import { useTheme } from "@/theme";
 import { ActionBar, Body, Button, Card, Icon, Screen, SectionLabel, StatusPill, Text } from "@/ui";
 
@@ -36,7 +37,12 @@ export default function NcrNew() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    void services.location?.current().then((c) => c && setCoords({ latitude: c.latitude, longitude: c.longitude }));
+    void (async () => {
+      // Auto-stamp: request quietly, never block the form on location (05 §3).
+      if ((await ensurePermission("location", "Location stamping", { promptSettings: false })) !== "granted") return;
+      const c = await services.location?.current();
+      if (c) setCoords({ latitude: c.latitude, longitude: c.longitude });
+    })();
   }, []);
 
   async function structure(): Promise<void> {

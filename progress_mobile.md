@@ -213,6 +213,22 @@ fidelity → M16 security-made-real → M17 capture hardware → M18 profile/pre
   typecheck 7/7 · lint · 44 tests. (Verification note: the browser automation can't fire RN-web
   `Pressable.onPress` reliably, so the enrol *button* tap was proven via the API round-trip, not a click.)
 
+- [~] **M17 — Permissions + capture hardware made real.** IN PROGRESS.
+  - ✅ **Runtime permission flow** (`services/permissions.ts`): one `ensurePermission(kind, feature)` that
+    requests when a feature runs, **re-asks** while the OS still allows it, and when **permanently blocked**
+    shows an "enable in Settings" alert with an **Open Settings** button (`Linking.openSettings()`) — exactly
+    the "ask again / handle correctly" the reviewer asked for. `promptSettings:false` variant for background
+    auto-stamps so they never pop a modal. Wired: **camera** at the single choke point (`addPhotoEvidence`
+    gates `source:"camera"` → returns null + shows the settings prompt if denied), **location** in
+    `capture.tsx` + `ncr/new.tsx` (quiet request on open; the Quick-Log status pill now reads "Location off ·
+    Enable" and taps through to Settings when blocked). Browser-verified: Quick-Log renders, no regression.
+  - ✅ **Swipe-back "whole page + tab bar moves" fix**: `+html.tsx` now sets `overscroll-behavior-x: none`
+    on html/body/#root so a content drag can't trigger a browser/OS history-back that slides the whole page
+    (tab bar included). (Honest limit: iOS still owns the very-edge *system* swipe on a standalone PWA — no
+    web API disables that — but the content-drag navigation that caused the awkward motion is gone.)
+  - ⏳ **QR/asset scan** (real expo-camera barcode) — next slice of M17.
+  - ⏳ Voice→text quick-log stays honestly flagged (no transcription backend).
+
 ## Superseded status (M0–M13)
 
 **M0–M13 COMPLETE — the mobile/tablet app is done (feature build).** Branch `feat/mobile-app`, pushed; PR #9 open. Every

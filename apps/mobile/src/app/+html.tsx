@@ -58,9 +58,17 @@ html, body, #root {
   height: 100%;
   height: 100dvh;
 }
+html, body {
+  /* Kill horizontal overscroll → the browser/OS won't turn a left-edge drag into a
+     history "back" that slides the whole page (tab bar included). Vertical is also
+     contained so only in-app ScrollViews move — the difference between a web page in
+     a frame and a native-feeling app. (iOS standalone still owns the very-edge
+     system swipe; this removes the content-drag-triggered navigation.) */
+  overscroll-behavior: none;
+  overscroll-behavior-x: none;
+}
 body {
   overflow: hidden;
-  overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
   background-color: #ffffff;
 }
@@ -70,6 +78,7 @@ body {
 #root {
   display: flex;
   flex-direction: column;
+  overscroll-behavior: none;
 }
 /* Suppress the pull-to-refresh / rubber-band on the shell itself. */
 * { -webkit-overflow-scrolling: touch; }

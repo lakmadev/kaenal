@@ -10,6 +10,7 @@ import { PhotoField } from "@/features/capture/PhotoField";
 import { useLayout } from "@/hooks/use-layout";
 import { apiClient } from "@/lib/api";
 import { services } from "@/services";
+import { ensurePermission, promptOpenSettings } from "@/services/permissions";
 import { useTheme } from "@/theme";
 import { Body, Button, Card, Icon, Screen, SectionLabel, StatusPill, Text } from "@/ui";
 
@@ -26,13 +27,25 @@ export default function Capture() {
   const [note, setNote] = useState("");
   const [photoIds, setPhotoIds] = useState<string[]>([]);
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locBlocked, setLocBlocked] = useState(false);
   const [structured, setStructured] = useState<{ value: string; confidence: string } | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [logging, setLogging] = useState(false);
   const [severity, setSeverity] = useState<NcrPriority>("major");
 
+  // Auto-stamp location: request quietly (no Settings modal on open — a capture must
+  // never be blocked on location, 05 §3). If it's blocked, surface a tappable hint.
   useEffect(() => {
-    void services.location?.current().then((c) => c && setCoords({ latitude: c.latitude, longitude: c.longitude }));
+    void (async () => {
+      const state = await ensurePermission("location", "Location stamping", { promptSettings: false });
+      if (state === "blocked") {
+        setLocBlocked(true);
+        return;
+      }
+      if (state !== "granted") return;
+      const c = await services.location?.current();
+      if (c) setCoords({ latitude: c.latitude, longitude: c.longitude });
+    })();
   }, []);
 
   async function structure(): Promise<void> {
@@ -74,12 +87,16 @@ export default function Capture() {
     <Screen>
       <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 12, backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: coords ? palette.success : palette.subtle }} />
-            <Text size={12} weight="semibold" tone="muted">
-              {coords ? "Location stamped" : "Locating…"}
+          <Pressable
+            onPress={locBlocked ? () => promptOpenSettings("location", "Location stamping") : undefined}
+            disabled={!locBlocked}
+            style={{ flexDirection: "row", alignItems: "center", gap: 7 }}
+          >
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: coords ? palette.success : locBlocked ? palette.warn : palette.subtle }} />
+            <Text size={12} weight="semibold" tone={locBlocked ? "accent" : "muted"}>
+              {coords ? "Location stamped" : locBlocked ? "Location off · Enable" : "Locating…"}
             </Text>
-          </View>
+          </Pressable>
           <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: 4 }}>
             <Icon name="x" size={20} color={palette.muted} />
           </Pressable>

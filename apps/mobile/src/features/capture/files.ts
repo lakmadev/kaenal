@@ -4,6 +4,7 @@ import type { FormResponses } from "@kaenal/types";
 
 import { apiClient } from "@/lib/api";
 import { services } from "@/services";
+import { ensurePermission } from "@/services/permissions";
 import { uuidv7 } from "@/sync/ids";
 import type { PendingFile } from "@/sync/types";
 
@@ -21,6 +22,11 @@ export async function addPhotoEvidence(source: "camera" | "library"): Promise<{ 
     | (typeof services.camera & { pickImage?: (s: "camera" | "library") => Promise<{ uri: string; mime: string; size: number } | null> })
     | undefined;
   if (!camera?.pickImage) return null;
+
+  // Gate the device camera behind the runtime permission — request it, re-ask if
+  // the OS still allows, and route to Settings when permanently denied (05 §3).
+  // The library/file-dialog path (and web) needs no camera permission.
+  if (source === "camera" && (await ensurePermission("camera", "Photo capture")) !== "granted") return null;
 
   const picked = await camera.pickImage(source);
   if (picked === null) return null;
