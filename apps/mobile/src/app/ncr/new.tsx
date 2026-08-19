@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NcrPriority } from "@kaenal/types";
 
 import { PhotoField } from "@/features/capture/PhotoField";
+import { triageFromPhoto } from "@/features/ncr/ai";
 import { enqueueCreateNcr } from "@/features/ncr/offline";
 import { useLayout } from "@/hooks/use-layout";
 import { apiClient } from "@/lib/api";
@@ -51,6 +52,29 @@ export default function NcrNew() {
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [open8d, setOpen8d] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiErr, setAiErr] = useState<string | null>(null);
+
+  async function runPhotoTriage(): Promise<void> {
+    const first = photoIds[0];
+    if (!first || aiBusy) return;
+    setAiBusy(true);
+    setAiErr(null);
+    try {
+      const draft = await triageFromPhoto(first, description);
+      if (draft.title && title.trim().length === 0) setTitle(draft.title);
+      if (draft.severity) setSeverity(draft.severity);
+      if (draft.category) setCategory(draft.category);
+      if (draft.description && description.trim().length === 0) setDescription(draft.description);
+      if (!draft.title && !draft.severity && !draft.category && !draft.description) {
+        setAiErr("The model couldn't read a defect — fill it in manually.");
+      }
+    } catch (e) {
+      setAiErr(e instanceof Error ? e.message : "Couldn't analyse the photo.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   // Auto-stamp location quietly; never block the form on it (05 §3).
   useEffect(() => {
@@ -226,6 +250,26 @@ export default function NcrNew() {
                 <SectionLabel style={{ marginBottom: 7 }}>Evidence</SectionLabel>
                 <PhotoField value={photoIds} onChange={setPhotoIds} />
               </View>
+
+              {/* "Photo + AI" — vision triage pre-fills title/severity/category. */}
+              {photoIds.length > 0 && (
+                <Pressable onPress={() => void runPhotoTriage()} disabled={aiBusy}>
+                  <Card style={{ padding: 12, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: palette.accentSoft, borderColor: palette.border }}>
+                    <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: palette.accent, alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="sparkles" size={15} color={palette.accentFg} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text size={12.5} weight="bold">
+                        {aiBusy ? "Analysing photo…" : "Pre-fill from photo with AI"}
+                      </Text>
+                      <Text size={10.5} tone="muted">
+                        {aiErr ?? "Advisory draft — review before submitting"}
+                      </Text>
+                    </View>
+                    {!aiBusy && <Icon name="arrowRight" size={15} color={palette.accent} />}
+                  </Card>
+                </Pressable>
+              )}
 
               <View>
                 <SectionLabel style={{ marginBottom: 7 }}>Title</SectionLabel>

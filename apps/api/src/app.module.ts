@@ -59,7 +59,7 @@ import { ExportsService } from "./exports/exports.service.js";
 import { AiController } from "./ai/ai.controller.js";
 import { AiService } from "./ai/ai.service.js";
 import { AiGatewayService } from "./ai/gateway.service.js";
-import { StubAiProvider } from "./ai/provider.js";
+import { OllamaAiProvider, StubAiProvider, type AiProvider } from "./ai/provider.js";
 import { S3Storage } from "./files/s3-storage.js";
 import { S3Client } from "@aws-sdk/client-s3";
 import type { Storage } from "./files/storage.js";
@@ -323,9 +323,25 @@ import {
       useFactory: (storage: Storage, jobs: JobProducer) => new ExportsService(storage, jobs),
       inject: [STORAGE, JOB_PRODUCER],
     },
-    // The AI gateway is the one model chokepoint (06 §3); the stub provider ships
-    // until a real one is wired.
-    { provide: AI_GATEWAY, useFactory: () => new AiGatewayService(new StubAiProvider()) },
+    // The AI gateway is the one model chokepoint (06 §3). The provider is chosen
+    // by env: `stub` (default — deterministic, no model, keeps dev/test/CI free of
+    // any GPU/credential) or `ollama` (a real local model, incl. the vision model
+    // behind "Photo + AI" NCR triage).
+    {
+      provide: AI_GATEWAY,
+      useFactory: (env: Env) => {
+        const provider: AiProvider =
+          env.AI_PROVIDER === "ollama"
+            ? new OllamaAiProvider(env.OLLAMA_URL, {
+                fast: env.OLLAMA_MODEL_FAST,
+                strong: env.OLLAMA_MODEL_STRONG,
+                vision: env.OLLAMA_MODEL_VISION,
+              })
+            : new StubAiProvider();
+        return new AiGatewayService(provider);
+      },
+      inject: [ENV],
+    },
     {
       provide: AI_SERVICE,
       useFactory: (gateway: AiGatewayService) => new AiService(gateway),

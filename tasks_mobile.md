@@ -86,9 +86,29 @@ Design: `m-capture.jsx` (CapCamera/CapVoice/CapAnnotate), priming screen, `m-aut
 (and standalone-PWA emulation for M14); screenshot the working state; update `progress_mobile.md` in the
 same commit. No feature marked done while any designed control is a stub (CLAUDE.md #10).
 
+## M19.6 — "Photo + AI" vision triage (self-hosted VLM) ✅ DONE (commit)
+Was a deferral ("no vision model wired"). Now real, behind the existing AI-gateway chokepoint:
+- [x] Types: `AiFeature` += `ncr_photo_triage`; `AiDraftRequest.imagesBase64[]`.
+- [x] Core: `FEATURE_ROUTING.ncr_photo_triage → { model:"vision" }`.
+- [x] API: vision system-prompt (returns strict JSON title/severity/category/description); provider port gains
+  `images[]`; **`OllamaAiProvider`** (real local model, `/api/chat`) selectable via `AI_PROVIDER=ollama` +
+  `OLLAMA_*` env — stub stays the default (dev/test/CI need no model). Gateway threads images through; gating/
+  budget/ledger unchanged.
+- [x] Mobile: `triageFromPhoto` (`features/ncr/ai.ts`) base64s the first evidence photo → `requestAiDraft` →
+  parses JSON → prefills title/severity/category/description. "Pre-fill from photo with AI" banner in create
+  step 2 (advisory; user edits).
+- [x] Verified: model runs on this M4 (qwen2.5vl:3b); the exact provider payload + prompt against real Ollama
+  returned clean parseable JSON with valid severity/category enums. Gate: typecheck 7/7 · lint · api tests
+  (ai-gateway 7, ai-http 7, **ai-provider-ollama 3** mocked-fetch).
+- Note: default all `OLLAMA_MODEL_*` to one 3B vision model so a single `ollama pull qwen2.5vl:3b` serves
+  everything on a laptop. For real defect *grading* (not just description), a fine-tuned YOLO detector is a
+  later phase — the VLM triage is advisory, human-confirmed (IATF traceability).
+
 ## Honest deferrals (flag in progress, never fake)
 - Voice→text quick-log (no transcription backend).
-- AI vision defect-detection on live camera (no vision model wired).
+- ~~AI vision defect-detection (no vision model wired)~~ → **DONE in M19.6** (self-hosted Ollama VLM behind
+  the AI gateway; "Photo + AI" triage prefills the NCR). Live on-frame overlay + fine-tuned defect *grading*
+  (YOLO) remain later phases.
 - Any endpoint proven absent after grepping BOTH the contract and the controllers.
 
 ---

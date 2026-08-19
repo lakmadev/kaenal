@@ -32,6 +32,7 @@ export const FEATURE_ROUTING: Record<AiFeature, FeatureRoute> = {
   root_cause: { model: "strong", defaultMaxTokens: 1024 },
   eightd_draft: { model: "strong", defaultMaxTokens: 2048 },
   compliance_qa: { model: "strong", defaultMaxTokens: 1024 },
+  ncr_photo_triage: { model: "vision", defaultMaxTokens: 512 },
 };
 
 export function routeFeature(feature: AiFeature): FeatureRoute {

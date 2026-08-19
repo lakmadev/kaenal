@@ -940,6 +940,9 @@ export const AiDraftRequest = z.object({
   input: z.string().min(1).max(20_000),
   entityRefs: z.array(AiEntityRef).max(20).optional(),
   maxTokens: z.number().int().positive().max(4096).optional(),
+  /** Base64-encoded images (no data: prefix) for vision features like
+   *  `ncr_photo_triage`. Capped small — a phone sends one compressed photo. */
+  imagesBase64: z.array(z.string().min(1).max(15_000_000)).max(4).optional(),
 });
 export type AiDraftRequest = z.infer<typeof AiDraftRequest>;
 
