@@ -37,7 +37,13 @@ export function TabBar({
         borderTopColor: palette.border,
         paddingTop: 8,
         paddingHorizontal: 6,
-        paddingBottom: Math.max(insets.bottom, 6),
+        // Design (mobile-kit.jsx `botInset`): the iOS tab bar uses a COMPACT 26pt
+        // bottom inset, not the full ~34pt home-indicator safe area — the raw inset
+        // reads as a heavy black band on the installed PWA. The bar's surface still
+        // extends to the screen edge (it's the flex column's last child), so 26pt
+        // clears the home indicator without the excess. No inset (Android / older
+        // phones / desktop) → 6, matching the design's non-iOS value.
+        paddingBottom: insets.bottom > 0 ? Math.min(insets.bottom, 26) : 6,
       }}
     >
       {tabs.map((t) => {
