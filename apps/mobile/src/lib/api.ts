@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 import { createApiClient, type ApiClient } from "@kaenal/api-client";
 
@@ -18,7 +19,17 @@ const DEV_API_PORT = 3001;
  * EXPO_PUBLIC_API_URL always wins (staging / device builds / tunnels).
  */
 function inferDevApiBase(): string {
-  // e.g. "192.168.1.23:8081" (dev client / Expo Go) — falls back across SDK shapes.
+  // Web (including the installed PWA / "Add to Home Screen"): the browser loaded
+  // the app from some host — reuse EXACTLY that host with the API port. On a phone
+  // that's your machine's LAN IP (e.g. 192.168.178.35), NOT `localhost` (which on
+  // the device is the phone itself — the cause of "cannot reach server"). This is
+  // more reliable than Expo's hostUri, which only reflects the native dev client.
+  if (Platform.OS === "web" && typeof window !== "undefined" && window.location?.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:${DEV_API_PORT}`;
+  }
+
+  // Native dev client / Expo Go: Expo exposes the dev-server host.
+  // e.g. "192.168.1.23:8081" — falls back across SDK shapes.
   const hostUri =
     Constants.expoConfig?.hostUri ??
     Constants.expoGoConfig?.debuggerHost ??
