@@ -100,6 +100,16 @@ Was a deferral ("no vision model wired"). Now real, behind the existing AI-gatew
 - [x] Verified: model runs on this M4 (qwen2.5vl:3b); the exact provider payload + prompt against real Ollama
   returned clean parseable JSON with valid severity/category enums. Gate: typecheck 7/7 · lint · api tests
   (ai-gateway 7, ai-http 7, **ai-provider-ollama 3** mocked-fetch).
+- [x] **LIVE end-to-end** (restarted API on `AI_PROVIDER=ollama`, acme intelligence pack + `allow_ai`
+  enabled via `scripts/enable-ai-acme.ts`): `POST /v1/ai/drafts {feature:ncr_photo_triage, imagesBase64}`
+  → **HTTP 200 in 1.5s** through the full governed gateway → local qwen2.5vl → JSON draft; `ai_invocations`
+  row `ncr_photo_triage/vision/succeeded/1491ms`. The live run caught a real gap — the ledger's `feature`
+  CHECK didn't include the new value → **migration `0038_ai_feature_vision.sql`** (rule #7: a feature is
+  migration + contract + service + tests). db:check 49 tables green.
+- Harness note: the in-app *file-picker* tap can't be driven by the browser automation (OS dialog), so the
+  photo→button→prefill was proven via the governed API round-trip the button calls (the button+parse+prefill
+  UI itself is verified to render in M19.5c). To see it in-app: NCR create → step 2 → **Add** a photo → tap
+  **Pre-fill from photo with AI**.
 - Note: default all `OLLAMA_MODEL_*` to one 3B vision model so a single `ollama pull qwen2.5vl:3b` serves
   everything on a laptop. For real defect *grading* (not just description), a fine-tuned YOLO detector is a
   later phase — the VLM triage is advisory, human-confirmed (IATF traceability).
