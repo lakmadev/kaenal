@@ -44,12 +44,19 @@ export function ncrDue(dueAt: string | null): { text: string; overdue: boolean }
   return diff < 0 ? { text: `Overdue ${mag}`, overdue: true } : { text: `Due ${mag}`, overdue: false };
 }
 
-export function NcrCard({ ncr, onPress }: { ncr: NcrDto; onPress: () => void }) {
+export function NcrCard({ ncr, onPress, selected = false }: { ncr: NcrDto; onPress: () => void; selected?: boolean }) {
   const { palette } = useTheme();
   const due = ncrDue(ncr.dueAt);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
-      <Card style={{ marginHorizontal: 16, marginTop: 10, padding: 14 }}>
+      <Card
+        style={{
+          marginHorizontal: 16,
+          marginTop: 10,
+          padding: 14,
+          ...(selected ? { backgroundColor: palette.accentSoft, borderColor: palette.accent, borderLeftWidth: 3 } : {}),
+        }}
+      >
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 5 }}>
           <Mono size={10.5} weight="bold" color={palette.muted}>
             {ncr.code}
