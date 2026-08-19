@@ -3,6 +3,7 @@
 // and their pull pullers into `readPullers`; the engine itself never changes.
 
 import { uploadPendingFiles } from "../features/capture/files.js";
+import { presentLocal } from "../services/notifications.js";
 import { services } from "../services/index.js";
 import { useSync } from "../stores/sync.js";
 import { SyncEngine } from "./engine.js";
@@ -35,6 +36,14 @@ export const engine = new SyncEngine({
   pullEntities: ["inspection", "ncr"],
   isOnline: () => online,
   onChange: (s) => applyToStore(s),
+  // A parked write raises a local "sync failed" alert (05 §3). The entity ref
+  // lets the tap deep-link straight to the record that needs attention.
+  onNeedsReview: (m, reason) => {
+    void presentLocal("Sync needs attention", reason, {
+      entityKind: m.entityType,
+      entityId: m.entityId,
+    });
+  },
 });
 
 /** Map the engine summary onto the header-pill store shape. */

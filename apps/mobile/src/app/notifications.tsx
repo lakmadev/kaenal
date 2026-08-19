@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { Pressable, View } from "react-native";
@@ -8,6 +8,7 @@ import type { NotificationDto } from "@kaenal/types";
 
 import { useLayout } from "@/hooks/use-layout";
 import { apiClient } from "@/lib/api";
+import { entityRoute } from "@/lib/deep-links";
 import { useSession } from "@/stores/session";
 import { useTheme } from "@/theme";
 import { Body, Card, EmptyState, Icon, Mono, Screen, SectionLabel, Skeleton, Text, type IconName } from "@/ui";
@@ -38,6 +39,7 @@ export default function Notifications() {
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
   const tenant = useSession((s) => s.tenant);
+  const qc = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["notifications", tenant],
@@ -49,13 +51,50 @@ export default function Notifications() {
     staleTime: 15_000,
   });
 
+  // Optimistically flip a row to read locally, then persist. The unread badge
+  // (unread-count query) is invalidated so the bell recolours immediately.
+  function markRead(id: string, alreadyRead: boolean): void {
+    if (alreadyRead) return;
+    const now = new Date().toISOString();
+    qc.setQueryData<NotificationDto[]>(["notifications", tenant], (prev) =>
+      (prev ?? []).map((n) => (n.id === id ? { ...n, readAt: n.readAt ?? now } : n)),
+    );
+    void apiClient.markNotificationRead({ params: { id }, body: {} }).finally(() => {
+      void qc.invalidateQueries({ queryKey: ["notifications-unread", tenant] });
+    });
+  }
+
+  const markAll = useMutation({
+    mutationFn: async () => {
+      await apiClient.markAllNotificationsRead({ body: {} });
+    },
+    onMutate: () => {
+      const now = new Date().toISOString();
+      qc.setQueryData<NotificationDto[]>(["notifications", tenant], (prev) =>
+        (prev ?? []).map((n) => ({ ...n, readAt: n.readAt ?? now })),
+      );
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["notifications", tenant] });
+      void qc.invalidateQueries({ queryKey: ["notifications-unread", tenant] });
+    },
+  });
+
+  // Tap a row: mark it read, then deep-link into its entity if one exists.
+  function open(n: NotificationDto): void {
+    markRead(n.id, n.readAt !== null);
+    const href = entityRoute(n.entityKind, n.entityId);
+    if (href) router.push(href);
+  }
+
+  const items = data ?? [];
+  const anyUnread = items.some((n) => n.readAt === null);
   const groups = useMemo(() => {
-    const items = data ?? [];
     return [
       { grp: "New", items: items.filter((n) => n.readAt === null) },
       { grp: "Earlier", items: items.filter((n) => n.readAt !== null) },
     ].filter((g) => g.items.length > 0);
-  }, [data]);
+  }, [items]);
 
   return (
     <Screen>
@@ -67,6 +106,19 @@ export default function Notifications() {
           <Text size={20} weight="bold" style={{ flex: 1, letterSpacing: -0.4 }}>
             Notifications
           </Text>
+          {anyUnread && (
+            <Pressable
+              onPress={() => markAll.mutate()}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Mark all notifications read"
+              style={{ paddingHorizontal: 6, paddingVertical: 4 }}
+            >
+              <Text size={13} weight="semibold" tone="accent">
+                Mark all read
+              </Text>
+            </Pressable>
+          )}
         </View>
       </View>
       <Body contentStyle={{ alignItems: "center" }}>
@@ -89,7 +141,7 @@ export default function Notifications() {
                 <SectionLabel style={{ paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 }}>{g.grp}</SectionLabel>
                 <Card style={{ marginHorizontal: 16 }}>
                   {g.items.map((n, i, a) => (
-                    <NotifRow key={n.id} n={n} last={i === a.length - 1} />
+                    <NotifRow key={n.id} n={n} last={i === a.length - 1} onPress={() => open(n)} />
                   ))}
                 </Card>
               </View>
@@ -102,13 +154,28 @@ export default function Notifications() {
   );
 }
 
-function NotifRow({ n, last }: { n: NotificationDto; last: boolean }) {
+function NotifRow({ n, last, onPress }: { n: NotificationDto; last: boolean; onPress: () => void }) {
   const { palette } = useTheme();
   const m = iconFor(n.kind);
   const tint = m.tone(palette);
   const unread = n.readAt === null;
+  const linkable = entityRoute(n.entityKind, n.entityId) !== null;
   return (
-    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: last ? 0 : 1, borderBottomColor: palette.border, backgroundColor: unread ? palette.accentSoft : "transparent" }}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${n.title}${n.body ? `, ${n.body}` : ""}${unread ? ", unread" : ""}`}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        borderBottomWidth: last ? 0 : 1,
+        borderBottomColor: palette.border,
+        backgroundColor: pressed ? palette.bgSubtle : unread ? palette.accentSoft : "transparent",
+      })}
+    >
       <View style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: tint + (palette.dark ? "26" : "16"), alignItems: "center", justifyContent: "center" }}>
         <Icon name={m.icon} size={17} color={tint} />
       </View>
@@ -122,9 +189,12 @@ function NotifRow({ n, last }: { n: NotificationDto; last: boolean }) {
           </Text>
         )}
       </View>
-      <Mono size={11} color={palette.subtle}>
-        {ago(n.createdAt)}
-      </Mono>
-    </View>
+      <View style={{ alignItems: "flex-end", gap: 6 }}>
+        <Mono size={11} color={palette.subtle}>
+          {ago(n.createdAt)}
+        </Mono>
+        {linkable && <Icon name="chevronRight" size={14} color={palette.subtle} />}
+      </View>
+    </Pressable>
   );
 }

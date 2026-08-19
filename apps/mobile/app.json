@@ -8,9 +8,12 @@
     "scheme": "kaenal",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.kaenal.mobile",
+      "supportsTablet": true
     },
     "android": {
+      "package": "com.kaenal.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -53,11 +56,30 @@
         {
           "locationWhenInUsePermission": "Kaenal auto-stamps the plant, line and station on every capture."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#18181b"
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "owner": "kaenal",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/00000000-0000-0000-0000-000000000000",
+      "fallbackToCacheTimeout": 0
+    },
+    "extra": {
+      "eas": {
+        "projectId": "00000000-0000-0000-0000-000000000000"
+      }
     }
   }
 }

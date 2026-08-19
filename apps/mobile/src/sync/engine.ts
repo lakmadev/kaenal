@@ -30,6 +30,13 @@ export interface EngineDeps {
   uploadFiles?: () => Promise<void>;
   /** Called after any state change so the UI (sync store / pill) can refresh. */
   onChange?: (summary: SyncSummary) => void;
+  /**
+   * Called when a write is parked for manual review (a conflict the client can't
+   * resolve — stale write, validation, gone). The composition root raises a local
+   * "sync failed" notification from this (05 §3); optional/no-op when unset, so the
+   * engine stays RN-free and unit-testable.
+   */
+  onNeedsReview?: (m: MutationRecord, reason: string) => void;
   /** Wall clock, injectable for deterministic tests. */
   now?: () => number;
   /** Max mutations pushed per cycle (bounds a large backlog). */
@@ -198,6 +205,7 @@ export class SyncEngine {
         case "needs_review": {
           work = markFailed(work, m.id, `REVIEW:${decision.reason}`);
           await this.d.store.putMutation(work.find((x) => x.id === m.id)!);
+          this.d.onNeedsReview?.(m, decision.reason);
           break;
         }
         case "failed": {

@@ -12,6 +12,7 @@ import "@/features/ncr/offline"; // registers the NCR puller + create/transition
 import "@/features/work/offline"; // registers the 8D-step + CAPA-action-status handlers
 import "@/features/oversight/offline"; // registers the document-review approval handler
 
+import { registerForPushAsync, useNotificationRouting } from "@/features/notifications/push";
 import { PERSIST_BUSTER, queryPersister } from "@/lib/persist-query";
 import { queryClient } from "@/lib/query-client";
 import { useAppearance } from "@/stores/appearance";
@@ -43,6 +44,10 @@ export default function RootLayout() {
   const setMode = useAppearance((s) => s.setMode);
   const sessionStatus = useSession((s) => s.status);
 
+  // Route notification taps into the app (foreground + cold-start) via the shared
+  // deep-link resolver (05 §3). No-op on web / when no notification opened us.
+  useNotificationRouting();
+
   // One-time bootstrap: rehydrate the persisted appearance + session.
   useEffect(() => {
     void useAppearance.getState().hydrate();
@@ -57,8 +62,12 @@ export default function RootLayout() {
 
   // Boot the offline engine once the session is authenticated: init the local
   // store, run a first pull/push cycle, and keep the sync pill live (05 §2).
+  // Also register for push (permission + Expo token) so alerts can deep-link.
   useEffect(() => {
-    if (sessionStatus === "authenticated") void startSync();
+    if (sessionStatus === "authenticated") {
+      void startSync();
+      void registerForPushAsync();
+    }
   }, [sessionStatus]);
 
   if (!ready) return null;

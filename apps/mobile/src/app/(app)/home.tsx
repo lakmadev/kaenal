@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { DashboardBody } from "@/features/home/dashboards";
 import { useDashboard } from "@/features/home/use-dashboard";
 import { useLayout } from "@/hooks/use-layout";
+import { useUnreadCount } from "@/hooks/use-unread";
 import { useRole, useSession } from "@/stores/session";
 import { useSync } from "@/stores/sync";
 import { BellButton, Body, Card, Header, Screen, Skeleton, Text } from "@/ui";
@@ -47,6 +48,7 @@ export default function Home() {
   const me = useSession((s) => s.me);
   const role = useRole();
   const sync = useSync((s) => s.state);
+  const unread = useUnreadCount();
   const { contentMaxWidth } = useLayout();
   const { data, isLoading, isError, refetch, isRefetching } = useDashboard();
 
@@ -61,7 +63,7 @@ export default function Home() {
         title={titleFor(role, firstName)}
         sync={sync}
         onSyncPress={() => router.push("/sync-queue")}
-        right={<BellButton onPress={() => router.push("/notifications")} />}
+        right={<BellButton count={unread} onPress={() => router.push("/notifications")} />}
       />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth }}>

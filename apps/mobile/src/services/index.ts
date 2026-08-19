@@ -4,6 +4,7 @@ import { createSyncStore } from "./db";
 import { filesAdapter } from "./files";
 import { kvAdapter } from "./kv";
 import { locationAdapter } from "./location";
+import { notificationsAdapter } from "./notifications";
 import type { Services } from "./ports";
 import { secureStoreAdapter } from "./secure-store";
 
@@ -19,6 +20,7 @@ export const services: Services = {
   camera: cameraAdapter,
   location: locationAdapter,
   files: filesAdapter,
+  notifications: notificationsAdapter,
 };
 
 export type { Services } from "./ports";
