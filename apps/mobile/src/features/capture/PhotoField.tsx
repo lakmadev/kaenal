@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import { Image, Pressable, View } from "react-native";
 
 import { services } from "@/services";
@@ -15,9 +16,22 @@ import { addPhotoEvidence } from "./files";
  */
 export function PhotoField({ value, onChange }: { value: unknown; onChange: (v: string[]) => void }) {
   const { palette, radius } = useTheme();
+  const router = useRouter();
   const ids = Array.isArray(value) ? (value.filter((x) => typeof x === "string") as string[]) : [];
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+
+  // Returning from the annotate editor replaces a file's bytes in place (same id),
+  // so re-read every thumbnail from the store on focus to show the marked-up version.
+  useFocusEffect(
+    useCallback(() => {
+      void services.syncStore.listFiles().then((files) => {
+        const map: Record<string, string> = {};
+        for (const f of files) map[f.id] = f.localUri;
+        setThumbs((t) => ({ ...t, ...map }));
+      });
+    }, []),
+  );
 
   // Resolve local URIs for any ids we don't yet have a thumbnail for (resume).
   useEffect(() => {
@@ -70,6 +84,13 @@ export function PhotoField({ value, onChange }: { value: unknown; onChange: (v: 
             }}
           >
             <Icon name="x" size={11} color="#ffffff" />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push({ pathname: "/annotate", params: { id } })}
+            hitSlop={6}
+            style={{ position: "absolute", bottom: 3, right: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" }}
+          >
+            <Icon name="pen" size={10} color="#ffffff" />
           </Pressable>
         </View>
       ))}
