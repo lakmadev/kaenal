@@ -27,17 +27,31 @@ interface CommentRow {
 const COMMENT_COLUMNS =
   "id, entity_kind, entity_id, author_id, body, parent_id, created_at, updated_at";
 
-function toDto(row: CommentRow): CommentDto {
+function toDto(row: CommentRow, authorNames?: ReadonlyMap<string, string>): CommentDto {
   return {
     id: row.id,
     entityKind: row.entity_kind as EntityKind,
     entityId: row.entity_id,
     authorId: row.author_id,
+    authorName: authorNames?.get(row.author_id) ?? null,
     body: row.body,
     parentId: row.parent_id,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
+}
+
+/** Batched author id → display name (control.users), one `= ANY(...)` lookup. */
+async function resolveAuthorNames(tx: Tx, rows: readonly { author_id: string }[]): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.map((r) => r.author_id))];
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  const { rows: users } = await tx.query<{ id: string; name: string }>(
+    `SELECT id, name FROM control.users WHERE id = ANY($1::uuid[])`,
+    [ids],
+  );
+  for (const u of users) out.set(u.id, u.name);
+  return out;
 }
 
 /**
@@ -70,7 +84,8 @@ export class CommentsService {
         ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,
       params,
     );
-    return toPage(rows, limit, toDto);
+    const authorNames = await resolveAuthorNames(tx, rows);
+    return toPage(rows, limit, (r) => toDto(r, authorNames));
   }
 
   async create(
@@ -118,7 +133,7 @@ export class CommentsService {
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Comment was not created");
-        return toDto(row);
+        return toDto(row, await resolveAuthorNames(t, [row]));
       },
     );
   }
@@ -163,7 +178,8 @@ export class CommentsService {
             WHERE id = $1 AND deleted_at IS NULL RETURNING ${COMMENT_COLUMNS}`,
           [id, actorId],
         );
-        return toDto(updated[0] ?? row);
+        const final = updated[0] ?? row;
+        return toDto(final, await resolveAuthorNames(t, [final]));
       },
     );
   }

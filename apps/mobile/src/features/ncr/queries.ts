@@ -1,10 +1,10 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
-import type { NcrActionDto, NcrDto } from "@kaenal/types";
+import type { AuditEventDto, NcrActionDto, NcrDto } from "@kaenal/types";
 
 import { useSession } from "@/stores/session";
 
-import { fetchNcr, fetchNcrActions, fetchNcrs, type NcrPage } from "./api";
+import { fetchNcr, fetchNcrActions, fetchNcrActivity, fetchNcrs, type NcrPage } from "./api";
 
 export function useNcrs(): UseQueryResult<NcrPage> {
   const tenant = useSession((s) => s.tenant);
@@ -31,5 +31,15 @@ export function useNcrActions(id: string): UseQueryResult<NcrActionDto[]> {
     queryKey: ["ncr-actions", tenant, id],
     queryFn: () => fetchNcrActions(id),
     enabled: tenant !== null && id !== "",
+  });
+}
+
+export function useNcrActivity(id: string): UseQueryResult<AuditEventDto[]> {
+  const tenant = useSession((s) => s.tenant);
+  return useQuery({
+    queryKey: ["ncr-activity", tenant, id],
+    queryFn: () => fetchNcrActivity(id),
+    enabled: tenant !== null && id !== "",
+    staleTime: 15_000,
   });
 }

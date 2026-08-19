@@ -151,12 +151,13 @@ Trigger: the five `m-ncr.jsx` screens are wired-but-simplified — designed elem
 - [ ] Tests: DTO fields populated; create persists containment+evidence; files-by-entity list scoped + RLS;
   activity list scoped + RLS; cross-tenant 404. `pnpm db:check` if a migration lands.
 
-**M19.5b — Mobile Detail + Verify pixel-perfect:**
-- [ ] Detail: evidence **photo strip**, location+timestamp **meta line**, full **Details** (Reporter, Owner,
-  Category, Severity, Due), **Activity feed** (render `useNcrActions`→lifecycle via the new activity endpoint),
-  real **Comment** (comments sheet, not `alert()`), 8D banner. All per `NcrDetail`.
-- [ ] Verify: **"Evidence to verify"** list (resolution `ncr_actions` corrective/preventive + attached files),
-  decision, note, action — per `NcrVerify`.
+**M19.5b — Mobile Detail + Verify pixel-perfect:** ✅ DONE (commit).
+- [x] Detail: evidence **photo strip**, location+timestamp **meta line**, full **Details** (Reporter, Owner,
+  Category, Severity+units, Due — real resolved names), **Activity feed** (real `/v1/audit-events` + actorName),
+  real **Comment** (thread screen `ncr/[id]/comments.tsx`, not `alert()`), 8D banner. Browser-verified.
+- [x] Verify: **"Evidence to verify"** list (real `ncr_actions` corrective/containment + attached evidence
+  count), decision, note, action — per `NcrVerify`. (Typecheck-clean; not visually exercised — no seeded
+  awaiting-verify NCR + admin self-verify is four-eyes-blocked.)
 
 **M19.5c — Mobile Create Steps 1–3 pixel-perfect:**
 - [ ] Step 1 `NcrCreateStep1`: **method chooser** (Photo+AI / Voice / Manual / Scan — Voice/AI honestly

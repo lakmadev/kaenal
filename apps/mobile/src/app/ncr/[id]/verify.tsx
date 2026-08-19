@@ -4,10 +4,13 @@ import { Pressable, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { enqueueTransition, enqueueVerify } from "@/features/ncr/offline";
-import { useNcr } from "@/features/ncr/queries";
+import { useNcrEvidence } from "@/features/ncr/evidence";
+import { useNcr, useNcrActions } from "@/features/ncr/queries";
 import { useLayout } from "@/hooks/use-layout";
 import { useTheme } from "@/theme";
-import { ActionBar, Body, Button, Card, Icon, Mono, Screen, SectionLabel, Skeleton, StatusPill, Text } from "@/ui";
+import { ActionBar, Body, Button, Card, Icon, Mono, Screen, SectionLabel, Skeleton, StatusPill, Text, type IconName } from "@/ui";
+
+const ACTION_ICON: Record<string, IconName> = { containment: "shield", corrective: "tool", preventive: "check" };
 
 // m-ncr.jsx NcrVerify — auditor four-eyes verification. "Effective" verifies +
 // closes (the server enforces verifier ≠ resolver); "Not effective" reopens.
@@ -18,6 +21,8 @@ export default function NcrVerify() {
   const { palette, radius, fonts } = useTheme();
   const { contentMaxWidth } = useLayout();
   const { data: ncr, isLoading } = useNcr(id ?? "");
+  const { data: actions } = useNcrActions(id ?? "");
+  const { data: evidence } = useNcrEvidence(id ?? "");
   const [effective, setEffective] = useState<boolean | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -74,6 +79,42 @@ export default function NcrVerify() {
                   </Text>
                 )}
               </Card>
+
+              {/* Evidence to verify — the corrective/containment actions logged on
+                  the NCR (real ncr_actions) plus any attached evidence photos. */}
+              {((actions && actions.length > 0) || (evidence && evidence.length > 0)) && (
+                <Card style={{ padding: 14 }}>
+                  <SectionLabel style={{ marginBottom: 10 }}>Evidence to verify</SectionLabel>
+                  {(actions ?? []).map((a, i, arr) => (
+                    <View
+                      key={a.id}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 10, borderBottomWidth: i < arr.length - 1 || (evidence?.length ?? 0) > 0 ? 1 : 0, borderBottomColor: palette.border }}
+                    >
+                      <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: a.status === "done" || a.status === "verified" ? palette.successBg : palette.bgSubtle, alignItems: "center", justifyContent: "center" }}>
+                        <Icon name={ACTION_ICON[a.kind] ?? "check"} size={15} color={a.status === "done" || a.status === "verified" ? palette.success : palette.muted} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text size={13} weight="semibold" style={{ lineHeight: 18 }}>
+                          {a.description}
+                        </Text>
+                        <Text size={11} tone="muted" style={{ textTransform: "capitalize" }}>
+                          {a.kind} · {a.status.replace(/_/g, " ")}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                  {(evidence ?? []).length > 0 && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 11, paddingTop: 10 }}>
+                      <View style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: palette.successBg, alignItems: "center", justifyContent: "center" }}>
+                        <Icon name="camera" size={15} color={palette.success} />
+                      </View>
+                      <Text size={13} weight="semibold" style={{ flex: 1 }}>
+                        {evidence?.length} evidence photo{(evidence?.length ?? 0) === 1 ? "" : "s"} attached
+                      </Text>
+                    </View>
+                  )}
+                </Card>
+              )}
 
               <View>
                 <SectionLabel style={{ marginBottom: 8 }}>Verification decision</SectionLabel>

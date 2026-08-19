@@ -226,8 +226,12 @@ export const NcrDto = z.object({
   category: z.string().nullable(),
   status: NcrStatus,
   ownerId: z.string().uuid().nullable(),
+  /** Owner's display name (resolved) — the detail "Owner" row. */
+  ownerName: z.string().nullable(),
   /** Who raised the NCR (=created_by) — the detail's "Reporter" row. */
   reporterId: z.string().uuid().nullable(),
+  /** Reporter's display name (resolved) — the detail "Reporter" row. */
+  reporterName: z.string().nullable(),
   plantId: z.string().uuid().nullable(),
   areaId: z.string().uuid().nullable(),
   /** Resolved display names for the detail header meta ("Plant A · Line 2"). */
@@ -984,6 +988,9 @@ export const CommentDto = z.object({
   entityKind: EntityKind,
   entityId: z.string().uuid(),
   authorId: z.string().uuid(),
+  /** Author's display name, resolved server-side (null if unknown) — so the
+   *  comment thread reads without a second round-trip. */
+  authorName: z.string().nullable(),
   body: z.string(),
   parentId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),

@@ -297,6 +297,20 @@ fidelity → M16 security-made-real → M17 capture hardware → M18 profile/pre
     (Detail + Verify pixel-perfect) → **M19.5c** (Create steps 1–3 pixel-perfect).
   - Honest note (flagged, not faked): `units_affected` is modeled + exposed but no `m-ncr` create step *inputs*
     it (the mock shows it only in review/detail), so it stays null from mobile until an input exists elsewhere.
+  - ✅ **M19.5b — Detail + Verify screens pixel-perfect.** `NcrDto` further enriched with **`reporterName`/
+    `ownerName`** (control.users sub-selects) and `CommentDto`/`AuditEventDto` gained resolved names.
+    **Detail** (`ncr/[id].tsx`) rebuilt to `NcrDetail`: real **evidence photo strip** (`useNcrEvidence` →
+    `/v1/files?entityKind=ncr` + inline download URLs; omitted, not faked, when none), **location + timestamp
+    meta** under the title, full **Details** (Reporter, Owner, Category, Severity + units, Due — real names),
+    8D banner, and the **Activity feed** (`useNcrActivity` → `/v1/audit-events`, action→icon/label, actor
+    names). The **Comment** button now opens a real thread screen (`ncr/[id]/comments.tsx`: list + compose via
+    `/v1/comments`), replacing the dead `alert()`. **Verify** gained the **"Evidence to verify"** list (real
+    `ncr_actions` corrective/containment + attached evidence count). **Browser-verified** against the live API:
+    detail shows Reporter/Owner "Demo Admin", the activity feed ("Raised by / Status changed by Demo Admin"
+    with icons + times), and a posted comment round-tripped ("You · just now"); console clean. Gate: typecheck
+    7/7 · lint · api tests green (collab +authorName assertion, ncr, audit-log, files). **Next: M19.5c** (Create
+    steps 1–3 pixel-perfect). (Verify screen's evidence list is typecheck-clean; not visually exercised — the
+    seed has no resolved-awaiting-verify NCR, and admin self-verify is four-eyes-blocked.)
 
 ## Superseded status (M0–M13)
 

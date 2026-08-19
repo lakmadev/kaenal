@@ -68,6 +68,8 @@ interface NcrRow {
   // RETURNING-only paths, where they default to null.
   plant_name?: string | null;
   area_name?: string | null;
+  reporter_name?: string | null;
+  owner_name?: string | null;
 }
 
 const NCR_COLUMNS = `id, code, title, description, source, source_id, priority, risk, category, status,
@@ -79,7 +81,9 @@ const NCR_COLUMNS = `id, code, title, description, source, source_id, priority, 
 // keyset/where/ORDER BY helpers reference bare `ncrs` columns unambiguously.
 const NCR_NAME_SUBSELECTS = `,
   (SELECT name FROM plants WHERE id = ncrs.plant_id) AS plant_name,
-  (SELECT name FROM areas WHERE id = ncrs.area_id) AS area_name`;
+  (SELECT name FROM areas WHERE id = ncrs.area_id) AS area_name,
+  (SELECT name FROM control.users WHERE id = ncrs.created_by) AS reporter_name,
+  (SELECT name FROM control.users WHERE id = ncrs.owner_id) AS owner_name`;
 
 const iso = (d: Date | null): string | null => (d === null ? null : d.toISOString());
 
@@ -96,7 +100,9 @@ function toNcrDto(row: NcrRow): NcrDto {
     category: row.category,
     status: row.status as NcrStatus,
     ownerId: row.owner_id,
+    ownerName: row.owner_name ?? null,
     reporterId: row.created_by,
+    reporterName: row.reporter_name ?? null,
     plantId: row.plant_id,
     areaId: row.area_id,
     plantName: row.plant_name ?? null,
