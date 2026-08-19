@@ -3,6 +3,7 @@ import { View } from "react-native";
 
 import { confirmIfUnsynced } from "@/features/auth/guard";
 import { SettingRow, SettingsGroup } from "@/features/settings/parts";
+import { APP_VERSION } from "@/lib/app-info";
 import { useLayout } from "@/hooks/use-layout";
 import { useAppearance } from "@/stores/appearance";
 import { useRole, useSession } from "@/stores/session";
@@ -85,11 +86,11 @@ export default function Me() {
           <SectionLabel style={{ paddingHorizontal: 16, paddingBottom: 8 }}>Workspace</SectionLabel>
           <SettingsGroup>
             <SettingRow icon="building" title={me?.tenantName ?? "Workspace"} value="Switch" onPress={() => router.push("/switch-workspace")} />
-            <SettingRow icon="info" title="About & version" value="v2.4.0" last />
+            <SettingRow icon="info" title="About & version" value={`v${APP_VERSION}`} onPress={() => router.push("/settings/about")} last />
           </SettingsGroup>
 
           <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 10 }}>
-            <Button variant="ghost" icon="logOut" style={{ flex: 1 }} onPress={() => void handleSignOut()}>
+            <Button variant="ghost" tone="danger" icon="logOut" onPress={() => void handleSignOut()}>
               Sign out
             </Button>
             {pending > 0 && (

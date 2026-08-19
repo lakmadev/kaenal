@@ -8,6 +8,9 @@ export interface ButtonProps {
   children: string;
   onPress?: () => void;
   variant?: "primary" | "ghost" | "danger";
+  /** Ghost buttons only: `danger` tints the text + icon red (design GhostBtn with
+   *  `color: T.dangerFg` — Sign out, Sign out all other devices). Ignored otherwise. */
+  tone?: "default" | "danger";
   icon?: IconName;
   loading?: boolean;
   disabled?: boolean;
@@ -19,6 +22,7 @@ export function Button({
   children,
   onPress,
   variant = "primary",
+  tone = "default",
   icon,
   loading = false,
   disabled = false,
@@ -29,7 +33,14 @@ export function Button({
   const isDanger = variant === "danger";
   const isGhost = variant === "ghost";
   const bg = isPrimary ? palette.accent : isDanger ? palette.danger : palette.surface;
-  const fg = isPrimary ? palette.accentFg : isDanger ? "#ffffff" : palette.text;
+  // Ghost + tone="danger" renders the outlined button with red foreground (design GhostBtn).
+  const fg = isPrimary
+    ? palette.accentFg
+    : isDanger
+      ? "#ffffff"
+      : isGhost && tone === "danger"
+        ? palette.dangerFg
+        : palette.text;
   const isDisabled = disabled || loading;
 
   return (

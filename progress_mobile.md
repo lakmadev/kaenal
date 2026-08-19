@@ -186,6 +186,16 @@ fidelity → M16 security-made-real → M17 capture hardware → M18 profile/pre
   role's tab set (by design, `m-home.jsx` HomeAdmin) — Inspector = Home/Tasks/+/NCRs/Me; all four role
   dashboards exist and match the mocks.
 
+- [x] **M15 — Settings-root fidelity + real About/version screen.** ✅ The design's Sign-out is a
+  danger-tinted **ghost** button (`GhostBtn` + `color: T.dangerFg`) — added `tone="danger"` to `Button`
+  (ghost only: red text + icon) and applied it in `me.tsx`; removed the erroneous `flex:1`. Replaced the
+  dead **About & version** row (hard-coded "v2.4.0") with a real `/settings/about` screen backed by
+  `lib/app-info.ts` (version/build/channel/runtime from `expo-constants`, workspace/email from the live
+  session; no placeholders) — the row now shows the true `v1.0.0` and navigates. Browser-verified signed
+  in as `demo@acme.test` (admin): settings root shows the red Sign-out button + `v1.0.0`; About renders
+  Build (1.0.0 / — / development / Expo SDK 57 · web) + Workspace (Acme / demo@acme.test) + Legal links,
+  edge-to-edge under the M14 shell. Gate: typecheck 7/7 · lint · 44 tests.
+
 ## Superseded status (M0–M13)
 
 **M0–M13 COMPLETE — the mobile/tablet app is done (feature build).** Branch `feat/mobile-app`, pushed; PR #9 open. Every
