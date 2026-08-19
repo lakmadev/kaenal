@@ -5,10 +5,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { CapaActionDto } from "@kaenal/types";
 
+import { AssigneeSheet } from "@/features/assign/AssigneeSheet";
 import { PhotoField } from "@/features/capture/PhotoField";
-import { enqueueCapaActionStatus } from "@/features/work/offline";
+import { enqueueAssignCapa, enqueueCapaActionStatus } from "@/features/work/offline";
 import { useCapa, useCapaActions } from "@/features/work/queries";
 import { useLayout } from "@/hooks/use-layout";
+import { useCapabilities } from "@/stores/session";
 import { useTheme } from "@/theme";
 import { Body, Card, Icon, Mono, Screen, SectionLabel, Skeleton, StatusPill, SyncPill, Text } from "@/ui";
 import { engine } from "@/sync";
@@ -31,10 +33,20 @@ export default function CapaCheckoff() {
   const insets = useSafeAreaInsets();
   const { palette, radius } = useTheme();
   const { contentMaxWidth } = useLayout();
-  const { data: capa, isLoading } = useCapa(id ?? "");
+  const { data: capa, isLoading, refetch } = useCapa(id ?? "");
   const actions = useCapaActions(id ?? "");
+  const caps = useCapabilities();
   const [photoIds, setPhotoIds] = useState<string[]>([]);
   const [pending, setPending] = useState<string | null>(null);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const canManage = caps.includes("capa:manage");
+
+  async function assignOwner(ownerId: string | null): Promise<void> {
+    if (!capa) return;
+    await enqueueAssignCapa(capa, ownerId);
+    await engine.sync();
+    await refetch();
+  }
 
   async function toggle(action: CapaActionDto): Promise<void> {
     setPending(action.id);
@@ -58,6 +70,11 @@ export default function CapaCheckoff() {
             {capa?.code ?? "…"}
           </Mono>
           <View style={{ flex: 1 }} />
+          {capa && canManage && (
+            <Pressable onPress={() => setAssignOpen(true)} hitSlop={8} style={{ padding: 4, marginRight: 4 }} accessibilityLabel="Reassign owner">
+              <Icon name="users" size={19} color={palette.muted} />
+            </Pressable>
+          )}
           {capa ? <StatusPill tone={PHASE_TONE[capa.status] ?? "progress"}>{capa.status.replace(/_/g, " ")}</StatusPill> : <SyncPill state="synced" />}
         </View>
         <View style={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: 14 }}>
@@ -134,6 +151,17 @@ export default function CapaCheckoff() {
           <View style={{ height: radius.md }} />
         </View>
       </Body>
+
+      {capa && (
+        <AssigneeSheet
+          visible={assignOpen}
+          onClose={() => setAssignOpen(false)}
+          title="Assign CAPA owner"
+          code={capa.code}
+          currentOwnerId={capa.ownerId}
+          onPick={(ownerId) => assignOwner(ownerId)}
+        />
+      )}
     </Screen>
   );
 }

@@ -4,8 +4,12 @@ import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { startInspection } from "@/features/inspections/api";
+import { enqueueAssignInspection } from "@/features/inspections/offline";
 import { useInspection, useTemplate } from "@/features/inspections/queries";
+import { AssigneeSheet } from "@/features/assign/AssigneeSheet";
 import { useLayout } from "@/hooks/use-layout";
+import { useCapabilities } from "@/stores/session";
+import { engine } from "@/sync";
 import { useTheme } from "@/theme";
 import { ActionBar, Body, Button, Card, Icon, Mono, Screen, SectionLabel, Sev, Skeleton, StatusPill, SyncPill, Text, type SevLevel } from "@/ui";
 
@@ -19,9 +23,19 @@ export default function InspectionStart() {
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
   const [busy, setBusy] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const caps = useCapabilities();
+  const canAssign = caps.includes("inspection:perform");
 
   const insp = useInspection(id ?? "");
   const tmpl = useTemplate(insp.data?.templateId);
+
+  async function assign(inspectorId: string | null): Promise<void> {
+    if (!insp.data) return;
+    await enqueueAssignInspection(insp.data, inspectorId);
+    await engine.sync();
+    await insp.refetch();
+  }
 
   const inProgress = insp.data?.status === "in_progress";
   const totalChecks =
@@ -53,6 +67,11 @@ export default function InspectionStart() {
             {insp.data?.code ?? "…"}
           </Mono>
           <View style={{ flex: 1 }} />
+          {insp.data && canAssign && (
+            <Pressable onPress={() => setAssignOpen(true)} hitSlop={8} style={{ padding: 4, marginRight: 4 }} accessibilityLabel="Assign inspector">
+              <Icon name="users" size={19} color={palette.muted} />
+            </Pressable>
+          )}
           <SyncPill state="synced" />
         </View>
       </View>
@@ -147,6 +166,17 @@ export default function InspectionStart() {
           {inProgress ? "Resume inspection" : "Start inspection"}
         </Button>
       </ActionBar>
+
+      {insp.data && (
+        <AssigneeSheet
+          visible={assignOpen}
+          onClose={() => setAssignOpen(false)}
+          title="Assign inspection"
+          code={insp.data.code}
+          currentOwnerId={insp.data.inspectorId}
+          onPick={(inspectorId) => assign(inspectorId)}
+        />
+      )}
     </Screen>
   );
 }

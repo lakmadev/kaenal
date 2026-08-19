@@ -40,6 +40,30 @@ pushDispatch["inspection.complete"] = async (mutation) => {
   return { status: res.status, body: res.body };
 };
 
+pushDispatch["inspection.assign"] = async (mutation) => {
+  const p = mutation.payload as { inspectorId: string | null };
+  const res = await apiClient.assignInspection({
+    params: { id: mutation.entityId },
+    body: { inspectorId: p.inspectorId, version: mutation.baseVersion ?? 0 },
+    extraHeaders: { "idempotency-key": mutation.id },
+  });
+  return { status: res.status, body: res.body };
+};
+
+/** Assign/reassign an inspection's inspector — durable. */
+export async function enqueueAssignInspection(insp: InspectionDto, inspectorId: string | null): Promise<void> {
+  await engine.enqueue({
+    id: uuidv7(),
+    kind: "inspection.assign",
+    entityType: "inspection",
+    entityId: insp.id,
+    payload: { inspectorId },
+    baseUpdatedAt: insp.updatedAt,
+    baseVersion: insp.lockVersion,
+    dependsOnFileIds: [],
+  });
+}
+
 /** Queue a durable, offline-safe completion for `insp` with the given responses. */
 export async function enqueueComplete(insp: InspectionDto, responses: FormResponses): Promise<void> {
   // Gate the completion on any captured evidence finishing its upload first.
