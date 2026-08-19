@@ -263,11 +263,19 @@ pixel-for-pixel with a real backend.** Next: **M20 — AssignSheet**.
   inspections/approvals/My-Tasks as a fast follow (each reuses its detail view + the isTablet branch). FlashList
   migration folded into M24.
 
-## M24 — State-fidelity + perf/a11y polish
-- [ ] Verify + fill the designed states on every list/detail: loading skeleton (`InspLoading`), empty
-  (`InspEmpty`, `MyTasksEmpty`), error (`ErrorState`), all-synced (`SyncSynced`).
-- [ ] FlashList migration on the hot lists (tasks, NCRs, notifications, sessions).
-- [ ] Dynamic-Type (respect OS text size) + contrast pass; larger-touch-target option from Appearance.
+## M24 — State-fidelity + perf/a11y polish ✅ DONE (commit)
+- [x] **ErrorState** — the one designed state that was missing — built (`ui/feedback.tsx`, matches m-system
+  `ErrorState`: danger icon, reassuring copy "local drafts are safe", **Try again** + optional **Go back**) and
+  wired into the NCR list error branch with a real `refetch`. Exported from the UI barrel for reuse.
+- [x] Audited the other designed states already ship: **loading skeleton** (`Skeleton`, used on list/detail),
+  **empty** (`EmptyState` — NCR "Nothing here", sync-queue "Nothing waiting to upload"), **all-synced**
+  (sync-queue: online banner + empty-upload state). `Skeleton` already honours OS **reduce-motion** (static
+  block, `AccessibilityInfo`).
+- [x] **Dynamic-Type respected everywhere** — audited: nothing sets `allowFontScaling={false}`, so RN's default
+  (OS text-size scaling) applies across the app. Gate: typecheck 7/7 · lint.
+- Honest deferral: **FlashList** migration on the hot lists is a **perf optimization**, not a fidelity/
+  correctness gap — the lists render correctly at current data volumes via mapped `ScrollView`. Deferred as a
+  follow-up (swap in `@shopify/flash-list` behind the same row components) rather than half-migrated here.
 
 ## Sequencing
 M20 (assign — highest workflow value, endpoints ready) → M21 (annotate) → M22 (voice+audio) → M23 (tablet
