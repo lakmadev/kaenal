@@ -22,7 +22,7 @@ describe("routeFeature", () => {
   it("routes every feature to a model + default budget", () => {
     for (const feature of Object.keys(FEATURE_ROUTING) as (keyof typeof FEATURE_ROUTING)[]) {
       const route = routeFeature(feature);
-      expect(route.model).toMatch(/^(fast|strong)$/);
+      expect(route.model).toMatch(/^(fast|strong|vision)$/);
       expect(route.defaultMaxTokens).toBeGreaterThan(0);
     }
     expect(INTELLIGENCE_PACK).toBe("intelligence");
