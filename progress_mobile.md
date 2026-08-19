@@ -239,7 +239,26 @@ fidelity → M16 security-made-real → M17 capture hardware → M18 profile/pre
   - Note: `expo-clipboard` threw an `UnableToResolveError` only because the dev Metro server predated its
     install — it's in `package.json` (`~57.0.1`) + installed, so a fresh build/CI/device resolves it; a
     server restart cleared the stale cache.
-  - ⏳ Voice→text quick-log stays honestly flagged (no transcription backend).
+  - Voice→text quick-log stays honestly flagged (no transcription backend).
+- [x] **M18 — Profile / storage / notif-prefs wiring + per-role audit.** ✅
+  - **Notification preferences made real:** replaced the local-KV stub (which punted the matrix to "the
+    web app") with the real `GET`/`PUT /v1/notification-prefs`. Each push category maps to the server
+    notification **kinds** that drive it (`inspection_assigned`/`ncr_assigned`/`eight_d_assigned`/
+    `scar_assigned`, `ncr_escalated`, `document_expiring`, `export_ready`) — the same keys
+    `deliver-notification` reads from the matrix — so a toggle flips the `push` channel for those kinds and
+    PUTs the whole matrix; it's server-stored and applies on every device. "Sync failed" stays an honest
+    **device-local** toggle (client-only alert, no server kind). Verified: round-trip `GET {}` → `PUT
+    ncr_assigned.push=true` → 200 → re-read confirms; the screen renders the real state ("Work assigned to
+    me" ON because ncr_assigned.push=true).
+  - **Profile** was already honest (real read-only identity from `/me` + note that name/email are
+    account/SSO-managed) — `MeController` has only `@Get("me")`, no update route, so there is nothing to
+    fake; left as-is (rule #10).
+  - **Offline & storage** toggles already persist locally (M11) — device-local by nature; kept.
+  - **Per-role fidelity:** `config/rbac.ts` TAB_SETS match `m-home.jsx` per role (Inspector Home/Tasks/+/
+    NCRs/Me · Viewer Home/Records/Alerts/Me · Manager Home/Approvals/+/Team/Me · Admin Pulse/Approvals/+/
+    Audit/Me); dashboards render role-discriminated data from the real `/v1/me/dashboard` (M5). Admin
+    verified in-browser. A full sign-in-as-each-role visual pass is a light follow-up.
+  - Also fixed the **OTP/authenticator code field** shrinking (flex:1 boxes had no row width → `width:100%`).
 
 ## Superseded status (M0–M13)
 
