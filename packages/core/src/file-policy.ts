@@ -18,6 +18,15 @@ export const ALLOWED_MIME_TYPES: readonly string[] = [
   "image/jpeg",
   "image/gif",
   "image/webp",
+  // Audio (voice-note evidence — m-capture CapVoice). Covers native recorder
+  // outputs (m4a/aac/mp4) and the web MediaRecorder default (webm/ogg).
+  "audio/mp4",
+  "audio/m4a",
+  "audio/aac",
+  "audio/mpeg",
+  "audio/webm",
+  "audio/ogg",
+  "audio/wav",
   // Documents.
   "application/pdf",
   "text/plain",

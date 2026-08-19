@@ -22,7 +22,7 @@ const CATEGORIES = ["Process", "Product", "Material", "Documentation", "Other"];
 type Method = "photo" | "voice" | "manual" | "scan";
 const METHODS: { key: Method; icon: IconName; label: string; ready: boolean }[] = [
   { key: "photo", icon: "camera", label: "Photo", ready: true },
-  { key: "voice", icon: "mic", label: "Voice", ready: false },
+  { key: "voice", icon: "mic", label: "Voice", ready: true },
   { key: "manual", icon: "edit", label: "Manual", ready: true },
   { key: "scan", icon: "qr", label: "Scan asset", ready: true },
 ];
@@ -182,6 +182,7 @@ export default function NcrNew() {
                         onPress={() => {
                           setMethod(m.key);
                           if (m.key === "scan") openScan();
+                          if (m.key === "voice") router.push("/voice");
                         }}
                         style={{ width: "48%" }}
                       >

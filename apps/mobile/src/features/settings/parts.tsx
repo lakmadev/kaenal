@@ -6,7 +6,7 @@ import { useTheme } from "@/theme";
 import { Card, Icon, Text, type IconName } from "@/ui";
 
 /** Compact back-header for settings sub-pages (m-settings-detail.jsx SubHeader). */
-export function SubHeader({ title, onBack }: { title: string; onBack: () => void }) {
+export function SubHeader({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack: () => void }) {
   const { palette } = useTheme();
   const insets = useSafeAreaInsets();
   return (
@@ -15,9 +15,16 @@ export function SubHeader({ title, onBack }: { title: string; onBack: () => void
         <Pressable onPress={onBack} hitSlop={8} style={{ padding: 4 }}>
           <Icon name="chevronLeft" size={24} stroke={2} color={palette.text} />
         </Pressable>
-        <Text size={20} weight="bold" style={{ letterSpacing: -0.4 }}>
-          {title}
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text size={20} weight="bold" style={{ letterSpacing: -0.4 }}>
+            {title}
+          </Text>
+          {subtitle ? (
+            <Text size={11.5} tone="muted">
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
       </View>
     </View>
   );
