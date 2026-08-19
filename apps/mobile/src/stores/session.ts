@@ -5,6 +5,7 @@ import type { MeDto } from "@kaenal/types";
 import { toMobileRole, type MobileRole } from "@/config/rbac";
 import { apiClient } from "@/lib/api";
 import { type AuthError, signInRequest, signOutRequest } from "@/lib/auth-api";
+import { unregisterForPushAsync } from "@/features/notifications/push";
 import { services } from "@/services";
 
 const TOKEN_KEY = "kaenal.session.token";
@@ -101,17 +102,23 @@ export const useSession = create<SessionState>((set, get) => ({
       return;
     }
 
+    // Only LOCK when biometrics can actually unlock on this device. On the web /
+    // installed PWA (and any device without enrolled biometrics) there's no way to
+    // pass the prompt, so locking would strand the user on "Couldn't unlock" — go
+    // straight to authenticated instead.
+    const canLock = biometricEnabled && ((await services.biometric?.isAvailable?.()) ?? false);
+
     // Validate the stored token by resolving /v1/me. A network failure keeps the
     // session ONLY when we have a cached identity to render offline (§4); without
     // one we can't show a coherent shell, so fall back to sign-in.
     set({ token, tenant, me: cachedMe });
     const settle = (): void =>
-      set({ status: biometricEnabled ? "locked" : cachedMe ? "authenticated" : "unauthenticated" });
+      set({ status: canLock ? "locked" : cachedMe ? "authenticated" : "unauthenticated" });
     try {
       const res = await apiClient.getMe();
       if (res.status === 200) {
         await services.kv.setItem(ME_KEY, JSON.stringify(res.body));
-        set({ me: res.body, status: biometricEnabled ? "locked" : "authenticated" });
+        set({ me: res.body, status: canLock ? "locked" : "authenticated" });
       } else if (res.status === 401) {
         await clearSession();
         set({ token: null, tenant: null, me: null, status: "unauthenticated" });
@@ -184,6 +191,9 @@ export const useSession = create<SessionState>((set, get) => ({
     const { token, tenant } = get();
     // Best-effort server revoke; the local wipe happens regardless (05 §2/§4).
     if (token && tenant) {
+      // Deregister this device's push token first (while the session is still
+      // valid) so it stops receiving push after sign-out (registry 0036).
+      await unregisterForPushAsync().catch(() => {});
       try {
         await signOutRequest(tenant, token);
       } catch {

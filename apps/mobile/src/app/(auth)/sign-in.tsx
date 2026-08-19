@@ -17,11 +17,11 @@ export default function SignIn() {
   const insets = useSafeAreaInsets();
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
-  const { tenant } = useLocalSearchParams<{ tenant: string }>();
+  const { tenant, email: emailParam } = useLocalSearchParams<{ tenant: string; email?: string }>();
   const slug = (tenant ?? "").toString();
 
   const signInStart = useSession((s) => s.signInStart);
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState((emailParam ?? "").toString());
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

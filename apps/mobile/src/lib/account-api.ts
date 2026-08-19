@@ -21,7 +21,7 @@ function authedHeaders(): Record<string, string> {
   return h;
 }
 
-async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+async function request<T>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE_URL}${path}`, {
@@ -75,6 +75,14 @@ export function disableMfa(code: string): Promise<{ ok: true }> {
 /** Reissue recovery codes — requires a current code; invalidates the old set. */
 export function regenerateRecoveryCodes(code: string): Promise<{ recoveryCodes: string[] }> {
   return request("POST", "/v1/auth/mfa/recovery-codes/regenerate", { code });
+}
+
+// ── Device push tokens (05 §3, registry 0036) ────────────────────────────────
+export function registerPushToken(token: string, platform: string): Promise<{ ok: true }> {
+  return request("POST", "/v1/push-tokens", { token, platform });
+}
+export function unregisterPushToken(token: string): Promise<{ ok: true }> {
+  return request("DELETE", "/v1/push-tokens", { token });
 }
 
 // ── Active sessions (07 §7) ──────────────────────────────────────────────────

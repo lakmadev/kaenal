@@ -20,12 +20,19 @@ export default function Unlock() {
 
   const status = useSession((s) => s.status);
   const me = useSession((s) => s.me);
+  const tenant = useSession((s) => s.tenant);
   const unlock = useSession((s) => s.unlock);
-  const signOut = useSession((s) => s.signOut);
   const [failed, setFailed] = useState(false);
 
   const isIos = Platform.OS === "ios";
   const firstName = me?.name?.split(" ")[0] ?? "back";
+
+  // "Use password" = re-authenticate with the same account, NOT a destructive
+  // sign-out. Send the user to sign-in with their workspace + email prefilled; a
+  // successful sign-in replaces the locked session. Never a dead-end.
+  const usePassword = useCallback(() => {
+    router.replace({ pathname: "/(auth)/sign-in", params: { tenant: tenant ?? "", email: me?.email ?? "" } });
+  }, [router, tenant, me?.email]);
 
   const prompt = useCallback(async () => {
     const ok = await services.biometric?.authenticate?.(isIos ? "Unlock Kaenal with Face ID" : "Unlock Kaenal");
@@ -84,7 +91,7 @@ export default function Unlock() {
               </Text>
             </Pressable>
           )}
-          <Pressable onPress={() => void signOut()} hitSlop={8}>
+          <Pressable onPress={usePassword} hitSlop={8}>
             <Text size={14} weight="semibold" tone={failed ? "accent" : "muted"}>
               Use password instead
             </Text>

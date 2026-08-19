@@ -260,6 +260,25 @@ fidelity → M16 security-made-real → M17 capture hardware → M18 profile/pre
     verified in-browser. A full sign-in-as-each-role visual pass is a light follow-up.
   - Also fixed the **OTP/authenticator code field** shrinking (flex:1 boxes had no row width → `width:100%`).
 
+- [x] **M19 — Device push-token registry + unlock / back-button fixes.**
+  - **Push-token registry (backend, real).** Migration `0036_push_tokens.sql` (`control.push_tokens`,
+    per-user/global like email+MFA, token globally UNIQUE → re-register reassigns for safe device handoff);
+    `PushTokensService` + `PushTokensController` (`POST`/`DELETE /v1/push-tokens`, authenticated,
+    capability-free); wired in `app.module` on the control pool. **Push delivery is now real:**
+    `ChannelDelivery` push case looks up the user's tokens and sends via the **Expo push API**
+    (`exp.host/--/api/v2/push/send`) — server-originated push (assignment/escalation) can finally reach a
+    device. **Mobile:** `registerForPushAsync` POSTs the Expo token on auth; sign-out deregisters it
+    (`account-api` register/unregister). 4 backend tests (register / reassign-on-upsert / unregister /
+    isolation); endpoint round-trip verified (201/200/422). `db:check` green (control schema exempt).
+  - **Fixed the "Couldn't unlock" dead-end.** Bootstrap only enters the **locked** state when biometrics can
+    actually unlock on this device (`biometricEnabled && biometric.isAvailable()`); on web / installed PWA
+    (no biometric) it goes straight to authenticated — verified: with `biometric.enabled=1` set, the app now
+    boots to the home dashboard instead of stranding. And "Use password instead" now **re-authenticates**
+    (routes to sign-in with workspace + email prefilled), not a silent no-op.
+  - **Fixed the back button during authenticator setup.** `Two-factor`'s header back is now context-aware —
+    from a sub-step (scan QR / code prompt / recovery codes) it returns to the status view; from the status
+    view it leaves, falling back to `/settings/security` when there's no history to pop.
+
 ## Superseded status (M0–M13)
 
 **M0–M13 COMPLETE — the mobile/tablet app is done (feature build).** Branch `feat/mobile-app`, pushed; PR #9 open. Every

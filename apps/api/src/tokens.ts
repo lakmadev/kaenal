@@ -52,3 +52,4 @@ export const JOB_PRODUCER = Symbol("JOB_PRODUCER");
 export const RATE_LIMITER = Symbol("RATE_LIMITER");
 export const EMAIL_PORT = Symbol("EMAIL_PORT");
 export const MFA_SERVICE = Symbol("MFA_SERVICE");
+export const PUSH_TOKENS_SERVICE = Symbol("PUSH_TOKENS_SERVICE");

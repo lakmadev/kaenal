@@ -24,10 +24,39 @@ export class ChannelDelivery implements DeliveryChannels {
       case "email":
         return this.deliverEmail(payload);
       case "push":
+        return this.deliverPush(payload);
       case "sms":
         // No port yet — the pipeline treats this as "not delivered on this
         // channel", so nothing is recorded as sent and no retry is spent.
         return false;
+    }
+  }
+
+  /**
+   * Push via the Expo push service to the user's registered devices (0036). No
+   * registered tokens = nothing to send (returns false, not an error — the
+   * pipeline records no send and spends no retry). A device belongs to the person,
+   * so tokens are resolved from the control plane regardless of tenant.
+   */
+  private async deliverPush(payload: DeliveryPayload): Promise<boolean> {
+    const { rows } = await this.deps.control.query<{ token: string }>(
+      "SELECT token FROM control.push_tokens WHERE user_id = $1",
+      [payload.userId],
+    );
+    const tokens = rows.map((r) => r.token).filter((t) => t.startsWith("ExponentPushToken"));
+    if (tokens.length === 0) return false;
+
+    const messages = tokens.map((to) => ({ to, title: payload.title, body: payload.body ?? "", sound: "default" }));
+    try {
+      const res = await fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify(messages),
+      });
+      return res.ok;
+    } catch {
+      // Network/provider failure → not delivered on this channel; a retry can pick it up.
+      return false;
     }
   }
 

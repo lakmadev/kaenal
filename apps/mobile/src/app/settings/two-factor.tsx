@@ -106,9 +106,21 @@ export default function TwoFactor() {
     }
   }
 
+  // Back is context-aware: from a sub-step (scan QR, code prompt, recovery codes)
+  // it returns to the status view instead of leaving the screen; from the status
+  // view it leaves, falling back to Security when there's no history to pop.
+  function goBack(): void {
+    if (mode.k === "enroll" || mode.k === "prompt" || mode.k === "codes") {
+      setMode({ k: "status" });
+      return;
+    }
+    if (router.canGoBack()) router.back();
+    else router.replace("/settings/security");
+  }
+
   return (
     <Screen>
-      <SubHeader title="Two-factor" onBack={() => router.back()} />
+      <SubHeader title="Two-factor" onBack={goBack} />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth, padding: 16, gap: 14 }}>
           {mode.k === "loading" && (

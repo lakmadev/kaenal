@@ -16,7 +16,9 @@ import { SessionAuthenticator } from "./auth/session.authenticator.js";
 import { AuthController } from "./auth/auth.controller.js";
 import { MfaController } from "./auth/mfa.controller.js";
 import { SessionsController } from "./auth/sessions.controller.js";
+import { PushTokensController } from "./auth/push-tokens.controller.js";
 import { MfaService } from "./auth/mfa.service.js";
+import { PushTokensService } from "./auth/push-tokens.service.js";
 import { MfaCrypto } from "./auth/mfa-crypto.js";
 import { WorkspaceController } from "./auth/workspace.controller.js";
 import { MeController } from "./me.controller.js";
@@ -117,6 +119,7 @@ import {
   INSPECTIONS_SERVICE,
   JOB_PRODUCER,
   MFA_SERVICE,
+  PUSH_TOKENS_SERVICE,
   MEMBERS_SERVICE,
   NCR_SERVICE,
   NOTIFICATIONS_SERVICE,
@@ -148,6 +151,7 @@ import {
     AuthController,
     MfaController,
     SessionsController,
+    PushTokensController,
     WorkspaceController,
     OpenApiController,
     TemplatesController,
@@ -221,6 +225,11 @@ import {
       useFactory: (control: pg.Pool, env: Env) =>
         new MfaService(control, new MfaCrypto({ authSecret: env.AUTH_SECRET, mfaKey: env.MFA_ENCRYPTION_KEY })),
       inject: [CONTROL_POOL, ENV],
+    },
+    {
+      provide: PUSH_TOKENS_SERVICE,
+      useFactory: (control: pg.Pool) => new PushTokensService(control),
+      inject: [CONTROL_POOL],
     },
     {
       provide: AUTH_SERVICE,
