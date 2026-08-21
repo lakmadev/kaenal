@@ -4,7 +4,7 @@ import { NOT_APPLICABLE, type FormItem, type InspectionDto } from "@kaenal/types
 
 import { PhotoField } from "@/features/capture/PhotoField";
 import { useTheme } from "@/theme";
-import { Card, Icon, Mono, Sev, Text, type SevLevel } from "@/ui";
+import { Card, Icon, Mono, Sev, Text, Touchable, type SevLevel } from "@/ui";
 
 import { isAnswered } from "./scoring";
 
@@ -37,7 +37,7 @@ export function InspectionListCard({
   const { palette } = useTheme();
   const due = formatDue(insp.scheduledAt);
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+    <Touchable onPress={onPress}>
       <Card style={{ marginHorizontal: 16, marginTop: 10, padding: 14 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 5 }}>
           <Mono size={10.5} weight="bold" color={palette.muted}>
@@ -77,7 +77,7 @@ export function InspectionListCard({
           )}
         </View>
       </Card>
-    </Pressable>
+    </Touchable>
   );
 }
 
@@ -97,13 +97,13 @@ export function FilterChip({
   const bg = active ? palette.accent : tone === "danger" ? palette.dangerBg : palette.bgSubtle;
   const fg = active ? palette.accentFg : tone === "danger" ? palette.dangerFg : palette.muted;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+    <Touchable onPress={onPress}>
       <View style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.full, backgroundColor: bg }}>
         <Text size={12.5} weight="semibold" color={fg}>
           {label}
         </Text>
       </View>
-    </Pressable>
+    </Touchable>
   );
 }
 

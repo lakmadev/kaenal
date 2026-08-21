@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 
 import { FilterChip } from "@/features/inspections/parts";
 import { useMyTasks, type TaskKind, type UnifiedTask } from "@/features/work/queries";
@@ -8,7 +8,7 @@ import { useLayout } from "@/hooks/use-layout";
 import { useSession } from "@/stores/session";
 import { useSync } from "@/stores/sync";
 import { useTheme } from "@/theme";
-import { Body, Card, EmptyState, Header, Icon, Mono, Screen, SectionLabel, Skeleton, Text, type IconName } from "@/ui";
+import { Body, Card, EmptyState, Header, Icon, Mono, Screen, SectionLabel, Skeleton, Text, Touchable, type IconName } from "@/ui";
 
 type Filter = "all" | TaskKind;
 
@@ -119,7 +119,7 @@ function TaskRow({ task, last, onPress }: { task: UnifiedTask; last: boolean; on
   const due = dueLabel(task.dueAt);
   const overdue = task.dueAt !== null && new Date(task.dueAt).getTime() < Date.now();
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+    <Touchable onPress={onPress}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: last ? 0 : 1, borderBottomColor: palette.border }}>
         <View style={{ width: 36, height: 36, borderRadius: 9, backgroundColor: tint + (palette.dark ? "26" : "16"), alignItems: "center", justifyContent: "center" }}>
           <Icon name={meta.icon} size={18} color={tint} />
@@ -143,7 +143,7 @@ function TaskRow({ task, last, onPress }: { task: UnifiedTask; last: boolean; on
           </Text>
         )}
       </View>
-    </Pressable>
+    </Touchable>
   );
 }
 

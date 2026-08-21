@@ -1,8 +1,9 @@
-import { ActivityIndicator, Pressable, type StyleProp, type ViewStyle } from "react-native";
+import { ActivityIndicator, type StyleProp, type ViewStyle } from "react-native";
 
 import { useTheme } from "../theme";
 import { Icon, type IconName } from "./Icon";
 import { Text } from "./Text";
+import { Touchable } from "./Touchable";
 
 export interface ButtonProps {
   children: string;
@@ -44,13 +45,14 @@ export function Button({
   const isDisabled = disabled || loading;
 
   return (
-    <Pressable
+    <Touchable
       onPress={onPress}
       disabled={isDisabled}
+      haptic="medium"
       accessibilityRole="button"
       accessibilityLabel={children}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
-      style={({ pressed }) => [
+      style={[
         {
           height: 48,
           borderRadius: radius.xl,
@@ -66,7 +68,8 @@ export function Button({
           // vertical stack, rendering the 12pt radius as a pill. Callers that place
           // buttons side-by-side in a row pass `style={{ flex: 1 }}` (spread last).
           alignSelf: "stretch",
-          opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1,
+          // Held-state opacity now springs via Touchable; only the disabled dim is static.
+          opacity: isDisabled ? 0.5 : 1,
         },
         style,
       ]}
@@ -84,6 +87,6 @@ export function Button({
           </Text>
         </>
       )}
-    </Pressable>
+    </Touchable>
   );
 }

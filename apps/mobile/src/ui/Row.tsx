@@ -1,9 +1,10 @@
 import { memo, type ReactNode } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 
 import { useTheme } from "../theme";
 import { Icon, type IconName } from "./Icon";
 import { Text } from "./Text";
+import { Touchable } from "./Touchable";
 
 export interface RowProps {
   title: string;
@@ -65,14 +66,9 @@ function RowBase({ title, sub, icon, iconTone, right, chevron, last, onPress }: 
 
   if (!onPress) return body;
   return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={sub ? `${title}, ${sub}` : title}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-    >
+    <Touchable onPress={onPress} accessibilityRole="button" accessibilityLabel={sub ? `${title}, ${sub}` : title}>
       {body}
-    </Pressable>
+    </Touchable>
   );
 }
 

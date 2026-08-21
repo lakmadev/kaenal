@@ -1,4 +1,6 @@
 import { Platform, Pressable, View } from "react-native";
+
+import { tapMedium, tapSelection } from "@/services/haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "../theme";
@@ -51,7 +53,10 @@ export function TabBar({
           return (
             <View key={t.id} style={{ flex: 1, alignItems: "center" }}>
               <Pressable
-                onPress={() => onPress?.(t.id)}
+                onPress={() => {
+                  tapMedium();
+                  onPress?.(t.id);
+                }}
                 accessibilityRole="button"
                 accessibilityLabel="Capture"
                 style={({ pressed }) => ({
@@ -80,7 +85,10 @@ export function TabBar({
         return (
           <Pressable
             key={t.id}
-            onPress={() => onPress?.(t.id)}
+            onPress={() => {
+              if (!on) tapSelection();
+              onPress?.(t.id);
+            }}
             accessibilityRole="tab"
             accessibilityLabel={t.label}
             accessibilityState={{ selected: on }}
