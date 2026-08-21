@@ -13,6 +13,7 @@ import { withTenant } from "@kaenal/db";
 import { authorize, isPartner, type Capability } from "@kaenal/core";
 import { ApiError, tenantNotFound } from "./errors.js";
 import { runWithContext } from "./context.js";
+import { readCookie, TENANT_COOKIE } from "./http/cookies.js";
 import { slugFromHost, TenantRegistry } from "./tenant/registry.js";
 import type { TenantPoolManager } from "./tenant/pool-manager.js";
 import { IS_ANONYMOUS, IS_INTERNAL, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
@@ -82,9 +83,18 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     internalOnly: boolean,
   ): Promise<unknown> {
     // --- 1. Resolve tenant ------------------------------------------------
-    // Subdomain for web; X-Tenant-Id header for the mobile app (01 §3.3).
+    // Subdomain for web; X-Tenant-Id header for the mobile app (01 §3.3). Then,
+    // as a LAST resort, the readable `kaenal_tenant` cookie: same-origin requests
+    // that cannot set a header — notably the SSE EventSource (R1), which the
+    // browser API forbids from adding headers — still convey their workspace
+    // this way. Ordered after the subdomain so a production host always wins over
+    // a possibly-stale cookie; this only SELECTS the tenant scope — the session
+    // must still be a member of it (mismatch → 404 in step 2), never a grant.
     const headerSlug = req.header("x-tenant-id");
-    const slug = headerSlug ?? slugFromHost(req.header("host"), this.env.TENANT_ROOT_DOMAIN);
+    const slug =
+      headerSlug ??
+      slugFromHost(req.header("host"), this.env.TENANT_ROOT_DOMAIN) ??
+      readCookie(req, TENANT_COOKIE);
 
     if (slug === null || slug === undefined || slug === "") throw tenantNotFound();
 

@@ -69,6 +69,8 @@ import { SearchController } from "./search/search.controller.js";
 import { SearchService } from "./search/search.service.js";
 import { NotificationsController } from "./notifications/notifications.controller.js";
 import { NotificationsService } from "./notifications/notifications.service.js";
+import { RealtimeController } from "./realtime/realtime.controller.js";
+import { RealtimeService } from "./realtime/realtime.service.js";
 import { CommentsController } from "./collab/comments.controller.js";
 import { CommentsService } from "./collab/comments.service.js";
 import { AuditLogController } from "./collab/audit-log.controller.js";
@@ -140,6 +142,7 @@ import {
   INTEGRATIONS_SERVICE,
   IMPORT_SERVICE,
   SPC_SERVICE,
+  REALTIME,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -175,6 +178,7 @@ import {
     AiController,
     SearchController,
     NotificationsController,
+    RealtimeController,
     CommentsController,
     AuditLogController,
     EntityLinksController,
@@ -203,6 +207,16 @@ import {
       provide: REDIS,
       useFactory: (env: Env) => new Redis(env.REDIS_URL, { maxRetriesPerRequest: 2 }),
       inject: [ENV],
+    },
+
+    {
+      // The realtime bus publishes on the shared REDIS command connection and
+      // receives on its own DEDICATED subscriber connection (`.duplicate()`) —
+      // ioredis forbids ordinary commands on a subscribed connection. The
+      // service owns that connection's lifecycle (closed in onModuleDestroy).
+      provide: REALTIME,
+      useFactory: (redis: Redis) => new RealtimeService(redis, redis.duplicate()),
+      inject: [REDIS],
     },
 
     {
@@ -367,8 +381,9 @@ import {
     },
     {
       provide: NOTIFICATIONS_SERVICE,
-      useFactory: (jobs: JobProducer) => new NotificationsService(jobs),
-      inject: [JOB_PRODUCER],
+      useFactory: (jobs: JobProducer, realtime: RealtimeService) =>
+        new NotificationsService(jobs, realtime),
+      inject: [JOB_PRODUCER, REALTIME],
     },
     { provide: COMMENTS_SERVICE, useFactory: () => new CommentsService() },
     { provide: AUDIT_LOG_SERVICE, useFactory: () => new AuditLogService() },

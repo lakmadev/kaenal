@@ -5,6 +5,44 @@
 
 ## Current status
 
+**Realtime Phase R1 — SSE signal bus (2026-08-21).** First slice of the combined Realtime→Data-Platform
+roadmap (R1–R5 realtime, then G–K which already shipped). Before this the app had **zero realtime**: web
+refreshed via TanStack `invalidateQueries` on your *own* mutations plus a 60 s notifications poll; another
+user's change only surfaced on window-focus/navigation. R1 lays the **cache-invalidation bus** everything
+later plugs into. **Architecture decision (do not re-litigate):** the bus carries a *pointer only* — "topic
+X changed" — never row data; the client refetches through the normal RLS-scoped, audited API, so tenant
+isolation/audit/optimistic-concurrency stay authoritative and nothing on the wire bypasses RLS. **Transport
+is SSE, not WebSockets** (one-way server→client suffices for invalidation; WS is deferred to R4 for
+duplex presence/typing). **gRPC explicitly rejected** for the client edge (browser can't speak it without a
+proxy; contract-first ts-rest/OpenAPI stays the seam). **Backend:** `apps/api/src/realtime/` —
+`RealtimeService` publishes on the shared REDIS command connection and receives on its own DEDICATED
+subscriber connection (`redis.duplicate()`; ioredis forbids commands on a subscribed conn; closed in
+`onModuleDestroy`); one Redis channel `kaenal:rt`, in-process fan-out filtered by tenant→user→capability
+(the isolation core is the pure static `RealtimeService.matches`, unit-tested). `RealtimeController` —
+`GET /v1/events` authenticates through the **normal lifecycle** (tenant + session + RLS tx) then, crucially,
+**returns immediately so `withTenant` commits and releases the pooled pg connection**, keeping the raw
+socket open via `@Res()` — an SSE stream must NOT pin a DB connection for its lifetime; from then on it
+relays only Redis pointers, touching no DB. Heartbeat comment every 25 s; cleanup on close/error.
+**Interceptor (additive, low-risk):** tenant resolution gains a **last-resort `kaenal_tenant` cookie
+fallback** (`http/cookies.ts` `readCookie`) — a browser `EventSource` can't set `X-Tenant-Id`, so
+same-origin SSE conveys its workspace via the readable (non-credential) cookie the web already writes;
+ordered **after** header and subdomain so production routing is untouched, and it only *selects* scope —
+the session must still be a member (mismatch → 404). **Producer:** `notify()` emits a user-targeted
+`{topic:"notifications",...}` after writing the row (best-effort; R2 moves business-mutation emits to a
+post-commit outbox). **Web:** `useRealtime()` opens the stream from `AppShell` (authenticated internal
+sessions only — no 401 reconnect loop), maps topics→`invalidateQueries` (only `notifications` wired; R2
+adds the rest with their emits); notification poll relaxed 60 s→120 s as a fallback behind the live stream.
+**Types:** `packages/types/realtime.ts` (`RealtimeEvent`/`RealtimeTopic`/`RealtimeAction`, shared FE/BE).
+**Tests:** `realtime.test.ts` 11/11 (tenant isolation, user targeting, capability gate, unsubscribe,
+malformed-payload safety, emit-publishes-JSON). **Verified live** (demo web + curl cross-user): SSE
+connected authenticated (`readyState` OPEN via cookie fallback); Sarah Chen (manager) created + assigned
+NCR-2026-0002 to demo → demo's browser stream received exactly one `{"topic":"notifications",...}` whose
+`at` matched the assignment `updatedAt` to the ms (real signal through Redis, user-filtered), and the bell
+badge updated live to **2** with no manual refresh. `pnpm typecheck` clean (types/api/web), `pnpm lint`
+clean, realtime 11/11 + lifecycle 24/24 + notifications 10/10. **Next: R2** — emit on all business
+mutations (post-commit outbox) + wire ncr/capa/eightd/inspection topics; **R3** mobile push→delta-pull;
+**R4** WebSocket presence/edit-locks; **R5** co-editing.
+
 **Tenant-wide Audit log — Settings › System (2026-08-14).** The `audit` settings tab was a static
 `settings.jsx` mock (hard-coded rows, dead Filter/Export); it's now a real, admin-only vertical slice
 over the append-only `audit_events` table. **Design fidelity (rule #9):** reproduced `settings.jsx`
