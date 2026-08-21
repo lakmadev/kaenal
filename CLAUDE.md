@@ -52,6 +52,14 @@ All spec paths below are relative to `project_brain/project/`.
     height (`100dvh`), `viewport-fit=cover`, real safe-area insets (top notch + bottom home indicator)
     honoured on iOS/Android standalone (Add to Home Screen) and native builds alike. A screen that
     letterboxes or clips at the system insets is a defect.
+12. **NEVER MESS UP SIGN-IN.** The dev login must keep working after every change. The #1 cause of
+    "login stopped working" is running the test suite: its teardown does
+    `TRUNCATE … control.users CASCADE` on the SHARED dev Postgres, wiping the seeded demo accounts.
+    So after `pnpm test` / `pnpm test:rls` (or anything that resets the DB), **re-seed the login** with
+    `pnpm --filter @kaenal/api exec tsx scripts/seed-demo.ts` (→ `demo@acme.test` / `demo-password-1234`,
+    workspace `acme`) and confirm a real sign-in returns 201 before calling the work done. Never change
+    auth (`apps/api/src/auth/**`, the lifecycle interceptor, session cookies/CSRF, the sign-in screen)
+    without proving sign-in still works end to end.
 
 ## Settled architecture decisions (do not re-litigate; see PROGRESS.md Decisions log for why)
 - **Identity is shared, not per-tenant.** A person is one row in `control.users` (email globally
@@ -87,6 +95,8 @@ Turborepo + pnpm · NestJS + ts-rest (contract-first OpenAPI) · Postgres 16 + R
 - `pnpm db:check` — RLS schema lint (02 §6); `pnpm db:reset` — drop schema, local only
 - `pnpm provision-tenant --slug acme --name "Acme" --model shared`
 - `pnpm test` (unit) / `pnpm test:rls` (tenancy suite) / `pnpm e2e` (not yet wired)
+  — ⚠ both TRUNCATE `control.users` on the shared dev DB, so they **break the dev login**. Re-seed
+  after: `pnpm --filter @kaenal/api exec tsx scripts/seed-demo.ts` (see rule #12).
 - `pnpm --filter @kaenal/api dev` (API :3001) · `pnpm --filter @kaenal/web dev` (web :3000)
   — the web app proxies `/api/*` to the API (same-origin cookies). Web engineering docs:
   `apps/web/README.md`, `apps/web/docs/rules.md`, `apps/web/docs/best-practices.md`,
