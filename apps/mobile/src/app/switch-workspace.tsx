@@ -18,7 +18,7 @@ import { Avatar, Button, Icon, Text } from "@/ui";
 export default function SwitchWorkspace() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { palette, radius } = useTheme();
+  const { palette } = useTheme();
 
   const switchWorkspace = useSession((s) => s.switchWorkspace);
   const signOut = useSession((s) => s.signOut);

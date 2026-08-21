@@ -23,5 +23,4 @@ export const services: Services = {
   notifications: notificationsAdapter,
 };
 
-export type { Services } from "./ports";
 export * from "./ports";

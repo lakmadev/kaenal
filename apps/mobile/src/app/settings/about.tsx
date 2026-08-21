@@ -69,7 +69,6 @@ function LinkRow({ icon, title, url, last }: { icon: IconName; title: string; ur
 // from the live session; no placeholder strings.
 export default function About() {
   const router = useRouter();
-  const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
   const me = useSession((s) => s.me);
 

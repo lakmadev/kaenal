@@ -17,7 +17,7 @@ import { Button, Icon, Screen, Text } from "@/ui";
 export default function Scan() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { palette, radius } = useTheme();
+  const { radius } = useTheme();
   const setResult = useScan((s) => s.setResult);
 
   const isNative = Platform.OS !== "web";

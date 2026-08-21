@@ -8,8 +8,7 @@ import { useLayout } from "@/hooks/use-layout";
 import { services } from "@/services";
 import { useSession } from "@/stores/session";
 import { useTheme } from "@/theme";
-import { Icon, Text } from "@/ui";
-import { Screen } from "@/ui";
+import { Icon, Screen, Text } from "@/ui";
 
 // Design: m-auth.jsx → AuthBiometric (+ AuthBiometricFail on repeated failure), rule #9.
 export default function Unlock() {
