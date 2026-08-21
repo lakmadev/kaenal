@@ -1,4 +1,10 @@
-import { Module, type MiddlewareConsumer, type NestModule } from "@nestjs/common";
+import {
+  Module,
+  type MiddlewareConsumer,
+  type NestModule,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from "@nestjs/common";
 import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
 import Redis from "ioredis";
 import pg from "pg";
@@ -71,6 +77,7 @@ import { NotificationsController } from "./notifications/notifications.controlle
 import { NotificationsService } from "./notifications/notifications.service.js";
 import { RealtimeController } from "./realtime/realtime.controller.js";
 import { RealtimeService } from "./realtime/realtime.service.js";
+import { installAuditRealtimeBridge, uninstallAuditRealtimeBridge } from "./realtime/audit-signal.js";
 import { CommentsController } from "./collab/comments.controller.js";
 import { CommentsService } from "./collab/comments.service.js";
 import { AuditLogController } from "./collab/audit-log.controller.js";
@@ -381,9 +388,8 @@ import {
     },
     {
       provide: NOTIFICATIONS_SERVICE,
-      useFactory: (jobs: JobProducer, realtime: RealtimeService) =>
-        new NotificationsService(jobs, realtime),
-      inject: [JOB_PRODUCER, REALTIME],
+      useFactory: (jobs: JobProducer) => new NotificationsService(jobs),
+      inject: [JOB_PRODUCER],
     },
     { provide: COMMENTS_SERVICE, useFactory: () => new CommentsService() },
     { provide: AUDIT_LOG_SERVICE, useFactory: () => new AuditLogService() },
@@ -415,10 +421,20 @@ import {
     { provide: APP_INTERCEPTOR, useClass: RequestLifecycleInterceptor },
   ],
 })
-export class AppModule implements NestModule {
+export class AppModule implements NestModule, OnModuleInit, OnModuleDestroy {
   configure(consumer: MiddlewareConsumer): void {
     // Ahead of everything, so even a request rejected at tenant resolution
     // carries a correlatable id.
     consumer.apply(RequestIdMiddleware).forRoutes("*");
+  }
+
+  onModuleInit(): void {
+    // Route every audited mutation to the realtime buffer (Phase R2). Done here,
+    // once, so the choke point is wired whenever the app is built (prod + tests).
+    installAuditRealtimeBridge();
+  }
+
+  onModuleDestroy(): void {
+    uninstallAuditRealtimeBridge();
   }
 }

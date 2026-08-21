@@ -20,14 +20,37 @@ import { env } from "@/lib/env";
  * the stream authenticates through the ordinary request lifecycle.
  */
 
-/** Map a topic to the query keys its signal should refresh. Only topics with a
- *  live server-side producer are wired; R2 extends this as emits are added. */
+/** Map a topic to the query-key prefix its signal should invalidate. Every
+ *  audited mutation now emits (Phase R2), so each QMS module refreshes live when
+ *  changed by anyone in the tenant. A topic with no web surface returns null and
+ *  is silently ignored (forward-compatible with server topics not yet wired). */
 function keysForTopic(topic: RealtimeEvent["topic"]): readonly unknown[] | null {
   switch (topic) {
     case "notifications":
       return queryKeys.notifications.all;
+    case "ncr":
+      return queryKeys.ncrs.all;
+    case "capa":
+      return queryKeys.capas.all;
+    case "eightd":
+      return queryKeys.eightDs.all;
+    case "inspection":
+      return queryKeys.inspections.all;
+    case "supplier":
+      return queryKeys.suppliers.all;
+    case "ppap":
+      return queryKeys.ppap.all;
+    case "scar":
+      return queryKeys.scars.all;
+    case "document":
+      return queryKeys.documents.all;
+    case "fmea":
+      return queryKeys.fmea.all;
+    case "finding":
+    case "audit":
+      return null; // no dedicated web list key yet; emitted server-side already
     default:
-      return null; // ncr/capa/eightd/inspection/… land in R2 with their emits
+      return null;
   }
 }
 

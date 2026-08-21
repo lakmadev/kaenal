@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type pg from "pg";
 import type { Tx } from "@kaenal/db";
 import type { Membership } from "@kaenal/core";
+import type { RealtimeSignal } from "./realtime/realtime.service.js";
 
 /**
  * Per-request context (01 §3.3).
@@ -29,6 +30,14 @@ export interface RequestContext {
   readonly pool: pg.Pool | undefined;
   readonly ip: string | null;
   readonly userAgent: string | null;
+  /**
+   * Realtime signals buffered during the request, published (Phase R2) only
+   * AFTER the tenant transaction commits — so a rolled-back mutation never
+   * emits a "something changed" pointer for a change that didn't happen. Mutable
+   * by design: producers (the audit-event bridge, `notify`) push here via
+   * {@link bufferRealtimeSignal}, and the lifecycle interceptor drains it.
+   */
+  readonly signals: RealtimeSignal[];
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -51,6 +60,16 @@ export function currentContext(): RequestContext {
 
 export function currentTx(): Tx {
   return currentContext().tx;
+}
+
+/**
+ * Buffer a realtime signal for after-commit publication (Phase R2). A no-op when
+ * called outside a request context (e.g. a seed script or a unit test that mutates
+ * directly), so producers can call it unconditionally without guarding.
+ */
+export function bufferRealtimeSignal(signal: RealtimeSignal): void {
+  const ctx = storage.getStore();
+  if (ctx !== undefined) ctx.signals.push(signal);
 }
 
 /** The tenant's pool (Model B), or undefined for a shared tenant (default pool). */

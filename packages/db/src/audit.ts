@@ -39,6 +39,25 @@ const REDACTED_KEY_PATTERN =
 
 export const REDACTED = "[redacted]";
 
+/**
+ * Optional side-observer notified of each audit event AFTER it is written (still
+ * inside the mutation's transaction). The DB layer stays deliberately ignorant
+ * of what an observer does — the API registers one to buffer realtime
+ * cache-invalidation signals (Phase R2), so that *every* audited mutation, by
+ * construction, produces a signal without each service having to remember to
+ * emit. An observer should read only the event's non-sensitive identity
+ * (entityKind / entityId / action), never before/after payloads. It is
+ * best-effort and guarded below — observation must never break a mutation or the
+ * audit write it rode in on.
+ */
+export type AuditObserver = (event: AuditEventInput, tenantId: string) => void;
+
+let auditObserver: AuditObserver | undefined;
+
+export function setAuditObserver(fn: AuditObserver | undefined): void {
+  auditObserver = fn;
+}
+
 /** Replaces sensitive values while preserving the shape of the diff. */
 export function redact(input: Readonly<Record<string, unknown>>): Record<string, unknown>;
 export function redact(
@@ -145,6 +164,16 @@ export async function withAudit<T>(
         event.userAgent ?? null,
       ],
     );
+
+    // Best-effort side-observation (Phase R2 realtime bridge). Guarded so a
+    // buggy observer can never break the mutation or its audit write.
+    if (auditObserver !== undefined) {
+      try {
+        auditObserver(event, tenantId);
+      } catch {
+        /* observation is not allowed to affect the transaction */
+      }
+    }
   }
 
   return result;

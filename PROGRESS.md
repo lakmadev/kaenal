@@ -5,6 +5,37 @@
 
 ## Current status
 
+**Realtime Phase R2 — after-commit emit + all-mutation coverage (2026-08-21).** R1 shipped the bus with one
+producer (notifications) emitting inside the tx (best-effort). R2 makes emission **complete and correct**.
+**The choke point (do not re-litigate):** rule 3 already routes *every* tenant mutation through `withAudit`,
+so that is the single place to derive a realtime signal — no service has to remember to emit, and a new
+mutation is covered the moment it writes its mandatory audit event. `packages/db` gains an optional
+**audit-observer hook** (`setAuditObserver`; guarded, best-effort, stays ignorant of realtime); the API
+registers an observer (`realtime/audit-signal.ts`) that maps an event's `entityKind`→web topic + gating
+`*:view` capability and **buffers** a signal. **After-commit, never on rollback:** signals collect in a
+request-context buffer (`RequestContext.signals` + `bufferRealtimeSignal`) that the lifecycle interceptor
+**flushes only after `withTenant` commits** (a throw skips the flush), de-duplicating so multiple audit
+events in one mutation invalidate each topic once. `notify()` switched from a direct emit to the same
+buffer (notifications don't audit, so they emit explicitly); its `RealtimeEmitter` injection removed.
+**Mapping (verified against real entityKind literals + each controller's capability):** ncr/ncr_action→ncr
+(ncr:view), eight_d→eightd (ncr:view — no dedicated 8D cap), capa/capa_action→capa, inspection/
+inspection_template/finding→inspection (finding rides inspection:view), supplier, ppap_submission→ppap,
+scar, document/document_version→document, fmea/fmea_item→fmea, audit/audit_finding→audit; non-QMS kinds
+(session, membership, file, export, plant, integration, …) map to nothing. Action collapses to
+created / deleted (delete+purge) / updated (everything else). **Web:** `useRealtime` `keysForTopic` expanded
+to every wired topic → `invalidateQueries` (ncr/capa/eightd/inspection/supplier/ppap/scar/document/fmea +
+notifications); `finding`/`audit` intentionally have no web list key yet (emitted server-side,
+forward-compatible). **Bridge lifecycle:** installed in `AppModule.onModuleInit`, removed in
+`onModuleDestroy`. **Tests:** `audit-signal.test.ts` 12/12 (action mapping; every entity→topic+capability;
+null for non-QMS kinds; the REAL `withAudit`+observer+context buffering the signal; no-op outside a request
+context). **Verified live** (demo web + curl cross-user): Sarah created + assigned NCR-2026-0014 → demo's
+stream received `ncr/created` (capability-broadcast to ncr:view holders), `ncr/updated` (assign), and
+`notifications/created` (user-targeted) — three over one socket; then a **stale-version assign (409
+STALE_WRITE) rolled back and emitted NOTHING** (still exactly 3), proving after-commit-only. `pnpm typecheck`
+clean (db/api/web), `pnpm lint` clean, realtime 11 + audit-signal 12 + lifecycle 24 + notifications 10 +
+ncr 11 + db-audit 22. **Next: R3** mobile push→delta-pull; **R4** WebSocket presence/edit-locks; **R5**
+co-editing.
+
 **Realtime Phase R1 — SSE signal bus (2026-08-21).** First slice of the combined Realtime→Data-Platform
 roadmap (R1–R5 realtime, then G–K which already shipped). Before this the app had **zero realtime**: web
 refreshed via TanStack `invalidateQueries` on your *own* mutations plus a 60 s notifications poll; another

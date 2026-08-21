@@ -16,7 +16,7 @@ import {
   type Cursor,
 } from "../http/pagination.js";
 import { NoopProducer, type JobProducer } from "../jobs/producer.js";
-import type { RealtimeEmitter } from "../realtime/realtime.service.js";
+import { bufferRealtimeSignal } from "../context.js";
 
 interface NotificationRow {
   id: string;
@@ -77,13 +77,8 @@ export interface NotifyInput {
  */
 @Injectable()
 export class NotificationsService {
-  /** The producer defaults to a no-op, so seeds/tests can `new NotificationsService()`.
-   *  The realtime emitter is optional for the same reason — omitted, `notify`
-   *  simply skips the live nudge (the in-app row is still written). */
-  constructor(
-    private readonly jobs: JobProducer = new NoopProducer(),
-    private readonly realtime?: RealtimeEmitter,
-  ) {}
+  /** The producer defaults to a no-op, so seeds/tests can `new NotificationsService()`. */
+  constructor(private readonly jobs: JobProducer = new NoopProducer()) {}
 
   async list(
     tx: Tx,
@@ -235,13 +230,14 @@ export class NotificationsService {
     // in-app row above is the source of truth; the job only fans to channels.
     await this.jobs.deliverNotification({ tenantId, notificationId: row.id });
 
-    // Realtime nudge (Phase R1): tell just this user's live streams to refetch
-    // their notifications, so the bell updates instantly instead of on the next
-    // poll. A pointer only — no row data crosses the bus. Best-effort by design:
-    // it rides the caller's transaction, so a later rollback could emit a
-    // spurious "refetch" that costs one cheap query; R2 moves business-mutation
-    // emits to a post-commit outbox where exactness matters more.
-    this.realtime?.emit({
+    // Realtime nudge: tell just this user's live streams to refetch their
+    // notifications, so the bell updates instantly instead of on the next poll.
+    // A pointer only — no row data crosses the bus. Notifications don't go
+    // through `withAudit` (they're a delivery artifact), so — unlike business
+    // entities, which the audit bridge covers — this buffers the signal
+    // explicitly. Published after the caller's transaction commits (R2), so a
+    // rollback never emits a phantom notification.
+    bufferRealtimeSignal({
       tenantId,
       userId: input.userId,
       event: {
