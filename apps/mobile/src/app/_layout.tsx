@@ -13,6 +13,7 @@ import "@/features/work/offline"; // registers the 8D-step + CAPA-action-status 
 import "@/features/oversight/offline"; // registers the document-review approval handler
 
 import { registerForPushAsync, useNotificationRouting } from "@/features/notifications/push";
+import { useRealtimeSync } from "@/hooks/use-realtime-sync";
 import { PERSIST_BUSTER, queryPersister } from "@/lib/persist-query";
 import { queryClient } from "@/lib/query-client";
 import { useAppearance } from "@/stores/appearance";
@@ -48,6 +49,10 @@ export default function RootLayout() {
   // Route notification taps into the app (foreground + cold-start) via the shared
   // deep-link resolver (05 §3). No-op on web / when no notification opened us.
   useNotificationRouting();
+
+  // Live sync (R3): hold the realtime stream while foregrounded and delta-pull on
+  // each signal; also re-pull on every return to foreground. No-op until signed in.
+  useRealtimeSync();
 
   // One-time bootstrap: rehydrate the persisted appearance + haptics + session.
   useEffect(() => {

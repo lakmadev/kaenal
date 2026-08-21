@@ -162,6 +162,33 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
+**Realtime R3 — mobile live sync (2026-08-21, branch `feat/realtime-sse`).** Third slice of the
+Realtime roadmap (R1 SSE bus + R2 after-commit emit shipped on the API/web side; see `PROGRESS.md`).
+Before this the device pulled the delta mirror **only once, at sign-in** — no foreground re-pull, no live
+push. R3 makes a field device reflect head-office changes near-instantly. **Transport (the mobile-specific
+problem):** the mobile API is **bearer**-authed (`Authorization` + `X-Tenant-Id` headers), and a browser
+`EventSource` can't set headers — so the stream rides a **header-capable streaming `fetch`**:
+`expo/fetch` on native, the browser `fetch` on web (platform-split `sync/streaming-fetch.ts` /
+`.web.ts`; the API's dev CORS already allows those headers). `sync/realtime.ts` holds a single
+**reconnecting** stream to `GET /v1/events` (exponential backoff, `AbortController` teardown), parses SSE
+frames (`sync/realtime-parse.ts` — pure `splitFrames`/`frameToData`, chunk-boundary safe), and validates
+each with the shared `RealtimeEvent` Zod. **Two triggers feed the SAME `engine.sync()`** via
+`hooks/use-realtime-sync.ts` (mounted in `_layout`, no-op until authenticated): (1) **AppState→active**
+re-pull on every return to foreground — *previously missing entirely*; (2) a realtime signal for a
+**mirrored** entity (`ncr`/`inspection`, per `reactionFor`) → debounced pull. A `notifications` signal
+invalidates the bell query instead. Stream drops on background (battery), reopens on foreground; if
+streaming is unavailable the foreground pull still keeps the device fresh — **purely additive**, never
+blocks the offline flow. The bus carries pointers only; the device still pulls authoritative data through
+its normal RLS-scoped `/v1/sync/*` endpoints. **Tests:** `realtime-parse.test.ts` 11/11 (frame splitting
+across chunks, CRLF, heartbeat/comment filtering, topic→reaction routing). **Verified in the Expo Web
+build** (`localhost:8082`): app bundles + boots clean with R3 wired; signed in as demo; the streaming
+`fetch` to `:3001/v1/events` connected **200 + streamable** cross-origin with bearer headers (CORS OK);
+Sarah (curl) created NCR → the mobile stream received `ncr/created`, the exact signal `reactionFor` routes
+to `engine.sync()`. `pnpm --filter @kaenal/mobile typecheck` clean, `lint:mobile` 0 errors (26 pre-existing
+warnings). **Verification ceiling (honest, like M13.3's EAS flag):** native `expo/fetch` streaming +
+real AppState background/foreground transitions need a device / EAS build — not exercised here; the web
+build, transport, and parsing are proven. **Next: R4** WebSocket presence/edit-locks; **R5** co-editing.
+
 **M26 — CLOSE-OUT: the flagged mobile remainder, built for real (branch `feat/mobile-closeout`).**
 Seven previously-flagged gaps closed, one committed slice each. All: typecheck (7/7 pkgs) + root & mobile
 lint clean; backend slices tested + `db:check` (50 tables). Verification ceilings flagged honestly, not
