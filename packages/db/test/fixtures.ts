@@ -352,6 +352,14 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
      VALUES ($1, $2, 'user', 'ncr', $3, 'created', '{"status":"open"}'::jsonb) RETURNING id`,
     [t, userId, ncrId],
   );
+
+  // M26 — device sync-health telemetry (composite PK, no `id` → raw insert). The
+  // row is scoped to a seeded member so the tenancy suite can probe its RLS.
+  await tx.query(
+    `INSERT INTO device_sync_status (tenant_id, user_id, device_id, failed, needs_review)
+     VALUES ($1, $2, $3, 0, 0)`,
+    [t, userId, `dev-${tag}`],
+  );
 }
 
 /**
