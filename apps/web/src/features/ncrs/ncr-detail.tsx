@@ -15,6 +15,7 @@ import { useNcr, useTransitionNcr, useVerifyNcr, useAssignNcr } from "@/hooks/us
 import { Button, StatusBadge, PriorityBadge, Skeleton, EmptyState, useToast } from "@/components/ui";
 import { AssigneePicker } from "@/components/assignee-picker";
 import { ActivityFeed } from "@/components/activity-feed";
+import { PresenceBar } from "@/components/presence-bar";
 import { SlaIndicator } from "./ncr-bits";
 import { NcrActionsTab } from "./ncr-actions";
 import { NcrInvestigationTab } from "./ncr-investigation";
@@ -162,6 +163,9 @@ function NcrDetailView({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Live presence (R4): who else is on this NCR, and who's editing.
+                Being on a data-entry tab signals edit-intent to co-viewers. */}
+            <PresenceBar type="ncr" id={ncr.id} editing={tab === "investigation" || tab === "actions"} />
             {ncr.status === "resolved" && canVerify && (
               <Button variant="primary" loading={busy} onClick={runVerify}>
                 Verify

@@ -5,6 +5,35 @@
 
 ## Current status
 
+**Realtime Phase R4 — live presence + edit-intent locks (2026-08-21).** The first genuinely *duplex*
+surface: who's on a record right now, and who's editing — so two people on one NCR see each other and
+don't collide into an optimistic-concurrency 409. **Transport decision (do not re-litigate):** NOT a raw
+WebSocket. Presence is discrete, low-frequency events (enter / heartbeat / leave / editing-toggle), so a
+persistent client→server socket buys nothing and would fork a **parallel auth path** outside the one
+lifecycle interceptor (tenant + session + RLS) plus sticky sessions + a socket Redis adapter. Instead:
+**SSE down (reuse R1's bus) + REST up (through the normal RLS-scoped pipeline)** — and the **Redis presence
+set for an entity IS its subscriber list**, so a snapshot is pushed to exactly the current viewers, across
+instances, with zero new auth surface. A true WS is reserved for R5 (keystroke co-editing) where it earns
+its place. **Backend:** `realtime/presence.service.ts` — Redis-only ephemeral presence (never a DB row,
+never audited): a SET indexes viewer ids per entity, each viewer a short-TTL detail key; a missed heartbeat
+lets the key expire and the next read prunes it from the index (a crashed client drops out on its own — no
+KEYS/SCAN). On every change it emits a `presence` event (topic added to `RealtimeEvent`, carrying
+`entityType` + the full `viewers` snapshot, `{userId, editing}` — **no names on the wire**, the client
+resolves them). `realtime/presence.controller.ts` — `POST /v1/presence/:type/:id/{heartbeat,leave}`, gated
+per-request by the entity type's `*:view` capability (8D rides ncr:view). **Web:** `stores/presence.ts` +
+`lib/presence.ts` (fetch + CSRF, `keepalive` on leave) + `hooks/use-presence.ts` (heartbeat on mount +
+20s interval + immediate on editing-flip; leave on unmount/`pagehide`); `useRealtime` routes `presence`
+events into the store; `components/presence-bar.tsx` (overlapping avatar stack + amber "X editing" soft-lock
+hint) mounted in the NCR detail header, `editing` driven by being on a data-entry tab. **Tests:**
+`presence.test.ts` 6/6 against real Redis (viewer add + editing flag; multi-viewer + selective leave;
+snapshot broadcast targeted to each current viewer; expired-key pruning; cross-tenant isolation; empty
+snapshot). **Verified live 2-user** (demo web + Sarah curl on NCR-2026-0014): demo's presence bar rendered
+"**Sarah Chen · 1 person here**" (name resolved from the directory) the moment Sarah heartbeated, and flipped
+to the amber "**Sarah Chen editing**" pill when Sarah set editing:true — all over the SSE bus, no WebSocket.
+`pnpm typecheck` clean (types/api/web), `pnpm lint` clean, presence 6/6 + realtime 11 + audit-signal 12.
+**Deferred (flagged):** mobile presence UI (backend + bus already support it) — a follow-up. **Next: R5**
+co-editing (where a real WebSocket + CRDT belong).
+
 **Realtime Phase R2 — after-commit emit + all-mutation coverage (2026-08-21).** R1 shipped the bus with one
 producer (notifications) emitting inside the tx (best-effort). R2 makes emission **complete and correct**.
 **The choke point (do not re-litigate):** rule 3 already routes *every* tenant mutation through `withAudit`,

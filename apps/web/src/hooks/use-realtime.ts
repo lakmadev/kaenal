@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@kaenal/api-client";
 import type { RealtimeEvent } from "@kaenal/types";
 import { env } from "@/lib/env";
+import { presenceKey, usePresenceStore } from "@/stores/presence";
 
 /**
  * Realtime consumer (Phase R1).
@@ -71,6 +72,16 @@ export function useRealtime(enabled: boolean): void {
         event = JSON.parse(e.data) as RealtimeEvent;
       } catch {
         return; // heartbeats are SSE comments, never delivered here; ignore noise
+      }
+      // Presence (R4) carries a viewer snapshot, not a cache pointer — route it
+      // to the presence store instead of invalidating a query.
+      if (event.topic === "presence") {
+        if (event.entityType !== undefined && event.entityId !== undefined) {
+          usePresenceStore
+            .getState()
+            .set(presenceKey(event.entityType, event.entityId), event.viewers ?? []);
+        }
+        return;
       }
       const key = keysForTopic(event.topic);
       if (key !== null) void qc.invalidateQueries({ queryKey: key });

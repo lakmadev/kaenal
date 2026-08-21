@@ -77,6 +77,8 @@ import { NotificationsController } from "./notifications/notifications.controlle
 import { NotificationsService } from "./notifications/notifications.service.js";
 import { RealtimeController } from "./realtime/realtime.controller.js";
 import { RealtimeService } from "./realtime/realtime.service.js";
+import { PresenceController } from "./realtime/presence.controller.js";
+import { PresenceService } from "./realtime/presence.service.js";
 import { installAuditRealtimeBridge, uninstallAuditRealtimeBridge } from "./realtime/audit-signal.js";
 import { CommentsController } from "./collab/comments.controller.js";
 import { CommentsService } from "./collab/comments.service.js";
@@ -150,6 +152,7 @@ import {
   IMPORT_SERVICE,
   SPC_SERVICE,
   REALTIME,
+  PRESENCE_SERVICE,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -186,6 +189,7 @@ import {
     SearchController,
     NotificationsController,
     RealtimeController,
+    PresenceController,
     CommentsController,
     AuditLogController,
     EntityLinksController,
@@ -224,6 +228,15 @@ import {
       provide: REALTIME,
       useFactory: (redis: Redis) => new RealtimeService(redis, redis.duplicate()),
       inject: [REDIS],
+    },
+
+    {
+      // Live presence (R4): Redis-backed ephemeral viewer sets; pushes snapshots
+      // to viewers over the R1 bus. Uses the shared command connection (no
+      // subscribe-mode conflict — it only SET/SADD/MGETs, never subscribes).
+      provide: PRESENCE_SERVICE,
+      useFactory: (redis: Redis, realtime: RealtimeService) => new PresenceService(redis, realtime),
+      inject: [REDIS, REALTIME],
     },
 
     {
