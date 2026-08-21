@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,7 +36,7 @@ function fmtBytes(n: number): string {
 // m-system.jsx SyncQueue — the real offline queue: pending / inflight / failed /
 // needs-review mutations + staged files, with retry / discard and a storage gauge.
 export default function SyncQueue() {
-  const router = useRouter();
+  const goBack = useSafeBack("/(app)/home");
   const insets = useSafeAreaInsets();
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
@@ -88,7 +88,7 @@ export default function SyncQueue() {
         <Text size={12.5} weight="semibold" color={online ? palette.successFg : palette.warnFg} style={{ flex: 1 }}>
           {online ? "Online — syncing automatically" : "Offline — your work is saved on this device"}
         </Text>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
+        <Pressable onPress={goBack} hitSlop={8}>
           <Icon name="x" size={18} color={online ? palette.successFg : palette.warnFg} />
         </Pressable>
       </View>

@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useEffect, useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,6 +22,7 @@ import { Body, Button, Card, Icon, Screen, SectionLabel, StatusPill, Text } from
 // doesn't exist yet, so that path is an honest note, not a fake transcript.
 export default function Capture() {
   const router = useRouter();
+  const goBack = useSafeBack("/(app)/home");
   const insets = useSafeAreaInsets();
   const { palette, radius, fonts } = useTheme();
   const { contentMaxWidth } = useLayout();
@@ -146,7 +148,7 @@ export default function Capture() {
                       : "Location off"}
             </Text>
           </Pressable>
-          <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: 4 }}>
+          <Pressable onPress={goBack} hitSlop={8} style={{ padding: 4 }}>
             <Icon name="x" size={20} color={palette.muted} />
           </Pressable>
         </View>

@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { Image, Linking, Platform, Pressable, View } from "react-native";
 
 import { SubHeader } from "@/features/settings/parts";
@@ -68,13 +67,12 @@ function LinkRow({ icon, title, url, last }: { icon: IconName; title: string; ur
 // Everything here is REAL — version/build/channel come from expo-constants, workspace
 // from the live session; no placeholder strings.
 export default function About() {
-  const router = useRouter();
   const { contentMaxWidth } = useLayout();
   const me = useSession((s) => s.me);
 
   return (
     <Screen>
-      <SubHeader title="About" onBack={() => router.back()} />
+      <SubHeader title="About" />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth, paddingTop: 8 }}>
           <View style={{ alignItems: "center", gap: 10, paddingVertical: 22 }}>

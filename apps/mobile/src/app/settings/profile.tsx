@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { View } from "react-native";
 
 import { SettingRow, SettingsGroup, SubHeader } from "@/features/settings/parts";
@@ -15,14 +14,13 @@ function initials(name: string): string {
 // m-settings-detail.jsx ProfileEdit — read-mostly on mobile (identity is the shared
 // account; name/email are managed by the account/SSO provider, not per-tenant).
 export default function Profile() {
-  const router = useRouter();
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
   const me = useSession((s) => s.me);
 
   return (
     <Screen>
-      <SubHeader title="Profile" onBack={() => router.back()} />
+      <SubHeader title="Profile" />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth, paddingTop: 18 }}>
           <View style={{ alignItems: "center", gap: 10, paddingBottom: 20 }}>

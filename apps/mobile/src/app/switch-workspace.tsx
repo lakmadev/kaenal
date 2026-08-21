@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,6 +18,7 @@ import { Avatar, Button, Icon, Text } from "@/ui";
 // caller's memberships (GET /v1/me/workspaces); tapping one calls switch-workspace.
 export default function SwitchWorkspace() {
   const router = useRouter();
+  const goBack = useSafeBack("/(app)/home");
   const insets = useSafeAreaInsets();
   const { palette } = useTheme();
 
@@ -45,7 +47,7 @@ export default function SwitchWorkspace() {
     setError(null);
     try {
       await switchWorkspace(ws.tenantSlug);
-      router.back();
+      goBack();
     } catch {
       setError(`Couldn't switch to ${ws.tenantName}.`);
       setBusy(null);
@@ -64,7 +66,7 @@ export default function SwitchWorkspace() {
   return (
     <View style={{ flex: 1, justifyContent: "flex-end" }}>
       {/* Dim backdrop — tap to dismiss. */}
-      <Pressable style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.35)" }} onPress={() => router.back()} />
+      <Pressable style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.35)" }} onPress={goBack} />
       <View
         style={{
           backgroundColor: palette.surface,

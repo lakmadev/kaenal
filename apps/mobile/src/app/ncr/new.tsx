@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useEffect, useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,6 +34,7 @@ const METHODS: { key: Method; icon: IconName; label: string; ready: boolean }[] 
 // through the offline engine (containment + evidence persisted for real).
 export default function NcrNew() {
   const router = useRouter();
+  const goBack = useSafeBack("/(app)/ncr");
   const insets = useSafeAreaInsets();
   const { palette, radius, fonts } = useTheme();
   const { contentMaxWidth } = useLayout();
@@ -157,7 +159,7 @@ export default function NcrNew() {
     <Screen>
       <View style={{ paddingTop: insets.top + 8, backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingBottom: 8 }}>
-          <Pressable onPress={() => (step === 0 ? router.back() : setStep((s) => s - 1))} hitSlop={8} style={{ padding: 4 }}>
+          <Pressable onPress={() => (step === 0 ? goBack() : setStep((s) => s - 1))} hitSlop={8} style={{ padding: 4 }}>
             <Icon name={step === 0 ? "x" : "chevronLeft"} size={22} color={palette.text} />
           </Pressable>
           <View style={{ flex: 1 }}>

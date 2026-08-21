@@ -6,6 +6,7 @@ import {
   useAudioRecorderState,
 } from "expo-audio";
 import { useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useRef, useState } from "react";
 import { Platform, Pressable, TextInput, View } from "react-native";
 
@@ -44,6 +45,7 @@ function mimeOf(uri: string): string {
 // and the flow stays record + type/dictate — but the audio is ALWAYS captured.
 export default function Voice() {
   const router = useRouter();
+  const goBack = useSafeBack("/(app)/home");
   const { palette, radius } = useTheme();
   const { contentMaxWidth } = useLayout();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -114,7 +116,7 @@ export default function Voice() {
   if (!supported) {
     return (
       <Screen>
-        <SubHeader title="Voice mode" onBack={() => router.back()} />
+        <SubHeader title="Voice mode" />
         <Body contentStyle={{ alignItems: "center" }}>
           <View style={{ width: "100%", maxWidth: contentMaxWidth, padding: 24, alignItems: "center", gap: 12 }}>
             <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: palette.bgSubtle, alignItems: "center", justifyContent: "center" }}>
@@ -136,7 +138,7 @@ export default function Voice() {
 
   return (
     <Screen>
-      <SubHeader title="Voice mode" subtitle="Just describe what you see" onBack={() => router.back()} />
+      <SubHeader title="Voice mode" subtitle="Just describe what you see" />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth, padding: 24, alignItems: "center", gap: 16 }}>
           {/* Mic */}
@@ -194,7 +196,7 @@ export default function Voice() {
         </View>
       </Body>
       <ActionBar>
-        <Button variant="ghost" style={{ flex: 1 }} onPress={() => router.back()}>
+        <Button variant="ghost" style={{ flex: 1 }} onPress={goBack}>
           Cancel
         </Button>
         <Button icon="flag" style={{ flex: 2 }} loading={busy} disabled={!captured && note.trim().length === 0} onPress={() => void submit()}>

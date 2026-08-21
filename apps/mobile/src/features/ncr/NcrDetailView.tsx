@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useState } from "react";
 import { Image, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -61,6 +62,7 @@ function activityRow(e: AuditEventDto, palette: ReturnType<typeof useTheme>["pal
 // the read data, lifecycle transitions, assign, comments/verify links live here.
 export function NcrDetailView({ id, embedded = false }: { id: string; embedded?: boolean }) {
   const router = useRouter();
+  const goBack = useSafeBack("/(app)/ncr");
   const insets = useSafeAreaInsets();
   const { palette, radius } = useTheme();
   const { contentMaxWidth } = useLayout();
@@ -108,7 +110,7 @@ export function NcrDetailView({ id, embedded = false }: { id: string; embedded?:
       <View style={{ paddingTop: (embedded ? 8 : insets.top + 6), backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12 }}>
           {!embedded && (
-            <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: 4 }}>
+            <Pressable onPress={goBack} hitSlop={8} style={{ padding: 4 }}>
               <Icon name="chevronLeft" size={24} stroke={2} color={palette.text} />
             </Pressable>
           )}

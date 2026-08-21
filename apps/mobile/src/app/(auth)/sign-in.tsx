@@ -46,7 +46,7 @@ export default function SignIn() {
         <View style={{ flex: 1, alignItems: "center" }}>
           <View style={{ flex: 1, width: "100%", maxWidth: contentMaxWidth }}>
             <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 24 }}>
-              <BackButton onPress={() => router.back()} />
+              <BackButton />
             </View>
             <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 18 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 22 }}>

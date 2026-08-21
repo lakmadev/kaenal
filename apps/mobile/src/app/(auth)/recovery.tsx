@@ -1,4 +1,5 @@
-import { Redirect, useRouter } from "expo-router";
+import { Redirect } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,7 +14,7 @@ import { Button, Icon, Screen, Text } from "@/ui";
 // Design: m-auth-extra.jsx → AuthRecovery (rule #9). Recovery code goes in the same
 // `code` field of POST /v1/auth/sign-in that TOTP uses.
 export default function Recovery() {
-  const router = useRouter();
+  const goBack = useSafeBack("/(auth)/welcome");
   const insets = useSafeAreaInsets();
   const { palette, radius, fonts } = useTheme();
   const { contentMaxWidth } = useLayout();
@@ -44,7 +45,7 @@ export default function Recovery() {
       <View style={{ flex: 1, alignItems: "center" }}>
         <View style={{ flex: 1, width: "100%", maxWidth: contentMaxWidth }}>
           <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 24 }}>
-            <BackButton onPress={() => router.back()} />
+            <BackButton />
           </View>
           <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 24 }}>
             <View
@@ -107,7 +108,7 @@ export default function Recovery() {
               </Text>
             )}
 
-            <Pressable onPress={() => router.back()} style={{ alignSelf: "center", marginTop: 24 }} hitSlop={8}>
+            <Pressable onPress={goBack} style={{ alignSelf: "center", marginTop: 24 }} hitSlop={8}>
               <Text size={13.5} weight="semibold" tone="accent">
                 Back to authenticator code
               </Text>

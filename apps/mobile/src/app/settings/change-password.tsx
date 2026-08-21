@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useState } from "react";
 import { Platform, View } from "react-native";
 
@@ -12,7 +12,7 @@ import { ActionBar, Body, Button, Icon, Screen, Text } from "@/ui";
 // Change password (07 §2) — real POST /v1/auth/change-password. On success the
 // server keeps THIS session and revokes every other device; we surface that.
 export default function ChangePassword() {
-  const router = useRouter();
+  const goBack = useSafeBack("/(app)/me");
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
 
@@ -33,7 +33,7 @@ export default function ChangePassword() {
     try {
       await changePassword(current, next);
       setDone(true);
-      setTimeout(() => router.back(), 1400);
+      setTimeout(goBack, 1400);
     } catch (e) {
       const err = e as AccountApiError;
       setError(
@@ -49,7 +49,7 @@ export default function ChangePassword() {
   if (done) {
     return (
       <Screen>
-        <SubHeader title="Change password" onBack={() => router.back()} />
+        <SubHeader title="Change password" />
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 14 }}>
           <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: palette.successBg, alignItems: "center", justifyContent: "center" }}>
             <Icon name="check" size={32} stroke={2.2} color={palette.success} />
@@ -67,7 +67,7 @@ export default function ChangePassword() {
 
   return (
     <Screen>
-      <SubHeader title="Change password" onBack={() => router.back()} />
+      <SubHeader title="Change password" />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth, padding: 16 }}>
           <AuthField

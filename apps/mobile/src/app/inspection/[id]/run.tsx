@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,6 +19,7 @@ import { ActionBar, Body, Button, Icon, Mono, Screen, SectionLabel, Skeleton, Sy
 export default function InspectionRunner() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const goBack = useSafeBack("/(app)/tasks");
   const insets = useSafeAreaInsets();
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
@@ -88,7 +90,7 @@ export default function InspectionRunner() {
     <Screen>
       <View style={{ paddingTop: insets.top + 6, backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12 }}>
-          <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: 4 }}>
+          <Pressable onPress={goBack} hitSlop={8} style={{ padding: 4 }}>
             <Icon name="chevronLeft" size={24} stroke={2} color={palette.text} />
           </Pressable>
           <Mono size={11} weight="bold" color={palette.muted}>

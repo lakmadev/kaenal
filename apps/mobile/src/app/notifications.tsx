@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useMemo } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,6 +36,7 @@ function ago(iso: string): string {
 // m-system.jsx Notifications — the real /v1/notifications feed, grouped New / Earlier.
 export default function Notifications() {
   const router = useRouter();
+  const goBack = useSafeBack("/(app)/home");
   const insets = useSafeAreaInsets();
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
@@ -100,7 +102,7 @@ export default function Notifications() {
     <Screen>
       <View style={{ paddingTop: insets.top + 6, backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingBottom: 10 }}>
-          <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: 4 }}>
+          <Pressable onPress={goBack} hitSlop={8} style={{ padding: 4 }}>
             <Icon name="chevronLeft" size={24} stroke={2} color={palette.text} />
           </Pressable>
           <Text size={20} weight="bold" style={{ flex: 1, letterSpacing: -0.4 }}>
