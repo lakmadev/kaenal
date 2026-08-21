@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 
 import { ApprovalDetailView } from "@/features/oversight/ApprovalDetailView";
 import { usePendingApprovals } from "@/features/oversight/queries";
@@ -8,7 +8,7 @@ import { useLayout } from "@/hooks/use-layout";
 import { useRole, useSession } from "@/stores/session";
 import { useSync } from "@/stores/sync";
 import { useTheme } from "@/theme";
-import { Body, Card, EmptyState, Header, Icon, Mono, Screen, Skeleton, Text } from "@/ui";
+import { Body, Card, EmptyState, Header, Icon, Mono, Screen, Skeleton, Text, Touchable } from "@/ui";
 
 const ROLE_LABEL: Record<string, string> = { admin: "Admin", manager: "Manager", auditor: "Auditor", inspector: "Inspector", viewer: "Viewer" };
 
@@ -101,7 +101,7 @@ function ApprovalCard({
 }) {
   const { palette, radius } = useTheme();
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+    <Touchable onPress={onPress}>
       <Card
         style={{
           marginHorizontal: 16,
@@ -133,7 +133,7 @@ function ApprovalCard({
           <Icon name="chevronRight" size={16} color={palette.subtle} />
         </View>
       </Card>
-    </Pressable>
+    </Touchable>
   );
 }
 

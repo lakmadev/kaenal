@@ -1,9 +1,9 @@
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 
 import type { NcrDto, NcrPriority, NcrStatus } from "@kaenal/types";
 
 import { useTheme } from "@/theme";
-import { Card, Icon, Mono, Sev, StatusPill, Text, type SevLevel, type StatusTone } from "@/ui";
+import { Card, Icon, Mono, Sev, StatusPill, Text, Touchable, type SevLevel, type StatusTone } from "@/ui";
 
 export function severityOf(priority: NcrPriority): SevLevel {
   return priority === "critical" ? "critical" : priority === "major" ? "major" : "minor";
@@ -48,7 +48,7 @@ export function NcrCard({ ncr, onPress, selected = false }: { ncr: NcrDto; onPre
   const { palette } = useTheme();
   const due = ncrDue(ncr.dueAt);
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+    <Touchable onPress={onPress}>
       <Card
         style={{
           marginHorizontal: 16,
@@ -89,6 +89,6 @@ export function NcrCard({ ncr, onPress, selected = false }: { ncr: NcrDto; onPre
           </Text>
         </View>
       </Card>
-    </Pressable>
+    </Touchable>
   );
 }

@@ -16,6 +16,7 @@ import { registerForPushAsync, useNotificationRouting } from "@/features/notific
 import { PERSIST_BUSTER, queryPersister } from "@/lib/persist-query";
 import { queryClient } from "@/lib/query-client";
 import { useAppearance } from "@/stores/appearance";
+import { useHaptics } from "@/stores/haptics";
 import { useSession } from "@/stores/session";
 import { startSync } from "@/sync";
 import { ThemeProvider, useAppFonts } from "@/theme";
@@ -48,9 +49,10 @@ export default function RootLayout() {
   // deep-link resolver (05 §3). No-op on web / when no notification opened us.
   useNotificationRouting();
 
-  // One-time bootstrap: rehydrate the persisted appearance + session.
+  // One-time bootstrap: rehydrate the persisted appearance + haptics + session.
   useEffect(() => {
     void useAppearance.getState().hydrate();
+    void useHaptics.getState().hydrate();
     void useSession.getState().bootstrap();
   }, []);
 
@@ -80,7 +82,16 @@ export default function RootLayout() {
           persistOptions={{ persister: queryPersister, buster: PERSIST_BUSTER }}
         >
           <ThemeProvider initialMode={appearanceMode} onModeChange={setMode}>
-            <Stack screenOptions={{ headerShown: false }}>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                // A consistent, smooth slide for every push (iOS-native feel on
+                // Android too), with the swipe-back gesture enabled.
+                animation: "slide_from_right",
+                animationDuration: 280,
+                gestureEnabled: true,
+              }}
+            >
               <Stack.Screen name="(app)" />
               <Stack.Screen name="(auth)" />
               <Stack.Screen name="priming" />

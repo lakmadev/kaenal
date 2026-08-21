@@ -14,6 +14,8 @@ export {
   type SevLevel,
 } from "./pills";
 export { Button, type ButtonProps } from "./Button";
+export { Touchable, type TouchableProps } from "./Touchable";
+export { useReduceMotion } from "./motion";
 export { Row, type RowProps } from "./Row";
 export { Skeleton, EmptyState, ErrorState } from "./feedback";
 export { Header, BellButton, Badge, type HeaderProps } from "./Header";

@@ -3,7 +3,7 @@ import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "@/theme";
-import { Card, Icon, Text, type IconName } from "@/ui";
+import { Card, Icon, Text, Touchable, type IconName } from "@/ui";
 
 /** Compact back-header for settings sub-pages (m-settings-detail.jsx SubHeader). */
 export function SubHeader({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack: () => void }) {
@@ -80,7 +80,7 @@ export function SettingRow({ icon, title, sub, value, toggle, onToggle, onPress,
       {toggle !== undefined ? <Toggle on={toggle} onPress={onToggle} /> : onPress ? <Icon name="chevronRight" size={16} color={palette.subtle} /> : null}
     </View>
   );
-  if (onPress && toggle === undefined) return <Pressable onPress={onPress} style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>{body}</Pressable>;
+  if (onPress && toggle === undefined) return <Touchable onPress={onPress}>{body}</Touchable>;
   return body;
 }
 
