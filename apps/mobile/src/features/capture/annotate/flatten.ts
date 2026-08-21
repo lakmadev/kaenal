@@ -12,6 +12,7 @@ export async function flatten(
   _marks: Mark[],
   _w: number,
   _h: number,
+  _mmPerPx: number | null = null,
 ): Promise<string> {
   return Promise.resolve(imageUri);
 }
