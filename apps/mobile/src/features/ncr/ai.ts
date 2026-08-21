@@ -14,6 +14,9 @@ export interface TriageDraft {
   severity?: NcrPriority;
   category?: string;
   description?: string;
+  /** The model's OWN estimate of how confident it is (0–100). Advisory — shown on
+   *  the live-detect overlay as an AI estimate, never as a measured detector score. */
+  confidence?: number;
 }
 
 /** Read a local file uri (native file:// or web blob/data) as raw base64. */
@@ -48,7 +51,43 @@ function parseDraft(value: string): TriageDraft {
   if (sev === "minor" || sev === "major" || sev === "critical") out.severity = sev;
   if (typeof o["category"] === "string" && CATEGORIES.has(o["category"])) out.category = o["category"];
   if (typeof o["description"] === "string" && o["description"].trim()) out.description = o["description"].trim();
+  const conf = typeof o["confidence"] === "number" ? o["confidence"] : Number(o["confidence"]);
+  if (Number.isFinite(conf)) out.confidence = Math.max(0, Math.min(100, Math.round(conf)));
   return out;
+}
+
+/** Shared vision call: post base64 image(s) to the governed AI gateway's
+ *  `ncr_photo_triage` feature and parse the JSON draft. Throws a friendly message. */
+async function runVisionTriage(imagesBase64: string[], note: string): Promise<TriageDraft> {
+  const res = await apiClient.requestAiDraft({
+    body: {
+      feature: "ncr_photo_triage",
+      input:
+        (note.trim().length > 0 ? note.trim() : "Triage the attached defect photo.") +
+        ' Reply as JSON {"title","severity":"minor|major|critical","category","description","confidence":0-100}.',
+      imagesBase64,
+    },
+  });
+  if (res.status !== 200) {
+    const status: number = res.status;
+    const msg =
+      status === 402 || status === 403
+        ? "AI isn't enabled for this workspace."
+        : status === 503
+          ? "AI is busy — try again in a moment."
+          : "Couldn't analyse the image.";
+    throw new Error(msg);
+  }
+  return parseDraft(res.body.value);
+}
+
+/**
+ * Analyse a live camera frame (raw base64) with the vision model — the engine
+ * behind CapCamera's on-frame overlay. Same governed gateway as photo triage; the
+ * frame is not staged as evidence (it is a throwaway preview grab).
+ */
+export async function analyzeFrame(base64: string, note = ""): Promise<TriageDraft> {
+  return runVisionTriage([base64], note);
 }
 
 /**
@@ -61,23 +100,5 @@ export async function triageFromPhoto(photoLocalId: string, note: string): Promi
   const file = files.find((f) => f.id === photoLocalId);
   if (!file) throw new Error("That photo is no longer available.");
 
-  const imagesBase64 = [await uriToBase64(file.localUri)];
-  const res = await apiClient.requestAiDraft({
-    body: {
-      feature: "ncr_photo_triage",
-      input: note.trim().length > 0 ? note.trim() : "Triage the attached defect photo.",
-      imagesBase64,
-    },
-  });
-  if (res.status !== 200) {
-    const status: number = res.status;
-    const msg =
-      status === 402 || status === 403
-        ? "AI isn't enabled for this workspace."
-        : status === 503
-          ? "AI is busy — try again in a moment."
-          : "Couldn't analyse the photo.";
-    throw new Error(msg);
-  }
-  return parseDraft(res.body.value);
+  return runVisionTriage([await uriToBase64(file.localUri)], note);
 }
