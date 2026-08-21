@@ -1,3 +1,4 @@
+import { FlashList } from "@shopify/flash-list";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
@@ -97,22 +98,39 @@ export default function Ncr() {
           <FilterChip label={`Closed · ${counts.closed}`} active={filter === "closed"} onPress={() => setFilter("closed")} />
         </ScrollView>
       </View>
-      <Body contentStyle={{ alignItems: "center" }}>
-        <View style={{ width: "100%", maxWidth: isTablet ? undefined : contentMaxWidth }}>
-          {isLoading ? (
+      {isLoading ? (
+        <Body contentStyle={{ alignItems: "center" }}>
+          <View style={{ width: "100%", maxWidth: isTablet ? undefined : contentMaxWidth }}>
             <LoadingRows />
-          ) : isError ? (
-            <View style={{ minHeight: 320 }}>
-              <ErrorState title="Couldn't load NCRs" body="You may be offline. Your last synced list returns when you reconnect." onRetry={() => void refetch()} />
-            </View>
-          ) : filtered.length === 0 ? (
+          </View>
+        </Body>
+      ) : isError ? (
+        <Body contentStyle={{ alignItems: "center" }}>
+          <View style={{ width: "100%", maxWidth: isTablet ? undefined : contentMaxWidth, minHeight: 320 }}>
+            <ErrorState title="Couldn't load NCRs" body="You may be offline. Your last synced list returns when you reconnect." onRetry={() => void refetch()} />
+          </View>
+        </Body>
+      ) : filtered.length === 0 ? (
+        <Body contentStyle={{ alignItems: "center" }}>
+          <View style={{ width: "100%", maxWidth: isTablet ? undefined : contentMaxWidth }}>
             <EmptyState icon="check" title="Nothing here" body="No non-conformances in this view. Raise one from a failed check or the Quick-Log." />
-          ) : (
-            filtered.map((ncr) => <NcrCard key={ncr.id} ncr={ncr} selected={isTablet && ncr.id === selectedId} onPress={() => onRow(ncr)} />)
-          )}
-          <View style={{ height: 16 }} />
+          </View>
+        </Body>
+      ) : (
+        // The NCR list is unbounded, so it virtualises via FlashList rather than
+        // mapping every card into a ScrollView. Same NcrCard rows, same centred
+        // max-width column (full-width in the tablet master pane).
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <View style={{ flex: 1, width: "100%", maxWidth: isTablet ? undefined : contentMaxWidth }}>
+            <FlashList
+              data={filtered}
+              keyExtractor={(ncr) => ncr.id}
+              renderItem={({ item }) => <NcrCard ncr={item} selected={isTablet && item.id === selectedId} onPress={() => onRow(item)} />}
+              contentContainerStyle={{ paddingBottom: 16 }}
+            />
+          </View>
         </View>
-      </Body>
+      )}
     </Screen>
   );
 

@@ -1,3 +1,4 @@
+import { FlashList } from "@shopify/flash-list";
 import type { AuditLogEntryDto } from "@kaenal/types";
 import { View } from "react-native";
 
@@ -5,7 +6,7 @@ import { useAuditLog } from "@/features/oversight/queries";
 import { useLayout } from "@/hooks/use-layout";
 import { useSync } from "@/stores/sync";
 import { useTheme } from "@/theme";
-import { Body, Card, EmptyState, Header, Icon, Mono, Screen, Skeleton, Text, type IconName } from "@/ui";
+import { Card, EmptyState, Header, Icon, Mono, Screen, Skeleton, Text, type IconName } from "@/ui";
 
 function iconFor(action: string): IconName {
   if (action.includes("role")) return "key";
@@ -30,34 +31,48 @@ function clock(iso: string): string {
 // m-oversight.jsx audit highlights — the admin's read-only audit-log feed.
 export default function Audit() {
   const sync = useSync((s) => s.state);
+  const { palette, radius } = useTheme();
   const { contentMaxWidth } = useLayout();
   const { data, isLoading, isError } = useAuditLog();
   const items = data ?? [];
 
+  // The audit feed is unbounded (every sensitive event), so it virtualises via
+  // FlashList rather than mapping every row into a ScrollView. The single-card
+  // framing + row dividers are preserved: FlashList is the scroller, wrapped in
+  // the bordered rounded Card the design shows.
+  const list =
+    isLoading ? (
+      <Card style={{ padding: 14, gap: 14, marginHorizontal: 16, marginTop: 16 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} width="100%" height={36} />
+        ))}
+      </Card>
+    ) : isError ? (
+      <View style={{ padding: 16 }}>
+        <EmptyState icon="cloudOff" title="Couldn't load the audit log" body="You may be offline, or this needs the audit-log capability." />
+      </View>
+    ) : items.length === 0 ? (
+      <View style={{ padding: 16 }}>
+        <EmptyState icon="shield" title="No recent events" body="Sensitive actions across the workspace show up here." />
+      </View>
+    ) : (
+      <View style={{ flex: 1, alignItems: "center" }}>
+        <View style={{ flex: 1, width: "100%", maxWidth: contentMaxWidth, padding: 16 }}>
+          <View style={{ flex: 1, borderWidth: 1, borderColor: palette.border, borderRadius: radius.lg, backgroundColor: palette.surface, overflow: "hidden" }}>
+            <FlashList
+              data={items}
+              keyExtractor={(e) => e.id}
+              renderItem={({ item, index }) => <AuditRow entry={item} last={index === items.length - 1} />}
+            />
+          </View>
+        </View>
+      </View>
+    );
+
   return (
     <Screen>
       <Header overline="Read-only · sensitive events" title="Audit log" sync={sync} />
-      <Body contentStyle={{ alignItems: "center" }}>
-        <View style={{ width: "100%", maxWidth: contentMaxWidth, padding: 16 }}>
-          {isLoading ? (
-            <Card style={{ padding: 14, gap: 14 }}>
-              {[0, 1, 2, 3].map((i) => (
-                <Skeleton key={i} width="100%" height={36} />
-              ))}
-            </Card>
-          ) : isError ? (
-            <EmptyState icon="cloudOff" title="Couldn't load the audit log" body="You may be offline, or this needs the audit-log capability." />
-          ) : items.length === 0 ? (
-            <EmptyState icon="shield" title="No recent events" body="Sensitive actions across the workspace show up here." />
-          ) : (
-            <Card>
-              {items.map((e, i) => (
-                <AuditRow key={e.id} entry={e} last={i === items.length - 1} />
-              ))}
-            </Card>
-          )}
-        </View>
-      </Body>
+      {list}
     </Screen>
   );
 }
