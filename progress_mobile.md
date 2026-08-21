@@ -162,6 +162,41 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
+**M26 — CLOSE-OUT: the flagged mobile remainder, built for real (branch `feat/mobile-closeout`).**
+Seven previously-flagged gaps closed, one committed slice each. All: typecheck (7/7 pkgs) + root & mobile
+lint clean; backend slices tested + `db:check` (50 tables). Verification ceilings flagged honestly, not
+hidden.
+
+- [x] **CapAnnotate Measure tool** — the design's fifth tool, was deferred. A calibrated photo ruler: the
+  first ruler prompts for its real length (mm) → mm-per-pixel; every ruler then reads real mm (design
+  "~3mm"), px before calibration. Live (react-native-svg) + baked into the flattened image on both native
+  (view-shot) and web (canvas). Pure geometry unit-tested (5). *Migration 0037-style: none — client only.*
+- [x] **Mobile lint made real + wired into CI.** `expo lint` was a no-op (root config ignored
+  apps/mobile). Gave the app its own flat config (eslint-config-expo), added `pnpm lint:mobile` + a CI
+  step. Immediately caught a **real Rules-of-Hooks bug** (a `Redirect` before a `useEffect` in mfa.tsx →
+  fixed) + a duplicate export + dead imports. 0 errors, 24 signal warnings.
+- [x] **`/v1/sync/*` delta endpoints** (backend, tested) — closed the sync READ-path gap. `sync/ncr` +
+  `sync/inspections` do an O(delta) `(updated_at,id)` keyset scan with tombstones (0039 index); mobile
+  `createDeltaReadSource` swaps in behind the existing `SyncReadSource` seam (list fallback retained).
+  Injection-safe, RLS-scoped, `*:view`-gated. Tests: api sync.test.ts (8) + mobile delta-read-source (4).
+- [x] **Device sync-health telemetry** (backend, tested) — the admin "Failed syncs" tile had no source
+  and rendered "—". Added `device_sync_status` (0040, forced RLS, member FK), `POST /v1/sync/health`
+  (device upserts its parked-write counts), `failedSyncsCount()` summing recent devices into the KPI, and
+  a best-effort mobile reporter (stable deviceId, once per quiescent cycle). Tests: sync +3, dashboard
+  updated to prove the real number.
+- [x] **CapCamera on-frame AI detect** — the live-viewfinder detect screen, was unbuilt. A real camera
+  view; the shutter runs the governed vision model (`ncr_photo_triage`) over the frame and overlays what
+  the model actually reported — label + the model's OWN confidence (labelled an AI estimate, no fabricated
+  detector score, no fake "like NCR-0118"); "Draft NCR" carries it into create, prefilled. Honest scope:
+  tap-to-analyse, not a 30fps on-device detector. *Native camera capture not drivable in this harness.*
+- [x] **CapVoice live transcription** — the design's live speech-to-text, was flagged (no ASR service).
+  Built the real no-new-service path: Web Speech API (`SpeechRecognition`) on a secure origin (PWA);
+  words stream into the editable note → AI-structure → durable NCR. Native has no built-in STT →
+  unsupported fallback (record + type/dictate), audio always kept. *Mic not drivable in this harness.*
+- [x] **FlashList virtualisation** — the two genuinely-unbounded FLAT lists (audit feed, NCR list) moved
+  from ScrollView+`.map` to `@shopify/flash-list` v2 (same rows/markup, virtualised). Grouped (My Tasks)
+  and short lists deliberately left on ScrollView. *On-device scroll/perf + pixel-diff not drivable here.*
+
 **M14+ FIDELITY / "MAKE IT REAL" PROGRAM (post-review).** A user review of the shipped app found
 stubbed features presented as done, settings/logout divergence from the mocks, and a PWA/home-screen
 safe-area cut-off. New governing rules landed in **CLAUDE.md #10** (never fake/stub/hallucinate — wire
@@ -487,18 +522,14 @@ placeholders today).
   is a 409 the server rejects (found + fixed during verification).
 
 ## Known issues / open questions
-- **BACKEND GAP (confirmed): no `/v1/sync/<table>?since=` delta endpoints exist.** The contract exposes
-  cursor-paginated lists (`PageQuery`) with `updatedAt`+`version` on every DTO, plus server-side
-  Idempotency-Key (Redis `IdempotencyStore`) and optimistic concurrency (`version`→`STALE_WRITE`). So the
-  **write path is fully backed**; the **read path** uses `createListReadSource` (walk cursor pages,
-  delta-filter by `updatedAt`) behind the `SyncReadSource` seam. Two honest limitations until the real
-  endpoints land: (1) no tombstones from lists → deletes reconcile on full refresh, not incrementally;
-  (2) pull is O(changed) not O(1). Swapping in a `/v1/sync/*` adapter later leaves the engine unchanged.
-  → Recommend a backend follow-up to add the delta endpoints (own PR, web/API track).
-- **Mobile lint is a no-op:** root `eslint.config.js` ignores `apps/mobile/**` (M0 decision), but
-  `expo lint` reads that same root flat config and finds everything ignored, so it errors. Root
-  `pnpm lint` (the pre-push gate) is unaffected. Fix = give `apps/mobile` its own `eslint.config.js`
-  (eslint-config-expo) that doesn't inherit the root ignore. Deferred; not an M3 regression.
+- ~~**BACKEND GAP: no `/v1/sync/<table>?since=` delta endpoints exist.**~~ **RESOLVED (M26 close-out).**
+  `GET /v1/sync/ncr` + `/v1/sync/inspections` now do an O(delta) `(updated_at,id)` keyset scan with
+  tombstones (0039 index, `*:view`-gated, RLS-scoped, injection-safe); mobile `createDeltaReadSource`
+  swaps in behind the `SyncReadSource` seam (list fallback retained for entities without a delta route).
+  Tests: api sync.test.ts (8) + mobile delta-read-source (4).
+- ~~**Mobile lint is a no-op:**~~ **RESOLVED (M26 close-out).** apps/mobile has its own flat config
+  (eslint-config-expo), `pnpm lint:mobile` runs it, and CI has a dedicated step. Turning it on caught a
+  real Rules-of-Hooks bug (mfa.tsx) + a duplicate export + dead imports. 0 errors, 24 signal warnings.
 - End-to-end network pull/push verification is deferred to M4+ (needs real auth + the M6/M8 screens that
   register handlers). M3's engine is proven by the 31-test suite + a clean web boot.
 - (M4) **"Add another workspace"** in the switcher signs out (guarded on unsynced) and returns to the
