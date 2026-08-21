@@ -206,6 +206,53 @@ describe("GET /v1/sync/ncr (delta pull)", () => {
   });
 });
 
+describe("POST /v1/sync/health (device telemetry → 'Failed syncs' tile)", () => {
+  const DEVICE = "device-sync-test-1";
+
+  it("upserts the device's sync health (last-write-wins) and feeds the tenant count", async () => {
+    const post = (failed: number, needsReview: number) =>
+      request(server())
+        .post("/v1/sync/health")
+        .set("X-Tenant-Id", ACME)
+        .set("Authorization", `Bearer ${adminTok}`)
+        .send({ deviceId: DEVICE, failed, needsReview, lastSyncedAt: new Date().toISOString() });
+
+    expect((await post(3, 1)).status).toBe(200);
+    // Re-report: the row is REPLACED, not duplicated (live gauge, not a log).
+    expect((await post(2, 0)).status).toBe(200);
+
+    const total = await withTenant(acmeId, null, async (tx) => {
+      const { rows } = await tx.query<{ rows_for_device: number; sum: number }>(
+        `SELECT count(*)::int AS rows_for_device,
+                COALESCE(SUM(failed + needs_review),0)::int AS sum
+           FROM device_sync_status WHERE device_id = $1`,
+        [DEVICE],
+      );
+      return rows[0];
+    });
+    expect(total?.rows_for_device).toBe(1); // upsert, not two rows
+    expect(total?.sum).toBe(2); // the second report's failed(2) + needs_review(0)
+  });
+
+  it("refuses a partner (no ncr:view) and an anonymous caller", async () => {
+    const body = { deviceId: DEVICE, failed: 0, needsReview: 0 };
+    expect(
+      (await request(server()).post("/v1/sync/health").set("X-Tenant-Id", ACME).set("Authorization", `Bearer ${partnerTok}`).send(body))
+        .status,
+    ).toBe(403);
+    expect((await request(server()).post("/v1/sync/health").set("X-Tenant-Id", ACME).send(body)).status).toBe(401);
+  });
+
+  it("rejects a malformed report (negative counter) with 422", async () => {
+    const res = await request(server())
+      .post("/v1/sync/health")
+      .set("X-Tenant-Id", ACME)
+      .set("Authorization", `Bearer ${adminTok}`)
+      .send({ deviceId: DEVICE, failed: -1, needsReview: 0 });
+    expect(res.status).toBe(422);
+  });
+});
+
 describe("GET /v1/sync/inspections (delta pull)", () => {
   it("returns a well-formed delta for an authorised caller", async () => {
     const res = await pull("/v1/sync/inspections", adminTok);

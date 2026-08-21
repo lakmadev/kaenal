@@ -1,7 +1,7 @@
-import { Controller, Get, Inject, Query } from "@nestjs/common";
-import { SyncQuery, type InspectionSyncDelta, type NcrSyncDelta } from "@kaenal/types";
+import { Body, Controller, Get, HttpCode, Inject, Post, Query } from "@nestjs/common";
+import { SyncHealthBody, SyncQuery, type InspectionSyncDelta, type NcrSyncDelta } from "@kaenal/types";
 
-import { currentTx } from "../context.js";
+import { currentActorId, currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { SYNC_SERVICE } from "../tokens.js";
@@ -32,5 +32,16 @@ export class SyncController {
   async inspections(@Query() query: unknown): Promise<InspectionSyncDelta> {
     const q = parse(SyncQuery, query);
     return this.sync.inspections(currentTx(), q.cursor, q.limit);
+  }
+
+  /** A device reports its offline-sync health for the signed-in workspace. Gated
+   *  on `ncr:view` (the internal roles that use the mobile offline mirror); the
+   *  row is self-scoped to the caller's user + tenant. */
+  @Post("v1/sync/health")
+  @HttpCode(200)
+  @RequireCapability("ncr:view")
+  async reportHealth(@Body() body: unknown): Promise<{ ok: boolean }> {
+    const b = parse(SyncHealthBody, body);
+    return this.sync.reportHealth(currentTx(), currentActorId(), b);
   }
 }

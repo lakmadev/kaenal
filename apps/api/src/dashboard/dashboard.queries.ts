@@ -8,6 +8,8 @@ import type {
   DashTeamMember,
 } from "@kaenal/types";
 
+import { failedSyncsCount } from "../sync/sync.service.js";
+
 /**
  * Home-dashboard aggregation (05 §M5) — pure query functions over the request's
  * tenant-scoped transaction. RLS confines every statement to the caller's
@@ -15,11 +17,9 @@ import type {
  * service). control.users is outside RLS and readable by the app role, so the
  * actor/name joins are safe.
  *
- * Every metric is computed from real columns. The ONE exception is the admin
- * "Failed syncs" tile: there is no tenant-wide sync-failure telemetry anywhere
- * server-side (the offline engine is client-only), so its value is returned as
- * null and rendered as "—" — never a fabricated number. See PROGRESS known
- * issues; it wants a device sync-failure report channel (M11/M13).
+ * Every metric is computed from real columns — including the admin "Failed syncs"
+ * tile, which now sums parked writes across devices that reported recently via
+ * `device_sync_status` (05 §M5, migration 0040). No metric is fabricated.
  */
 
 const NCR_OPEN = ["draft", "open", "assigned", "in_progress", "escalated", "reopened"];
@@ -335,10 +335,13 @@ async function admin(tx: Tx): Promise<DashboardDto> {
   );
   const awaiting = docsAwaiting + ncrDispositions;
 
+  // Real tenant-wide sync-failure telemetry now exists (device_sync_status,
+  // 0040): sum parked writes across devices that reported in the last 24h.
+  const failedSyncs = await failedSyncsCount(tx);
+
   const kpis: DashKpi[] = [
     { label: "Active today", value: String(activeToday), tone: "default", delta: `/ ${totalMembers}` },
-    // No tenant-wide sync-failure telemetry exists server-side — honest "—", not a fake 0.
-    { label: "Failed syncs", value: null, tone: "danger" },
+    { label: "Failed syncs", value: String(failedSyncs), tone: failedSyncs > 0 ? "danger" : "default" },
     { label: "Awaiting", value: String(awaiting), tone: awaiting > 0 ? "warn" : "default" },
   ];
 

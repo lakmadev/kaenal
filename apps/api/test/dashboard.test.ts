@@ -156,13 +156,27 @@ describe("role dispatch", () => {
     expect(Array.isArray(body.team)).toBe(true);
   });
 
-  it("serves the admin shape; the Failed-syncs tile is an honest null, not a fake 0", async () => {
+  it("serves the admin shape; the Failed-syncs tile reflects real device telemetry", async () => {
+    // Seed a device sync-health report for this tenant (05 §M5) — the tile now has
+    // a real source instead of the old honest null.
+    await withTenant(acmeId, null, async (tx) => {
+      await tx.query(
+        `INSERT INTO device_sync_status (tenant_id, user_id, device_id, failed, needs_review, reported_at)
+         VALUES (current_setting('app.tenant_id')::uuid, $1, 'dash-dev-1', 2, 1, now())
+         ON CONFLICT (tenant_id, user_id, device_id)
+           DO UPDATE SET failed = EXCLUDED.failed, needs_review = EXCLUDED.needs_review, reported_at = now()`,
+        [users["admin"]],
+      );
+    });
+
     const tok = await signIn(ACME, "dash-admin@acme.test");
     const { body } = await dashboard(ACME, tok);
     expect(body.variant).toBe("admin");
     if (body.variant !== "admin") throw new Error("variant");
     const failed = body.kpis.find((k) => k.label === "Failed syncs");
-    expect(failed?.value).toBeNull();
+    // A real number now (failed 2 + needs_review 1 = at least 3), never null.
+    expect(failed?.value).not.toBeNull();
+    expect(Number(failed?.value)).toBeGreaterThanOrEqual(3);
     expect(Array.isArray(body.auditHighlights)).toBe(true);
   });
 });

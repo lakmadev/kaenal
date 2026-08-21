@@ -6,8 +6,10 @@ import { apiClient } from "../lib/api.js";
 import { uploadPendingFiles } from "../features/capture/files.js";
 import { presentLocal } from "../services/notifications.js";
 import { services } from "../services/index.js";
+import { useSession } from "../stores/session.js";
 import { useSync } from "../stores/sync.js";
 import { SyncEngine } from "./engine.js";
+import { uuidv7 } from "./ids.js";
 import { createPusher, type PushCall } from "./pusher.js";
 import { createDeltaReadSource, createListReadSource, type DeltaFetcher, type DeltaPage, type ListPuller } from "./read-source.js";
 import type { SyncSummary } from "./types.js";
@@ -64,7 +66,10 @@ export const engine = new SyncEngine({
   uploadFiles: uploadPendingFiles,
   pullEntities: ["inspection", "ncr"],
   isOnline: () => online,
-  onChange: (s) => applyToStore(s),
+  onChange: (s) => {
+    applyToStore(s);
+    void reportHealth(s);
+  },
   // A parked write raises a local "sync failed" alert (05 §3). The entity ref
   // lets the tap deep-link straight to the record that needs attention.
   onNeedsReview: (m, reason) => {
@@ -74,6 +79,39 @@ export const engine = new SyncEngine({
     });
   },
 });
+
+/** Stable per-install id, persisted once — identifies this device's sync health
+ *  rows on the server without ever being a credential. */
+let deviceIdCache: string | null = null;
+async function deviceId(): Promise<string> {
+  if (deviceIdCache !== null) return deviceIdCache;
+  const KEY = "kaenal.deviceId";
+  let id = await services.kv.getItem(KEY);
+  if (id === null || id === "") {
+    id = uuidv7();
+    await services.kv.setItem(KEY, id);
+  }
+  deviceIdCache = id;
+  return id;
+}
+
+/**
+ * Report this device's sync health to the server (05 §M5) so the admin dashboard
+ * "Failed syncs" tile has a real, tenant-wide source. Fires once per quiescent
+ * cycle (nothing in flight), only while signed in and online, and is strictly
+ * best-effort: a telemetry failure must never park a write or surface to the user.
+ */
+async function reportHealth(s: SyncSummary): Promise<void> {
+  if (!s.online || s.inflight > 0) return;
+  if (useSession.getState().token == null) return;
+  try {
+    await apiClient.reportSyncHealth({
+      body: { deviceId: await deviceId(), failed: s.failed, needsReview: s.needsReview, lastSyncedAt: s.lastSyncedAt ?? null },
+    });
+  } catch {
+    // best-effort — swallow.
+  }
+}
 
 /** Map the engine summary onto the header-pill store shape. */
 function applyToStore(s: SyncSummary): void {

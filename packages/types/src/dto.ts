@@ -2159,3 +2159,14 @@ export type NcrSyncDelta = z.infer<typeof NcrSyncDelta>;
 
 export const InspectionSyncDelta = z.object({ changed: z.array(InspectionDto), ...SyncDeltaBase });
 export type InspectionSyncDelta = z.infer<typeof InspectionSyncDelta>;
+
+// A device reports its current sync health for the signed-in workspace (05 §M5),
+// so the admin dashboard's "Failed syncs" tile has a real, tenant-wide source
+// instead of "—". `failed`/`needsReview` are the engine's parked-write counters.
+export const SyncHealthBody = z.object({
+  deviceId: z.string().min(1).max(128),
+  failed: z.number().int().min(0),
+  needsReview: z.number().int().min(0),
+  lastSyncedAt: z.string().datetime().nullable().optional(),
+});
+export type SyncHealthBody = z.infer<typeof SyncHealthBody>;

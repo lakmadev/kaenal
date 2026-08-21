@@ -53,6 +53,7 @@ import {
   SyncQuery,
   NcrSyncDelta,
   InspectionSyncDelta,
+  SyncHealthBody,
   CountDto,
   NewDocumentVersionBody,
   NotificationDto,
@@ -422,6 +423,13 @@ export const contract = c.router(
       query: SyncQuery,
       responses: { 200: InspectionSyncDelta, ...commonErrors },
       summary: "Delta pull for the mobile offline mirror — inspections changed since a cursor, plus tombstones",
+    },
+    reportSyncHealth: {
+      method: "POST",
+      path: "/v1/sync/health",
+      body: SyncHealthBody,
+      responses: { 200: z.object({ ok: z.boolean() }), ...commonErrors },
+      summary: "A device reports its offline-sync health (feeds the admin 'Failed syncs' tile)",
     },
     createNcr: {
       method: "POST",
