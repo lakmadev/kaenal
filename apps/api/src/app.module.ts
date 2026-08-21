@@ -79,6 +79,7 @@ import { RealtimeController } from "./realtime/realtime.controller.js";
 import { RealtimeService } from "./realtime/realtime.service.js";
 import { PresenceController } from "./realtime/presence.controller.js";
 import { PresenceService } from "./realtime/presence.service.js";
+import { CollabController } from "./realtime/collab.controller.js";
 import { installAuditRealtimeBridge, uninstallAuditRealtimeBridge } from "./realtime/audit-signal.js";
 import { CommentsController } from "./collab/comments.controller.js";
 import { CommentsService } from "./collab/comments.service.js";
@@ -190,6 +191,7 @@ import {
     NotificationsController,
     RealtimeController,
     PresenceController,
+    CollabController,
     CommentsController,
     AuditLogController,
     EntityLinksController,

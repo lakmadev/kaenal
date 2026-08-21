@@ -5,6 +5,38 @@
 
 ## Current status
 
+**Realtime Phase R5 — collaborative editing (Yjs CRDT over SSE+REST) (2026-08-21).** Real concurrent
+character-level co-editing of 8D narrative fields — two people typing in the same D5–D8 field merge without
+clobbering. The ingredient that makes it *co-editing* (not R4's edit-lock) is a **CRDT: Yjs**. **Transport
+decision (do not re-litigate):** Yjs is transport-agnostic, so its binary updates ride the EXISTING R1 SSE
+bus (down) + a REST relay (up) — NOT a new WebSocket server. This reuses the unified auth (one lifecycle
+interceptor), the Redis fan-out, and the same-origin proxy, and for occasional narrative co-authoring the
+~sub-second latency is fine. **Server is a DUMB, authenticated relay** (`realtime/collab.controller.ts`,
+`POST /v1/collab/:type/:id/:field/update`): it never parses the CRDT — it capability-gates (entity view
+right) and broadcasts the opaque base64 update to the entity's **presence viewers** (R4's set is the room
+audience), incl. the sender's other tabs (a Yjs update you already hold is a no-op, and same-user multi-tab
+is a real case). **Web:** `lib/collab-crdt.ts` (pure: single-region `stringDiff`; base64; and the crux — a
+**deterministic `seedUpdate`** with a fixed clientID so independently-created client docs share a
+byte-identical base and converge, instead of each inserting the base and DUPLICATING it); `lib/collab-bus.ts`
+(room emitter) + `lib/collab.ts` (REST); `useRealtime` routes `collab` events to the bus;
+`components/collab-text.tsx` — a Yjs-bound `<textarea>` (local edit → incremental update POSTed; inbound →
+`applyUpdate`; joins R4 presence so it's in the audience + shows as "editing"), a drop-in for the plain
+textarea in the 8D `SimpleStep`. Persistence unchanged: `onChange` feeds the existing draft, the normal
+audited Save writes the merged text. Types: `collab` topic + `field`/`update` on `RealtimeEvent`,
+`CollabUpdateBody`. Added `yjs` (web only — server never touches it). **Tests:** `collab-crdt.test.ts` 9/9
+(diff cases; base64 round-trip; deterministic seed; **an end-to-end two-peer concurrent-edit convergence
+check**). **Verified live:** (1) the relay end-to-end — a viewer's SSE stream received the exact `collab`
+event (base64 update intact, field D5, entity 8D-2026-0002) after a `POST …/collab/…/update` returned
+`{delivered:1}`; (2) node-level Yjs convergence of concurrent edits from a shared seed. `pnpm typecheck`
+clean (types/api/web), `pnpm lint` clean, api 53 + web collab 9. **Verification ceiling (honest):** the
+two-tab *visual* UI convergence wasn't captured live — the local browser session kept dropping its
+auth/tenant cookies between steps (a harness flake, not an R5 defect: the 8D page bundled yjs and loaded).
+The CRDT merge (unit) and the relay→SSE transport (live) are both proven; `CollabText` is the typechecked
+glue between them. **Deferred/flagged (slice-1 scope):** robust late-join full-state sync (peers seed from
+the same persisted base + live updates; a mid-session joiner uses the Yjs sync protocol — follow-up);
+caret preservation on remote apply; multi-instance server doc for cross-instance late-join; mobile
+co-editing; rich-text + cursor awareness. This completes the realtime roadmap R1–R5 (G–K already shipped).
+
 **Realtime Phase R4 — live presence + edit-intent locks (2026-08-21).** The first genuinely *duplex*
 surface: who's on a record right now, and who's editing — so two people on one NCR see each other and
 don't collide into an optimistic-concurrency 409. **Transport decision (do not re-litigate):** NOT a raw

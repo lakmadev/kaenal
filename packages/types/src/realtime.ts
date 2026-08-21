@@ -29,6 +29,10 @@ export const RealtimeTopic = z.enum([
   // Phase R4 — live presence / edit-intent on an entity (carries `viewers`, not
   // a cache-invalidation pointer). Delivered only to the entity's current viewers.
   "presence",
+  // Phase R5 — collaborative editing: an opaque Yjs update for one entity field,
+  // relayed to co-viewers so their local CRDT doc converges. Carries `field` +
+  // `update` (base64), not row data.
+  "collab",
 ]);
 export type RealtimeTopic = z.infer<typeof RealtimeTopic>;
 
@@ -57,10 +61,21 @@ export const RealtimeEvent = z.object({
   entityId: z.string().optional(),
   /** Full presence snapshot for the entity (present on `presence` events). */
   viewers: z.array(PresenceViewer).optional(),
+  /** The entity field being co-edited (present on `collab` events). */
+  field: z.string().optional(),
+  /** Base64 Yjs update for the field (present on `collab` events). */
+  update: z.string().optional(),
   /** ISO-8601 emit time, so a client can debounce/de-dup. */
   at: z.string(),
 });
 export type RealtimeEvent = z.infer<typeof RealtimeEvent>;
+
+/** Body of a collaborative-edit relay call (Phase R5): one opaque base64 Yjs
+ *  update produced by the sender's local CRDT doc. */
+export const CollabUpdateBody = z.object({
+  update: z.string().min(1).max(200_000),
+});
+export type CollabUpdateBody = z.infer<typeof CollabUpdateBody>;
 
 /** Entity kinds that support live presence (Phase R4). The URL `:type` segment
  *  is validated against this, and each maps to the view capability a member must

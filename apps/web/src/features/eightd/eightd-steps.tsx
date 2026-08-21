@@ -5,6 +5,7 @@ import type { EightDDto } from "@kaenal/types";
 import type { MemberLookup } from "@/hooks/use-members";
 import { Avatar } from "@/components/avatar";
 import { AssigneePicker } from "@/components/assignee-picker";
+import { CollabText } from "@/components/collab-text";
 import { DISCIPLINES, disciplineFor, fmtStepDate, stepData } from "./eightd-bits";
 import { AiCardHeader, type AiControls } from "./eightd-copilot";
 
@@ -373,13 +374,16 @@ export function SimpleStep({
           <label key={f.key} className="flex flex-col gap-1">
             <span className="text-[12px] font-medium">{f.label}</span>
             {canManage ? (
-              <textarea
-                className="k-input w-full"
+              <CollabText
+                type="eightd"
+                id={report.id}
+                field={f.key}
+                value={draft[f.key] ?? ""}
+                onChange={(next) => setDraft({ ...draft, [f.key]: next })}
+                canEdit
                 rows={f.rows ?? 3}
                 placeholder={f.placeholder}
-                value={draft[f.key] ?? ""}
-                onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
-                style={{ resize: "vertical" }}
+                className="k-input w-full"
               />
             ) : (
               <div className="rounded-md border p-2.5 text-[12.5px]" style={{ borderColor: "var(--border)", minHeight: 40, whiteSpace: "pre-wrap" }}>

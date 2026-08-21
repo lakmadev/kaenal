@@ -6,6 +6,7 @@ import { queryKeys } from "@kaenal/api-client";
 import type { RealtimeEvent } from "@kaenal/types";
 import { env } from "@/lib/env";
 import { presenceKey, usePresenceStore } from "@/stores/presence";
+import { collabRoom, dispatchCollabUpdate } from "@/lib/collab-bus";
 
 /**
  * Realtime consumer (Phase R1).
@@ -80,6 +81,22 @@ export function useRealtime(enabled: boolean): void {
           usePresenceStore
             .getState()
             .set(presenceKey(event.entityType, event.entityId), event.viewers ?? []);
+        }
+        return;
+      }
+      // Collab (R5): a Yjs update for a field — hand to the room bus, which the
+      // mounted collaborative editor applies to its local doc.
+      if (event.topic === "collab") {
+        if (
+          event.entityType !== undefined &&
+          event.entityId !== undefined &&
+          event.field !== undefined &&
+          event.update !== undefined
+        ) {
+          dispatchCollabUpdate(
+            collabRoom(event.entityType, event.entityId, event.field),
+            event.update,
+          );
         }
         return;
       }
