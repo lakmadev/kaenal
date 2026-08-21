@@ -2,10 +2,10 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, PanResponder, Pressable, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Circle, Line, Polygon, Polyline, Text as SvgText } from "react-native-svg";
+import Svg, { Circle, Line, Polygon, Polyline, Rect, Text as SvgText } from "react-native-svg";
 
 import { flatten } from "@/features/capture/annotate/flatten";
-import { ANNOTATE_COLORS, STROKE, arrowHead, polylinePoints, radiusOf, type Mark, type Pt, type Tool } from "@/features/capture/annotate/marks";
+import { ANNOTATE_COLORS, STROKE, arrowHead, calibrationMmPerPx, measureLabel, midpoint, polylinePoints, radiusOf, segLength, type Mark, type Pt, type Tool } from "@/features/capture/annotate/marks";
 import { services } from "@/services";
 import { uuidv7 } from "@/sync/ids";
 import { Icon, Text, type IconName } from "@/ui";
@@ -15,6 +15,7 @@ const TOOLS: { key: Tool; icon: IconName; label: string }[] = [
   { key: "circle", icon: "target", label: "Circle" },
   { key: "arrow", icon: "arrowRight", label: "Arrow" },
   { key: "text", icon: "type", label: "Text" },
+  { key: "measure", icon: "hash", label: "Measure" },
 ];
 
 async function byteSize(uri: string): Promise<number> {
@@ -43,12 +44,19 @@ export default function Annotate() {
   const [editing, setEditing] = useState<{ id: string; at: Pt } | null>(null);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
+  // Calibration: mm-per-pixel derived from one reference ruler the user tags with
+  // a known real length. Null until calibrated → rulers read px, then read mm.
+  const [mmPerPx, setMmPerPx] = useState<number | null>(null);
+  const [calibrating, setCalibrating] = useState<{ a: Pt; b: Pt } | null>(null);
+  const [calibText, setCalibText] = useState("");
 
   const shotRef = useRef<View>(null);
   const toolRef = useRef(tool);
   const colorRef = useRef(color);
+  const calibratedRef = useRef(false);
   toolRef.current = tool;
   colorRef.current = color;
+  calibratedRef.current = mmPerPx !== null;
 
   useEffect(() => {
     void services.syncStore.listFiles().then((files) => {
@@ -76,7 +84,19 @@ export default function Annotate() {
         },
         onPanResponderRelease: () => {
           setDraft((d) => {
-            if (d !== null) setMarks((ms) => [...ms, d]);
+            if (d !== null) {
+              setMarks((ms) => [...ms, d]);
+              // First ruler on an uncalibrated photo → offer to set the scale so
+              // this and later rulers can read real millimetres.
+              if (d.tool === "measure" && !calibratedRef.current && d.pts.length >= 2) {
+                const a = d.pts[0];
+                const b = d.pts[d.pts.length - 1];
+                if (a && b && segLength(a, b) > 4) {
+                  setCalibText("");
+                  setCalibrating({ a, b });
+                }
+              }
+            }
             return null;
           });
         },
@@ -103,6 +123,15 @@ export default function Annotate() {
     setEditText("");
   }
 
+  function commitCalibration(): void {
+    if (calibrating === null) return;
+    const mm = Number.parseFloat(calibText);
+    const scale = Number.isFinite(mm) ? calibrationMmPerPx(calibrating.a, calibrating.b, mm) : null;
+    if (scale !== null) setMmPerPx(scale);
+    setCalibrating(null);
+    setCalibText("");
+  }
+
   function undo(): void {
     setMarks((ms) => ms.slice(0, -1));
   }
@@ -114,7 +143,7 @@ export default function Annotate() {
     }
     setSaving(true);
     try {
-      const flat = await flatten(shotRef, uri, marks, size.w, size.h);
+      const flat = await flatten(shotRef, uri, marks, size.w, size.h, mmPerPx);
       const files = await services.syncStore.listFiles();
       const f = files.find((x) => x.id === fileId);
       if (f) {
@@ -149,7 +178,13 @@ export default function Annotate() {
             Annotate
           </Text>
           <Text size={10.5} color="rgba(255,255,255,0.55)">
-            {tool === "text" ? "Tap the photo to add a note" : "Drag on the photo to mark it"}
+            {tool === "text"
+              ? "Tap the photo to add a note"
+              : tool === "measure"
+                ? mmPerPx === null
+                  ? "Drag a ruler, then set its real length"
+                  : "Drag to measure — reads in mm"
+                : "Drag on the photo to mark it"}
           </Text>
         </View>
         <Pressable onPress={undo} disabled={marks.length === 0} hitSlop={8} style={{ padding: 6, opacity: marks.length === 0 ? 0.4 : 1 }}>
@@ -175,7 +210,7 @@ export default function Annotate() {
           {size && (
             <Svg width={size.w} height={size.h} style={{ position: "absolute", inset: 0 }}>
               {all.map((m) => (
-                <MarkShape key={m.id} m={m} />
+                <MarkShape key={m.id} m={m} mmPerPx={mmPerPx} />
               ))}
             </Svg>
           )}
@@ -193,6 +228,40 @@ export default function Annotate() {
               placeholderTextColor="rgba(255,255,255,0.5)"
               style={{ position: "absolute", left: editing.at.x, top: editing.at.y, minWidth: 120, color, fontSize: 18, fontWeight: "600", backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 6, borderRadius: 6 }}
             />
+          )}
+          {/* Calibration prompt — anchor the reference ruler to a real length. */}
+          {calibrating && (
+            <View style={{ position: "absolute", left: 16, right: 16, bottom: 16, padding: 12, borderRadius: 12, backgroundColor: "rgba(20,20,22,0.94)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", gap: 8 }}>
+              <Text size={12.5} weight="bold" color="#fff">
+                Set the scale
+              </Text>
+              <Text size={11} color="rgba(255,255,255,0.6)">
+                How long is this line in real life? Every ruler then reads in mm.
+              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <TextInput
+                  autoFocus
+                  value={calibText}
+                  onChangeText={setCalibText}
+                  onSubmitEditing={commitCalibration}
+                  keyboardType="decimal-pad"
+                  placeholder="e.g. 25"
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                  style={{ flex: 1, height: 38, color: "#fff", fontSize: 15, fontWeight: "600", backgroundColor: "rgba(255,255,255,0.08)", paddingHorizontal: 10, borderRadius: 8 }}
+                />
+                <Text size={13} weight="semibold" color="rgba(255,255,255,0.7)">
+                  mm
+                </Text>
+                <Pressable onPress={commitCalibration} style={{ height: 38, paddingHorizontal: 16, borderRadius: 8, backgroundColor: "#fafafa", alignItems: "center", justifyContent: "center" }}>
+                  <Text size={12.5} weight="bold" color="#18181b">
+                    Set
+                  </Text>
+                </Pressable>
+                <Pressable onPress={() => { setCalibrating(null); setCalibText(""); }} hitSlop={8} style={{ padding: 6 }}>
+                  <Icon name="x" size={18} color="rgba(255,255,255,0.7)" />
+                </Pressable>
+              </View>
+            </View>
           )}
         </View>
       </View>
@@ -226,7 +295,7 @@ export default function Annotate() {
   );
 }
 
-function MarkShape({ m }: { m: Mark }) {
+function MarkShape({ m, mmPerPx }: { m: Mark; mmPerPx: number | null }) {
   const a = m.pts[0];
   const b = m.pts[m.pts.length - 1];
   if (a === undefined || b === undefined) return null;
@@ -242,6 +311,27 @@ function MarkShape({ m }: { m: Mark }) {
       <>
         <Line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={m.color} strokeWidth={STROKE} strokeLinecap="round" />
         <Polygon points={`${b.x},${b.y} ${h1.x},${h1.y} ${h2.x},${h2.y}`} fill={m.color} />
+      </>
+    );
+  }
+  if (m.tool === "measure") {
+    const mid = midpoint(a, b);
+    const label = measureLabel(a, b, mmPerPx);
+    const w = label.length * 7.5 + 12;
+    // Perpendicular end caps so the ruler reads as a dimension line.
+    const ang = Math.atan2(b.y - a.y, b.x - a.x) + Math.PI / 2;
+    const cap = 7;
+    const dx = Math.cos(ang) * cap;
+    const dy = Math.sin(ang) * cap;
+    return (
+      <>
+        <Line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={m.color} strokeWidth={STROKE} strokeLinecap="round" strokeDasharray="1 0" />
+        <Line x1={a.x - dx} y1={a.y - dy} x2={a.x + dx} y2={a.y + dy} stroke={m.color} strokeWidth={STROKE} strokeLinecap="round" />
+        <Line x1={b.x - dx} y1={b.y - dy} x2={b.x + dx} y2={b.y + dy} stroke={m.color} strokeWidth={STROKE} strokeLinecap="round" />
+        <Rect x={mid.x - w / 2} y={mid.y - 20} width={w} height={16} rx={4} fill="rgba(0,0,0,0.72)" />
+        <SvgText x={mid.x} y={mid.y - 8} fill={m.color} fontSize={12} fontWeight="700" textAnchor="middle">
+          {label}
+        </SvgText>
       </>
     );
   }

@@ -285,6 +285,11 @@ export default function Capture() {
             <Icon name="hash" size={19} color={palette.text} />
           </View>
         </Pressable>
+        <Pressable onPress={() => router.push("/detect")} accessibilityLabel="Detect defect with the camera">
+          <View style={{ width: 48, height: 48, borderRadius: radius.lg, borderWidth: 1, borderColor: palette.border, alignItems: "center", justifyContent: "center" }}>
+            <Icon name="sparkles" size={19} color={palette.text} />
+          </View>
+        </Pressable>
         <Button icon="arrowRight" style={{ flex: 1 }} loading={logging} disabled={!canLog} onPress={() => void logIt()}>
           Log it
         </Button>

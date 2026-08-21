@@ -1,16 +1,14 @@
 // Delta-pull read source (05 §2.1).
 //
-// GAP (logged in progress_mobile.md): the spec's ideal read path is
-// `GET /v1/sync/<table>?since=<cursor>` returning changed + tombstoned rows. The
-// backend does NOT expose those endpoints yet. Until it does, this module pulls the
-// existing cursor-paginated list endpoints and derives the delta client-side by
-// `updatedAt` — which is correct and idempotent, but has two honest limitations:
-//   1. No tombstones (a list can't report deletions) → deletes are reconciled on
-//      full refresh, not incrementally.
-//   2. A pull walks pages until it stops seeing newer rows, so it's O(changed),
-//      not O(1) like a real `since` endpoint would be.
-// The `SyncReadSource` interface is the seam: swap in a `/v1/sync/*` adapter later
-// and the engine is unchanged.
+// Two implementations behind one `SyncReadSource` seam:
+//   • `createDeltaReadSource` — the real path. Each entity pulls its own
+//     `GET /v1/sync/<entity>?cursor=` delta endpoint: an O(delta) `updated_at`
+//     keyset scan that reports changed rows AND tombstones, so deletions
+//     reconcile incrementally. ncr + inspection use this.
+//   • `createListReadSource` — the fallback for any entity that doesn't yet have
+//     a delta endpoint. It walks the cursor-paginated list and derives the delta
+//     client-side by `updatedAt`; correct and idempotent, but O(changed) and
+//     blind to deletions (they reconcile only on a full refresh).
 
 import type { MirrorRow } from "./types.js";
 import { advanceCursor, decodeCursor, encodeCursor, isAfter, type DeltaCursor } from "./cursor.js";
@@ -20,6 +18,17 @@ export interface DeltaBatch {
   rows: MirrorRow[];
   cursor: string | null;
 }
+
+/** One page of the server's `/v1/sync/<entity>` delta response. */
+export interface DeltaPage {
+  changed: Versioned[];
+  deleted: string[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/** Calls one entity's delta endpoint for the page strictly after `cursor`. */
+export type DeltaFetcher = (cursor: string | null) => Promise<DeltaPage>;
 
 /** The seam the engine pulls through. One implementation today (list fallback). */
 export interface SyncReadSource {
@@ -75,6 +84,43 @@ export function createListReadSource(
 
       const advanced = advanceCursor(cur, rows);
       return { rows, cursor: advanced ? encodeCursor(advanced) : since };
+    },
+  };
+}
+
+/**
+ * The real read source (05 §2.1): pulls each entity through its `/v1/sync/<entity>`
+ * delta endpoint — an O(delta) `updated_at` keyset scan that also reports tombstones,
+ * so deletions reconcile incrementally instead of only on a full refresh. An entity
+ * with a registered `DeltaFetcher` uses it; anything else falls back to the list
+ * source, so the two can coexist while entities migrate. Pages within one pull until
+ * the server clears `hasMore` (bounded by `maxPages`), persisting the server's opaque
+ * cursor — which always marks the last row seen, so the next pull resumes after it.
+ */
+export function createDeltaReadSource(
+  fetchers: Record<string, DeltaFetcher>,
+  fallback: SyncReadSource,
+  opts: { maxPages?: number } = {},
+): SyncReadSource {
+  const maxPages = opts.maxPages ?? 25;
+  return {
+    async pull(entityType, since) {
+      const fetch = fetchers[entityType];
+      if (!fetch) return fallback.pull(entityType, since);
+
+      const rows: MirrorRow[] = [];
+      let cursor = since;
+      for (let page = 0; page < maxPages; page++) {
+        const res = await fetch(cursor);
+        for (const d of res.changed) rows.push(dtoToMirror(entityType, d));
+        // Tombstone: ids only — the reader drops the mirror row on `deleted`.
+        for (const id of res.deleted) {
+          rows.push({ entityType, id, updatedAt: new Date().toISOString(), version: 0, deleted: true, data: null });
+        }
+        cursor = res.nextCursor ?? cursor;
+        if (!res.hasMore) break;
+      }
+      return { rows, cursor };
     },
   };
 }

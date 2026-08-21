@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import type { View } from "react-native";
 
-import { arrowHead, radiusOf, STROKE, type Mark } from "./marks";
+import { arrowHead, measureLabel, midpoint, radiusOf, STROKE, type Mark } from "./marks";
 
 // Web flatten: react-native-view-shot doesn't capture on web, so composite the
 // photo + marks onto a 2D canvas (same coordinate space the SVG used) and export
@@ -12,6 +12,7 @@ export async function flatten(
   marks: Mark[],
   w: number,
   h: number,
+  mmPerPx: number | null = null,
 ): Promise<string> {
   const img = await loadImage(imageUri);
   const canvas = document.createElement("canvas");
@@ -24,12 +25,12 @@ export async function flatten(
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = STROKE;
-  for (const m of marks) drawMark(ctx, m);
+  for (const m of marks) drawMark(ctx, m, mmPerPx);
 
   return canvas.toDataURL("image/jpeg", 0.9);
 }
 
-function drawMark(ctx: CanvasRenderingContext2D, m: Mark): void {
+function drawMark(ctx: CanvasRenderingContext2D, m: Mark, mmPerPx: number | null): void {
   ctx.strokeStyle = m.color;
   ctx.fillStyle = m.color;
   const a = m.pts[0];
@@ -57,6 +58,30 @@ function drawMark(ctx: CanvasRenderingContext2D, m: Mark): void {
     ctx.moveTo(b.x, b.y);
     ctx.lineTo(h2.x, h2.y);
     ctx.stroke();
+  } else if (m.tool === "measure") {
+    const ang = Math.atan2(b.y - a.y, b.x - a.x) + Math.PI / 2;
+    const cap = 7;
+    const dx = Math.cos(ang) * cap;
+    const dy = Math.sin(ang) * cap;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.moveTo(a.x - dx, a.y - dy);
+    ctx.lineTo(a.x + dx, a.y + dy);
+    ctx.moveTo(b.x - dx, b.y - dy);
+    ctx.lineTo(b.x + dx, b.y + dy);
+    ctx.stroke();
+    const mid = midpoint(a, b);
+    const label = measureLabel(a, b, mmPerPx);
+    ctx.font = "700 12px system-ui, sans-serif";
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = "rgba(0,0,0,0.72)";
+    ctx.fillRect(mid.x - tw / 2 - 6, mid.y - 20, tw + 12, 16);
+    ctx.fillStyle = m.color;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, mid.x, mid.y - 12);
+    ctx.textAlign = "start";
   } else if (m.tool === "text" && m.text) {
     ctx.font = "600 18px system-ui, sans-serif";
     ctx.textBaseline = "top";

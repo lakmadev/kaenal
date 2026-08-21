@@ -2132,3 +2132,41 @@ export const DashboardDto = z.discriminatedUnion("variant", [
   }),
 ]);
 export type DashboardDto = z.infer<typeof DashboardDto>;
+
+// ── Delta sync (05 §2.1) ─────────────────────────────────────────────────────
+// The mobile offline engine pulls each synced entity through ONE delta endpoint:
+// rows changed since an opaque cursor, plus tombstoned ids, plus the next cursor
+// to persist. `changed` carries the full DTO; `deleted` carries ids only. This
+// replaces the O(changed) list-walk fallback with an O(delta) `updated_at` keyset
+// scan, and lets deletions reconcile incrementally instead of on a full refresh.
+export const SyncQuery = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+export type SyncQuery = z.infer<typeof SyncQuery>;
+
+// `nextCursor` always marks the LAST row seen so the client can resume strictly
+// after it next cycle (never re-pulling from zero); `hasMore` says whether more
+// changed rows are waiting right now, so the client keeps paging until it clears.
+const SyncDeltaBase = {
+  deleted: z.array(z.string().uuid()),
+  nextCursor: z.string().nullable(),
+  hasMore: z.boolean(),
+};
+
+export const NcrSyncDelta = z.object({ changed: z.array(NcrDto), ...SyncDeltaBase });
+export type NcrSyncDelta = z.infer<typeof NcrSyncDelta>;
+
+export const InspectionSyncDelta = z.object({ changed: z.array(InspectionDto), ...SyncDeltaBase });
+export type InspectionSyncDelta = z.infer<typeof InspectionSyncDelta>;
+
+// A device reports its current sync health for the signed-in workspace (05 §M5),
+// so the admin dashboard's "Failed syncs" tile has a real, tenant-wide source
+// instead of "—". `failed`/`needsReview` are the engine's parked-write counters.
+export const SyncHealthBody = z.object({
+  deviceId: z.string().min(1).max(128),
+  failed: z.number().int().min(0),
+  needsReview: z.number().int().min(0),
+  lastSyncedAt: z.string().datetime().nullable().optional(),
+});
+export type SyncHealthBody = z.infer<typeof SyncHealthBody>;

@@ -86,6 +86,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Lint (mobile)
+        run: pnpm lint:mobile
+
       # ---- Data plane -----------------------------------------------------
       # Migrations run before any DB-backed test so the suite is always
       # checked against the schema this commit actually produces.

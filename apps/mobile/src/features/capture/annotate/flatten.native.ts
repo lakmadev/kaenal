@@ -13,6 +13,7 @@ export async function flatten(
   _marks: Mark[],
   _w: number,
   _h: number,
+  _mmPerPx: number | null = null,
 ): Promise<string> {
   if (ref.current === null) throw new Error("Nothing to capture");
   return captureRef(ref, { format: "jpg", quality: 0.9 });

@@ -37,7 +37,7 @@ import {
 import type { AuditContext } from "./audit-context.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 
-interface NcrRow {
+export interface NcrRow {
   id: string;
   code: string;
   title: string;
@@ -64,6 +64,9 @@ interface NcrRow {
   lock_version: number;
   created_at: Date;
   updated_at: Date;
+  // Selected only by the delta-sync scan (05 §2.1) to split tombstones from
+  // changed rows; the list/get paths never read it.
+  deleted_at?: Date | null;
   // Present on the read paths (list/get) via correlated sub-selects; absent on
   // RETURNING-only paths, where they default to null.
   plant_name?: string | null;
@@ -72,14 +75,14 @@ interface NcrRow {
   owner_name?: string | null;
 }
 
-const NCR_COLUMNS = `id, code, title, description, source, source_id, priority, risk, category, status,
+export const NCR_COLUMNS = `id, code, title, description, source, source_id, priority, risk, category, status,
   owner_id, created_by, plant_id, area_id, units_affected, due_at, sla_state, eight_d_id, resolved_by,
   resolved_at, verified_by, verified_at, closed_at, lock_version, created_at, updated_at`;
 
 // Resolved display names for the detail header meta ("Plant A · Line 2"). Kept as
 // correlated sub-selects (not a JOIN) so the table stays un-aliased — the shared
 // keyset/where/ORDER BY helpers reference bare `ncrs` columns unambiguously.
-const NCR_NAME_SUBSELECTS = `,
+export const NCR_NAME_SUBSELECTS = `,
   (SELECT name FROM plants WHERE id = ncrs.plant_id) AS plant_name,
   (SELECT name FROM areas WHERE id = ncrs.area_id) AS area_name,
   (SELECT name FROM control.users WHERE id = ncrs.created_by) AS reporter_name,
@@ -87,7 +90,7 @@ const NCR_NAME_SUBSELECTS = `,
 
 const iso = (d: Date | null): string | null => (d === null ? null : d.toISOString());
 
-function toNcrDto(row: NcrRow): NcrDto {
+export function toNcrDto(row: NcrRow): NcrDto {
   return {
     id: row.id,
     code: row.code,

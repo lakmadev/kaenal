@@ -19,6 +19,7 @@ export const TEMPLATES_SERVICE = Symbol("TEMPLATES_SERVICE");
 export const INSPECTIONS_SERVICE = Symbol("INSPECTIONS_SERVICE");
 export const FINDINGS_SERVICE = Symbol("FINDINGS_SERVICE");
 export const NCR_SERVICE = Symbol("NCR_SERVICE");
+export const SYNC_SERVICE = Symbol("SYNC_SERVICE");
 export const CAPA_SERVICE = Symbol("CAPA_SERVICE");
 export const EIGHT_D_SERVICE = Symbol("EIGHT_D_SERVICE");
 export const AUDITS_SERVICE = Symbol("AUDITS_SERVICE");

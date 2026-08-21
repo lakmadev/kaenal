@@ -36,17 +36,26 @@ export default function NcrNew() {
   const insets = useSafeAreaInsets();
   const { palette, radius, fonts } = useTheme();
   const { contentMaxWidth } = useLayout();
-  const params = useLocalSearchParams<{ title?: string; inspectionId?: string }>();
+  const params = useLocalSearchParams<{
+    title?: string;
+    inspectionId?: string;
+    severity?: string;
+    category?: string;
+    description?: string;
+  }>();
   const scanResult = useScan((s) => s.result);
   const clearScan = useScan((s) => s.clear);
+
+  // A prefill severity only takes if it's a real NcrPriority.
+  const prefillSeverity: NcrPriority = params.severity === "minor" || params.severity === "major" || params.severity === "critical" ? params.severity : "major";
 
   const [step, setStep] = useState(0);
   const [method, setMethod] = useState<Method>("photo");
   const [asset, setAsset] = useState<string | null>(null);
   const [title, setTitle] = useState(params.title ?? "");
-  const [description, setDescription] = useState("");
-  const [severity, setSeverity] = useState<NcrPriority>("major");
-  const [category, setCategory] = useState<string | null>(null);
+  const [description, setDescription] = useState(params.description ?? "");
+  const [severity, setSeverity] = useState<NcrPriority>(prefillSeverity);
+  const [category, setCategory] = useState<string | null>(params.category && CATEGORIES.includes(params.category) ? params.category : null);
   const [photoIds, setPhotoIds] = useState<string[]>([]);
   const [containment, setContainment] = useState<Set<string>>(new Set());
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);

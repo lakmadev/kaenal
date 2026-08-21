@@ -26,9 +26,6 @@ export default function Mfa() {
   const [busy, setBusy] = useState(false);
   const [attemptsLeft, setAttemptsLeft] = useState(3);
 
-  // No challenge in flight (deep-linked or refreshed) → back to the start.
-  if (!mfaPending) return <Redirect href="/(auth)/welcome" />;
-
   async function verify(value: string) {
     if (busy || value.length < 6) return;
     setBusy(true);
@@ -51,6 +48,10 @@ export default function Mfa() {
     if (code.length === 6 && !busy && state !== "success") void verify(code);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
+
+  // No challenge in flight (deep-linked or refreshed) → back to the start. This
+  // guard runs AFTER every hook so hook order stays stable across renders.
+  if (!mfaPending) return <Redirect href="/(auth)/welcome" />;
 
   const boxBg = state === "success" ? palette.successBg : state === "error" ? palette.dangerBg : palette.accentSoft;
   const boxFg = state === "success" ? palette.success : state === "error" ? palette.dangerFg : palette.accent;
