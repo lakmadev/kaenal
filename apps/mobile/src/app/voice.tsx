@@ -6,9 +6,10 @@ import {
   useAudioRecorderState,
 } from "expo-audio";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Platform, Pressable, TextInput, View } from "react-native";
 
+import { createTranscriber, type Transcriber } from "@/features/capture/transcribe";
 import { addBytesEvidence } from "@/features/capture/files";
 import { enqueueCreateNcr } from "@/features/ncr/offline";
 import { SubHeader } from "@/features/settings/parts";
@@ -37,9 +38,10 @@ function mimeOf(uri: string): string {
 }
 
 // m-capture.jsx CapVoice — record a spoken note as REAL audio evidence, attach it
-// to a new NCR, and (honestly) let the reporter type/dictate the summary the AI
-// then structures. Live speech-to-text transcription needs a service we don't
-// have (flagged): the audio itself is always captured + kept.
+// to a new NCR, transcribe it live where the platform can (Web Speech API on a
+// secure origin; the words land in the editable note), and let the AI structure
+// the result. Native has no built-in STT, so there transcription is unsupported
+// and the flow stays record + type/dictate — but the audio is ALWAYS captured.
 export default function Voice() {
   const router = useRouter();
   const { palette, radius } = useTheme();
@@ -53,6 +55,10 @@ export default function Voice() {
   const [captured, setCaptured] = useState(false);
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+  // Live speech-to-text where the platform can do it (Web Speech API on a secure
+  // origin); the text lands straight in the note field, editable after.
+  const transcriber = useRef<Transcriber>(createTranscriber());
+  const canTranscribe = transcriber.current.supported;
 
   async function start(): Promise<void> {
     const perm = await requestRecordingPermissionsAsync();
@@ -61,9 +67,13 @@ export default function Voice() {
     await recorder.prepareToRecordAsync();
     recorder.record();
     setCaptured(false);
+    // Transcribe live in parallel with recording — the audio is still kept as
+    // evidence regardless of whether transcription is available or succeeds.
+    if (canTranscribe) transcriber.current.start((text) => setNote(text));
   }
 
   async function stop(): Promise<void> {
+    transcriber.current.stop();
     await recorder.stop();
     setCaptured(true);
   }
@@ -153,7 +163,7 @@ export default function Voice() {
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder="Type or dictate what you saw — the AI will structure it."
+              placeholder={canTranscribe ? "Words appear here as you speak — edit anything, then structure with AI." : "Type or dictate what you saw — the AI will structure it."}
               placeholderTextColor={palette.subtle}
               multiline
               style={{ minHeight: 88, fontSize: 13.5, lineHeight: 20, color: palette.text, textAlignVertical: "top" }}
@@ -176,7 +186,9 @@ export default function Voice() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start" }}>
             <Icon name="info" size={13} color={palette.muted} />
             <Text size={11.5} tone="muted" style={{ flex: 1, lineHeight: 16 }}>
-              Live speech-to-text isn't available yet — the audio is saved as evidence and syncs with the NCR.
+              {canTranscribe
+                ? "Live transcription is on — the audio is also saved as evidence and syncs with the NCR."
+                : "Live speech-to-text isn't available on this device — the audio is saved as evidence and syncs with the NCR."}
             </Text>
           </View>
         </View>
