@@ -34,7 +34,7 @@ import {
   type Cursor,
 } from "../http/pagination.js";
 
-interface InspectionRow {
+export interface InspectionRow {
   id: string;
   code: string;
   title: string;
@@ -57,11 +57,14 @@ interface InspectionRow {
   lock_version: number;
   created_at: Date;
   updated_at: Date;
+  // Selected only by the delta-sync scan (05 §2.1) to split tombstones from
+  // changed rows; the list/get paths never read it.
+  deleted_at?: Date | null;
 }
 
 // occurrence_date is a `date`; cast to text so pg hands back a clean
 // 'YYYY-MM-DD' string rather than a local-midnight Date that can shift a day.
-const COLUMNS = `id, code, title, template_id,
+export const INSPECTION_COLUMNS = `id, code, title, template_id,
   (SELECT t.name FROM inspection_templates t WHERE t.id = template_id) AS template_name,
   template_version, inspector_id, plant_id, area_id,
   status, risk, scheduled_at, started_at, completed_at, score, responses,
@@ -72,7 +75,7 @@ function iso(d: Date | null): string | null {
   return d === null ? null : d.toISOString();
 }
 
-function toDto(row: InspectionRow): InspectionDto {
+export function toInspectionDto(row: InspectionRow): InspectionDto {
   return {
     id: row.id,
     code: row.code,
@@ -147,20 +150,20 @@ export class InspectionsService {
     params.push(limit + 1);
 
     const { rows } = await tx.query<InspectionRow>(
-      `SELECT ${COLUMNS} FROM inspections
+      `SELECT ${INSPECTION_COLUMNS} FROM inspections
         ${where} ${keyset.sql}
         ORDER BY created_at DESC, id DESC
         LIMIT $${params.length}`,
       params,
     );
-    return toPage(rows, limit, toDto);
+    return toPage(rows, limit, toInspectionDto);
   }
 
   async get(tx: Tx, membership: Membership, id: string): Promise<InspectionDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    return toDto(row);
+    return toInspectionDto(row);
   }
 
   async create(
@@ -225,7 +228,7 @@ export class InspectionsService {
               inspector_id, plant_id, area_id, status, scheduled_at, recurrence,
               created_by, updated_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled', $10, $11, $12, $12)
-           RETURNING ${COLUMNS}`,
+           RETURNING ${INSPECTION_COLUMNS}`,
           [
             id,
             tenantId,
@@ -243,7 +246,7 @@ export class InspectionsService {
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Inspection was not created");
-        return toDto(row);
+        return toInspectionDto(row);
       },
     );
   }
@@ -474,13 +477,13 @@ export class InspectionsService {
     params.push(limit + 1);
 
     const { rows } = await tx.query<InspectionRow>(
-      `SELECT ${COLUMNS} FROM inspections
+      `SELECT ${INSPECTION_COLUMNS} FROM inspections
         WHERE series_id = $1 AND deleted_at IS NULL ${keyset.sql}
         ORDER BY created_at DESC, id DESC
         LIMIT $${params.length}`,
       params,
     );
-    return toPage(rows, limit, toDto);
+    return toPage(rows, limit, toInspectionDto);
   }
 
   /**
@@ -499,7 +502,7 @@ export class InspectionsService {
   ): Promise<{ created: number }> {
     const to = new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
     const { rows: heads } = await tx.query<InspectionRow>(
-      `SELECT ${COLUMNS} FROM inspections
+      `SELECT ${INSPECTION_COLUMNS} FROM inspections
         WHERE recurrence IS NOT NULL AND series_id IS NULL
           AND status <> 'cancelled' AND deleted_at IS NULL`,
     );
@@ -593,7 +596,7 @@ export class InspectionsService {
 
   private async fetch(tx: Tx, id: string): Promise<InspectionRow | null> {
     const { rows } = await tx.query<InspectionRow>(
-      `SELECT ${COLUMNS} FROM inspections WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT ${INSPECTION_COLUMNS} FROM inspections WHERE id = $1 AND deleted_at IS NULL`,
       [id],
     );
     return rows[0] ?? null;
@@ -650,12 +653,12 @@ export class InspectionsService {
     const { rows } = await tx.query<InspectionRow>(
       `UPDATE inspections SET ${setClause}
         WHERE id = $1 AND lock_version = $2
-        RETURNING ${COLUMNS}`,
+        RETURNING ${INSPECTION_COLUMNS}`,
       [id, expectedVersion, ...extraParams],
     );
     const row = rows[0];
     if (row === undefined) throw new ApiError("STALE_WRITE", "The inspection changed since you loaded it");
-    return toDto(row);
+    return toInspectionDto(row);
   }
 }
 

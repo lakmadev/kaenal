@@ -25,6 +25,8 @@ import { MeController } from "./me.controller.js";
 import { DashboardController } from "./dashboard/dashboard.controller.js";
 import { MembersController } from "./members/members.controller.js";
 import { MembersService } from "./members/members.service.js";
+import { SyncController } from "./sync/sync.controller.js";
+import { SyncService } from "./sync/sync.service.js";
 import { OpenApiController } from "./openapi.controller.js";
 import { IdempotencyStore } from "./http/idempotency.js";
 import { RateLimiter } from "./http/rate-limit.js";
@@ -121,6 +123,7 @@ import {
   MFA_SERVICE,
   PUSH_TOKENS_SERVICE,
   MEMBERS_SERVICE,
+  SYNC_SERVICE,
   NCR_SERVICE,
   NOTIFICATIONS_SERVICE,
   RATE_LIMITER,
@@ -148,6 +151,7 @@ import {
     MeController,
     DashboardController,
     MembersController,
+    SyncController,
     AuthController,
     MfaController,
     SessionsController,
@@ -244,6 +248,10 @@ import {
       useFactory: (control: pg.Pool) => new MembersService(control),
       inject: [CONTROL_POOL],
     },
+
+    // Delta-sync read path (05 §2.1): stateless — every call runs on the
+    // request's RLS-scoped tx, so it needs no pool of its own.
+    { provide: SYNC_SERVICE, useValue: new SyncService() },
 
     // The real step 2 (03 §2): resolves the session cookie / bearer token.
     // Tests override AUTHENTICATOR with a stub to drive the rest of the chain.

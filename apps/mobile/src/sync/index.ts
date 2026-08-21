@@ -2,13 +2,14 @@
 // live sync store. Feature phases register their push handlers into `pushDispatch`
 // and their pull pullers into `readPullers`; the engine itself never changes.
 
+import { apiClient } from "../lib/api.js";
 import { uploadPendingFiles } from "../features/capture/files.js";
 import { presentLocal } from "../services/notifications.js";
 import { services } from "../services/index.js";
 import { useSync } from "../stores/sync.js";
 import { SyncEngine } from "./engine.js";
 import { createPusher, type PushCall } from "./pusher.js";
-import { createListReadSource, type ListPuller } from "./read-source.js";
+import { createDeltaReadSource, createListReadSource, type DeltaFetcher, type DeltaPage, type ListPuller } from "./read-source.js";
 import type { SyncSummary } from "./types.js";
 
 /**
@@ -18,8 +19,34 @@ import type { SyncSummary } from "./types.js";
  */
 export const pushDispatch: Record<string, PushCall> = {};
 
-/** entityType → list puller for the delta-pull fallback. Registered per phase. */
+/** entityType → list puller — the fallback for entities without a delta endpoint. */
 export const readPullers: Record<string, ListPuller> = {};
+
+/**
+ * entityType → `/v1/sync/<entity>` delta fetcher (05 §2.1). ncr + inspection have
+ * real delta endpoints; each maps the server's `{changed, deleted, nextCursor,
+ * hasMore}` onto the engine's generic `Versioned` (DTO `lockVersion` → `version`).
+ * An entity absent here transparently falls back to the list read source.
+ */
+const toVersioned = (i: { id: string; updatedAt: string; lockVersion: number }) => ({
+  id: i.id,
+  updatedAt: i.updatedAt,
+  version: i.lockVersion,
+});
+const emptyPage: DeltaPage = { changed: [], deleted: [], nextCursor: null, hasMore: false };
+
+export const deltaFetchers: Record<string, DeltaFetcher> = {
+  ncr: async (cursor) => {
+    const res = await apiClient.syncNcr({ query: cursor === null ? {} : { cursor } });
+    if (res.status !== 200) return emptyPage;
+    return { changed: res.body.changed.map(toVersioned), deleted: res.body.deleted, nextCursor: res.body.nextCursor, hasMore: res.body.hasMore };
+  },
+  inspection: async (cursor) => {
+    const res = await apiClient.syncInspections({ query: cursor === null ? {} : { cursor } });
+    if (res.status !== 200) return emptyPage;
+    return { changed: res.body.changed.map(toVersioned), deleted: res.body.deleted, nextCursor: res.body.nextCursor, hasMore: res.body.hasMore };
+  },
+};
 
 /** Simple connectivity flag; a NetInfo adapter can drive this in a later phase. */
 let online = true;
@@ -30,7 +57,9 @@ export function setOnline(next: boolean): void {
 
 export const engine = new SyncEngine({
   store: services.syncStore,
-  readSource: createListReadSource(readPullers),
+  // Real delta endpoints for ncr + inspection; the list source stays as the
+  // fallback for any entity that doesn't (yet) have a `/v1/sync/*` route.
+  readSource: createDeltaReadSource(deltaFetchers, createListReadSource(readPullers)),
   push: createPusher(pushDispatch),
   uploadFiles: uploadPendingFiles,
   pullEntities: ["inspection", "ncr"],
