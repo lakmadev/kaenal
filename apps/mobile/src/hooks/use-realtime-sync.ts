@@ -5,6 +5,7 @@ import type { RealtimeEvent } from "@kaenal/types";
 import { queryClient } from "@/lib/query-client";
 import { useSession } from "@/stores/session";
 import { presenceKey, usePresenceStore } from "@/stores/presence";
+import { collabRoom, dispatchCollabUpdate } from "@/features/collab/bus";
 import { engine } from "@/sync";
 import { reactionFor } from "@/sync/realtime-parse";
 import { startRealtime, stopRealtime } from "@/sync/realtime";
@@ -50,6 +51,22 @@ export function useRealtimeSync(): void {
           usePresenceStore
             .getState()
             .set(presenceKey(event.entityType, event.entityId), event.viewers ?? []);
+        }
+        return;
+      }
+      // Collab (R6.2): a Yjs update for a field — hand to the room bus, which the
+      // mounted CollabText applies to its local doc.
+      if (event.topic === "collab") {
+        if (
+          event.entityType !== undefined &&
+          event.entityId !== undefined &&
+          event.field !== undefined &&
+          event.update !== undefined
+        ) {
+          dispatchCollabUpdate(
+            collabRoom(event.entityType, event.entityId, event.field),
+            event.update,
+          );
         }
         return;
       }

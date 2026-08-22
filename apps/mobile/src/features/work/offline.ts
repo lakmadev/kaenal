@@ -21,10 +21,18 @@ pushDispatch["capa.action.status"] = async (mutation) => {
 };
 
 pushDispatch["eightd.step"] = async (mutation) => {
-  const p = mutation.payload as { step: number; status: EightDStepStatus };
+  const p = mutation.payload as {
+    step: number;
+    status: EightDStepStatus;
+    data?: Record<string, unknown>;
+  };
   const res = await apiClient.updateEightDStep({
     params: { id: mutation.entityId, step: p.step },
-    body: { status: p.status, version: mutation.baseVersion ?? 0 },
+    body: {
+      status: p.status,
+      version: mutation.baseVersion ?? 0,
+      ...(p.data !== undefined ? { data: p.data } : {}),
+    },
     extraHeaders: { "idempotency-key": mutation.id },
   });
   return { status: res.status, body: res.body };
@@ -93,13 +101,18 @@ export async function enqueueCapaActionStatus(action: CapaActionDto, status: Cap
 }
 
 /** Advance an owned 8D discipline step — durable. */
-export async function enqueueEightDStep(eightd: EightDDto, step: number, status: EightDStepStatus): Promise<void> {
+export async function enqueueEightDStep(
+  eightd: EightDDto,
+  step: number,
+  status: EightDStepStatus,
+  data?: Record<string, unknown>,
+): Promise<void> {
   await engine.enqueue({
     id: uuidv7(),
     kind: "eightd.step",
     entityType: "eight_d",
     entityId: eightd.id,
-    payload: { step, status },
+    payload: { step, status, ...(data !== undefined ? { data } : {}) },
     baseUpdatedAt: eightd.updatedAt,
     baseVersion: eightd.lockVersion,
     dependsOnFileIds: [],

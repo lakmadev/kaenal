@@ -4,6 +4,8 @@ import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AssigneeSheet } from "@/features/assign/AssigneeSheet";
+import { CollabText } from "@/features/collab/CollabText";
+import { PresenceBar } from "@/features/realtime/PresenceBar";
 import { enqueueAssignEightD, enqueueEightDStep } from "@/features/work/offline";
 import { useEightD } from "@/features/work/queries";
 import { useLayout } from "@/hooks/use-layout";
@@ -27,6 +29,24 @@ export default function EightDFollow() {
   const { data: ed, isLoading, refetch } = useEightD(id ?? "");
   const [busy, setBusy] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
+  // Persist the collaboratively-edited working note under the given step (R6.2).
+  // The live co-editing is separate (CollabText over the realtime bus); this
+  // writes the converged text through the normal offline-first step-save path.
+  async function saveNote(step: number): Promise<void> {
+    if (!ed) return;
+    setSavingNote(true);
+    try {
+      const status = ed.steps[`d${step}`]?.status ?? "in_progress";
+      await enqueueEightDStep(ed, step, status, { note: noteDraft });
+      await engine.sync();
+      await refetch();
+    } finally {
+      setSavingNote(false);
+    }
+  }
 
   const mine = ed !== undefined && (ed.teamLeadId === userId || ed.championId === userId || ed.memberIds.includes(userId ?? ""));
   const canManage = caps.includes("ncr:manage");
@@ -61,6 +81,7 @@ export default function EightDFollow() {
             {ed?.code ?? "…"}
           </Mono>
           <View style={{ flex: 1 }} />
+          {ed && <PresenceBar type="eightd" id={ed.id} editing={mine} />}
           {ed && canManage && (
             <Pressable onPress={() => setAssignOpen(true)} hitSlop={8} style={{ padding: 4, marginRight: 4 }} accessibilityLabel="Reassign team lead">
               <Icon name="users" size={19} color={palette.muted} />
@@ -147,9 +168,27 @@ export default function EightDFollow() {
                               : "This step is owned by the 8D team — you can follow its progress here."}
                           </Text>
                           {mine && (
-                            <Button icon="check" style={{ flex: 1 }} loading={busy} onPress={() => void completeStep(n)}>
-                              {`Complete D${n}`}
-                            </Button>
+                            <View style={{ gap: 10 }}>
+                              <View style={{ gap: 6 }}>
+                                <Text size={11.5} weight="semibold" tone="muted">
+                                  Shared working note · edits sync live
+                                </Text>
+                                <CollabText
+                                  type="eightd"
+                                  id={ed.id}
+                                  field="note"
+                                  value={String(ed.steps[`d${n}`]?.data?.note ?? "")}
+                                  onChange={setNoteDraft}
+                                  placeholder="Co-author this step — everyone here sees your edits as you type."
+                                />
+                                <Button variant="ghost" icon="check" loading={savingNote} onPress={() => void saveNote(n)}>
+                                  Save note
+                                </Button>
+                              </View>
+                              <Button icon="check" style={{ flex: 1 }} loading={busy} onPress={() => void completeStep(n)}>
+                                {`Complete D${n}`}
+                              </Button>
+                            </View>
                           )}
                         </Card>
                       )}
