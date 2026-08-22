@@ -5,6 +5,39 @@
 
 ## Current status
 
+**Sequence 2 — Transactional Outbox (reliable event delivery; the Kafka alternative) (2026-08-22).** Closes
+the "a mutation that must also notify the outside world does two writes across two systems with no shared
+transaction" gap decided in the CTO memo (NO Kafka for a modular monolith at this volume — outbox on
+Postgres + BullMQ instead). **Write half (transactional):** migration `0041_outbox.sql` — `outbox` table
+(uuidv7 id → time-ordered, `event_type`/`entity_kind`/`entity_id`/`action`, `actor_id`+`actor_kind`
+**mirroring `audit_events` exactly — plain nullable uuid, NO member FK**, because support/system/api_key
+actors have no membership and this row rides their mutation's tx; `actor_kind` CHECK is the full ActorKind
+set incl. `partner`), `payload` jsonb = **identity envelope only, never row data** (same pointer-not-payload
+discipline as realtime), `status`(pending→delivered|failed) + `attempts` + `last_error` + `available_at`
+(backoff gate) + `published_at`. Forced RLS + leading `(tenant_id,status,available_at)` index via
+`apply_tenant_rls`. A NEW `@kaenal/db` hook `setTxAuditObserver` (twin of the best-effort realtime
+`setAuditObserver`, but receives the mutation's `tx` and is **awaited UNGUARDED** — a failed outbox write
+MUST roll the mutation back, the whole point) fires inside `withAudit`; `outbox/outbox-bridge.ts` registers
+it (in `AppModule.onModuleInit`, beside the realtime bridge). `outbox/outbox-event.ts` maps an audit event →
+`OutboxRecord` (`${entityKind}.${action}`, allow-list mirrors the realtime topic set — QMS records only, no
+session/settings churn; pure + total so it can't throw inside the tx). **Drain half (at-least-once,
+RLS-scoped):** `jobs/processors/drain-outbox.ts` claims a due batch `FOR UPDATE SKIP LOCKED` under
+`withTenant` (multi-replica-safe, tenant-isolated), delivers via a pluggable `OutboxHandler`
+(`LoggingOutboxHandler` until the webhook handler lands — the next slice), marks `delivered`+`published_at`
+or reschedules with exponential backoff (cap 1h) recording `last_error`, dead-lettering (`failed`) after
+`OUTBOX_MAX_ATTEMPTS`=8; per-row guard so one bad event never rolls back its batch mates. Wired into the
+worker as the `outbox` queue: per-minute fan-out sweep → one drain job per active tenant (same shape as the
+SLA/files/docs sweeps). **Tests:** `outbox.test.ts` 14/14 — pure mapping (action collapse, event naming,
+null for non-deliverable kinds, backoff curve) + real-DB: writes in the mutation's tx, **rolls back with it**
+(both outbox AND audit vanish), no row for a non-deliverable kind (but still audits), drain
+delivers+marks+idempotent, failure→attempts/backoff/last_error, dead-letter at the ceiling, and **cross-tenant
+RLS** (acme drain never sees globex's events). Full gate green: `typecheck` 7/7, `lint` clean, `test` 7/7
+(**api 459** incl. outbox 14 — the globally-installed bridge broke no existing suite; db 349, core 707),
+`test:rls` 311/311 (outbox now probed), `db:check` **51 tables** ✓. **Next slice (flagged, not faked):** the
+real per-tenant webhook-POST `OutboxHandler` (HMAC-signed delivery, endpoint registry) + a dirty-tenant Redis
+push index for sub-minute latency + a redrive tool for `failed` rows. Delivery today is the logging handler,
+so the durable pipeline runs end-to-end without a delivery target yet configured.
+
 **Observability — API error tracking + tracing (Sentry, OTel-native) (2026-08-22).** First slice of the
 "can't run prod blind" gap (was: only the segment error boundary hook point existed). `@sentry/node` v10 is
 OpenTelemetry-based, so one integration gives error tracking AND (OTel) performance tracing.
