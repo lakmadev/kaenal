@@ -360,6 +360,17 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
      VALUES ($1, $2, $3, 0, 0)`,
     [t, userId, `dev-${tag}`],
   );
+
+  // Transactional outbox (0041). A pending event carrying an entity's identity
+  // (never row data), scoped to the seeded NCR + admin member so the tenancy
+  // suite can probe its RLS like every other mutable table.
+  await q(
+    `INSERT INTO outbox (tenant_id, event_type, entity_kind, entity_id, action, actor_id, actor_kind, payload)
+     VALUES ($1, 'ncr.created', 'ncr', $2::uuid, 'created', $3, 'user',
+             jsonb_build_object('entityId', $2, 'at', now()))
+     RETURNING id`,
+    [t, ncrId, userId],
+  );
 }
 
 /**

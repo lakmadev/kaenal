@@ -16,6 +16,7 @@ export const QUEUES = {
   docs: "docs",
   housekeeping: "housekeeping",
   ai: "ai",
+  outbox: "outbox",
 } as const;
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
@@ -54,6 +55,10 @@ export const JOBS = {
   offboardTenant: "housekeeping.offboard-tenant",
   /** On demand: draft an AI summary for a controlled document, through the gateway. */
   generateSummary: "ai.summary",
+  /** Repeatable fan-out trigger: enqueues one outbox-drain job per active tenant. */
+  outboxSweep: "outbox.sweep",
+  /** Per-tenant: deliver pending transactional-outbox events (at-least-once). */
+  outboxDrain: "outbox.drain",
 } as const;
 
 export interface RecomputeSlaJob {
@@ -97,6 +102,9 @@ export interface GenerateSummaryJob {
   readonly userId: string | null;
   readonly documentId: string;
 }
+export interface OutboxDrainJob {
+  readonly tenantId: string;
+}
 
 /**
  * Job rules (06 §1): 5 attempts, exponential backoff. `removeOnFail: false`
@@ -124,3 +132,11 @@ export const HOUSEKEEPING_SWEEP_CRON = "0 3 * * *";
 
 /** How often the files (orphan-cleanup) sweep runs (06 §1: nightly). */
 export const FILES_SWEEP_CRON = "30 2 * * *";
+
+/**
+ * How often the outbox sweep runs — every minute. Events are written the instant
+ * their mutation commits; a per-minute drain keeps external delivery latency
+ * low. (A dirty-tenant push index for near-real-time delivery is a later
+ * optimisation; the periodic sweep is the durable floor.)
+ */
+export const OUTBOX_SWEEP_CRON = "* * * * *";

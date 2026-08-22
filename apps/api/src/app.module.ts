@@ -82,6 +82,7 @@ import { PresenceService } from "./realtime/presence.service.js";
 import { CollabController } from "./realtime/collab.controller.js";
 import { CollabService, collabEntityPrefix } from "./realtime/collab.service.js";
 import { installAuditRealtimeBridge, uninstallAuditRealtimeBridge } from "./realtime/audit-signal.js";
+import { installOutboxBridge, uninstallOutboxBridge } from "./outbox/outbox-bridge.js";
 import { CommentsController } from "./collab/comments.controller.js";
 import { CommentsService } from "./collab/comments.service.js";
 import { AuditLogController } from "./collab/audit-log.controller.js";
@@ -470,12 +471,17 @@ export class AppModule implements NestModule, OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
-    // Route every audited mutation to the realtime buffer (Phase R2). Done here,
-    // once, so the choke point is wired whenever the app is built (prod + tests).
+    // Route every audited mutation to the realtime buffer (Phase R2) and to the
+    // transactional outbox (Sequence 2). Done here, once, so both choke points
+    // are wired whenever the app is built (prod + tests). They are independent:
+    // the realtime hook is best-effort (buffered, post-commit), the outbox hook
+    // is transactional (written in the mutation's tx).
     installAuditRealtimeBridge();
+    installOutboxBridge();
   }
 
   onModuleDestroy(): void {
     uninstallAuditRealtimeBridge();
+    uninstallOutboxBridge();
   }
 }

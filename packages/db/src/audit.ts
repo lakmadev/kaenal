@@ -58,6 +58,34 @@ export function setAuditObserver(fn: AuditObserver | undefined): void {
   auditObserver = fn;
 }
 
+/**
+ * Transactional side-observer — a SECOND, deliberately different hook from the
+ * best-effort `AuditObserver` above. It receives the mutation's own `tx` and is
+ * `await`ed **without a guard**, so its work commits or rolls back atomically
+ * with the mutation and its audit event. The API registers one to write a
+ * transactional-outbox row (Sequence 2): the event that must reach the outside
+ * world is persisted in the same transaction as the change that produced it, so
+ * it can never be lost after a commit nor sent for a change that rolled back.
+ *
+ * The asymmetry is intentional. The plain `AuditObserver` buffers a realtime
+ * cache-invalidation hint — losing one is harmless, so it is swallowed and must
+ * never break a mutation. A missed outbox write is NOT harmless (a dropped
+ * webhook/consumer event is exactly what the outbox exists to prevent), so its
+ * failure is allowed to fail the transaction. Like the plain observer it should
+ * read only the event's non-sensitive identity, never before/after payloads.
+ */
+export type TxAuditObserver = (
+  tx: Tx,
+  event: AuditEventInput,
+  tenantId: string,
+) => Promise<void>;
+
+let txAuditObserver: TxAuditObserver | undefined;
+
+export function setTxAuditObserver(fn: TxAuditObserver | undefined): void {
+  txAuditObserver = fn;
+}
+
 /** Replaces sensitive values while preserving the shape of the diff. */
 export function redact(input: Readonly<Record<string, unknown>>): Record<string, unknown>;
 export function redact(
@@ -164,6 +192,15 @@ export async function withAudit<T>(
         event.userAgent ?? null,
       ],
     );
+
+    // Transactional side-observation (Sequence 2 outbox bridge). Runs on the
+    // mutation's own tx and is NOT guarded: a failed outbox write must roll the
+    // mutation back, because the whole point of the outbox is that its event
+    // can never diverge from the change that produced it. Runs before the
+    // best-effort observer so a genuine persistence failure surfaces first.
+    if (txAuditObserver !== undefined) {
+      await txAuditObserver(tx, event, tenantId);
+    }
 
     // Best-effort side-observation (Phase R2 realtime bridge). Guarded so a
     // buggy observer can never break the mutation or its audit write.

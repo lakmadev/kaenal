@@ -16,3 +16,7 @@ coverage/
 
 # Local dev credentials sheet — never commit
 CREDENTIALS.md
+
+# Playwright e2e artifacts
+apps/web/test-results/
+apps/web/playwright-report/

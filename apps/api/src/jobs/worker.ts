@@ -16,6 +16,7 @@ import {
   FILES_SWEEP_CRON,
   HOUSEKEEPING_SWEEP_CRON,
   JOBS,
+  OUTBOX_SWEEP_CRON,
   QUEUES,
   SCHEDULE_SWEEP_CRON,
   SLA_SWEEP_CRON,
@@ -23,6 +24,7 @@ import {
   type DocumentExpiryJob,
   type GenerateSummaryJob,
   type MaterializeScheduleJob,
+  type OutboxDrainJob,
   type PurgeSoftDeletedJob,
   type RecomputeSlaJob,
   type RunExportJob,
@@ -50,6 +52,8 @@ import { offboardTenants } from "./processors/offboard-tenant.js";
 import { generateDocumentSummary } from "./processors/generate-summary.js";
 import { AiGatewayService } from "../ai/gateway.service.js";
 import { StubAiProvider } from "../ai/provider.js";
+import { drainOutboxForTenant } from "./processors/drain-outbox.js";
+import { LoggingOutboxHandler } from "../outbox/outbox.handler.js";
 
 /**
  * The worker process (06 §1). Run separately from the API —
@@ -300,12 +304,47 @@ async function main(): Promise<void> {
     { connection, concurrency: 3 },
   );
 
+  const outboxQueue = new Queue(QUEUES.outbox, { connection });
+
+  // Delivery strategy is pluggable (the OutboxHandler seam); the logging handler
+  // exercises the durable pipeline until the real webhook handler lands.
+  const outboxHandler = new LoggingOutboxHandler();
+
+  const outboxWorker = new Worker(
+    QUEUES.outbox,
+    async (job: Job) => {
+      if (job.name === JOBS.outboxSweep) {
+        // Same fan-out shape as the other sweeps: one drain job per active tenant
+        // so a busy tenant can't starve the rest.
+        const { rows } = await control.query<{ id: string }>(
+          "SELECT id FROM control.tenants WHERE status = 'active'",
+        );
+        for (const t of rows) {
+          await outboxQueue.add(JOBS.outboxDrain, { tenantId: t.id } satisfies OutboxDrainJob, {
+            ...DEFAULT_JOB_OPTS,
+            jobId: `outbox:${t.id}:${outboxBucket()}`,
+          });
+        }
+        return;
+      }
+      if (job.name === JOBS.outboxDrain) {
+        const data = job.data as OutboxDrainJob;
+        await drainOutboxForTenant(data.tenantId, {
+          handler: outboxHandler,
+          pool: await poolFor(data.tenantId),
+        });
+      }
+    },
+    { connection, concurrency: 5 },
+  );
+
   // Register the repeatable sweeps once; BullMQ dedupes the schedule by name.
   await slaQueue.add(JOBS.slaSweep, {}, { repeat: { pattern: SLA_SWEEP_CRON }, jobId: "sla-sweep" });
   await filesQueue.add(JOBS.filesSweep, {}, { repeat: { pattern: FILES_SWEEP_CRON }, jobId: "files-sweep" });
   await scheduleQueue.add(JOBS.scheduleSweep, {}, { repeat: { pattern: SCHEDULE_SWEEP_CRON }, jobId: "schedule-sweep" });
   await docsQueue.add(JOBS.docsSweep, {}, { repeat: { pattern: DOCS_SWEEP_CRON }, jobId: "docs-sweep" });
   await housekeepingQueue.add(JOBS.housekeepingSweep, {}, { repeat: { pattern: HOUSEKEEPING_SWEEP_CRON }, jobId: "housekeeping-sweep" });
+  await outboxQueue.add(JOBS.outboxSweep, {}, { repeat: { pattern: OUTBOX_SWEEP_CRON }, jobId: "outbox-sweep" });
 
   const shutdown = async (): Promise<void> => {
     await Promise.allSettled([
@@ -317,12 +356,14 @@ async function main(): Promise<void> {
       docsWorker.close(),
       housekeepingWorker.close(),
       aiWorker.close(),
+      outboxWorker.close(),
     ]);
     await slaQueue.close();
     await filesQueue.close();
     await scheduleQueue.close();
     await docsQueue.close();
     await housekeepingQueue.close();
+    await outboxQueue.close();
     await connection.quit();
     await tenantPools.closeAll();
     await control.end();
@@ -331,7 +372,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
 
-  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule, docs, housekeeping, ai");
+  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule, docs, housekeeping, ai, outbox");
 }
 
 /** 5-minute bucket so a retriggered sweep within one window dedupes per tenant. */
@@ -357,6 +398,11 @@ function docsBucket(): number {
 /** 1-day bucket so a retriggered housekeeping sweep within the day dedupes per tenant. */
 function housekeepingBucket(): number {
   return Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+}
+
+/** 1-minute bucket so overlapping per-minute outbox sweeps dedupe per tenant. */
+function outboxBucket(): number {
+  return Math.floor(Date.now() / (60 * 1000));
 }
 
 main().catch((err: unknown) => {
