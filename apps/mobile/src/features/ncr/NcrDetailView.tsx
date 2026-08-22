@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AuditEventDto, NcrDto } from "@kaenal/types";
 
 import { AssigneeSheet } from "@/features/assign/AssigneeSheet";
+import { PresenceBar } from "@/features/realtime/PresenceBar";
 import { useNcrEvidence } from "@/features/ncr/evidence";
 import { enqueueAssignNcr, enqueueTransition } from "@/features/ncr/offline";
 import { ncrDue, ncrStatusLabel, ncrStatusTone, severityOf } from "@/features/ncr/parts";
@@ -116,6 +117,7 @@ export function NcrDetailView({ id, embedded = false }: { id: string; embedded?:
             {ncr?.code ?? "…"}
           </Mono>
           <View style={{ flex: 1 }} />
+          <PresenceBar type="ncr" id={id} />
           <SyncPill state={syncState} />
         </View>
         <View style={{ paddingHorizontal: 16, paddingTop: 2, paddingBottom: 14 }}>

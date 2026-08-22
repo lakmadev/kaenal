@@ -1,8 +1,10 @@
 import { useEffect } from "react";
 import { AppState, type AppStateStatus } from "react-native";
+import type { RealtimeEvent } from "@kaenal/types";
 
 import { queryClient } from "@/lib/query-client";
 import { useSession } from "@/stores/session";
+import { presenceKey, usePresenceStore } from "@/stores/presence";
 import { engine } from "@/sync";
 import { reactionFor } from "@/sync/realtime-parse";
 import { startRealtime, stopRealtime } from "@/sync/realtime";
@@ -40,7 +42,17 @@ export function useRealtimeSync(): void {
       }, SYNC_DEBOUNCE_MS);
     };
 
-    const onEvent = (event: { topic: string }): void => {
+    const onEvent = (event: RealtimeEvent): void => {
+      // Presence (R6): a viewer snapshot — route to the presence store so the
+      // PresenceBar updates, rather than triggering a delta-pull.
+      if (event.topic === "presence") {
+        if (event.entityType !== undefined && event.entityId !== undefined) {
+          usePresenceStore
+            .getState()
+            .set(presenceKey(event.entityType, event.entityId), event.viewers ?? []);
+        }
+        return;
+      }
       const reaction = reactionFor(event.topic);
       if (reaction === "sync") debouncedSync();
       else if (reaction === "notifications") {
