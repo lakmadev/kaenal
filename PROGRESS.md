@@ -5,6 +5,36 @@
 
 ## Current status
 
+**Sequence 2 (delivery slice) — Webhook delivery: signed fan-out through the integrations substrate
+(2026-08-22).** Turns the outbox from durable-but-undelivered into real outbound events. The outbox drainer's
+`LoggingOutboxHandler` is replaced by a `WebhookOutboxHandler` that fans each event out to the tenant's
+subscribed webhook endpoints, HMAC-signed. **Reuses the ONE connector substrate (0032 integrations) — no new
+table:** an endpoint is a `generic_webhook` row (non-secret `config.url` + `config.events`, the signing secret
+behind `credentials_ref` — a pointer into the secret manager, resolved by the existing `SecretResolver`, never
+in the DB), and `integration_events` (direction `out`) is the per-delivery ledger the settings UI already
+renders. **Signing** (`outbox/webhook-signing.ts`, pure): HMAC-SHA256 over `${timestamp}.${body}` (Stripe/
+GitHub-style, so a body can't be replayed under a fresh timestamp), header `x-kaenal-signature: sha256=…` +
+`x-kaenal-event`/`-event-id`/`-timestamp`; `webhookSubscribes` matches `*` / exact / `domain.*`; `payloadDigest`
+records WHAT was sent without storing the payload. **Transport** (`webhook-transport.ts`): a `WebhookTransport`
+port (fake in tests) with a `FetchWebhookTransport` that aborts on a 10s timeout. **Handler**
+(`webhook.handler.ts`): runs inside the drainer's tenant tx (endpoint lookup + delivery log are RLS-scoped by
+construction — a tenant's events can only reach that tenant's endpoints); signed POST per subscribed endpoint;
+logs `ok`/`failed` + updates the endpoint's `last_ok_at`/`last_error`; **throws on any failure so the drainer
+reschedules with backoff** (at-least-once — receivers dedupe on `x-kaenal-event-id`). Signed delivery is
+non-negotiable: an endpoint with no resolvable secret fails rather than sending unsigned. The
+`OutboxHandler.deliver` seam gained the tenant `tx` (so a handler needing data uses the same RLS scope);
+`LoggingOutboxHandler` + the drainer + the outbox tests updated. **Tests:** `webhook-delivery.test.ts` 13/13 —
+pure (signing determinism + replay-resistance vector, digest, subscription matrix) + real-DB (correct signed
+envelope + `ok` log; event-type filter; multi-endpoint fan-out; **skips disconnected / soft-deleted /
+non-webhook**; non-2xx → throws + logs `failed` + sets `last_error`; no-secret → fails, sends nothing;
+**cross-tenant RLS** — acme's event never reaches globex's endpoint). Full gate: `typecheck` 7/7, `lint` clean,
+`test` 7/7 (**api 472** incl. webhook 13 + outbox 14; db 349, core 707), `test:rls` 311/311, `db:check` 51.
+**Next (flagged, not faked):** the endpoint mgmt UI (registry CRUD exists from Phase I under `integration:manage`
+— wire a Webhooks settings screen + a "send test event"); a **per-endpoint delivery ledger** so a retry skips
+endpoints that already succeeded (today at-least-once re-POSTs the whole fan-out); a dirty-tenant Redis push
+index for sub-minute latency; the `secret://` auto-ref from Phase I's `connect()` still needs a backing secret
+store — real signed delivery works today with an `env:`/`localdb:` `credentialsRef`.
+
 **Sequence 2 — Transactional Outbox (reliable event delivery; the Kafka alternative) (2026-08-22).** Closes
 the "a mutation that must also notify the outside world does two writes across two systems with no shared
 transaction" gap decided in the CTO memo (NO Kafka for a modular monolith at this volume — outbox on

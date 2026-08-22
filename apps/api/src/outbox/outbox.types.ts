@@ -1,3 +1,4 @@
+import type { Tx } from "@kaenal/db";
 import type { ActorKind } from "@kaenal/types";
 
 /**
@@ -46,14 +47,20 @@ export interface OutboxEvent extends OutboxRecord {
 }
 
 /**
- * Delivery strategy — the seam between the durable outbox core (this slice) and
- * how an event actually reaches the outside world (webhook HTTP POST, an
- * internal consumer, …), which is the next slice. A handler either returns
- * (delivered — the drainer marks the row `delivered`) or throws (the drainer
- * records the error and reschedules with backoff, or dead-letters it once
- * attempts are exhausted). Handlers must be idempotent-friendly: at-least-once
- * delivery means the same event id can be delivered more than once.
+ * Delivery strategy — the seam between the durable outbox core and how an event
+ * actually reaches the outside world (webhook HTTP POST, an internal consumer,
+ * …). A handler either returns (delivered — the drainer marks the row
+ * `delivered`) or throws (the drainer records the error and reschedules with
+ * backoff, or dead-letters it once attempts are exhausted). Handlers must be
+ * idempotent-friendly: at-least-once delivery means the same event id can be
+ * delivered more than once.
+ *
+ * `deliver` receives the drainer's tenant-scoped tx (already `SET LOCAL
+ * app.tenant_id`), so a handler that needs data — the webhook handler loads the
+ * tenant's endpoints and writes its delivery log — reads/writes under the same
+ * RLS scope as the claim, without opening a second connection. A handler that
+ * needs no DB (the logging handler) simply ignores it.
  */
 export interface OutboxHandler {
-  deliver(event: OutboxEvent): Promise<void>;
+  deliver(tx: Tx, event: OutboxEvent): Promise<void>;
 }

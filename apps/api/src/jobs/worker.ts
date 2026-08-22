@@ -53,7 +53,8 @@ import { generateDocumentSummary } from "./processors/generate-summary.js";
 import { AiGatewayService } from "../ai/gateway.service.js";
 import { StubAiProvider } from "../ai/provider.js";
 import { drainOutboxForTenant } from "./processors/drain-outbox.js";
-import { LoggingOutboxHandler } from "../outbox/outbox.handler.js";
+import { WebhookOutboxHandler } from "../outbox/webhook.handler.js";
+import { FetchWebhookTransport } from "../outbox/webhook-transport.js";
 
 /**
  * The worker process (06 §1). Run separately from the API —
@@ -306,9 +307,11 @@ async function main(): Promise<void> {
 
   const outboxQueue = new Queue(QUEUES.outbox, { connection });
 
-  // Delivery strategy is pluggable (the OutboxHandler seam); the logging handler
-  // exercises the durable pipeline until the real webhook handler lands.
-  const outboxHandler = new LoggingOutboxHandler();
+  // Real delivery: fan each event out to the tenant's subscribed generic_webhook
+  // endpoints (0032 integrations), HMAC-signed, logged in integration_events.
+  // The signing secret is resolved from the endpoint's credentials_ref pointer,
+  // never stored in the DB. A tenant with no endpoints drains as a no-op.
+  const outboxHandler = new WebhookOutboxHandler(new EnvSecretResolver(), new FetchWebhookTransport());
 
   const outboxWorker = new Worker(
     QUEUES.outbox,
