@@ -1,4 +1,5 @@
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, PanResponder, Pressable, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,7 +31,7 @@ async function byteSize(uri: string): Promise<number> {
 // text + colour + undo), then flatten photo+marks into a new image that REPLACES
 // the staged pending_file, so the annotated version is what syncs. No backend.
 export default function Annotate() {
-  const router = useRouter();
+  const goBack = useSafeBack("/(app)/home");
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ id?: string }>();
   const fileId = params.id ?? "";
@@ -138,7 +139,7 @@ export default function Annotate() {
 
   async function done(): Promise<void> {
     if (uri === null || size === null || saving) {
-      router.back();
+      goBack();
       return;
     }
     setSaving(true);
@@ -158,7 +159,7 @@ export default function Annotate() {
           error: null,
         });
       }
-      router.back();
+      goBack();
     } finally {
       setSaving(false);
     }
@@ -170,7 +171,7 @@ export default function Annotate() {
     <View style={{ flex: 1, backgroundColor: "#0a0a0a" }}>
       {/* Header */}
       <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 12, paddingBottom: 10, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(0,0,0,0.6)" }}>
-        <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: 4 }}>
+        <Pressable onPress={goBack} hitSlop={8} style={{ padding: 4 }}>
           <Icon name="chevronLeft" size={22} color="#fff" />
         </Pressable>
         <View style={{ flex: 1 }}>

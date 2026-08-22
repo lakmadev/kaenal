@@ -84,7 +84,7 @@ export default function Security() {
 
   return (
     <Screen>
-      <SubHeader title="Security" onBack={() => router.back()} />
+      <SubHeader title="Security" />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth, paddingTop: 16 }}>
           <SectionLabel style={{ paddingHorizontal: 20, paddingBottom: 8 }}>Two-factor</SectionLabel>

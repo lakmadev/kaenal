@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -18,7 +18,7 @@ const AREAS: { icon: IconName; title: string; desc: string }[] = [
 
 // m-oversight.jsx ManageInWeb — config-heavy areas that live in the desktop app.
 export default function ManageInWeb() {
-  const router = useRouter();
+  const goBack = useSafeBack("/(app)/home");
   const insets = useSafeAreaInsets();
   const { palette, radius } = useTheme();
   const { contentMaxWidth } = useLayout();
@@ -31,7 +31,7 @@ export default function ManageInWeb() {
     <Screen>
       <View style={{ paddingTop: insets.top + 6, backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingBottom: 10 }}>
-          <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: 4 }}>
+          <Pressable onPress={goBack} hitSlop={8} style={{ padding: 4 }}>
             <Icon name="chevronLeft" size={24} stroke={2} color={palette.text} />
           </Pressable>
           <View>

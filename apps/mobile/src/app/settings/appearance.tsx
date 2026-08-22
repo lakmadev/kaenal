@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { Pressable, View } from "react-native";
 
 import { SettingRow, SettingsGroup, SubHeader } from "@/features/settings/parts";
@@ -18,7 +17,6 @@ const THEMES: { mode: ThemeMode; label: string; icon: IconName }[] = [
 // m-settings-detail.jsx SettingsAppearance — the real theme selector (wired to the
 // appearance store, recolors the whole app instantly).
 export default function Appearance() {
-  const router = useRouter();
   const { palette, radius } = useTheme();
   const { contentMaxWidth } = useLayout();
   // The theme context owns the live mode (and persists via onModeChange → the
@@ -29,7 +27,7 @@ export default function Appearance() {
 
   return (
     <Screen>
-      <SubHeader title="Appearance" onBack={() => router.back()} />
+      <SubHeader title="Appearance" />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth, paddingTop: 16 }}>
           <SectionLabel style={{ paddingHorizontal: 20, paddingBottom: 8 }}>Theme</SectionLabel>

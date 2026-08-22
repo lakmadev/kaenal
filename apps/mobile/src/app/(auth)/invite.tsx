@@ -58,7 +58,7 @@ export default function Invite() {
         <View style={{ flex: 1, alignItems: "center" }}>
           <View style={{ flex: 1, width: "100%", maxWidth: contentMaxWidth }}>
             <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 24, flexDirection: "row", alignItems: "center", gap: 12 }}>
-              <BackButton onPress={() => router.back()} />
+              <BackButton />
               <Wordmark size={20} />
             </View>
             <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">

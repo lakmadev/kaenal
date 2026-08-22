@@ -1,6 +1,8 @@
+import type { Href } from "expo-router";
 import { useRef, useState } from "react";
 import { Pressable, TextInput, View, type TextInputProps } from "react-native";
 
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { Icon, Mono, SectionLabel, Text } from "@/ui";
 import { useTheme } from "@/theme";
 
@@ -20,11 +22,14 @@ export function Wordmark({ size = 22 }: { size?: number }) {
   );
 }
 
-/** Circular back chevron (design header on workspace/sign-in/mfa/recovery/forgot). */
-export function BackButton({ onPress }: { onPress: () => void }) {
+/** Circular back chevron (design header on workspace/sign-in/mfa/recovery/forgot).
+ *  `onPress` is optional — omit it and it uses a safe back that falls back to the
+ *  auth welcome when there's nothing to pop (deep-linked / first-screen entry). */
+export function BackButton({ onPress, fallback }: { onPress?: () => void; fallback?: Href }) {
   const { palette } = useTheme();
+  const safeBack = useSafeBack(fallback ?? "/(auth)/welcome");
   return (
-    <Pressable onPress={onPress} hitSlop={10} style={{ padding: 4, marginLeft: -6, alignSelf: "flex-start" }}>
+    <Pressable onPress={onPress ?? safeBack} hitSlop={10} style={{ padding: 4, marginLeft: -6, alignSelf: "flex-start" }}>
       <Icon name="chevronLeft" size={24} stroke={2} color={palette.text} />
     </Pressable>
   );

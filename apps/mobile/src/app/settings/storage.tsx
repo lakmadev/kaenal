@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 
@@ -19,7 +18,6 @@ function fmtMB(n: number): string {
 // m-settings-detail.jsx SettingsStorage — the real on-device evidence gauge (pending
 // file bytes) + device offline preferences (persisted locally).
 export default function Storage() {
-  const router = useRouter();
   const { palette, radius } = useTheme();
   const { contentMaxWidth } = useLayout();
 
@@ -60,7 +58,7 @@ export default function Storage() {
 
   return (
     <Screen>
-      <SubHeader title="Offline & storage" onBack={() => router.back()} />
+      <SubHeader title="Offline & storage" />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth, paddingTop: 16 }}>
           <Card style={{ marginHorizontal: 16, marginBottom: 14, padding: 16 }}>

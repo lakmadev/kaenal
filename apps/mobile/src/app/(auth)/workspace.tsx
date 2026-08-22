@@ -33,7 +33,7 @@ export default function Workspace() {
       <View style={{ flex: 1, alignItems: "center" }}>
         <View style={{ flex: 1, width: "100%", maxWidth: contentMaxWidth }}>
           <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 24 }}>
-            <BackButton onPress={() => router.back()} />
+            <BackButton />
           </View>
           <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 20 }}>
             <Text size={26} weight="bold" style={{ letterSpacing: -0.5 }}>

@@ -1,18 +1,24 @@
+import type { Href } from "expo-router";
 import { type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useTheme } from "@/theme";
 import { Card, Icon, Text, Touchable, type IconName } from "@/ui";
 
-/** Compact back-header for settings sub-pages (m-settings-detail.jsx SubHeader). */
-export function SubHeader({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack: () => void }) {
+/** Compact back-header for settings sub-pages (m-settings-detail.jsx SubHeader).
+ *  `onBack` is optional — omit it and the chevron uses a safe back that falls
+ *  back to `fallback` (default the app home) when there's no history to pop. */
+export function SubHeader({ title, subtitle, onBack, fallback }: { title: string; subtitle?: string; onBack?: () => void; fallback?: Href }) {
+  const safeBack = useSafeBack(fallback ?? "/(app)/me");
+  const back = onBack ?? safeBack;
   const { palette } = useTheme();
   const insets = useSafeAreaInsets();
   return (
     <View style={{ paddingTop: insets.top + 6, backgroundColor: palette.surface, borderBottomWidth: 1, borderBottomColor: palette.border }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingBottom: 12 }}>
-        <Pressable onPress={onBack} hitSlop={8} style={{ padding: 4 }}>
+        <Pressable onPress={back} hitSlop={8} style={{ padding: 4 }}>
           <Icon name="chevronLeft" size={24} stroke={2} color={palette.text} />
         </Pressable>
         <View style={{ flex: 1 }}>

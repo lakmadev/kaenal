@@ -1,4 +1,5 @@
 import { Redirect, useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,6 +14,7 @@ import { Button, Icon, Screen, Text } from "@/ui";
 // Design: m-auth.jsx → AuthMFA (rule #9). Second factor for POST /v1/auth/sign-in.
 export default function Mfa() {
   const router = useRouter();
+  const goBack = useSafeBack("/(auth)/welcome");
   const insets = useSafeAreaInsets();
   const { palette, radius } = useTheme();
   const { contentMaxWidth } = useLayout();
@@ -70,7 +72,7 @@ export default function Mfa() {
             <BackButton
               onPress={() => {
                 cancelMfa();
-                router.back();
+                goBack();
               }}
             />
           </View>

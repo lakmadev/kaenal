@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
 
@@ -36,7 +35,6 @@ const CHANNELS_OFF = { inapp: true, email: false, push: false, sms: false };
 const SYNC_KEY = "kaenal.notif.syncFailed";
 
 export default function NotificationPrefs() {
-  const router = useRouter();
   const { palette } = useTheme();
   const { contentMaxWidth } = useLayout();
   const qc = useQueryClient();
@@ -88,7 +86,7 @@ export default function NotificationPrefs() {
 
   return (
     <Screen>
-      <SubHeader title="Notifications" onBack={() => router.back()} />
+      <SubHeader title="Notifications" />
       <Body contentStyle={{ alignItems: "center" }}>
         <View style={{ width: "100%", maxWidth: contentMaxWidth, paddingTop: 16 }}>
           <SectionLabel style={{ paddingHorizontal: 20, paddingBottom: 8 }}>Push</SectionLabel>

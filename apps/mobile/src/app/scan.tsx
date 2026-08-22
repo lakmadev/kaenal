@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { useSafeBack } from "@/hooks/use-safe-back";
 import { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,7 +15,7 @@ import { Button, Icon, Screen, Text } from "@/ui";
 // honest, not a fake camera. Camera permission runs through the shared flow
 // (request → re-ask → Settings when blocked).
 export default function Scan() {
-  const router = useRouter();
+  const goBack = useSafeBack("/(app)/home");
   const insets = useSafeAreaInsets();
   const { radius } = useTheme();
   const setResult = useScan((s) => s.setResult);
@@ -38,14 +38,14 @@ export default function Scan() {
     if (!v) return;
     handled.current = true;
     setResult(v);
-    router.back();
+    goBack();
   }
 
   return (
     <Screen style={{ backgroundColor: "#000000" }}>
       {/* Header */}
       <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 12, paddingBottom: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Pressable onPress={() => router.back()} hitSlop={8} style={{ padding: 4 }}>
+        <Pressable onPress={goBack} hitSlop={8} style={{ padding: 4 }}>
           <Icon name="x" size={24} color="#ffffff" />
         </Pressable>
         <Text size={17} weight="bold" color="#ffffff">
