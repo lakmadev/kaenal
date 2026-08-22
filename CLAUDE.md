@@ -94,7 +94,8 @@ Turborepo + pnpm · NestJS + ts-rest (contract-first OpenAPI) · Postgres 16 + R
 - `pnpm db:migrate` — applies `packages/db/migrations/*.sql` in order
 - `pnpm db:check` — RLS schema lint (02 §6); `pnpm db:reset` — drop schema, local only
 - `pnpm provision-tenant --slug acme --name "Acme" --model shared`
-- `pnpm test` (unit) / `pnpm test:rls` (tenancy suite) / `pnpm e2e` (not yet wired)
+- `pnpm test` (unit) / `pnpm test:rls` (tenancy suite) / `pnpm e2e` (Playwright golden-path;
+  needs the stack up + demo seeded — see `apps/web/e2e/README.md`; full-stack CI job is a follow-up)
   — ⚠ both TRUNCATE `control.users` on the shared dev DB, so they **break the dev login**. Re-seed
   after: `pnpm --filter @kaenal/api exec tsx scripts/seed-demo.ts` (see rule #12).
 - `pnpm --filter @kaenal/api dev` (API :3001) · `pnpm --filter @kaenal/web dev` (web :3000)

@@ -13,6 +13,7 @@
     "lint:mobile": "pnpm --filter @kaenal/mobile lint",
     "test": "turbo run test --concurrency=1",
     "test:rls": "pnpm --filter @kaenal/db test:rls",
+    "e2e": "pnpm --filter @kaenal/web e2e",
     "db:generate": "pnpm --filter @kaenal/db generate",
     "db:migrate": "pnpm --filter @kaenal/db migrate",
     "db:migrate:tenants": "pnpm --filter @kaenal/db migrate-tenants",
