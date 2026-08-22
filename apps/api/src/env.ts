@@ -25,6 +25,16 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
 
   /**
+   * Observability (Sentry, OpenTelemetry-native since @sentry/node v8). ALL
+   * optional: with no `SENTRY_DSN` the SDK never initialises and every capture is
+   * a no-op, so local/dev/test runs are unaffected. Set the DSN in staging/prod
+   * to get error tracking + (OTel-based) performance tracing.
+   */
+  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_ENVIRONMENT: z.string().min(1).optional(),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
+
+  /**
    * The apex the tenant subdomain hangs off (01 §3.2): with `kaenal.app`,
    * `bosch.kaenal.app` resolves to tenant `bosch`. Required, because guessing
    * it from the Host header is how subdomain confusion bugs start.
