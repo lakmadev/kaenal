@@ -4,6 +4,7 @@ import type pg from "pg";
 import { closePools } from "@kaenal/db";
 import type { TenantPoolManager } from "./tenant/pool-manager.js";
 import { CONTROL_POOL, REDIS, TENANT_POOLS } from "./tokens.js";
+import { flushSentry } from "./observability/sentry.js";
 
 /**
  * Graceful shutdown.
@@ -34,6 +35,7 @@ export class ShutdownService implements OnApplicationShutdown {
       this.redis.quit(),
       closePools(),
       this.tenantPools.closeAll(),
+      flushSentry(), // deliver buffered error/trace events before exit (no-op if off)
     ]);
   }
 }

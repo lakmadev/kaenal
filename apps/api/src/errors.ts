@@ -8,6 +8,7 @@ import {
 import type { Request, Response } from "express";
 import type { ErrorCode } from "@kaenal/types";
 import type { Denied } from "@kaenal/core";
+import { captureServerError } from "./observability/sentry.js";
 
 /**
  * The single error envelope (03 §4).
@@ -101,11 +102,18 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
     if (status >= 500) {
       // The only place the real error is recorded. It must not reach the
       // client (03 §4: "no internals leaked"), so it is correlated by
-      // requestId instead.
+      // requestId instead — locally in the log, and (if enabled) in Sentry.
+      // Only 5xx is captured; handled 4xx business errors are not exceptions.
       this.logger.error(
         { requestId, path: req.path, method: req.method },
         exception instanceof Error ? exception.stack : String(exception),
       );
+      captureServerError(exception, {
+        requestId,
+        method: req.method,
+        path: req.path,
+        ...(req.tenant?.slug === undefined ? {} : { tenant: req.tenant.slug }),
+      });
     }
 
     res.status(status).json(body);

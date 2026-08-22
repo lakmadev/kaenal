@@ -1,3 +1,4 @@
+import "./observability/instrument.js"; // Sentry/OTel init — must load before AppModule
 import "reflect-metadata";
 import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";

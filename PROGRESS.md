@@ -5,6 +5,24 @@
 
 ## Current status
 
+**Observability — API error tracking + tracing (Sentry, OTel-native) (2026-08-22).** First slice of the
+"can't run prod blind" gap (was: only the segment error boundary hook point existed). `@sentry/node` v10 is
+OpenTelemetry-based, so one integration gives error tracking AND (OTel) performance tracing.
+`observability/sentry.ts` (`initSentry` + `captureServerError` + `flushSentry`, all no-ops without a DSN) +
+`observability/instrument.ts` (preload imported FIRST in `main.ts`, before AppModule, so OTel
+auto-instrumentation wraps http/pg/ioredis; reads Sentry keys straight from `process.env` since it runs
+before the app's `loadEnv()`). The `ErrorEnvelopeFilter` reports only **5xx** (unexpected) errors,
+correlated by requestId + tenant slug, **never leaking the message to the client** (03 §4); handled 4xx
+business errors are not captured. `flushSentry` added to the shutdown path. Env: optional `SENTRY_DSN` /
+`SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` (`.env.example` updated); `sendDefaultPii: false` so no
+tenant PII leaves. **Tests:** `error-filter-sentry.test.ts` 3/3 (5xx captured w/ request+tenant tags & no
+message leak; 4xx not captured; ApiError('INTERNAL') captured) + `sentry.test.ts` 1/1 (disabled + no-op
+without a DSN). Verified the API **boots clean** with the preload (Sentry no-op, no DSN). `pnpm typecheck` +
+`pnpm lint` clean. **Remaining observability (flagged):** web `@sentry/nextjs` + mobile `sentry-expo`; a
+standalone OTLP exporter for a non-Sentry tracing backend; a `/metrics` endpoint (realtime already tracks
+`connectionCount`/`roomCount`). **Sequence-1 status:** merges ✅ (#17/#18/#20), session-lapse loop fix ✅
+(#21), Playwright e2e ✅ (#22), observability ✅ (this).
+
 **Realtime Phase R8 — reclaim idle co-editing docs (2026-08-22).** Closes the R7 memory flag: the
 server-authoritative collab `Y.Doc`s lived until process restart. R8 evicts an entity's docs the moment its
 **last presence viewer leaves** (no one is editing, so nothing is lost — the persisted text is the source of
