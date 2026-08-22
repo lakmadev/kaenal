@@ -13,10 +13,19 @@ import { withTenant } from "@kaenal/db";
 import { authorize, isPartner, type Capability } from "@kaenal/core";
 import { ApiError, tenantNotFound } from "./errors.js";
 import { runWithContext } from "./context.js";
+import { readCookie, TENANT_COOKIE } from "./http/cookies.js";
 import { slugFromHost, TenantRegistry } from "./tenant/registry.js";
 import type { TenantPoolManager } from "./tenant/pool-manager.js";
 import { IS_ANONYMOUS, IS_INTERNAL, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
-import { AUTHENTICATOR, ENV, RATE_LIMITER, TENANT_POOLS, TENANT_REGISTRY } from "./tokens.js";
+import {
+  AUTHENTICATOR,
+  ENV,
+  RATE_LIMITER,
+  REALTIME,
+  TENANT_POOLS,
+  TENANT_REGISTRY,
+} from "./tokens.js";
+import type { RealtimeService, RealtimeSignal } from "./realtime/realtime.service.js";
 import type { Authenticator, Session } from "./auth/authenticator.js";
 import { USER_LIMIT, type RateLimiter } from "./http/rate-limit.js";
 import type { Env } from "./env.js";
@@ -50,6 +59,7 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     @Inject(RATE_LIMITER) private readonly rateLimiter: RateLimiter,
     @Inject(TENANT_POOLS) private readonly pools: TenantPoolManager,
     @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(REALTIME) private readonly realtime: RealtimeService,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -82,9 +92,18 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     internalOnly: boolean,
   ): Promise<unknown> {
     // --- 1. Resolve tenant ------------------------------------------------
-    // Subdomain for web; X-Tenant-Id header for the mobile app (01 §3.3).
+    // Subdomain for web; X-Tenant-Id header for the mobile app (01 §3.3). Then,
+    // as a LAST resort, the readable `kaenal_tenant` cookie: same-origin requests
+    // that cannot set a header — notably the SSE EventSource (R1), which the
+    // browser API forbids from adding headers — still convey their workspace
+    // this way. Ordered after the subdomain so a production host always wins over
+    // a possibly-stale cookie; this only SELECTS the tenant scope — the session
+    // must still be a member of it (mismatch → 404 in step 2), never a grant.
     const headerSlug = req.header("x-tenant-id");
-    const slug = headerSlug ?? slugFromHost(req.header("host"), this.env.TENANT_ROOT_DOMAIN);
+    const slug =
+      headerSlug ??
+      slugFromHost(req.header("host"), this.env.TENANT_ROOT_DOMAIN) ??
+      readCookie(req, TENANT_COOKIE);
 
     if (slug === null || slug === undefined || slug === "") throw tenantNotFound();
 
@@ -108,11 +127,17 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
 
     req.tenant = { id: tenant.id, slug: tenant.slug };
 
+    // Realtime signals producers buffer during the request; published only
+    // AFTER the transaction below commits (never on rollback) — see the flush
+    // past `withTenant`. Threaded through the request context so `withAudit`'s
+    // bridge and `notify` can push without a direct dependency on this class.
+    const signals: RealtimeSignal[] = [];
+
     // --- 3b. Scoped transaction -------------------------------------------
     // Opened before authentication so that step 2's membership query is itself
     // tenant-scoped. userId is null at this point and set inside, once known.
     // RLS applies on the dedicated pool exactly as on the shared one.
-    return withTenant(tenant.id, null, async (tx) => {
+    const result = await withTenant(tenant.id, null, async (tx) => {
       // --- 2. Authenticate ------------------------------------------------
       // On an explicitly-anonymous route (sign-in, accept-invite) a stale or
       // otherwise unresolvable session cookie must NOT block the request: there
@@ -183,9 +208,30 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
           pool,
           ip: req.ip ?? null,
           userAgent: req.header("user-agent") ?? null,
+          signals,
         },
         () => firstValueFrom(next.handle()),
       );
     }, pool);
+
+    // Transaction committed (a rollback would have thrown above, skipping this).
+    // Publish the buffered signals now, so the wire never carries a "changed"
+    // pointer for a change that didn't durably happen.
+    this.flushSignals(signals);
+    return result;
+  }
+
+  /** De-duplicate and publish the request's buffered realtime signals. Several
+   *  audit events in one mutation can map to the same topic; collapse them so a
+   *  client invalidates each affected query once. Best-effort throughout. */
+  private flushSignals(signals: readonly RealtimeSignal[]): void {
+    if (signals.length === 0) return;
+    const seen = new Set<string>();
+    for (const s of signals) {
+      const key = `${s.tenantId}|${s.userId ?? ""}|${s.capability ?? ""}|${s.event.topic}|${s.event.entityId ?? ""}|${s.event.action}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      this.realtime.emit(s);
+    }
   }
 }

@@ -54,3 +54,7 @@ export const RATE_LIMITER = Symbol("RATE_LIMITER");
 export const EMAIL_PORT = Symbol("EMAIL_PORT");
 export const MFA_SERVICE = Symbol("MFA_SERVICE");
 export const PUSH_TOKENS_SERVICE = Symbol("PUSH_TOKENS_SERVICE");
+export const REALTIME = Symbol("REALTIME");
+export const PRESENCE_SERVICE = Symbol("PRESENCE_SERVICE");
+export const COLLAB_SERVICE = Symbol("COLLAB_SERVICE");
+export const COLLAB_WIRING = Symbol("COLLAB_WIRING");

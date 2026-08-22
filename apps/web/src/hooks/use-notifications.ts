@@ -20,12 +20,14 @@ export function useNotifications(query?: NotificationListQuery) {
   );
 }
 
-/** The bell badge. Polls so a notification produced elsewhere (an assignment,
- *  an SLA breach job) surfaces without a manual refresh. */
+/** The bell badge. The realtime stream (Phase R1, `useRealtime`) invalidates
+ *  this the instant a notification is produced elsewhere, so the badge is live.
+ *  The slow poll + window-focus refetch remain only as a fallback for when the
+ *  SSE stream is dropped (flaky network, proxy timeout). */
 export function useUnreadCount() {
   return useQuery({
     ...apiQueries.notifications.unreadCount(getApiClient()),
-    refetchInterval: 60_000,
+    refetchInterval: 120_000,
     refetchOnWindowFocus: true,
   });
 }

@@ -16,6 +16,7 @@ import {
   type Cursor,
 } from "../http/pagination.js";
 import { NoopProducer, type JobProducer } from "../jobs/producer.js";
+import { bufferRealtimeSignal } from "../context.js";
 
 interface NotificationRow {
   id: string;
@@ -228,6 +229,24 @@ export class NotificationsService {
     // Hand off out-of-band delivery (email/push/sms) to the notify queue. The
     // in-app row above is the source of truth; the job only fans to channels.
     await this.jobs.deliverNotification({ tenantId, notificationId: row.id });
+
+    // Realtime nudge: tell just this user's live streams to refetch their
+    // notifications, so the bell updates instantly instead of on the next poll.
+    // A pointer only — no row data crosses the bus. Notifications don't go
+    // through `withAudit` (they're a delivery artifact), so — unlike business
+    // entities, which the audit bridge covers — this buffers the signal
+    // explicitly. Published after the caller's transaction commits (R2), so a
+    // rollback never emits a phantom notification.
+    bufferRealtimeSignal({
+      tenantId,
+      userId: input.userId,
+      event: {
+        topic: "notifications",
+        action: "created",
+        entityId: row.id,
+        at: row.created_at.toISOString(),
+      },
+    });
     return toDto(row);
   }
 }

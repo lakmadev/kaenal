@@ -5,6 +5,178 @@
 
 ## Current status
 
+**Realtime Phase R8 — reclaim idle co-editing docs (2026-08-22).** Closes the R7 memory flag: the
+server-authoritative collab `Y.Doc`s lived until process restart. R8 evicts an entity's docs the moment its
+**last presence viewer leaves** (no one is editing, so nothing is lost — the persisted text is the source of
+truth and a fresh session re-seeds). **Wiring:** `PresenceService.setOnEmpty` fires when a `leave` empties an
+entity's viewer set; `CollabService.evictEntity(prefix)` drops every field doc under
+`collabEntityPrefix(tenant,type,id)`; the two are joined in the eager `COLLAB_WIRING` provider alongside the
+R7 collab sink. Reuses R4's presence set as the lifecycle signal — no new bookkeeping. **Tests:** collab 6/6
+(+`evictEntity` drops one entity's fields, spares others), presence 7/7 (+`onEmpty` fires ONLY on the last
+leave, exactly once). **Verified live** (Node + real API, fresh entity): after an edit `GET /state` was
+present; after the last viewer left it was **null** (`evictedOnLastLeave: true`). `pnpm typecheck` +
+`pnpm lint` clean. **Remaining flags:** all-viewers-lapse-with-no-explicit-leave still lingers until the next
+presence op reads an empty snapshot (rare; a periodic sweep is the follow-up); caret preservation;
+rich-text/cursors; mobile co-editing (needs authoring screens first). Realtime roadmap: **R1–R8** + G–K.
+
+**Realtime Phase R7 — production-harden co-editing: server-authoritative doc + late-join (2026-08-22).**
+R5 shipped a DUMB relay (broadcast opaque Yjs updates, kept no state), so a client that opened a field
+mid-session missed every edit made before it arrived — the biggest R5 flag. R7 closes it. **Why not R6.2
+mobile co-editing:** audited every mobile multiline field (voice/capture notes, verify note, comment
+composer, ncr-create, approval reason, inspection notes) — all are **single-author**; the 8D D5–D8
+narratives (the real web co-edit surface) aren't editable on mobile at all. Bolting CollabText onto a
+single-author field would be fabricated value (rule #10), so mobile co-editing has no honest home without
+first building collaborative long-form authoring on mobile (a product/design decision, not a realtime task).
+Pivoted to the real gap. **Server (yjs added to api — hardening justifies what R5 deliberately deferred):**
+`realtime/collab.service.ts` keeps a per-room authoritative `Y.Doc` that accumulates the broadcast updates;
+it holds only the DELTA from the shared deterministic seed (every client seeds the base locally), so the
+server never needs the entity's persisted text. **Multi-instance-correct by construction:** the doc is fed
+from the Redis **fan-out** (`RealtimeService.setCollabSink` → `CollabService.apply`, called in `fanOut` on
+EVERY instance including the origin, which receives its own publish) — not from the request handler — so
+every instance's doc converges without sticky sessions. New `GET /v1/collab/:type/:id/:field/state`
+(capability-gated) returns the accumulated state; the relay POST is unchanged. **Web:** `getCollabState()` +
+`CollabText` fetches `/state` on mount and applies it over the seed, so a late joiner converges with
+in-flight edits. **Tests:** `collab.test.ts` 5/5 (accumulate + **late-joiner convergence**; null state for an
+untouched room; room/tenant isolation; evict; malformed-update safety). **Verified live end-to-end** (Node
++ real API, bearer): Sarah edited "Root cause: worn spindle bearing" → relay `{delivered:1}` → the fan-out
+fed the server doc → a **fresh late joiner GET /state applied it over the seed and converged to the exact
+text** (`converged: true`). `pnpm typecheck` clean (types/api/web), `pnpm lint` clean, api 46 (collab 5,
+realtime 11, presence 6, lifecycle 24) + web collab 9. **Deferred (flagged):** room-doc eviction is
+implemented (`evict`) but not yet auto-called on last-viewer-leave, so rooms live until restart (memory
+bounded by active-field count — low, but wire eviction next); caret preservation on remote apply; rich-text
++ cursor awareness; mobile co-editing (needs collaborative authoring screens first). Realtime roadmap:
+R1–R7 + G–K shipped.
+
+**Realtime Phase R5 — collaborative editing (Yjs CRDT over SSE+REST) (2026-08-21).** Real concurrent
+character-level co-editing of 8D narrative fields — two people typing in the same D5–D8 field merge without
+clobbering. The ingredient that makes it *co-editing* (not R4's edit-lock) is a **CRDT: Yjs**. **Transport
+decision (do not re-litigate):** Yjs is transport-agnostic, so its binary updates ride the EXISTING R1 SSE
+bus (down) + a REST relay (up) — NOT a new WebSocket server. This reuses the unified auth (one lifecycle
+interceptor), the Redis fan-out, and the same-origin proxy, and for occasional narrative co-authoring the
+~sub-second latency is fine. **Server is a DUMB, authenticated relay** (`realtime/collab.controller.ts`,
+`POST /v1/collab/:type/:id/:field/update`): it never parses the CRDT — it capability-gates (entity view
+right) and broadcasts the opaque base64 update to the entity's **presence viewers** (R4's set is the room
+audience), incl. the sender's other tabs (a Yjs update you already hold is a no-op, and same-user multi-tab
+is a real case). **Web:** `lib/collab-crdt.ts` (pure: single-region `stringDiff`; base64; and the crux — a
+**deterministic `seedUpdate`** with a fixed clientID so independently-created client docs share a
+byte-identical base and converge, instead of each inserting the base and DUPLICATING it); `lib/collab-bus.ts`
+(room emitter) + `lib/collab.ts` (REST); `useRealtime` routes `collab` events to the bus;
+`components/collab-text.tsx` — a Yjs-bound `<textarea>` (local edit → incremental update POSTed; inbound →
+`applyUpdate`; joins R4 presence so it's in the audience + shows as "editing"), a drop-in for the plain
+textarea in the 8D `SimpleStep`. Persistence unchanged: `onChange` feeds the existing draft, the normal
+audited Save writes the merged text. Types: `collab` topic + `field`/`update` on `RealtimeEvent`,
+`CollabUpdateBody`. Added `yjs` (web only — server never touches it). **Tests:** `collab-crdt.test.ts` 9/9
+(diff cases; base64 round-trip; deterministic seed; **an end-to-end two-peer concurrent-edit convergence
+check**). **Verified live:** (1) the relay end-to-end — a viewer's SSE stream received the exact `collab`
+event (base64 update intact, field D5, entity 8D-2026-0002) after a `POST …/collab/…/update` returned
+`{delivered:1}`; (2) node-level Yjs convergence of concurrent edits from a shared seed. `pnpm typecheck`
+clean (types/api/web), `pnpm lint` clean, api 53 + web collab 9. **Verification ceiling (honest):** the
+two-tab *visual* UI convergence wasn't captured live — the local browser session kept dropping its
+auth/tenant cookies between steps (a harness flake, not an R5 defect: the 8D page bundled yjs and loaded).
+The CRDT merge (unit) and the relay→SSE transport (live) are both proven; `CollabText` is the typechecked
+glue between them. **Deferred/flagged (slice-1 scope):** robust late-join full-state sync (peers seed from
+the same persisted base + live updates; a mid-session joiner uses the Yjs sync protocol — follow-up);
+caret preservation on remote apply; multi-instance server doc for cross-instance late-join; mobile
+co-editing; rich-text + cursor awareness. This completes the realtime roadmap R1–R5 (G–K already shipped).
+
+**Realtime Phase R4 — live presence + edit-intent locks (2026-08-21).** The first genuinely *duplex*
+surface: who's on a record right now, and who's editing — so two people on one NCR see each other and
+don't collide into an optimistic-concurrency 409. **Transport decision (do not re-litigate):** NOT a raw
+WebSocket. Presence is discrete, low-frequency events (enter / heartbeat / leave / editing-toggle), so a
+persistent client→server socket buys nothing and would fork a **parallel auth path** outside the one
+lifecycle interceptor (tenant + session + RLS) plus sticky sessions + a socket Redis adapter. Instead:
+**SSE down (reuse R1's bus) + REST up (through the normal RLS-scoped pipeline)** — and the **Redis presence
+set for an entity IS its subscriber list**, so a snapshot is pushed to exactly the current viewers, across
+instances, with zero new auth surface. A true WS is reserved for R5 (keystroke co-editing) where it earns
+its place. **Backend:** `realtime/presence.service.ts` — Redis-only ephemeral presence (never a DB row,
+never audited): a SET indexes viewer ids per entity, each viewer a short-TTL detail key; a missed heartbeat
+lets the key expire and the next read prunes it from the index (a crashed client drops out on its own — no
+KEYS/SCAN). On every change it emits a `presence` event (topic added to `RealtimeEvent`, carrying
+`entityType` + the full `viewers` snapshot, `{userId, editing}` — **no names on the wire**, the client
+resolves them). `realtime/presence.controller.ts` — `POST /v1/presence/:type/:id/{heartbeat,leave}`, gated
+per-request by the entity type's `*:view` capability (8D rides ncr:view). **Web:** `stores/presence.ts` +
+`lib/presence.ts` (fetch + CSRF, `keepalive` on leave) + `hooks/use-presence.ts` (heartbeat on mount +
+20s interval + immediate on editing-flip; leave on unmount/`pagehide`); `useRealtime` routes `presence`
+events into the store; `components/presence-bar.tsx` (overlapping avatar stack + amber "X editing" soft-lock
+hint) mounted in the NCR detail header, `editing` driven by being on a data-entry tab. **Tests:**
+`presence.test.ts` 6/6 against real Redis (viewer add + editing flag; multi-viewer + selective leave;
+snapshot broadcast targeted to each current viewer; expired-key pruning; cross-tenant isolation; empty
+snapshot). **Verified live 2-user** (demo web + Sarah curl on NCR-2026-0014): demo's presence bar rendered
+"**Sarah Chen · 1 person here**" (name resolved from the directory) the moment Sarah heartbeated, and flipped
+to the amber "**Sarah Chen editing**" pill when Sarah set editing:true — all over the SSE bus, no WebSocket.
+`pnpm typecheck` clean (types/api/web), `pnpm lint` clean, presence 6/6 + realtime 11 + audit-signal 12.
+**Deferred (flagged):** mobile presence UI (backend + bus already support it) — a follow-up. **Next: R5**
+co-editing (where a real WebSocket + CRDT belong).
+
+**Realtime Phase R2 — after-commit emit + all-mutation coverage (2026-08-21).** R1 shipped the bus with one
+producer (notifications) emitting inside the tx (best-effort). R2 makes emission **complete and correct**.
+**The choke point (do not re-litigate):** rule 3 already routes *every* tenant mutation through `withAudit`,
+so that is the single place to derive a realtime signal — no service has to remember to emit, and a new
+mutation is covered the moment it writes its mandatory audit event. `packages/db` gains an optional
+**audit-observer hook** (`setAuditObserver`; guarded, best-effort, stays ignorant of realtime); the API
+registers an observer (`realtime/audit-signal.ts`) that maps an event's `entityKind`→web topic + gating
+`*:view` capability and **buffers** a signal. **After-commit, never on rollback:** signals collect in a
+request-context buffer (`RequestContext.signals` + `bufferRealtimeSignal`) that the lifecycle interceptor
+**flushes only after `withTenant` commits** (a throw skips the flush), de-duplicating so multiple audit
+events in one mutation invalidate each topic once. `notify()` switched from a direct emit to the same
+buffer (notifications don't audit, so they emit explicitly); its `RealtimeEmitter` injection removed.
+**Mapping (verified against real entityKind literals + each controller's capability):** ncr/ncr_action→ncr
+(ncr:view), eight_d→eightd (ncr:view — no dedicated 8D cap), capa/capa_action→capa, inspection/
+inspection_template/finding→inspection (finding rides inspection:view), supplier, ppap_submission→ppap,
+scar, document/document_version→document, fmea/fmea_item→fmea, audit/audit_finding→audit; non-QMS kinds
+(session, membership, file, export, plant, integration, …) map to nothing. Action collapses to
+created / deleted (delete+purge) / updated (everything else). **Web:** `useRealtime` `keysForTopic` expanded
+to every wired topic → `invalidateQueries` (ncr/capa/eightd/inspection/supplier/ppap/scar/document/fmea +
+notifications); `finding`/`audit` intentionally have no web list key yet (emitted server-side,
+forward-compatible). **Bridge lifecycle:** installed in `AppModule.onModuleInit`, removed in
+`onModuleDestroy`. **Tests:** `audit-signal.test.ts` 12/12 (action mapping; every entity→topic+capability;
+null for non-QMS kinds; the REAL `withAudit`+observer+context buffering the signal; no-op outside a request
+context). **Verified live** (demo web + curl cross-user): Sarah created + assigned NCR-2026-0014 → demo's
+stream received `ncr/created` (capability-broadcast to ncr:view holders), `ncr/updated` (assign), and
+`notifications/created` (user-targeted) — three over one socket; then a **stale-version assign (409
+STALE_WRITE) rolled back and emitted NOTHING** (still exactly 3), proving after-commit-only. `pnpm typecheck`
+clean (db/api/web), `pnpm lint` clean, realtime 11 + audit-signal 12 + lifecycle 24 + notifications 10 +
+ncr 11 + db-audit 22. **Next: R3** mobile push→delta-pull; **R4** WebSocket presence/edit-locks; **R5**
+co-editing.
+
+**Realtime Phase R1 — SSE signal bus (2026-08-21).** First slice of the combined Realtime→Data-Platform
+roadmap (R1–R5 realtime, then G–K which already shipped). Before this the app had **zero realtime**: web
+refreshed via TanStack `invalidateQueries` on your *own* mutations plus a 60 s notifications poll; another
+user's change only surfaced on window-focus/navigation. R1 lays the **cache-invalidation bus** everything
+later plugs into. **Architecture decision (do not re-litigate):** the bus carries a *pointer only* — "topic
+X changed" — never row data; the client refetches through the normal RLS-scoped, audited API, so tenant
+isolation/audit/optimistic-concurrency stay authoritative and nothing on the wire bypasses RLS. **Transport
+is SSE, not WebSockets** (one-way server→client suffices for invalidation; WS is deferred to R4 for
+duplex presence/typing). **gRPC explicitly rejected** for the client edge (browser can't speak it without a
+proxy; contract-first ts-rest/OpenAPI stays the seam). **Backend:** `apps/api/src/realtime/` —
+`RealtimeService` publishes on the shared REDIS command connection and receives on its own DEDICATED
+subscriber connection (`redis.duplicate()`; ioredis forbids commands on a subscribed conn; closed in
+`onModuleDestroy`); one Redis channel `kaenal:rt`, in-process fan-out filtered by tenant→user→capability
+(the isolation core is the pure static `RealtimeService.matches`, unit-tested). `RealtimeController` —
+`GET /v1/events` authenticates through the **normal lifecycle** (tenant + session + RLS tx) then, crucially,
+**returns immediately so `withTenant` commits and releases the pooled pg connection**, keeping the raw
+socket open via `@Res()` — an SSE stream must NOT pin a DB connection for its lifetime; from then on it
+relays only Redis pointers, touching no DB. Heartbeat comment every 25 s; cleanup on close/error.
+**Interceptor (additive, low-risk):** tenant resolution gains a **last-resort `kaenal_tenant` cookie
+fallback** (`http/cookies.ts` `readCookie`) — a browser `EventSource` can't set `X-Tenant-Id`, so
+same-origin SSE conveys its workspace via the readable (non-credential) cookie the web already writes;
+ordered **after** header and subdomain so production routing is untouched, and it only *selects* scope —
+the session must still be a member (mismatch → 404). **Producer:** `notify()` emits a user-targeted
+`{topic:"notifications",...}` after writing the row (best-effort; R2 moves business-mutation emits to a
+post-commit outbox). **Web:** `useRealtime()` opens the stream from `AppShell` (authenticated internal
+sessions only — no 401 reconnect loop), maps topics→`invalidateQueries` (only `notifications` wired; R2
+adds the rest with their emits); notification poll relaxed 60 s→120 s as a fallback behind the live stream.
+**Types:** `packages/types/realtime.ts` (`RealtimeEvent`/`RealtimeTopic`/`RealtimeAction`, shared FE/BE).
+**Tests:** `realtime.test.ts` 11/11 (tenant isolation, user targeting, capability gate, unsubscribe,
+malformed-payload safety, emit-publishes-JSON). **Verified live** (demo web + curl cross-user): SSE
+connected authenticated (`readyState` OPEN via cookie fallback); Sarah Chen (manager) created + assigned
+NCR-2026-0002 to demo → demo's browser stream received exactly one `{"topic":"notifications",...}` whose
+`at` matched the assignment `updatedAt` to the ms (real signal through Redis, user-filtered), and the bell
+badge updated live to **2** with no manual refresh. `pnpm typecheck` clean (types/api/web), `pnpm lint`
+clean, realtime 11/11 + lifecycle 24/24 + notifications 10/10. **Next: R2** — emit on all business
+mutations (post-commit outbox) + wire ncr/capa/eightd/inspection topics; **R3** mobile push→delta-pull;
+**R4** WebSocket presence/edit-locks; **R5** co-editing.
+
 **Tenant-wide Audit log — Settings › System (2026-08-14).** The `audit` settings tab was a static
 `settings.jsx` mock (hard-coded rows, dead Filter/Export); it's now a real, admin-only vertical slice
 over the append-only `audit_events` table. **Design fidelity (rule #9):** reproduced `settings.jsx`

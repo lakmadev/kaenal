@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiRequestError, apiQueries } from "@kaenal/api-client";
 import { useMe } from "@/hooks/use-me";
+import { useRealtime } from "@/hooks/use-realtime";
 import { roleSeesRoute } from "@/config/rbac";
 import { getApiClient } from "@/lib/api";
 import { Sidebar } from "./sidebar";
@@ -45,6 +46,11 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
     else if (portalOnly) router.replace("/portal");
     else if (blockedByRole) router.replace("/dashboard");
   }, [unauthenticated, portalOnly, blockedByRole, router]);
+
+  // Realtime signal stream (Phase R1): live-invalidate queries as changes land
+  // elsewhere. Connect only for an authenticated internal session, so an
+  // unauthenticated or portal-only page never opens a stream that would 401.
+  useRealtime(me !== undefined && !unauthenticated && !portalOnly);
 
   // Warm the members directory once the session is known (internal users only).
   // Nearly every screen resolves an owner/inspector/author/assignee id → name

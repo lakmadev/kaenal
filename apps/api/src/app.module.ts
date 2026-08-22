@@ -1,4 +1,10 @@
-import { Module, type MiddlewareConsumer, type NestModule } from "@nestjs/common";
+import {
+  Module,
+  type MiddlewareConsumer,
+  type NestModule,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from "@nestjs/common";
 import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
 import Redis from "ioredis";
 import pg from "pg";
@@ -69,6 +75,13 @@ import { SearchController } from "./search/search.controller.js";
 import { SearchService } from "./search/search.service.js";
 import { NotificationsController } from "./notifications/notifications.controller.js";
 import { NotificationsService } from "./notifications/notifications.service.js";
+import { RealtimeController } from "./realtime/realtime.controller.js";
+import { RealtimeService } from "./realtime/realtime.service.js";
+import { PresenceController } from "./realtime/presence.controller.js";
+import { PresenceService } from "./realtime/presence.service.js";
+import { CollabController } from "./realtime/collab.controller.js";
+import { CollabService, collabEntityPrefix } from "./realtime/collab.service.js";
+import { installAuditRealtimeBridge, uninstallAuditRealtimeBridge } from "./realtime/audit-signal.js";
 import { CommentsController } from "./collab/comments.controller.js";
 import { CommentsService } from "./collab/comments.service.js";
 import { AuditLogController } from "./collab/audit-log.controller.js";
@@ -140,6 +153,10 @@ import {
   INTEGRATIONS_SERVICE,
   IMPORT_SERVICE,
   SPC_SERVICE,
+  REALTIME,
+  PRESENCE_SERVICE,
+  COLLAB_SERVICE,
+  COLLAB_WIRING,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -175,6 +192,9 @@ import {
     AiController,
     SearchController,
     NotificationsController,
+    RealtimeController,
+    PresenceController,
+    CollabController,
     CommentsController,
     AuditLogController,
     EntityLinksController,
@@ -203,6 +223,48 @@ import {
       provide: REDIS,
       useFactory: (env: Env) => new Redis(env.REDIS_URL, { maxRetriesPerRequest: 2 }),
       inject: [ENV],
+    },
+
+    {
+      // The realtime bus publishes on the shared REDIS command connection and
+      // receives on its own DEDICATED subscriber connection (`.duplicate()`) —
+      // ioredis forbids ordinary commands on a subscribed connection. The
+      // service owns that connection's lifecycle (closed in onModuleDestroy).
+      provide: REALTIME,
+      useFactory: (redis: Redis) => new RealtimeService(redis, redis.duplicate()),
+      inject: [REDIS],
+    },
+
+    {
+      // Live presence (R4): Redis-backed ephemeral viewer sets; pushes snapshots
+      // to viewers over the R1 bus. Uses the shared command connection (no
+      // subscribe-mode conflict — it only SET/SADD/MGETs, never subscribes).
+      provide: PRESENCE_SERVICE,
+      useFactory: (redis: Redis, realtime: RealtimeService) => new PresenceService(redis, realtime),
+      inject: [REDIS, REALTIME],
+    },
+
+    {
+      // Server-authoritative collab docs (R7): accumulate the CRDT deltas so a
+      // late joiner can converge via GET /state.
+      provide: COLLAB_SERVICE,
+      useFactory: () => new CollabService(),
+    },
+
+    {
+      // Realtime→collab wiring, run once at bootstrap (eager, no consumers):
+      //  - feed every collab update from the Redis fan-out into the authoritative
+      //    doc, on every instance;
+      //  - evict an entity's idle docs when its last presence viewer leaves (R8).
+      provide: COLLAB_WIRING,
+      useFactory: (realtime: RealtimeService, collab: CollabService, presence: PresenceService) => {
+        realtime.setCollabSink((room, update) => collab.apply(room, update));
+        presence.setOnEmpty((tenantId, type, id) =>
+          collab.evictEntity(collabEntityPrefix(tenantId, type, id)),
+        );
+        return true;
+      },
+      inject: [REALTIME, COLLAB_SERVICE, PRESENCE_SERVICE],
     },
 
     {
@@ -400,10 +462,20 @@ import {
     { provide: APP_INTERCEPTOR, useClass: RequestLifecycleInterceptor },
   ],
 })
-export class AppModule implements NestModule {
+export class AppModule implements NestModule, OnModuleInit, OnModuleDestroy {
   configure(consumer: MiddlewareConsumer): void {
     // Ahead of everything, so even a request rejected at tenant resolution
     // carries a correlatable id.
     consumer.apply(RequestIdMiddleware).forRoutes("*");
+  }
+
+  onModuleInit(): void {
+    // Route every audited mutation to the realtime buffer (Phase R2). Done here,
+    // once, so the choke point is wired whenever the app is built (prod + tests).
+    installAuditRealtimeBridge();
+  }
+
+  onModuleDestroy(): void {
+    uninstallAuditRealtimeBridge();
   }
 }
