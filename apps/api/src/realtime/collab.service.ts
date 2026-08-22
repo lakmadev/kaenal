@@ -27,6 +27,12 @@ export function collabRoomKey(
   return `${tenantId}:${type}:${id}:${field}`;
 }
 
+/** Room-key prefix for every field of one entity — used to evict all of an
+ *  entity's field docs at once when its last viewer leaves. */
+export function collabEntityPrefix(tenantId: string, type: string, id: string): string {
+  return `${tenantId}:${type}:${id}:`;
+}
+
 export class CollabService {
   private readonly docs = new Map<string, Y.Doc>();
 
@@ -54,14 +60,27 @@ export class CollabService {
     return Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64");
   }
 
-  /** Drop a room's doc — called when its last viewer leaves, to bound memory.
-   *  (The persisted text remains the source of truth; a fresh session re-seeds.) */
+  /** Drop a room's doc — to bound memory. (The persisted text remains the source
+   *  of truth; a fresh session re-seeds.) */
   evict(room: string): void {
     const doc = this.docs.get(room);
     if (doc !== undefined) {
       doc.destroy();
       this.docs.delete(room);
     }
+  }
+
+  /** Drop every field doc for one entity — called when its last presence viewer
+   *  leaves (no one is editing, so nothing is lost). Returns the count evicted. */
+  evictEntity(prefix: string): number {
+    let n = 0;
+    for (const room of [...this.docs.keys()]) {
+      if (room.startsWith(prefix)) {
+        this.evict(room);
+        n += 1;
+      }
+    }
+    return n;
   }
 
   /** Live room count (health/metrics). */

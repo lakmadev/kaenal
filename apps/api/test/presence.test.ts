@@ -90,4 +90,18 @@ describe("PresenceService", () => {
     const snap = await presence.snapshot(T1, "inspection", "never-touched");
     expect(snap).toEqual({ entityType: "inspection", entityId: "never-touched", viewers: [] });
   });
+
+  it("fires onEmpty only when the LAST viewer leaves (R8 collab eviction)", async () => {
+    const empties: string[] = [];
+    presence.setOnEmpty((t, type, id) => empties.push(`${t}:${type}:${id}`));
+    const T = `t-empty-${randomUUID().slice(0, 8)}`;
+
+    await presence.heartbeat(T, "ncr", "n1", "u1", false);
+    await presence.heartbeat(T, "ncr", "n1", "u2", false);
+    await presence.leave(T, "ncr", "n1", "u1"); // u2 still present → no fire
+    expect(empties).toHaveLength(0);
+    await presence.leave(T, "ncr", "n1", "u2"); // now empty → fires once
+
+    expect(empties).toEqual([`${T}:ncr:n1`]);
+  });
 });

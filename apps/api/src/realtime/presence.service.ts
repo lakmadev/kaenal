@@ -40,10 +40,18 @@ interface StoredViewer {
 }
 
 export class PresenceService {
+  private onEmpty?: (tenantId: string, type: PresenceEntity, id: string) => void;
+
   constructor(
     private readonly redis: Redis,
     private readonly realtime: RealtimeService,
   ) {}
+
+  /** Notified when an entity's last viewer leaves (Phase R8) — the collab service
+   *  uses it to evict that entity's now-idle CRDT docs. */
+  setOnEmpty(fn: (tenantId: string, type: PresenceEntity, id: string) => void): void {
+    this.onEmpty = fn;
+  }
 
   /** The view capability a member must hold to join an entity's presence. */
   requiredCapability(type: PresenceEntity): Capability {
@@ -96,6 +104,8 @@ export class PresenceService {
       .exec();
     const snapshot = await this.snapshot(tenantId, type, id);
     this.broadcast(tenantId, snapshot);
+    // Last viewer gone → let the collab service reclaim this entity's idle docs.
+    if (snapshot.viewers.length === 0) this.onEmpty?.(tenantId, type, id);
     return snapshot;
   }
 

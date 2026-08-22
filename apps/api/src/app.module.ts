@@ -80,7 +80,7 @@ import { RealtimeService } from "./realtime/realtime.service.js";
 import { PresenceController } from "./realtime/presence.controller.js";
 import { PresenceService } from "./realtime/presence.service.js";
 import { CollabController } from "./realtime/collab.controller.js";
-import { CollabService } from "./realtime/collab.service.js";
+import { CollabService, collabEntityPrefix } from "./realtime/collab.service.js";
 import { installAuditRealtimeBridge, uninstallAuditRealtimeBridge } from "./realtime/audit-signal.js";
 import { CommentsController } from "./collab/comments.controller.js";
 import { CommentsService } from "./collab/comments.service.js";
@@ -252,15 +252,19 @@ import {
     },
 
     {
-      // Feed every collab update from the Redis fan-out into the authoritative
-      // doc, on every instance. An eager provider (no consumers) so the wiring
-      // runs once at bootstrap.
+      // Realtime→collab wiring, run once at bootstrap (eager, no consumers):
+      //  - feed every collab update from the Redis fan-out into the authoritative
+      //    doc, on every instance;
+      //  - evict an entity's idle docs when its last presence viewer leaves (R8).
       provide: COLLAB_WIRING,
-      useFactory: (realtime: RealtimeService, collab: CollabService) => {
+      useFactory: (realtime: RealtimeService, collab: CollabService, presence: PresenceService) => {
         realtime.setCollabSink((room, update) => collab.apply(room, update));
+        presence.setOnEmpty((tenantId, type, id) =>
+          collab.evictEntity(collabEntityPrefix(tenantId, type, id)),
+        );
         return true;
       },
-      inject: [REALTIME, COLLAB_SERVICE],
+      inject: [REALTIME, COLLAB_SERVICE, PRESENCE_SERVICE],
     },
 
     {

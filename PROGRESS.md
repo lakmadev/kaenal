@@ -5,6 +5,20 @@
 
 ## Current status
 
+**Realtime Phase R8 — reclaim idle co-editing docs (2026-08-22).** Closes the R7 memory flag: the
+server-authoritative collab `Y.Doc`s lived until process restart. R8 evicts an entity's docs the moment its
+**last presence viewer leaves** (no one is editing, so nothing is lost — the persisted text is the source of
+truth and a fresh session re-seeds). **Wiring:** `PresenceService.setOnEmpty` fires when a `leave` empties an
+entity's viewer set; `CollabService.evictEntity(prefix)` drops every field doc under
+`collabEntityPrefix(tenant,type,id)`; the two are joined in the eager `COLLAB_WIRING` provider alongside the
+R7 collab sink. Reuses R4's presence set as the lifecycle signal — no new bookkeeping. **Tests:** collab 6/6
+(+`evictEntity` drops one entity's fields, spares others), presence 7/7 (+`onEmpty` fires ONLY on the last
+leave, exactly once). **Verified live** (Node + real API, fresh entity): after an edit `GET /state` was
+present; after the last viewer left it was **null** (`evictedOnLastLeave: true`). `pnpm typecheck` +
+`pnpm lint` clean. **Remaining flags:** all-viewers-lapse-with-no-explicit-leave still lingers until the next
+presence op reads an empty snapshot (rare; a periodic sweep is the follow-up); caret preservation;
+rich-text/cursors; mobile co-editing (needs authoring screens first). Realtime roadmap: **R1–R8** + G–K.
+
 **Realtime Phase R7 — production-harden co-editing: server-authoritative doc + late-join (2026-08-22).**
 R5 shipped a DUMB relay (broadcast opaque Yjs updates, kept no state), so a client that opened a field
 mid-session missed every edit made before it arrived — the biggest R5 flag. R7 closes it. **Why not R6.2
