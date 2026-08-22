@@ -225,9 +225,22 @@ function parseMe(raw: string | null): MeDto | null {
   }
 }
 
-/** Selector: the caller's resolved capabilities (empty when signed out). */
+/** Stable empty result so the selector never returns a fresh reference. */
+const NO_CAPS: readonly string[] = [];
+
+/**
+ * Selector: the caller's resolved capabilities (empty when signed out).
+ *
+ * The `?? NO_CAPS` default MUST live outside the selector: zustand v5's
+ * `useSyncExternalStore` requires a reference-stable snapshot, and returning a
+ * fresh `[]` from inside the selector when `me` is null makes React see the
+ * snapshot change on every render — an infinite loop that crashed detail screens
+ * the instant a session lapsed (no `me`), under the mobile build's React Compiler.
+ * The selector returns the stored array or `undefined` (both stable); the default
+ * is applied here.
+ */
 export function useCapabilities(): readonly string[] {
-  return useSession((s) => s.me?.capabilities ?? []);
+  return useSession((s) => s.me?.capabilities) ?? NO_CAPS;
 }
 
 /** Selector: the caller's mobile role (defaults to viewer when unknown/signed out). */
