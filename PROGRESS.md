@@ -5,6 +5,34 @@
 
 ## Current status
 
+**Realtime Phase R7 — production-harden co-editing: server-authoritative doc + late-join (2026-08-22).**
+R5 shipped a DUMB relay (broadcast opaque Yjs updates, kept no state), so a client that opened a field
+mid-session missed every edit made before it arrived — the biggest R5 flag. R7 closes it. **Why not R6.2
+mobile co-editing:** audited every mobile multiline field (voice/capture notes, verify note, comment
+composer, ncr-create, approval reason, inspection notes) — all are **single-author**; the 8D D5–D8
+narratives (the real web co-edit surface) aren't editable on mobile at all. Bolting CollabText onto a
+single-author field would be fabricated value (rule #10), so mobile co-editing has no honest home without
+first building collaborative long-form authoring on mobile (a product/design decision, not a realtime task).
+Pivoted to the real gap. **Server (yjs added to api — hardening justifies what R5 deliberately deferred):**
+`realtime/collab.service.ts` keeps a per-room authoritative `Y.Doc` that accumulates the broadcast updates;
+it holds only the DELTA from the shared deterministic seed (every client seeds the base locally), so the
+server never needs the entity's persisted text. **Multi-instance-correct by construction:** the doc is fed
+from the Redis **fan-out** (`RealtimeService.setCollabSink` → `CollabService.apply`, called in `fanOut` on
+EVERY instance including the origin, which receives its own publish) — not from the request handler — so
+every instance's doc converges without sticky sessions. New `GET /v1/collab/:type/:id/:field/state`
+(capability-gated) returns the accumulated state; the relay POST is unchanged. **Web:** `getCollabState()` +
+`CollabText` fetches `/state` on mount and applies it over the seed, so a late joiner converges with
+in-flight edits. **Tests:** `collab.test.ts` 5/5 (accumulate + **late-joiner convergence**; null state for an
+untouched room; room/tenant isolation; evict; malformed-update safety). **Verified live end-to-end** (Node
++ real API, bearer): Sarah edited "Root cause: worn spindle bearing" → relay `{delivered:1}` → the fan-out
+fed the server doc → a **fresh late joiner GET /state applied it over the seed and converged to the exact
+text** (`converged: true`). `pnpm typecheck` clean (types/api/web), `pnpm lint` clean, api 46 (collab 5,
+realtime 11, presence 6, lifecycle 24) + web collab 9. **Deferred (flagged):** room-doc eviction is
+implemented (`evict`) but not yet auto-called on last-viewer-leave, so rooms live until restart (memory
+bounded by active-field count — low, but wire eviction next); caret preservation on remote apply; rich-text
++ cursor awareness; mobile co-editing (needs collaborative authoring screens first). Realtime roadmap:
+R1–R7 + G–K shipped.
+
 **Realtime Phase R5 — collaborative editing (Yjs CRDT over SSE+REST) (2026-08-21).** Real concurrent
 character-level co-editing of 8D narrative fields — two people typing in the same D5–D8 field merge without
 clobbering. The ingredient that makes it *co-editing* (not R4's edit-lock) is a **CRDT: Yjs**. **Transport

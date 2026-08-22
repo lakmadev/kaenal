@@ -80,6 +80,7 @@ import { RealtimeService } from "./realtime/realtime.service.js";
 import { PresenceController } from "./realtime/presence.controller.js";
 import { PresenceService } from "./realtime/presence.service.js";
 import { CollabController } from "./realtime/collab.controller.js";
+import { CollabService } from "./realtime/collab.service.js";
 import { installAuditRealtimeBridge, uninstallAuditRealtimeBridge } from "./realtime/audit-signal.js";
 import { CommentsController } from "./collab/comments.controller.js";
 import { CommentsService } from "./collab/comments.service.js";
@@ -154,6 +155,8 @@ import {
   SPC_SERVICE,
   REALTIME,
   PRESENCE_SERVICE,
+  COLLAB_SERVICE,
+  COLLAB_WIRING,
   STORAGE,
   TEMPLATES_SERVICE,
   TENANT_REGISTRY,
@@ -239,6 +242,25 @@ import {
       provide: PRESENCE_SERVICE,
       useFactory: (redis: Redis, realtime: RealtimeService) => new PresenceService(redis, realtime),
       inject: [REDIS, REALTIME],
+    },
+
+    {
+      // Server-authoritative collab docs (R7): accumulate the CRDT deltas so a
+      // late joiner can converge via GET /state.
+      provide: COLLAB_SERVICE,
+      useFactory: () => new CollabService(),
+    },
+
+    {
+      // Feed every collab update from the Redis fan-out into the authoritative
+      // doc, on every instance. An eager provider (no consumers) so the wiring
+      // runs once at bootstrap.
+      provide: COLLAB_WIRING,
+      useFactory: (realtime: RealtimeService, collab: CollabService) => {
+        realtime.setCollabSink((room, update) => collab.apply(room, update));
+        return true;
+      },
+      inject: [REALTIME, COLLAB_SERVICE],
     },
 
     {

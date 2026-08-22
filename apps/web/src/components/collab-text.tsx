@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import type { PresenceEntity } from "@kaenal/types";
 import { collabRoom, onCollabUpdate } from "@/lib/collab-bus";
-import { postCollabUpdate } from "@/lib/collab";
+import { getCollabState, postCollabUpdate } from "@/lib/collab";
 import { fromBase64, seedUpdate, stringDiff, toBase64, ytextString } from "@/lib/collab-crdt";
 import { usePresence } from "@/hooks/use-presence";
 
@@ -91,7 +91,21 @@ export function CollabText({
       }
     });
 
+    // Late-join (R7): pull the room's live server state so we converge with
+    // edits made before we opened the field, not just the persisted base.
+    let joined = true;
+    void getCollabState(type, id, field).then((state) => {
+      if (joined && state !== null) {
+        try {
+          Y.applyUpdate(doc, fromBase64(state), "remote");
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+
     return () => {
+      joined = false;
       off();
       ytext.unobserve(observer);
       doc.off("update", onDocUpdate);

@@ -45,3 +45,26 @@ export async function postCollabUpdate(
     /* best-effort — a dropped update is recovered by the next edit or reload */
   }
 }
+
+/**
+ * Fetch the room's live accumulated state (Phase R7) so a late joiner converges
+ * with edits made before it arrived. Returns null when the server holds no
+ * in-flight state (the persisted text is already current).
+ */
+export async function getCollabState(
+  type: PresenceEntity,
+  id: string,
+  field: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${env.apiBaseUrl}/v1/collab/${type}/${id}/${encodeURIComponent(field)}/state`,
+      { credentials: "include", headers: headers() },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as { state: string | null };
+    return body.state;
+  } catch {
+    return null;
+  }
+}

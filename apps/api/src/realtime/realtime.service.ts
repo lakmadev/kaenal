@@ -2,6 +2,7 @@ import type { OnModuleDestroy } from "@nestjs/common";
 import type Redis from "ioredis";
 import { authorize, type Capability, type Membership } from "@kaenal/core";
 import type { RealtimeEvent } from "@kaenal/types";
+import { collabRoomKey } from "./collab.service.js";
 
 /** The single Redis pub/sub channel every API instance fans out from. One
  *  channel + in-process tenant filtering scales fine here and shards later. */
@@ -51,6 +52,7 @@ interface Client {
  */
 export class RealtimeService implements RealtimeEmitter, OnModuleDestroy {
   private readonly clients = new Set<Client>();
+  private collabSink?: (room: string, base64Update: string) => void;
 
   constructor(
     private readonly pub: Redis,
@@ -58,6 +60,13 @@ export class RealtimeService implements RealtimeEmitter, OnModuleDestroy {
   ) {
     void this.sub.subscribe(RT_CHANNEL);
     this.sub.on("message", (_channel, payload) => this.fanOut(payload));
+  }
+
+  /** Feed collab updates into the authoritative doc (Phase R7). Set once at
+   *  bootstrap. Runs on the Redis fan-out, so EVERY instance's doc converges —
+   *  the origin instance included (it receives its own published update). */
+  setCollabSink(fn: (room: string, base64Update: string) => void): void {
+    this.collabSink = fn;
   }
 
   /** Publish to every instance. Fire-and-forget by design: the bus is a
@@ -92,6 +101,23 @@ export class RealtimeService implements RealtimeEmitter, OnModuleDestroy {
       signal = JSON.parse(payload) as RealtimeSignal;
     } catch {
       return; // malformed — never throw on the subscriber connection
+    }
+    // Feed the authoritative collab doc (R7) before delivering to streams, so a
+    // concurrent late-joiner's /state read reflects this update. Runs on every
+    // instance from the Redis fan-out — no sticky sessions needed.
+    const ev = signal.event;
+    if (
+      this.collabSink !== undefined &&
+      ev.topic === "collab" &&
+      ev.entityType !== undefined &&
+      ev.entityId !== undefined &&
+      ev.field !== undefined &&
+      ev.update !== undefined
+    ) {
+      this.collabSink(
+        collabRoomKey(signal.tenantId, ev.entityType, ev.entityId, ev.field),
+        ev.update,
+      );
     }
     for (const client of this.clients) {
       if (!RealtimeService.matches(signal, client.identity)) continue;
