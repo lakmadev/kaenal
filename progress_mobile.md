@@ -162,6 +162,29 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
+**Realtime R6.2 — mobile co-editing (Yjs CRDT) (2026-08-22, branch `feat/mobile-coediting`).** Closes the
+mobile-parity gap: real concurrent text co-editing on mobile, and — because it shares the deterministic seed
+and a STANDARD base64 alphabet with the web — a web user and a mobile user editing the SAME field converge
+**cross-platform**. Since every existing mobile long-form field is single-author, this adds a genuinely
+collaborative surface: a **"Shared working note"** on the 8D current step (the 8D team co-authors it live).
+**Infra (native mirror of web R5/R7):** `features/collab/crdt.ts` (stringDiff, deterministic `seedUpdate`,
+`ytextString`, and a dependency-free base64 — RN has no btoa/atob), `features/collab/bus.ts` (room emitter),
+`services/collab.ts` (bearer relay POST + `/state` late-join), `features/collab/CollabText.tsx` (a native
+`TextInput` bound to a Yjs doc — local edit→incremental POST, inbound→applyUpdate, joins R4 presence, pulls
+`/state` on mount). `use-realtime-sync` routes `collab` events to the bus. **8D integration:** the current
+step's card (when it's yours) shows the CollabText + a "Save note" that persists the converged text
+offline-first via the extended `enqueueEightDStep` (now carries `data`); `PresenceBar` added to the 8D
+header. **Tests:** `collab-crdt.test.ts` 5/5 — diff cases, **base64 == standard base64** (proves web/server
+interop), deterministic seed, and a two-peer concurrent-edit convergence routed THROUGH the base64 codec.
+**Verified live cross-platform** (Expo Web demo ↔ curl-web Sarah on 8D-2026-0002): the mobile 8D rendered the
+"Shared working note" editor (demo = team lead → YOURS, no crash), and Sarah's web-side Yjs edit relayed
+in and the mobile textarea converged to **"Live edit from Sarah on web → mobile"**. `pnpm --filter
+@kaenal/mobile typecheck` clean, `lint:mobile` 0 errors (29 warnings; +3 of the pervasive react-hooks
+advisory class, baseline 26). **Deferred (flagged):** aligning the mobile field key with the web 8D
+discipline field keys so the two co-edit the EXACT same structured narrative (today mobile uses a shared
+`note` field); native caret preservation on remote apply; rich-text/cursors. This completes web+mobile
+realtime parity: presence (R4/R6) + co-editing (R5/R6.2).
+
 **Realtime R6 — mobile live presence + edit-intent (2026-08-22, branch `feat/realtime-sse`).** Brings
 R4's web presence to the mobile app — who else is on a record, and who's editing — reusing the backend bus
 + relay unchanged (the mobile UI was the deferred piece flagged in R4/R5). **Transport:** reuses R3's
