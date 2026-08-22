@@ -116,7 +116,7 @@ export async function drainOutboxForTenant(
         };
 
         try {
-          await deps.handler.deliver(event);
+          await deps.handler.deliver(tx, event);
           await tx.query(
             `UPDATE outbox
                 SET status = 'delivered', published_at = now(), last_error = NULL

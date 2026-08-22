@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import type { Tx } from "@kaenal/db";
 import type { OutboxEvent, OutboxHandler } from "./outbox.types.js";
 
 /**
@@ -16,7 +17,7 @@ import type { OutboxEvent, OutboxHandler } from "./outbox.types.js";
 export class LoggingOutboxHandler implements OutboxHandler {
   private readonly logger = new Logger("Outbox");
 
-  deliver(event: OutboxEvent): Promise<void> {
+  deliver(_tx: Tx, event: OutboxEvent): Promise<void> {
     this.logger.log(
       `deliver ${event.eventType} tenant=${event.tenantId} entity=${event.entityKind}:${event.entityId} (attempt ${event.attempts + 1})`,
     );

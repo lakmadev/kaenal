@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
-import { withAudit, withTenant, type AuditEventInput } from "@kaenal/db";
+import { withAudit, withTenant, type AuditEventInput, type Tx } from "@kaenal/db";
 import type { AuditAction } from "@kaenal/types";
 import { auditActionToOutbox, outboxEventFor } from "../src/outbox/outbox-event.js";
 import { installOutboxBridge, uninstallOutboxBridge } from "../src/outbox/outbox-bridge.js";
@@ -96,7 +96,7 @@ async function countAudit(tenantId: string, entityId: string): Promise<number> {
 
 class RecordingHandler implements OutboxHandler {
   readonly delivered: OutboxEvent[] = [];
-  deliver(event: OutboxEvent): Promise<void> {
+  deliver(_tx: Tx, event: OutboxEvent): Promise<void> {
     this.delivered.push(event);
     return Promise.resolve();
   }
