@@ -5,6 +5,31 @@
 
 ## Current status
 
+**Sequence 2 (verify slice) — "Send test event" for webhook endpoints (2026-08-22).** Closes the webhook
+verify loop: an admin pings an endpoint and gets the REAL delivery outcome, the same signed path a live event
+takes — no mock. The per-endpoint send was extracted from the fan-out handler into `outbox/webhook-deliver.ts`
+(`deliverToEndpoint` — sign + POST + `integration_events` log + endpoint health, returns an outcome, never
+throws), shared by both the drainer's `WebhookOutboxHandler` and the new test action, so "it works in the UI"
+means the actual delivery works. **Backend:** `IntegrationsService.sendTest` (injectable `SecretResolver` +
+`WebhookTransport` so it's fake-testable; real ones in the Nest provider) builds a `webhook.ping` `OutboxEvent`
+and delivers it to one endpoint under `withAudit`; foreign/unknown ids 404 via `load` (RLS), only
+`generic_webhook` endpoints qualify. `POST /v1/integrations/:id/test` (contract `testIntegration`, plain
+controller route, `integration:manage`) → `WebhookTestResultDto {ok,status,detail,at}`. **Web:** a "Send test
+event" button in the connector `ConnectorDetail` (gated to connected webhooks) via `useTestWebhook`, toasting
+ok/failure; the existing delivery log then shows the ping. **Tests:** `webhook-test-send.test.ts` 6/6 (signed
+ping delivered + `ok` logged; 5xx → failure not fake success; no-secret → no unsigned send; non-webhook →
+400; unknown id → 404; **cross-tenant 404 + no delivery**). Full gate: `typecheck` 7/7, `lint` clean, `test`
+7/7 (**api 478**; web 23; the shared-DB order flake — search/scheduling — passes isolated + on re-run),
+`test:rls` 311/311, `db:check` 51. **Browser-verified end to end** (admin, real API): connected a
+`generic_webhook`, expanded it, clicked "Send test event" → a `webhook.ping` row appeared in the delivery log
+with the honest `no destination URL configured` failure (the card connect sets a credential pointer but no
+URL) — proving button → `POST /test` → `sendTest` → `deliverToEndpoint` → `integration_events` → UI, all live.
+Had to restart the API preview once (stale tsx watch after the new `@kaenal/types` export) and re-seed the
+demo login. **Flagged next:** a real webhook config form (URL + events + secret) on the card so a test can
+succeed against a live receiver — today the URL isn't capturable in the card UI (`connectorSchema` for
+`generic_webhook` is empty); the API accepts it via the free-map `config`, so the endpoint is fully
+configurable by API, just not yet by form.
+
 **Sequence 2 (delivery slice) — Webhook delivery: signed fan-out through the integrations substrate
 (2026-08-22).** Turns the outbox from durable-but-undelivered into real outbound events. The outbox drainer's
 `LoggingOutboxHandler` is replaced by a `WebhookOutboxHandler` that fans each event out to the tenant's

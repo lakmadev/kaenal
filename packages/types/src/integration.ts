@@ -92,3 +92,19 @@ export type ConnectorField = z.infer<typeof ConnectorField>;
 
 export const ConnectorSchemaResult = z.object({ fields: z.array(ConnectorField) });
 export type ConnectorSchemaResult = z.infer<typeof ConnectorSchemaResult>;
+
+/**
+ * Outcome of a "send test event" — a real signed delivery of a synthetic
+ * `webhook.ping` to one endpoint (same path a real event takes). `status` is the
+ * HTTP status, or null when the request never completed (bad secret / transport
+ * error); `detail` explains a failure. It is also written to the endpoint's
+ * `integration_events` log, so the settings screen shows the ping like any other
+ * delivery.
+ */
+export const WebhookTestResultDto = z.object({
+  ok: z.boolean(),
+  status: z.number().nullable(),
+  detail: z.string().nullable(),
+  at: z.string(),
+});
+export type WebhookTestResultDto = z.infer<typeof WebhookTestResultDto>;
