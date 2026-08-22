@@ -7,6 +7,7 @@ import type {
   CreateIntegrationBody,
   IntegrationDto,
   UpdateIntegrationBody,
+  WebhookTestResultDto,
 } from "@kaenal/types";
 import { getApiClient } from "@/lib/api";
 
@@ -81,6 +82,20 @@ export function useUpdateIntegration() {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: UpdateIntegrationBody }) =>
       client.updateIntegration({ params: { id }, body }).then((r) => unwrap<IntegrationDto>(r)),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Send a real signed test event to a webhook endpoint. Invalidates the registry
+ * so the ping appears in that endpoint's delivery log (and its health updates).
+ */
+export function useTestWebhook() {
+  const client = getApiClient();
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (id: string) =>
+      client.testIntegration({ params: { id }, body: {} }).then((r) => unwrap<WebhookTestResultDto>(r)),
     onSuccess: invalidate,
   });
 }

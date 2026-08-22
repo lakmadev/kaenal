@@ -11,9 +11,14 @@ import type {
   IntegrationProvider,
   Page,
   UpdateIntegrationBody,
+  WebhookTestResultDto,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
 import type { AuditContext } from "../ncr/audit-context.js";
+import { EnvSecretResolver, type SecretResolver } from "../tenant/secret-resolver.js";
+import { FetchWebhookTransport, type WebhookTransport } from "../outbox/webhook-transport.js";
+import { deliverToEndpoint } from "../outbox/webhook-deliver.js";
+import type { OutboxEvent } from "../outbox/outbox.types.js";
 
 interface Row {
   id: string;
@@ -41,6 +46,17 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 @Injectable()
 export class IntegrationsService {
+  /**
+   * Delivery deps are injectable so the webhook test-send is unit-testable with a
+   * fake transport/secret manager; the Nest provider constructs the real ones
+   * (env-backed secret resolution + `fetch`). Only `sendTest` uses them.
+   */
+  constructor(
+    private readonly secrets: SecretResolver = new EnvSecretResolver(),
+    private readonly transport: WebhookTransport = new FetchWebhookTransport(),
+    private readonly clock: () => Date = () => new Date(),
+  ) {}
+
   async list(tx: Tx): Promise<Page<IntegrationDto>> {
     const { rows } = await tx.query<Row>(
       `SELECT ${COLS} FROM integrations WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC`,
@@ -200,6 +216,57 @@ export class IntegrationsService {
         return toDto(rows[0] ?? row);
       },
     );
+  }
+
+  /**
+   * Send a test event to a webhook endpoint — a real signed `webhook.ping`
+   * through the exact delivery path a live event takes (same `deliverToEndpoint`,
+   * same signature, same `integration_events` log row), so "it works" in the UI
+   * means the real thing works, not a mock. Foreign/unknown ids 404 via `load`
+   * (RLS); only `generic_webhook` endpoints can be pinged. Audited as an
+   * `integration` update because it touches the endpoint's delivery state.
+   */
+  async sendTest(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    id: string,
+    ctx: AuditContext,
+  ): Promise<WebhookTestResultDto> {
+    const row = await this.load(tx, id);
+    if (row.provider !== "generic_webhook") {
+      throw new ApiError("VALIDATION_FAILED", "Test events can only be sent to webhook endpoints");
+    }
+    const config = (row.config ?? {}) as Record<string, string>;
+    const now = this.clock();
+    const event: OutboxEvent = {
+      id: randomUUID(),
+      tenantId,
+      eventType: "webhook.ping",
+      entityKind: "webhook",
+      entityId: id,
+      action: "created",
+      actorId,
+      actorKind: "user",
+      payload: { entityId: id, at: now.toISOString() },
+      attempts: 0,
+      createdAt: now,
+    };
+
+    const outcome = await withAudit(
+      tx,
+      tenantId,
+      audit(actorId, "updated", id, ctx, { after: { test: "webhook.ping" } }),
+      (t) =>
+        deliverToEndpoint(
+          t,
+          { id, url: config["url"] ?? "", credentialsRef: row.credentials_ref },
+          event,
+          { secrets: this.secrets, transport: this.transport, clock: this.clock },
+        ),
+    );
+
+    return { ok: outcome.ok, status: outcome.status, detail: outcome.detail, at: now.toISOString() };
   }
 }
 

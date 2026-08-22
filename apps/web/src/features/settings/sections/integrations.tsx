@@ -10,6 +10,7 @@ import {
   Lock,
   Plug,
   Search,
+  Send,
   Trash2,
 } from "lucide-react";
 import {
@@ -28,6 +29,7 @@ import {
   useDisconnectIntegration,
   useIntegrationEvents,
   useIntegrations,
+  useTestWebhook,
 } from "@/hooks/use-integrations";
 import { EmptyState, Spinner, useToast } from "@/components/ui";
 import { SettingsPage } from "../settings-bits";
@@ -293,6 +295,22 @@ function StatusChip({ status }: { status: IntegrationDto["status"] | "unregister
 function ConnectorDetail({ integration, isSource }: { integration: IntegrationDto; isSource: boolean }): React.ReactElement {
   const events = useIntegrationEvents(integration.id, true);
   const schema = useConnectorSchema(integration.id, isSource);
+  const test = useTestWebhook();
+  const toast = useToast();
+
+  // A webhook endpoint can be pinged once connected — a real signed delivery the
+  // admin can verify without waiting for a live event.
+  const canTest = integration.provider === "generic_webhook" && integration.status === "connected";
+  const sendTest = (): void => {
+    test.mutate(integration.id, {
+      onSuccess: (res) =>
+        res.ok
+          ? toast.success(`Test event delivered${res.status !== null ? ` (HTTP ${res.status})` : ""}`)
+          : toast.error(res.detail ?? "Test delivery failed"),
+      onError: (e) =>
+        toast.error(e instanceof ApiRequestError && e.status === 403 ? "Requires an administrator" : "Couldn't send test event"),
+    });
+  };
 
   return (
     <div className="border-t border-border p-3.5">
@@ -316,7 +334,14 @@ function ConnectorDetail({ integration, isSource }: { integration: IntegrationDt
         </div>
       )}
 
-      <div className="k-overline mb-1.5">Delivery log</div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <div className="k-overline">Delivery log</div>
+        {canTest && (
+          <button className="k-btn k-btn-ghost k-btn-sm" onClick={sendTest} disabled={test.isPending}>
+            {test.isPending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Send test event
+          </button>
+        )}
+      </div>
       {events.isPending ? (
         <div className="text-[12px] text-muted">Loading events…</div>
       ) : (events.data?.items.length ?? 0) === 0 ? (

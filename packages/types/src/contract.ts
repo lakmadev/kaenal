@@ -171,6 +171,7 @@ import {
   CreateIntegrationBody,
   UpdateIntegrationBody,
   ConnectIntegrationBody,
+  WebhookTestResultDto,
 } from "./integration.js";
 import {
   ImportTargetsResult,
@@ -1248,6 +1249,14 @@ export const contract = c.router(
       body: z.object({}),
       responses: { 200: IntegrationDto, ...commonErrors },
       summary: "Remove a connector — purges secrets (integration:manage)",
+    },
+    testIntegration: {
+      method: "POST",
+      path: "/v1/integrations/:id/test",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: z.object({}),
+      responses: { 200: WebhookTestResultDto, ...commonErrors },
+      summary: "Send a signed test event to a webhook endpoint (integration:manage)",
     },
 
     // --- Bulk import (09 §6; operations.jsx BulkImport) --------------------

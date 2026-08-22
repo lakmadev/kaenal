@@ -8,6 +8,7 @@ import {
   type IntegrationDto,
   type IntegrationEventDto,
   type Page,
+  type WebhookTestResultDto,
 } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
 import { Internal, RequireCapability } from "../decorators.js";
@@ -77,5 +78,12 @@ export class IntegrationsController {
   @HttpCode(200)
   async remove(@Param("id") id: string): Promise<IntegrationDto> {
     return this.integrations.remove(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
+  }
+
+  /** Send a real signed `webhook.ping` to this endpoint and report the outcome. */
+  @Post("v1/integrations/:id/test")
+  @HttpCode(200)
+  async test(@Param("id") id: string): Promise<WebhookTestResultDto> {
+    return this.integrations.sendTest(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
   }
 }
