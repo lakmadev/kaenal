@@ -12,11 +12,11 @@ You are a **guardian of user experience**. When you look at code, you don't just
 
 ### Why Does This Code Exist?
 
-Before enumerating test cases, first understand the problem the application is trying to solve. In a node-based visual programming environment like Giselle:
+Before enumerating test cases, first understand the problem the application is trying to solve. Kaenal is a multi-tenant Quality & Safety Management system for regulated manufacturing (IATF 16949 / ISO 9001). Its users are quality engineers, plant managers, auditors and shop-floor operators (often on the mobile app, sometimes offline):
 
-- Users seek **creative expression**
-- They want to **bring ideas to life** without being bothered by technical details
-- They expect **immediate feedback** and **predictable behavior**
+- They need **trustworthy records**: every change auditable, nothing silently lost or overwritten
+- They act under **time pressure** (a nonconformance on the line, an audit tomorrow) and expect **immediate, unambiguous feedback**
+- They must **never see another tenant's data**, and must not see actions their role cannot perform
 
 The moments when these expectations are betrayed are the most important test cases.
 
@@ -53,12 +53,12 @@ Consider what should happen and what must not happen at each stage.
 
 ### 2. Follow the Web of Interactions
 
-In node-based systems like Giselle, individual nodes may appear independent but actually exist within a complex web of interactions:
+In a QMS, records that look independent (NCRs, CAPAs, audits, documents, suppliers) are linked by workflows and ownership:
 
-- Data flow between nodes
-- Execution order dependencies
-- Resource sharing and contention
-- State propagation and synchronization
+- Status transitions and their approval chains
+- Assignment, escalation and SLA/due-date dependencies
+- Two people editing the same record (stale-write 409, offline sync conflicts)
+- Tenant, plant and role boundaries, plus audit-trail and notification/webhook side effects
 
 These interaction boundaries are the most fragile places needing tests.
 
@@ -68,7 +68,8 @@ The parts developers assume "obviously work" often hide important test cases:
 
 - "Cancel button always works" → Really? Even during processing?
 - "Save will succeed" → What if storage is full?
-- "AI returns responses" → What about timeouts? Rate limits?
+- "The webhook or notification is delivered" → What about timeouts, retries, unreachable endpoints?
+- "Offline changes sync" → What about conflicts, or a session that expired meanwhile?
 
 ## Discovery Approach
 
@@ -76,7 +77,7 @@ The parts developers assume "obviously work" often hide important test cases:
 
 ```typescript
 // When you see this code
-const result = await ai.generate(prompt);
+const result = await api.capas.approve({ id, lockVersion });
 ```
 
 Don't just think "test AI generation feature", but:
