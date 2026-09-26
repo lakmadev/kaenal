@@ -57,7 +57,7 @@ export interface ApiClientOptions {
   csrfToken?: Resolvable<string>;
 }
 
-function buildHeaders(
+export function buildHeaders(
   base: Record<string, string>,
   method: string,
   opts: ApiClientOptions,

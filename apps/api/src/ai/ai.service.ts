@@ -8,6 +8,9 @@ import type {
 } from "@kaenal/types";
 import { ApiError } from "../errors.js";
 import type { AuditContext } from "../ncr/audit-context.js";
+import type { Membership } from "@kaenal/core";
+import type { AiChatChunk, AiChatRequest } from "@kaenal/types";
+import { prepareChat, streamChat, type PreparedChat } from "./chat.js";
 import type { AiGatewayService } from "./gateway.service.js";
 
 /**
@@ -76,6 +79,23 @@ export class AiService {
       case "region":
         throw new ApiError("FORBIDDEN", "AI is not available in this workspace's region");
     }
+  }
+
+  /** Chat step 1 (request tx): resolve the entity under RLS + audit `ai_chat`. */
+  prepareChat(
+    tx: Tx,
+    tenantId: string,
+    membership: Membership,
+    userId: string,
+    body: AiChatRequest,
+    ctx: AuditContext,
+  ): Promise<PreparedChat> {
+    return prepareChat(tx, tenantId, membership, userId, body, ctx);
+  }
+
+  /** Chat step 2 (no tx held): governed gateway call, streamed as frames. */
+  chatStream(tenantId: string, userId: string, prepared: PreparedChat, pool?: pg.Pool): AsyncGenerator<AiChatChunk, void, undefined> {
+    return streamChat(this.gateway, tenantId, userId, prepared, pool);
   }
 
   async acceptSummary(

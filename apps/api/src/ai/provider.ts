@@ -15,6 +15,8 @@ export interface AiCompletionRequest {
   /** The user content — already PII-redacted by the gateway before it arrives. */
   readonly input: string;
   readonly maxTokens: number;
+  /** The gateway feature (lets the deterministic stub shape a chat reply). */
+  readonly feature?: string;
   /** Base64 images (no data: prefix) for a vision model — the defect photo. */
   readonly images?: readonly string[];
 }
@@ -28,6 +30,8 @@ export interface AiCompletion {
 export interface AiProvider {
   /** The region this provider serves — the gateway checks it against a tenant's residency lock. */
   readonly region: string;
+  /** Short label surfaced to clients as reply provenance ('stub', 'ollama'). */
+  readonly name?: string;
   complete(req: AiCompletionRequest): Promise<AiCompletion>;
 }
 
@@ -44,12 +48,24 @@ function wordCount(text: string): number {
  */
 export class StubAiProvider implements AiProvider {
   readonly region: string;
+  readonly name = 'stub';
 
   constructor(region = "us-east-1") {
     this.region = region;
   }
 
   complete(req: AiCompletionRequest): Promise<AiCompletion> {
+    if (req.feature === 'chat') {
+      // Deterministic, honestly labelled placeholder — NOT a model answer.
+      const q = req.input.split('QUESTION:').pop() ?? req.input;
+      const qw = q.trim().split(/\s+/).filter(Boolean).slice(0, 30).join(' ');
+      const text = `[Stub AI provider - no model configured] You asked: ${qw === '' ? '(empty)' : qw}`;
+      return Promise.resolve({
+        text,
+        inputTokens: wordCount(req.system) + wordCount(req.input),
+        outputTokens: wordCount(text),
+      });
+    }
     const words = req.input.trim().split(/\s+/).filter(Boolean);
     const head = words.slice(0, 40).join(" ");
     const text = head === "" ? "(no content)" : `Summary: ${head}${words.length > 40 ? "…" : ""}`;
@@ -71,6 +87,7 @@ export class StubAiProvider implements AiProvider {
  */
 export class OllamaAiProvider implements AiProvider {
   readonly region: string;
+  readonly name = 'ollama';
 
   constructor(
     private readonly baseUrl: string,

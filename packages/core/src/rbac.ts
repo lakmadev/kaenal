@@ -75,6 +75,10 @@ export const CAPABILITIES = [
   // service also requires the session to carry a supplier scope.
   "portal:view",
   "portal:respond",
+  // AI assistant chat (S1-4). Read-only: a chat turn never writes business data
+  // (the reply is a draft; "Pin to entity" is a separate comment:* mutation).
+  // Held by every internal role including viewer; never by partner.
+  "ai:use",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -116,6 +120,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "report:manage",
     "import:run",
     "settings:manage",
+    "ai:use",
   ],
 
   auditor: [
@@ -137,6 +142,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "fmea:manage",
     "spc:view",
     "report:view",
+    "ai:use",
   ],
 
   inspector: [
@@ -153,6 +159,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "fmea:view",
     "spc:view",
     "measurement:manage",
+    "ai:use",
   ],
 
   viewer: [
@@ -167,6 +174,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "fmea:view",
     "spc:view",
     "report:view",
+    "ai:use",
   ],
 
   // External supplier contact — the read-only portal, nothing internal. Every
