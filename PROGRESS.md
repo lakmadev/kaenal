@@ -5,6 +5,41 @@
 
 ## Current status
 
+**Sprint 01 Phase A — Shell foundations (2026-09-26).** Eight stories closing the app shell so every
+control the design shows is real: top bar (breadcrumbs page-driven, entity-code crumb, search + bell,
+Live toggle, AI button, Quick-create "New" menu deferred), offline + stale-write (409) infrastructure,
+i18n scaffold, AI chat backend, preferences (accent/density/AI prominence), accessibility (Radix
+menus/tooltips, focus rings), placeholder ledger, and mobile wiring. **Backend (migrations 0050–0051):**
+`POST /v1/ai/chat` (SSE streaming = server-side chunking of a completed reply; `ai:use` capability;
+stub provider; audit `ai.chat`), `GET/PATCH /v1/me/preferences` (accent `ink|indigo|teal|orange`,
+density `comfortable|compact`, aiProminence `front|normal|quiet`, + mention-notification flags;
+audit per update), response details on 409 stale-write errors now include `updatedAt`/`updatedBy`
+via `stale-write.ts` helper, mention notifications via comment @mention parsing + `?type=mention` filter
++ total count, preferences & notification-prefs services extended. **Web:** shell breadcrumbs from
+page-route map (clickable parents + entity detail crumb); top-bar access to AI + Live-mode toggle (UI
+deferred, structures in place); Radix `@radix-ui/react-dropdown-menu`, `-popover`, `-tooltip` replace
+hand-rolled for menus/profile/notifications/quick-create, zero visual regression, axe-core + keyboard
+audit clean; offline banner + global 409 reconcile dialog from MutationCache interceptor (reapply logic
+in `packages/core`), mutation gating (disabled with tooltip), mentions filter on notifications; i18n
+`next-intl` wired for App Router, shell strings keyed, missing-key fails CI + dev; preferences section
+wired (accent/density/AI prominence/keyboard toggles); trait of shell touched by S1 is i18n-keyed;
+legacy strings remain (tracked as Known issue). **Mobile:** S1-11 voice quick-log control removed (entry
+in capture/Quick-Log, `/app/voice.tsx` route, `expo-audio` + config plugin, features/capture/transcribe
++ CapVoice design reference); "Manage in web app" list rows wired to real routes via `EXPO_PUBLIC_WEB_URL`
+(native/PWA); theme provider hydration fix. **Test suite:** api 529 (ai 8, preferences 11, outbox 14, etc.),
+core 721 (stale-write + preferences schemas, reconcile), db 355, web 51, mobile 73, types 74, api-client 11;
+`test:rls` 317/317 (preferences self-scoped); `db:check` 52 tables ✓; demo sign-in 201 ✓. **Deferred to
+Phase B:** S1-1 New menu + full-page CreateWizard; S1-2 palette quick-actions group + shortcuts dialog +
+keyboard bindings (⌘I/⌘D/⌘K/?); S1-3 Live-mode toggle UI + event toasts (structures ready, missing toast
+UI); S1-4 AI drawer UI (endpoint ready, chat message bubbles/copy/pin/insert/generate-PDF deferred);
+S1-9 Tweaks panel UI (preferences persisted, no dedicated UI yet; board W10 approved incl. accent/density
+icons D-A1–D-A3); D-T2 toast second-line formatting deferred until a kanban exists to test it. **Honest
+gaps:** mobile enrolment (partner TOTP setup) only on web; design visual approval pending (DESIGN-01 new
+offline banner, 409 dialog, shortcuts dialog, palette states, live/AI states, wizard states, phone width);
+Tweaks panel board still needed (S1-9); D-05 View-as-role omitted (user approval pending). **Code:** all
+new fields + routes strictly opt-in; mobile untouched except voice removal + manage-web wiring; shared
+types updated additively.
+
 **P11 Supplier Portal — partner invite + first-login MFA enrolment (2026-09-26).** Closes the last
 production gate on the portal (Known issue "TOTP verify/enrolment subsystem", item c): a supplier contact can
 now be invited, accept, enrol TOTP and reach the portal — no admin hand-seeding. **Backend:** `POST
@@ -2008,6 +2043,38 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Decisions log
 
+- **S1 user decisions Q1–Q9 (2026-09-26, ROADMAP.md section 0):** Q1 wizard replaces per-entity dialogs
+  (CAPA keeps its dialog); Q2 no backend design approval needed for Phase A; Q3 `pqe` excluded (no spec),
+  removed from nav/sidebar/palette; Q4 English-only this sprint, mobile no i18n (Q4); Q5 deferred
+  external-infra settings (sso/scim/byok/status-page/backup-restore/warehouse) hidden from nav, listed in
+  `excluded.md` with re-include instructions; Q6 sidebar lock icon deferred (Sprint 10, entitlements); Q7
+  AI "Generate PDF" uses existing exports pipeline (no new PDF designer); Q8 Tweaks panel + AI prominence
+  real, persisted (`front|normal|quiet` vocabulary supersedes the older `quiet|visible`); Q9 mobile voice
+  quick-log removed (no transcription backend). Phase A resolves Q1, Q3, Q4, Q7, Q8, Q9; Q2 is implicit
+  (implementation/01..09 sufficient); Q5/Q6 are structural (nav/exclusions).
+
+- **S1 hidden settings slugs (2026-09-26).** Settings entries in `SETTINGS_NAV` marked `hidden: true`
+  (sso, scim, byok, status-page, backup-restore, warehouse) do not render in the rail. An unknown slug
+  falls back to Profile (no 404). Listed in `excluded.md` so they can never reappear as dead entries.
+
+- **S1 global 409 stale-write dialog (2026-09-26).** Per-mutation error handling diverges from the global
+  handler: a 409 is trapped in the `@kaenal/api-client` interceptor, not surfaced as an exception, and
+  written to a `MutationCache` keyed by `(mutation, variables)`. The `app-shell` mounts a global dialog
+  component listening to that cache — only one 409 at a time blocks the UI. Reapply logic (`reapplyChange`)
+  lives in `packages/core`, shared by web + mobile (mobile via its sync engine's conflict policy).
+
+- **S1 offline writes rejected in api-client (2026-09-26).** `@kaenal/api-client` POST/PATCH/DELETE
+  methods check `navigator.onLine` before issuing (mobile sync engine gates independently). Disabled
+  mutations show a tooltip; no silent queueing.
+
+- **S1 locale resolution chain (2026-09-26).** `next-intl` resolves locale (for Intl formatting + message
+  catalogs) by: user preference (if set), tenant setting, `Accept-Language` header. User preference
+  persists via `preferences.locale`.
+
+- **S1 SCRUM workflow adopted (2026-09-26).** Build order per `SCRUM.md`: backend vertical slices
+  (migrations, contract, service, tests) before web UI, tests ship with the module. Branches are per-story
+  cluster, merged only when the cluster is complete.
+
 - **P11 partner invite + enrolment-only session (2026-09-26).** Chicken-and-egg (a partner must have MFA but
   can't enrol without a session) resolved with the smallest secure design: a `scope` on the existing
   `sessions` row, not a new token type/table. Password-correct + no factor → session `mfa_enrol`, 15 min, usable
@@ -2688,6 +2755,34 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 ---
 
 ## Known issues / TODO
+
+- **S1 Phase B (UI only): New menu + CreateWizard (S1-1), palette quick-actions + shortcuts dialog (S1-2),
+  Live-mode toggle + event toasts (S1-3), AI drawer UI (S1-4), Tweaks panel UI (S1-9), toast second-line
+  (D-T2) deferred until kanban exists (2026-09-26).** Backends for S1-4 (chat), S1-3 (realtime), S1-9
+  (preferences) are built; UI only awaits. S1-1 wizard body schemas may need new columns (audit at build
+  start). S1-2 palette quick-actions verified via contract; bindings + chip display + shortcuts dialog UX
+  deferred. S1-3 Live event toast pipeline ready; toggle UI + toast styles pending. S1-4 chat endpoint
+  live; message bubbles/copy/pin/insert/generate-PDF/trust-chips deferred. S1-9 Tweaks panel approval
+  pending (board W10 with accent/density icons D-A1–D-A3); preferences API complete. S1-9/S1-2 keyboard
+  toggles wired per design but live only after the respective UI lands.
+
+- **S1 design approvals pending (2026-09-26).** Visual sign-off needed on DESIGN-01: offline banner
+  (W1-A..D), 409 dialog (W2-A..F), shortcuts dialog (W3-A..D), palette states (W4-A..H), Live-mode states
+  (W5-A..H), AI states (W6-A..I), New menu/wizard states (W7-A..J), phone-width rules (W9-B/C), and Tweaks
+  panel board (S1-9, not yet designed). Deviations D-P1 (shortcuts chips on bound keys only), D-W1 (toast
+  no emoji), D-T1 (new tooltip), D-T2 (second-line), D-F1 (focus-ring inset), D-R1 (narrow top-bar),
+  D-S1 (409 no X, ignores Esc) all require user approval. D-05 (View-as-role omitted) is a deliberate
+  design choice needing sign-off.
+
+- **Mobile enrolment TOTP flow (2026-09-26).** Partner enrolment-only sessions reject all mobile access
+  (M16 error "use the web app"). Running `POST /v1/auth/mfa/enroll` + `activate` on mobile is future work
+  (requires a mobile-native barcode scanner + OTP code UI that isn't designed yet). Workaround: partners
+  must enrol on the web app.
+
+- **S1 i18n legacy strings (2026-09-26).** Strings introduced in S1 are keyed; legacy (`components/`,
+  `features/` outside S1-touched modules) remain hard-coded `en`. A per-sprint migration is impractical; a
+  full i18n audit before launching de/es translations (Q4) is the follow-up. CI check warns on new hard-coded
+  JSX text in `components/shell/**` and `features/create-wizard/**` to prevent regression.
 
 - **P11 Supplier Portal — TOTP/enrolment/invite: DONE (2026-09-26).** (a) TOTP enrolment + recovery codes
   and (b) the per-login verify step were already built (`mfa.service.ts`, `mfa.controller.ts`, sign-in demands

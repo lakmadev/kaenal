@@ -162,14 +162,18 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
-**S1-11 mobile — voice quick-log EXCLUDED (2026-09-26, branch `feat/s1-mobile-voice-exclusion`).** Per user decision
-Q9 the voice transcription backend is out of scope, so the mobile voice surface was REMOVED (not deferred, not
-working): `app/voice.tsx` route, `features/capture/transcribe{,.web}.ts`, the NCR-create "Voice" method tile (+ its
-"arrives next" note and the now-unused `ready`/"Soon" pill), the Quick-Log "voice-to-text not available" card, and
-the `expo-audio` dependency + config plugin. Storage copy no longer mentions voice notes. Audio mime allow-list in
-`packages/core` left untouched (shared with API/web). Also deleted orphan `features/shared/Placeholder.tsx`.
-Safe-area/offline/PWA code untouched. Mobile typecheck, lint (0 errors), vitest 69/69 pass.
-Audit findings (not fixed): `app/manage-web.tsx` rows are dead on native (only a `window.alert` on web) - see Known issues.
+**S1-11 mobile + manage-web wiring + theme fix (2026-09-26).** Per user decision Q9 voice transcription
+backend is out of scope, so mobile voice surface was REMOVED (not deferred): `app/voice.tsx` route,
+`features/capture/transcribe{,.web}.ts`, NCR-create "Voice" method tile (+ "arrives next" note + `ready`
+/"Soon" pill), Quick-Log "voice-to-text not available" card, `expo-audio` dependency + config plugin.
+Audio mime allow-list in `packages/core` left untouched (shared with API/web); orphan `features/shared/
+Placeholder.tsx` deleted. Safe-area/offline/PWA untouched. **Manage-web wiring:** `app/manage-web.tsx`
+list rows now navigate to real routes via `EXPO_PUBLIC_WEB_URL` (environment variable for the web origin;
+native builds statically link; PWA over HTTP LAN IP works). **Theme provider hydration:** fix race where
+theme context arrived after mount on SSR'd PWA. Mobile typecheck 7/7, lint 0 errors, vitest 73/73 pass,
+gate green (test api 529, core 721, db 355, mobile 73, web 51, types 74, api-client 11, test:rls 317,
+db:check 52). **Honest gap:** manage-web on native still renders (design shows it only for web/PWA) — the
+rows exist but don't navigate; marked as Known issue, no 1:1 closure.
 
 **Realtime R6.2 — mobile co-editing (Yjs CRDT) (2026-08-22, branch `feat/mobile-coediting`).** Closes the
 mobile-parity gap: real concurrent text co-editing on mobile, and — because it shares the deterministic seed
