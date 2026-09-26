@@ -162,6 +162,15 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
+**S1-11 mobile — voice quick-log EXCLUDED (2026-09-26, branch `feat/s1-mobile-voice-exclusion`).** Per user decision
+Q9 the voice transcription backend is out of scope, so the mobile voice surface was REMOVED (not deferred, not
+working): `app/voice.tsx` route, `features/capture/transcribe{,.web}.ts`, the NCR-create "Voice" method tile (+ its
+"arrives next" note and the now-unused `ready`/"Soon" pill), the Quick-Log "voice-to-text not available" card, and
+the `expo-audio` dependency + config plugin. Storage copy no longer mentions voice notes. Audio mime allow-list in
+`packages/core` left untouched (shared with API/web). Also deleted orphan `features/shared/Placeholder.tsx`.
+Safe-area/offline/PWA code untouched. Mobile typecheck, lint (0 errors), vitest 69/69 pass.
+Audit findings (not fixed): `app/manage-web.tsx` rows are dead on native (only a `window.alert` on web) - see Known issues.
+
 **Realtime R6.2 — mobile co-editing (Yjs CRDT) (2026-08-22, branch `feat/mobile-coediting`).** Closes the
 mobile-parity gap: real concurrent text co-editing on mobile, and — because it shares the deterministic seed
 and a STANDARD base64 alphabet with the web — a web user and a mobile user editing the SAME field converge
@@ -599,6 +608,10 @@ placeholders today).
   `rejectEnrolmentOnly` (`stores/session.ts`) ends that session and shows "Finish two-factor setup on the web
   app first, then sign in here." The endpoints (`/v1/auth/mfa/enroll|activate`) are callable from mobile, so
   this is buildable and still owed if partners must use the mobile app — not disguised as working.
+- **(S1-11) EXCLUDED: voice quick-log (CapVoice) + voice-to-text.** Excluded by user decision Q9, not deferred.
+  Removed from the app; re-adding needs a transcription backend + restoring the route/`expo-audio`.
+- **(S1-11 audit) `app/manage-web.tsx` (m-oversight ManageInWeb) rows are dead controls**: `openWeb` only calls
+  `window.alert` on web and does nothing on native. Needs a real deep-link/handoff to the web app; not fixed here.
 - ~~**BACKEND GAP: no `/v1/sync/<table>?since=` delta endpoints exist.**~~ **RESOLVED (M26 close-out).**
   `GET /v1/sync/ncr` + `/v1/sync/inspections` now do an O(delta) `(updated_at,id)` keyset scan with
   tombstones (0039 index, `*:view`-gated, RLS-scoped, injection-safe); mobile `createDeltaReadSource`

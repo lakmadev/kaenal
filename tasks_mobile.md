@@ -71,7 +71,7 @@ Design: `m-capture.jsx` (CapCamera/CapVoice/CapAnnotate), priming screen, `m-aut
 - [ ] Camera capture screen (`CapCamera`) real via expo-camera (photo → evidence pipeline already exists).
 - [ ] QR/asset scan (expo-camera barcode) pre-fills location/asset fields.
 - [ ] Location permission request + capture flow surfaced (auto-stamp), permission-gated.
-- [ ] Voice quick-log: honest — needs a transcription backend; keep the flagged note, don't fake.
+- [~] Voice quick-log: EXCLUDED (S1-11, Q9) — removed from the app, not deferred.
 
 ## M18 — Profile edit + storage + notif-prefs real wiring; per-role fidelity audit
 - [ ] Profile edit (`ProfileEdit`): real save (grep for a profile-update endpoint; if none, add or flag
@@ -235,7 +235,7 @@ pixel-for-pixel with a real backend.** Next: **M20 — AssignSheet**.
   Text are the four real tools). Drawing-gesture + flatten output not screenshot-verified (needs a staged photo;
   file-picker not drivable in the harness) — render + bundle verified, logic typechecked.
 
-## M22 — Voice quick-log (CapVoice) — real recording + audio evidence ✅ DONE (commit) — render verified
+## M22 — Voice quick-log (CapVoice) — ⛔ EXCLUDED (S1-11, user decision Q9): code removed; history below is superseded
 - [x] Audio mimes (`audio/mp4`,`audio/m4a`,`audio/aac`,`audio/mpeg`,`audio/webm`,`audio/ogg`,`audio/wav`) added
   to `ALLOWED_MIME_TYPES` (`packages/core/src/file-policy.ts`) + policy test (native m4a/aac + web webm accepted).
 - [x] Voice screen (`app/voice.tsx`, design `CapVoice`): mic button (tap start/stop), timer + live level-meter
