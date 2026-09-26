@@ -35,7 +35,7 @@ const AGENTS = {
   proofreader: "haiku/low",
 };
 
-// Domain rules: first match wins the specialist agent. Order = most specific first.
+// Domain rules: the agent with the most keyword hits wins; ties go to the earlier (more specific) rule.
 const DOMAINS = [
   [/\b(migration|schema|rls|row.level|drizzle|postgres|tenant_id|composite fk|packages\/db)\b/i, "db-migrations"],
   [/\b(mobile|expo|pwa|safe.area|edge.to.edge|m-[a-z-]+\.jsx|apps\/mobile)\b/i, "mobile-engineer"],
@@ -58,7 +58,15 @@ const LIGHT_RE = /^(commit|push|stage|git |status|run |show |list |open |rename|
 function decide(prompt) {
   const text = prompt.trim();
   const words = text.split(/\s+/).length;
-  const domain = DOMAINS.find(([re]) => re.test(text))?.[1];
+  let domain;
+  let best = 0;
+  for (const [re, name] of DOMAINS) {
+    const hits = text.match(new RegExp(re.source, "gi"))?.length ?? 0;
+    if (hits > best) {
+      best = hits;
+      domain = name;
+    }
+  }
 
   let tier;
   if (PLAN_RE.test(text) && !LIGHT_RE.test(text)) tier = "plan";
@@ -67,10 +75,13 @@ function decide(prompt) {
   else if (words <= 8 && !EDIT_RE.test(text) && !domain) tier = "light";
   else tier = "standard";
 
-  return { tier, domain, ...TIERS[tier] };
+  return { tier, domain, words, ...TIERS[tier] };
 }
 
-function directive({ tier, domain, model, effort, agent }) {
+// Below this size a standard task costs less inline than the hand-off (agent re-reads files, reloads its prompt).
+const SMALL_TASK_WORDS = 30;
+
+function directive({ tier, domain, words, model, effort, agent }) {
   const target = tier === "plan" ? agent : domain;
   const spec = target ? AGENTS[target] : undefined;
   const lines = [`[model-router] tier=${tier} -> ${model}/${effort}`];
@@ -81,6 +92,10 @@ function directive({ tier, domain, model, effort, agent }) {
   } else if (tier === "light") {
     lines.push(
       `Light task: answer or act directly with minimal tokens, no extended reasoning${spec?.startsWith("haiku") ? `, or delegate to \`${target}\` (${spec})` : ""}. Do not read files you do not need.`,
+    );
+  } else if (tier === "standard" && words <= SMALL_TASK_WORDS) {
+    lines.push(
+      `Small task: do it inline at ${effort} effort${target ? `, following the \`${target}\` agent's rules in .claude/agents/${target}.md only if you need them` : ""}. Do not delegate; hand-off overhead exceeds the saving.`,
     );
   } else {
     lines.push(
