@@ -15,6 +15,11 @@ import type { Membership } from "@kaenal/core";
 export interface Session {
   readonly userId: string;
   readonly membership: Membership;
+  /**
+   * True for the enrolment-only session a partner holds until they activate TOTP
+   * (P11). The lifecycle refuses it on every route not marked `@AllowEnrolment`.
+   */
+  readonly enrolmentOnly?: boolean;
 }
 
 export interface Authenticator {

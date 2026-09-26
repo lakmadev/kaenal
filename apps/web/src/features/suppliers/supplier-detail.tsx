@@ -17,6 +17,7 @@ import {
   ClipboardCheck,
   ShieldCheck,
   FileText,
+  UserPlus,
 } from "lucide-react";
 import { weightedSupplierScore, type ScoreWeights, type SupplierMetrics } from "@kaenal/core";
 import type { EntityKind, EntityLinkDto, PpapSubmissionDto, ScarDto, SupplierDto } from "@kaenal/types";
@@ -24,6 +25,10 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import type { Page } from "@kaenal/types";
 import { longDate, shortDate, titleCase } from "@/lib/format";
 import { useSupplier } from "@/hooks/use-suppliers";
+import { useCan } from "@/hooks/use-me";
+import { SupplierPortalInviteDialog } from "./supplier-portal-invite-dialog";
+import { PortalAccessTab } from "./supplier-portal-access";
+import { usePortalContacts } from "@/hooks/use-portal-contacts";
 import { useEntityLinks } from "@/hooks/use-entity-links";
 import { usePpapList } from "@/hooks/use-ppap";
 import { useScarList } from "@/hooks/use-scar";
@@ -43,7 +48,7 @@ import {
   type AiInsight,
 } from "./suppliers-bits";
 
-type Tab = "overview" | "scorecard" | "ppap" | "events" | "audits" | "parts" | "docs";
+type Tab = "overview" | "scorecard" | "ppap" | "events" | "audits" | "parts" | "docs" | "portal";
 
 export function SupplierDetail({ id }: { id: string }): React.ReactElement {
   const router = useRouter();
@@ -84,6 +89,12 @@ interface LinkRow {
 function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const canManage = useCan("supplier:manage");
+  const portalContacts = usePortalContacts(s.id, canManage);
+  const portalCount = (portalContacts.data?.pages.flatMap((p) => p.items) ?? []).filter(
+    (c) => c.status !== "revoked",
+  ).length;
   const insights = aiInsights(s.profile);
 
   // Real supplier-scoped records for the split tabs. PPAP and SCARs have their
@@ -113,7 +124,7 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
   const partsCount = profileArr(s.profile, "parts").length;
   const onOpen = (kind: EntityKind, oid: string): void => navigateToEntity(router, kind, oid);
 
-  const tabs: { id: Tab; label: string }[] = [
+  const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "overview", label: "Overview" },
     { id: "scorecard", label: "Scorecard" },
     { id: "ppap", label: `PPAP (${ppapCount})` },
@@ -121,6 +132,7 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
     { id: "audits", label: `Audits (${groups.audits.length})` },
     { id: "parts", label: `Parts (${partsCount})` },
     { id: "docs", label: "Documents" },
+    ...(canManage ? [{ id: "portal" as const, label: "Portal access", count: portalCount }] : []),
   ];
   const contact = s.contact ?? {};
   const contactName = typeof contact["name"] === "string" ? contact["name"] : null;
@@ -139,10 +151,24 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
         title={s.name}
         description={desc}
         actions={
-          <Button>
-            <Download size={14} /> Scorecard PDF
-          </Button>
+          <>
+            <Button>
+              <Download size={14} /> Scorecard PDF
+            </Button>
+            {canManage && (
+              <Button onClick={() => setInviteOpen(true)}>
+                <UserPlus size={13} /> Invite to portal
+              </Button>
+            )}
+          </>
         }
+      />
+
+      <SupplierPortalInviteDialog
+        supplierId={s.id}
+        supplierName={s.name}
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
       />
 
       {/* 360 header strip */}
@@ -198,6 +224,21 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} className={`k-tab ${tab === t.id ? "active" : ""}`}>
             {t.label}
+            {t.count !== undefined && (
+              <span
+                className="ml-1.5 inline-flex items-center"
+                style={{
+                  height: 18,
+                  padding: "0 6px",
+                  borderRadius: 9999,
+                  background: "var(--bg-subtle)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              >
+                {t.count}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -216,6 +257,9 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
           />
         )}
         {tab === "parts" && <PartsTab s={s} />}
+        {tab === "portal" && canManage && (
+          <PortalAccessTab supplierId={s.id} supplierName={s.name} onInvite={() => setInviteOpen(true)} />
+        )}
         {tab === "docs" && (
           <LinkList
             query={links}
