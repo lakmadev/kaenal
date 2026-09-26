@@ -690,9 +690,9 @@ export type UpdateNotificationPrefsBody = z.infer<typeof UpdateNotificationPrefs
 
 export const AiProminence = z.enum(["front", "normal", "quiet"]);
 export type AiProminence = z.infer<typeof AiProminence>;
-export const AccentKey = z.enum(["ink", "blue", "indigo", "teal", "orange"]);
+export const AccentKey = z.enum(["ink", "indigo", "teal", "orange"]);
 export type AccentKey = z.infer<typeof AccentKey>;
-export const DensityKey = z.enum(["comfy", "dense"]);
+export const DensityKey = z.enum(["comfortable", "compact"]);
 export type DensityKey = z.infer<typeof DensityKey>;
 
 export const UserPreferencesSettings = z.object({
@@ -708,7 +708,7 @@ export type UserPreferencesSettings = z.infer<typeof UserPreferencesSettings>;
 export const USER_PREFERENCES_DEFAULTS: UserPreferencesSettings = {
   aiProminence: "normal",
   accent: "ink",
-  density: "comfy",
+  density: "comfortable",
   keyboardShortcuts: true,
   showKeyboardHints: true,
   locale: "en",

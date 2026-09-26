@@ -85,11 +85,11 @@ describe("preferences", () => {
   it("returns defaults at version 0, saves, and bumps the version", async () => {
     const got = await authed("get", "/v1/me/preferences", aTok);
     expect(got.status).toBe(200);
-    expect(got.body).toMatchObject({ aiProminence: "normal", accent: "ink", density: "comfy", lockVersion: 0 });
+    expect(got.body).toMatchObject({ aiProminence: "normal", accent: "ink", density: "comfortable", lockVersion: 0 });
 
-    const saved = await authed("patch", "/v1/me/preferences", aTok).send({ version: 0, aiProminence: "quiet", density: "dense" });
+    const saved = await authed("patch", "/v1/me/preferences", aTok).send({ version: 0, aiProminence: "quiet", density: "compact" });
     expect(saved.status).toBe(200);
-    expect(saved.body).toMatchObject({ aiProminence: "quiet", density: "dense", accent: "ink", lockVersion: 1 });
+    expect(saved.body).toMatchObject({ aiProminence: "quiet", density: "compact", accent: "ink", lockVersion: 1 });
 
     const next = await authed("patch", "/v1/me/preferences", aTok).send({ version: 1, keyboardShortcuts: false });
     expect(next.body).toMatchObject({ aiProminence: "quiet", keyboardShortcuts: false, lockVersion: 2 });
