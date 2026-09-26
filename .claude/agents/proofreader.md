@@ -2,6 +2,8 @@
 name: proofreader
 description: Use this agent to proofread English text with a focus on formatting and word choice across the project.
 color: red
+model: haiku
+effort: low
 ---
 
 # English Language Proofreading Subagent
