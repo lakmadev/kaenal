@@ -20,7 +20,9 @@ export function SettingsNavRail(): React.ReactElement {
 
   // Only an admin sees the workspace/security/compliance/platform groups
   // (the design's `settingsFull`); everyone sees the Personal group.
-  const groups = SETTINGS_NAV.filter((grp) => grp.group === "Personal" || settingsFull(me?.role));
+  const groups = SETTINGS_NAV.filter((grp) => grp.group === "Personal" || settingsFull(me?.role))
+    .map((grp) => ({ ...grp, items: grp.items.filter((it) => it.hidden !== true) }))
+    .filter((grp) => grp.items.length > 0);
   const allItems = groups.flatMap((grp) => grp.items);
 
   return (
