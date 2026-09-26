@@ -61,6 +61,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "auditlog:read",
     "portal:view",
     "portal:respond",
+    "ai:use",
   ],
   manager: [
     "inspection:view",
@@ -90,6 +91,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "report:manage",
     "import:run",
     "settings:manage",
+    "ai:use",
   ],
   auditor: [
     "inspection:view",
@@ -110,6 +112,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "fmea:manage",
     "spc:view",
     "report:view",
+    "ai:use",
   ],
   inspector: [
     "inspection:view",
@@ -125,6 +128,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "fmea:view",
     "spc:view",
     "measurement:manage",
+    "ai:use",
   ],
   viewer: [
     "inspection:view",
@@ -138,6 +142,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "fmea:view",
     "spc:view",
     "report:view",
+    "ai:use",
   ],
   partner: ["portal:view", "portal:respond"],
 };
@@ -180,7 +185,8 @@ describe("the denials that matter most", () => {
 
   it("viewer is read-only", () => {
     for (const cap of CAPABILITIES) {
-      if (cap.endsWith(":view")) continue;
+      // ai:use is read-only chat (S1-4): a viewer may ask, never write.
+      if (cap.endsWith(":view") || cap === "ai:use") continue;
       expect(hasCapability("viewer", cap)).toBe(false);
     }
   });

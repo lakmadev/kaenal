@@ -1,4 +1,5 @@
 export * from "./client.js";
+export * from "./ai-chat.js";
 export * from "./query-keys.js";
 export * from "./queries.js";
 

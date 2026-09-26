@@ -35,6 +35,8 @@ const VIEW_CAPABILITY: Readonly<Record<ExportResource, Capability>> = {
   inspections: "inspection:view",
   capas: "capa:view",
   audits: "audit:view",
+  // An AI reply is exportable by anyone who may use the assistant (S1-4).
+  ai_reply: "ai:use",
 };
 
 /**
@@ -88,10 +90,18 @@ export class ExportsService {
       async (t) => {
         const { rows } = await t.query<ExportRow>(
           `INSERT INTO exports
-             (id, tenant_id, resource, format, filters, status, requested_by, created_by, updated_by)
-           VALUES ($1,$2,$3,$4,$5,'queued',$6,$6,$6)
+             (id, tenant_id, resource, format, filters, payload, status, requested_by, created_by, updated_by)
+           VALUES ($1,$2,$3,$4,$5,$7::jsonb,'queued',$6,$6,$6)
            RETURNING ${EXPORT_COLUMNS}`,
-          [id, tenantId, body.resource, body.format, JSON.stringify(filters), actorId],
+          [
+            id,
+            tenantId,
+            body.resource,
+            body.format,
+            JSON.stringify(filters),
+            actorId,
+            body.aiReply === undefined ? null : JSON.stringify(body.aiReply),
+          ],
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Could not create the export");

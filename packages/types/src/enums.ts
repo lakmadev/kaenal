@@ -290,7 +290,7 @@ export type ChargebackStatus = z.infer<typeof ChargebackStatus>;
 // --- Exports (03 §8, 06 `reports` queue) -----------------------------------
 
 /** The record kinds an export can render. Each has a list endpoint + view cap. */
-export const ExportResource = defineEnum(["ncrs", "inspections", "capas", "audits"]);
+export const ExportResource = defineEnum(["ncrs", "inspections", "capas", "audits", "ai_reply"]);
 export type ExportResource = z.infer<typeof ExportResource>;
 
 /**
@@ -353,6 +353,7 @@ export const AuditAction = defineEnum([
   "settings_changed",
   "entitlement_changed",
   "ai_draft_accepted",
+  "ai_chat",
   "support_accessed",
 ]);
 export type AuditAction = z.infer<typeof AuditAction>;
@@ -369,6 +370,8 @@ export const AiFeature = defineEnum([
   "report_narrative",
   // Vision: triage a defect photo into a draft NCR (title/severity/category).
   "ncr_photo_triage",
+  // Assistant chat drawer (S1-4): a read-only conversational turn.
+  "chat",
 ]);
 export type AiFeature = z.infer<typeof AiFeature>;
 

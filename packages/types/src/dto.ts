@@ -865,12 +865,40 @@ export const ExportDto = z.object({
 });
 export type ExportDto = z.infer<typeof ExportDto>;
 
-export const CreateExportBody = z.object({
-  resource: ExportResource,
-  /** Only `csv` is built today; the enum is where new renderers slot in. */
-  format: ExportFormat.default("csv"),
-  filters: ExportFilters.optional(),
+/**
+ * The AI reply a user asked to export ("Generate PDF", S1-4). Chat history is
+ * not persisted server-side, so the text + provenance is frozen on the export
+ * row at request time. The requester exports their own visible reply; it is
+ * never fed back to a model or written to an entity.
+ */
+export const AiReplyExportPayload = z.object({
+  text: z.string().min(1).max(20_000),
+  confidence: z.enum(["high", "medium", "low"]),
+  /** Provider label shown on the reply ("stub" until a real model is wired). */
+  provider: z.string().max(40).optional(),
+  invocationId: z.string().uuid().optional(),
+  sources: z.array(z.object({ kind: z.string().max(40), id: z.string().max(64) })).max(20).default([]),
+  generatedAt: z.string().datetime().optional(),
 });
+export type AiReplyExportPayload = z.infer<typeof AiReplyExportPayload>;
+
+export const CreateExportBody = z
+  .object({
+    resource: ExportResource,
+    /** csv / xlsx / pdf; the enum is where new renderers slot in. */
+    format: ExportFormat.default("csv"),
+    filters: ExportFilters.optional(),
+    /** Required for (and only for) `resource: "ai_reply"`. */
+    aiReply: AiReplyExportPayload.optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.resource === "ai_reply" && v.aiReply === undefined) {
+      ctx.addIssue({ code: "custom", path: ["aiReply"], message: "aiReply is required for an ai_reply export" });
+    }
+    if (v.resource !== "ai_reply" && v.aiReply !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["aiReply"], message: "aiReply is only valid for an ai_reply export" });
+    }
+  });
 export type CreateExportBody = z.infer<typeof CreateExportBody>;
 
 // --- Me (session identity) --------------------------------------------------
@@ -987,6 +1015,68 @@ export const AiSummaryDto = z.object({
   lockVersion: z.number().int().nonnegative(),
 });
 export type AiSummaryDto = z.infer<typeof AiSummaryDto>;
+
+// --- AI assistant chat (S1-4) ------------------------------------------------
+
+/** Entity a chat turn is scoped to (resolved server-side under RLS). */
+export const AiChatEntityRef = z.object({
+  kind: EntityKind,
+  id: z.string().uuid(),
+});
+export type AiChatEntityRef = z.infer<typeof AiChatEntityRef>;
+
+export const AiChatTurn = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().min(1).max(4000),
+});
+export type AiChatTurn = z.infer<typeof AiChatTurn>;
+
+/**
+ * `POST /v1/ai/chat` body. The client sends the entity REFERENCE only; the
+ * server assembles the governed context under RLS, so no client-supplied text
+ * is trusted as context. Prior turns are the user's own conversation (nothing
+ * is persisted server-side). An `Idempotency-Key` header is accepted.
+ */
+export const AiChatRequest = z.object({
+  message: z.string().trim().min(1).max(4000),
+  entityRef: AiChatEntityRef.optional(),
+  history: z.array(AiChatTurn).max(20).optional(),
+});
+export type AiChatRequest = z.infer<typeof AiChatRequest>;
+
+/** Reasons an in-stream failure can carry (never a fake reply). */
+export const AiChatErrorCode = z.enum([
+  "AI_UNAVAILABLE",
+  "ENTITLEMENT_REQUIRED",
+  "BUDGET_EXCEEDED",
+  "AI_DISABLED",
+  "REGION_LOCKED",
+]);
+export type AiChatErrorCode = z.infer<typeof AiChatErrorCode>;
+
+/**
+ * One SSE `data:` frame of the chat stream: `delta`* then exactly one `done` or
+ * `error`. `done` carries provenance (confidence + sources + provider label).
+ */
+export const AiChatChunk = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("delta"), text: z.string() }),
+  z.object({
+    type: z.literal("done"),
+    invocationId: z.string().uuid(),
+    requestId: z.string(),
+    confidence: AiConfidence,
+    sources: z.array(AiSource),
+    /** "stub" = deterministic placeholder, not a real model. */
+    provider: z.string(),
+  }),
+  z.object({
+    type: z.literal("error"),
+    code: AiChatErrorCode,
+    message: z.string(),
+    requestId: z.string(),
+  }),
+]);
+export type AiChatChunk = z.infer<typeof AiChatChunk>;
 
 // --- Collaboration: comments, links, access log -----------------------------
 // FEATURES §9 (document detail = "related items · access log · comments") and
