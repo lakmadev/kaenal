@@ -77,7 +77,7 @@ export default function Storage() {
               <View style={{ width: `${Math.max(1, Math.min(100, (bytes / STORAGE_CAP) * 100))}%`, height: "100%", backgroundColor: palette.accent }} />
             </View>
             <Text size={11.5} tone="muted" style={{ marginTop: 8 }}>
-              Photos and voice notes staged for upload. They're removed automatically once synced.
+              Photos staged for upload. They're removed automatically once synced.
             </Text>
           </Card>
 
