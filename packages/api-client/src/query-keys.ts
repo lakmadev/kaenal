@@ -132,6 +132,7 @@ export const queryKeys = {
     detail: (id: string) => ["integrations", "detail", id] as const,
     schema: (id: string) => ["integrations", "schema", id] as const,
     events: (id: string) => ["integrations", "events", id] as const,
+    webhookPolicy: () => ["integrations", "webhook-policy"] as const,
   },
 
   import: {

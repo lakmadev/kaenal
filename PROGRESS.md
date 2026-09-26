@@ -5,6 +5,33 @@
 
 ## Current status
 
+**Sequence 2 (config slice) — Webhook configuration form + real signing-secret store + SSRF guard (2026-09-26).**
+An admin can now set URL + subscribed events + signing secret on the `generic_webhook` card and "Send test
+event" succeeds against a live receiver. **Backend:** `packages/types/src/webhook-config.ts` (pure, shared by
+API + web): `validateWebhookUrl`/`isBlockedIp`/`webhookConfigSchema` (https-only; rejects non-http(s), embedded
+creds, loopback/private/link-local/CGNAT/metadata IPs incl. decimal/hex/octal/IPv4-mapped/NAT64/6to4 forms,
+internal hostnames) + `ConfigureWebhookBody/Result`, events = `*` | exact | `domain.*`. `PUT
+/v1/integrations/:id/webhook` (`configureWebhook`; optimistic `version`, audited, secret never in audit) and
+`GET /v1/integrations/webhook-policy`. **Secret store (no real one existed):** `outbox/webhook-secret-box.ts` —
+server-generated `whsec_…`, AES-256-GCM sealed (key = `WEBHOOK_ENCRYPTION_KEY` or HKDF of `AUTH_SECRET`) into
+`credentials_ref` as `enc:v1:…`; a `WebhookSecretResolver` decrypts it (other schemes fall through to
+`EnvSecretResolver`); revealed ONCE in the configure response, never by any GET (DTO only has `hasCredentials`).
+No migration (column already text). **SSRF at delivery:** `FetchWebhookTransport` now re-validates the URL and
+pins a DNS-lookup guard on the socket (blocks rebinding), never follows redirects; `WEBHOOK_ALLOW_PRIVATE_TARGETS=true`
+(`.env.example`; forced off in production) allows http/localhost for dev/tests. Save-time validation also runs on
+generic `create`/`update` (no back door); `connect` for a webhook now requires a valid URL + a sealed secret
+(422 otherwise) and keeps the existing secret. **Web:** `WebhookConfigForm` in the card detail (URL, event chips +
+custom pattern, generate/rotate secret with one-time copy reveal, inline errors from the shared schema under the
+deployment policy); Connect on an unconfigured webhook opens the form; "Send test event" enabled once URL + secret
+exist. **Tests:** types 49 (SSRF vectors); api `webhook-config.test.ts` 15 (live local receiver: signature verifies
+under the revealed secret, rotate changes signature/old fails, sealed at rest, audit has no secret, stale 409,
+strict-policy 422s, transport refuses private targets/no redirects/DNS guard, manager 403, cross-tenant 404, no GET
+leaks the secret). Gate: typecheck 7/7, lint clean, test 7/7 (api 493, types 74), `test:rls` 311, `db:check` 51.
+Login re-seeded. **Not browser-verified** (no dev servers in this worktree) — the form is typechecked/linted only.
+**Known:** DNS rebinding is closed by the socket-level lookup guard, but proxies/egress firewalls remain the
+defence in depth for prod; disconnect purges the secret (09 §8), so reconnect needs a fresh generate; rotating
+invalidates the old secret immediately (no overlap window).
+
 **Sequence 2 (verify slice) — "Send test event" for webhook endpoints (2026-08-22).** Closes the webhook
 verify loop: an admin pings an endpoint and gets the REAL delivery outcome, the same signed path a live event
 takes — no mock. The per-endpoint send was extracted from the fan-out handler into `outbox/webhook-deliver.ts`
@@ -25,10 +52,7 @@ ping delivered + `ok` logged; 5xx → failure not fake success; no-secret → no
 with the honest `no destination URL configured` failure (the card connect sets a credential pointer but no
 URL) — proving button → `POST /test` → `sendTest` → `deliverToEndpoint` → `integration_events` → UI, all live.
 Had to restart the API preview once (stale tsx watch after the new `@kaenal/types` export) and re-seed the
-demo login. **Flagged next:** a real webhook config form (URL + events + secret) on the card so a test can
-succeed against a live receiver — today the URL isn't capturable in the card UI (`connectorSchema` for
-`generic_webhook` is empty); the API accepts it via the free-map `config`, so the endpoint is fully
-configurable by API, just not yet by form.
+demo login. (The config-form follow-up flagged here is now done — see the entry above.)
 
 **Sequence 2 (delivery slice) — Webhook delivery: signed fan-out through the integrations substrate
 (2026-08-22).** Turns the outbox from durable-but-undelivered into real outbound events. The outbox drainer's
@@ -1948,6 +1972,12 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 ---
 
 ## Decisions log
+
+- [x] Webhook signing secrets are sealed in `credentials_ref` (`enc:v1:` AES-256-GCM, server key) rather than a new
+      column/secret manager (2026-09-26) — smallest real store, no migration, resolved by `WebhookSecretResolver`;
+      a cloud secret manager can replace it behind the `SecretResolver` seam. Secret is server-generated and shown
+      once (never client-supplied). SSRF policy is shared pure code in `packages/types`, enforced at save AND at
+      delivery (DNS-lookup guard, no redirects); `WEBHOOK_ALLOW_PRIVATE_TARGETS` is dev/test-only and ignored in prod.
 
 - [x] Bulk-import commit runs synchronously in the request transaction (2026-08-12, Phase J) — the plan
       called for a BullMQ `imports` job, but the commit is implemented as a self-contained tenant-tx step

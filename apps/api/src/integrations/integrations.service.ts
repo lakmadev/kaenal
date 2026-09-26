@@ -2,6 +2,15 @@ import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { withAudit, type Tx } from "@kaenal/db";
 import { connectorMeta, connectorSchema } from "@kaenal/core";
+import {
+  decodeWebhookEvents,
+  encodeWebhookEvents,
+  webhookConfigSchema,
+  type ConfigureWebhookBody,
+  type ConfigureWebhookResult,
+  type WebhookPolicyDto,
+  type WebhookTargetPolicy,
+} from "@kaenal/types";
 import type {
   ConnectIntegrationBody,
   ConnectorSchemaResult,
@@ -19,6 +28,7 @@ import { EnvSecretResolver, type SecretResolver } from "../tenant/secret-resolve
 import { FetchWebhookTransport, type WebhookTransport } from "../outbox/webhook-transport.js";
 import { deliverToEndpoint } from "../outbox/webhook-deliver.js";
 import type { OutboxEvent } from "../outbox/outbox.types.js";
+import { ENC_PREFIX, WebhookSecretBox, webhookPolicyFromEnv } from "../outbox/webhook-secret-box.js";
 
 interface Row {
   id: string;
@@ -55,7 +65,38 @@ export class IntegrationsService {
     private readonly secrets: SecretResolver = new EnvSecretResolver(),
     private readonly transport: WebhookTransport = new FetchWebhookTransport(),
     private readonly clock: () => Date = () => new Date(),
+    private readonly options: { policy?: WebhookTargetPolicy; box?: WebhookSecretBox } = {},
   ) {}
+
+  private get policy(): WebhookTargetPolicy {
+    return this.options.policy ?? webhookPolicyFromEnv();
+  }
+
+  private get box(): WebhookSecretBox {
+    if (this.options.box !== undefined) return this.options.box;
+    const authSecret = process.env["AUTH_SECRET"] ?? "";
+    if (authSecret === "") throw new ApiError("INTERNAL", "Webhook secret encryption is not configured");
+    return new WebhookSecretBox({ authSecret, key: process.env["WEBHOOK_ENCRYPTION_KEY"] });
+  }
+
+  /** Deployment's webhook target policy — the web form validates inline against it. */
+  webhookPolicy(): WebhookPolicyDto {
+    return { allowPrivateTargets: this.policy.allowPrivateTargets };
+  }
+
+  /** Validate a webhook config map (url + events) under the deployment policy; 400 on violation. */
+  private assertWebhookConfig(config: Record<string, string>): void {
+    const parsed = webhookConfigSchema(this.policy).safeParse({
+      url: config["url"] ?? "",
+      events: decodeWebhookEvents(config["events"]),
+    });
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      throw new ApiError("VALIDATION_FAILED", issue?.message ?? "Invalid webhook configuration", {
+        issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })),
+      });
+    }
+  }
 
   async list(tx: Tx): Promise<Page<IntegrationDto>> {
     const { rows } = await tx.query<Row>(
@@ -112,6 +153,9 @@ export class IntegrationsService {
 
   async create(tx: Tx, tenantId: string, actorId: string, body: CreateIntegrationBody, ctx: AuditContext): Promise<IntegrationDto> {
     connectorMeta(body.provider); // provider is validated by the enum; keeps the dependency honest
+    if (body.provider === "generic_webhook" && body.config !== undefined && Object.keys(body.config).length > 0) {
+      this.assertWebhookConfig(body.config);
+    }
     const id = randomUUID();
     return withAudit(
       tx,
@@ -134,6 +178,7 @@ export class IntegrationsService {
     const current = await this.load(tx, id);
     assertVersion(current.lock_version, body.version);
     const config = body.config ?? (current.config as Record<string, string>);
+    if (current.provider === "generic_webhook" && body.config !== undefined) this.assertWebhookConfig(config);
     return withAudit(
       tx,
       tenantId,
@@ -158,8 +203,18 @@ export class IntegrationsService {
    */
   async connect(tx: Tx, tenantId: string, actorId: string, id: string, body: ConnectIntegrationBody, ctx: AuditContext): Promise<IntegrationDto> {
     const current = await this.load(tx, id);
-    const ref = body.credentialsRef ?? `secret://${tenantId}/${id}`;
     const config = body.config ?? (current.config as Record<string, string>);
+    let ref = body.credentialsRef ?? `secret://${tenantId}/${id}`;
+    if (current.provider === "generic_webhook") {
+      // A webhook connects only when it can really deliver: valid destination + a
+      // usable signing secret (never a bare, unresolvable pointer).
+      this.assertWebhookConfig(config);
+      const existing = current.credentials_ref;
+      if (body.credentialsRef === undefined && (existing === null || !existing.startsWith(ENC_PREFIX))) {
+        throw new ApiError("VALIDATION_FAILED", "Generate a signing secret before connecting this webhook");
+      }
+      if (body.credentialsRef === undefined && existing !== null) ref = existing; // keep the sealed secret
+    }
     return withAudit(
       tx,
       tenantId,
@@ -216,6 +271,62 @@ export class IntegrationsService {
         return toDto(rows[0] ?? row);
       },
     );
+  }
+
+  /**
+   * Configure a `generic_webhook`: destination URL, subscribed events, and the
+   * signing secret. The URL is validated against the SSRF policy; the secret is
+   * server-generated (high entropy), sealed with AES-GCM into `credentials_ref`,
+   * and returned ONCE in this response, never by any read. A secret is
+   * generated when none is usable yet or when `rotateSecret` is set (the old one
+   * stops verifying immediately). Optimistic (`version`) and audited; the audit
+   * row records url/events/whether the secret rotated, never the secret. Replays
+   * are safe: set-semantics on url/events, and a replayed rotate carries a stale
+   * `version`, so it can neither double-rotate nor re-reveal a secret.
+   */
+  async configureWebhook(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    id: string,
+    body: ConfigureWebhookBody,
+    ctx: AuditContext,
+  ): Promise<ConfigureWebhookResult> {
+    const current = await this.load(tx, id);
+    if (current.provider !== "generic_webhook") {
+      throw new ApiError("VALIDATION_FAILED", "Only webhook endpoints have a URL and signing secret");
+    }
+    assertVersion(current.lock_version, body.version);
+    const events = encodeWebhookEvents(body.events);
+    const nextConfig: Record<string, string> = { ...(current.config as Record<string, string>), url: body.url.trim(), events };
+    this.assertWebhookConfig(nextConfig);
+
+    const existing = current.credentials_ref;
+    const usable = existing !== null && !existing.startsWith("secret://");
+    const rotate = body.rotateSecret || !usable;
+    const signingSecret = rotate ? WebhookSecretBox.generateSecret() : null;
+    const ref = signingSecret !== null ? this.box.seal(signingSecret) : existing;
+    const before = current.config as Record<string, string>;
+
+    const integration = await withAudit(
+      tx,
+      tenantId,
+      audit(actorId, "updated", id, ctx, {
+        before: { url: before["url"] ?? null, events: before["events"] ?? null },
+        after: { url: nextConfig["url"], events, secretRotated: rotate },
+      }),
+      async (t) => {
+        const { rows } = await t.query<Row>(
+          `UPDATE integrations SET config=$3, credentials_ref=$4, updated_by=$5
+            WHERE id=$1 AND lock_version=$2 AND deleted_at IS NULL RETURNING ${COLS}`,
+          [id, body.version, JSON.stringify(nextConfig), ref, actorId],
+        );
+        const row = rows[0];
+        if (row === undefined) throw staleWrite();
+        return toDto(row);
+      },
+    );
+    return { integration, signingSecret };
   }
 
   /**

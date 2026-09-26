@@ -55,6 +55,7 @@ import { StubAiProvider } from "../ai/provider.js";
 import { drainOutboxForTenant } from "./processors/drain-outbox.js";
 import { WebhookOutboxHandler } from "../outbox/webhook.handler.js";
 import { FetchWebhookTransport } from "../outbox/webhook-transport.js";
+import { WebhookSecretBox, WebhookSecretResolver } from "../outbox/webhook-secret-box.js";
 
 /**
  * The worker process (06 §1). Run separately from the API —
@@ -311,7 +312,13 @@ async function main(): Promise<void> {
   // endpoints (0032 integrations), HMAC-signed, logged in integration_events.
   // The signing secret is resolved from the endpoint's credentials_ref pointer,
   // never stored in the DB. A tenant with no endpoints drains as a no-op.
-  const outboxHandler = new WebhookOutboxHandler(new EnvSecretResolver(), new FetchWebhookTransport());
+  const outboxHandler = new WebhookOutboxHandler(
+    new WebhookSecretResolver(
+      new WebhookSecretBox({ authSecret: env.AUTH_SECRET, key: env.WEBHOOK_ENCRYPTION_KEY }),
+      new EnvSecretResolver(),
+    ),
+    new FetchWebhookTransport({ policy: { allowPrivateTargets: env.WEBHOOK_ALLOW_PRIVATE } }),
+  );
 
   const outboxWorker = new Worker(
     QUEUES.outbox,
