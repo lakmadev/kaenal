@@ -12,6 +12,8 @@ import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { CommandPalette } from "./command-palette";
 import { Skeleton } from "@/components/ui";
+import { OfflineBanner } from "./offline-banner";
+import { StaleWriteDialog } from "./stale-write-dialog";
 
 /**
  * The authenticated shell (04 §3). It owns the client-side session guard: a 401
@@ -71,11 +73,13 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar me={me} />
+        <OfflineBanner />
         <main className="flex-1 overflow-y-auto">
           {isLoading ? <ShellSkeleton /> : children}
         </main>
       </div>
       <CommandPalette />
+      <StaleWriteDialog />
     </div>
   );
 }

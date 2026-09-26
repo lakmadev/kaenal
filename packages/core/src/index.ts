@@ -1,4 +1,6 @@
 export * from "./result.js";
+export * from "./stale-write.js";
+export * from "./locale.js";
 export * from "./state-machines/machine.js";
 export * from "./state-machines/ncr.js";
 export * from "./state-machines/inspection.js";
