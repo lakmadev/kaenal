@@ -76,6 +76,8 @@ import type { Storage } from "./files/storage.js";
 import { SearchController } from "./search/search.controller.js";
 import { SearchService } from "./search/search.service.js";
 import { NotificationsController } from "./notifications/notifications.controller.js";
+import { PreferencesController } from "./preferences/preferences.controller.js";
+import { PreferencesService } from "./preferences/preferences.service.js";
 import { NotificationsService } from "./notifications/notifications.service.js";
 import { RealtimeController } from "./realtime/realtime.controller.js";
 import { RealtimeService } from "./realtime/realtime.service.js";
@@ -121,6 +123,7 @@ import {
   AUTHENTICATOR,
   CAPA_SERVICE,
   COMMENTS_SERVICE,
+  PREFERENCES_SERVICE,
   CONTROL_POOL,
   ENTITY_LINKS_SERVICE,
   DOCUMENTS_SERVICE,
@@ -195,6 +198,7 @@ import {
     AiController,
     SearchController,
     NotificationsController,
+    PreferencesController,
     RealtimeController,
     PresenceController,
     CollabController,
@@ -435,7 +439,12 @@ import {
       useFactory: (jobs: JobProducer) => new NotificationsService(jobs),
       inject: [JOB_PRODUCER],
     },
-    { provide: COMMENTS_SERVICE, useFactory: () => new CommentsService() },
+    {
+      provide: COMMENTS_SERVICE,
+      useFactory: (notifications: NotificationsService) => new CommentsService(notifications),
+      inject: [NOTIFICATIONS_SERVICE],
+    },
+    { provide: PREFERENCES_SERVICE, useFactory: () => new PreferencesService() },
     { provide: AUDIT_LOG_SERVICE, useFactory: () => new AuditLogService() },
     { provide: ENTITY_LINKS_SERVICE, useFactory: () => new EntityLinksService() },
     { provide: SETTINGS_SERVICE, useFactory: () => new SettingsService() },

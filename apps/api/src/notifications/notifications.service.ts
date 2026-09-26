@@ -87,6 +87,7 @@ export class NotificationsService {
       unread?: boolean;
       starred?: boolean;
       entityKind?: string;
+      type?: string;
       cursor?: string;
       limit: number;
     },
@@ -100,6 +101,11 @@ export class NotificationsService {
     if (opts.entityKind !== undefined) {
       params.push(opts.entityKind);
       where += ` AND entity_kind = $${params.length}`;
+    }
+
+    if (opts.type !== undefined) {
+      params.push(opts.type);
+      where += ` AND kind = $${params.length}`;
     }
 
     const keyset = keysetPredicate(cursor, params.length + 1);
