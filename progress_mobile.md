@@ -594,6 +594,10 @@ placeholders today).
   is a 409 the server rejects (found + fixed during verification).
 
 ## Known issues / open questions
+- ~~**Manage-in-web rows were dead (alert-only).**~~ **RESOLVED.** Each row now opens its real web route
+  (`/reports`, `/settings/{integrations,bulk-import,members,sessions,white-label}`, `/spc`; all built) via
+  `Linking.openURL` (native) / `window.open` (web); base URL = `EXPO_PUBLIC_WEB_URL` or the dev API host on
+  :3000; unconfigured/failed open shows an inline error card. Tests: `test/web-links.test.ts`.
 - ~~**BACKEND GAP: no `/v1/sync/<table>?since=` delta endpoints exist.**~~ **RESOLVED (M26 close-out).**
   `GET /v1/sync/ncr` + `/v1/sync/inspections` now do an O(delta) `(updated_at,id)` keyset scan with
   tombstones (0039 index, `*:view`-gated, RLS-scoped, injection-safe); mobile `createDeltaReadSource`
