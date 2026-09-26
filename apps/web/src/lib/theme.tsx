@@ -28,7 +28,10 @@ function readInitialTheme(): Theme {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-  const [theme, setThemeState] = useState<Theme>(readInitialTheme);
+  // Start from "light" so the first client render matches the server HTML (the
+  // server cannot know the stored theme); the mount effect below reconciles.
+  // The page itself never flashes: CSS keys off the pre-hydration `data-theme`.
+  const [theme, setThemeState] = useState<Theme>("light");
 
   const apply = useCallback((next: Theme) => {
     document.documentElement.setAttribute("data-theme", next);
