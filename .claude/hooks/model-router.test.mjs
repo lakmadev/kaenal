@@ -19,7 +19,12 @@ const cases = [
   ["plan the architecture for the CAPA module", /tier=plan/, "planner"],
   ["add a capa table migration with RLS", /tier=hard/, "db-migrations"],
   ["implement the webhook retry endpoint in the api controller", /tier=hard/, "api-engineer"],
-  ["fix the padding on the settings screen component", /tier=standard/, "react-coder"],
+  ["fix the padding on the settings screen component", /Small task: do it inline/, null],
+  [
+    "update the settings screen component so the integrations section shows a delivery log table with columns for status, endpoint, attempt count, last error and timestamps, sortable by timestamp, with an empty state and a loading skeleton",
+    /Delegate execution to the `react-coder`/,
+    "react-coder",
+  ],
   ["the mobile safe area is clipped on iphone, debug it", /tier=hard/, "mobile-engineer"],
   ["run typecheck and lint", /tier=light/, "ci-gate-runner"],
   ["merge the PR and check the ci job and deploy", /tier=standard/, null],
@@ -30,7 +35,7 @@ for (const [prompt, tier, agent] of cases) {
     const out = route(prompt);
     assert.match(out, tier);
     if (agent) assert.match(out, new RegExp(`\`${agent}\``));
-    else assert.doesNotMatch(out, /ci-gate-runner/);
+    else assert.doesNotMatch(out, /Delegate execution/);
   });
 }
 
