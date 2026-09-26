@@ -612,6 +612,10 @@ placeholders today).
   Removed from the app; re-adding needs a transcription backend + restoring the route/`expo-audio`.
 - **(S1-11 audit) `app/manage-web.tsx` (m-oversight ManageInWeb) rows are dead controls**: `openWeb` only calls
   `window.alert` on web and does nothing on native. Needs a real deep-link/handoff to the web app; not fixed here.
+- ~~**Manage-in-web rows were dead (alert-only).**~~ **RESOLVED.** Each row now opens its real web route
+  (`/reports`, `/settings/{integrations,bulk-import,members,sessions,white-label}`, `/spc`; all built) via
+  `Linking.openURL` (native) / `window.open` (web); base URL = `EXPO_PUBLIC_WEB_URL` or the dev API host on
+  :3000; unconfigured/failed open shows an inline error card. Tests: `test/web-links.test.ts`.
 - ~~**BACKEND GAP: no `/v1/sync/<table>?since=` delta endpoints exist.**~~ **RESOLVED (M26 close-out).**
   `GET /v1/sync/ncr` + `/v1/sync/inspections` now do an O(delta) `(updated_at,id)` keyset scan with
   tombstones (0039 index, `*:view`-gated, RLS-scoped, injection-safe); mobile `createDeltaReadSource`
