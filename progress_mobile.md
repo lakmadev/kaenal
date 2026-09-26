@@ -594,6 +594,11 @@ placeholders today).
   is a 409 the server rejects (found + fixed during verification).
 
 ## Known issues / open questions
+- **Supplier-portal partner MFA enrolment is web-only.** A partner's first sign-in returns an enrolment-only
+  session (`enrolmentRequired: true`, P11); the mobile app has no QR/recovery-code enrolment screen, so
+  `rejectEnrolmentOnly` (`stores/session.ts`) ends that session and shows "Finish two-factor setup on the web
+  app first, then sign in here." The endpoints (`/v1/auth/mfa/enroll|activate`) are callable from mobile, so
+  this is buildable and still owed if partners must use the mobile app — not disguised as working.
 - ~~**BACKEND GAP: no `/v1/sync/<table>?since=` delta endpoints exist.**~~ **RESOLVED (M26 close-out).**
   `GET /v1/sync/ncr` + `/v1/sync/inspections` now do an O(delta) `(updated_at,id)` keyset scan with
   tombstones (0039 index, `*:view`-gated, RLS-scoped, injection-safe); mobile `createDeltaReadSource`

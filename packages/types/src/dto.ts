@@ -1227,6 +1227,27 @@ export const PartnerInviteResult = z.object({
 });
 export type PartnerInviteResult = z.infer<typeof PartnerInviteResult>;
 
+/** A supplier-portal contact's lifecycle state (P11). */
+export const PortalContactStatus = z.enum(["invited", "enrolment_pending", "active", "revoked"]);
+export type PortalContactStatus = z.infer<typeof PortalContactStatus>;
+
+/**
+ * One external contact of a supplier: either a pending invitation (`invited`) or
+ * a `partner` membership scoped to that supplier. `id` is the invitation id for
+ * `invited` rows and the user id otherwise; the API resolves either.
+ */
+export const PortalContactDto = z.object({
+  id: z.string().uuid(),
+  email: z.string(),
+  name: z.string().nullable(),
+  status: PortalContactStatus,
+  mfaEnrolled: z.boolean(),
+  lastSignInAt: z.string().nullable(),
+  invitedAt: z.string(),
+  expiresAt: z.string().nullable(),
+});
+export type PortalContactDto = z.infer<typeof PortalContactDto>;
+
 /** Optional scorecard weights, as query params on the scorecard endpoint. */
 export const ScorecardWeightsQuery = z.object({
   wPpm: z.coerce.number().min(0).optional(),

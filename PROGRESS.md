@@ -19,9 +19,22 @@ session (`enrolmentRequired: true`); `RequestLifecycleInterceptor` default-denie
 `mfa_enrolment_required`) on every route except those marked `@AllowEnrolment` (MFA status/enroll/activate +
 sign-out). A verified TOTP `activate` promotes that session in place to a full 2h partner session
 (`sessionUpgraded: true`); later sign-ins are the normal password+code flow. **Web:** "Invite to portal"
-button + dialog on the supplier detail (gated `supplier:manage`; no jsx design exists for it — Known issues),
-and the sign-in form's new `enroll` stage reuses the designed `MfaEnrollModal` (QR → code → recovery codes).
+button + dialog on the supplier detail (gated `supplier:manage`), and the sign-in form's new `enroll` stage reuses the designed `MfaEnrollModal` (QR → code → recovery codes).
 **Mobile:** a partner's enrolment-only sign-in is ended with an explicit "finish two-factor on the web" error.
+**Portal contacts (2026-09-26, design-approved canvas):** `GET /v1/suppliers/:id/portal-contacts`
+(cursor-paged; `PortalContactDto` in `@kaenal/types`; status `invited|enrolment_pending|active|revoked`
+derived from pending partner invitations + partner memberships + `control.users.mfa_secret`),
+`POST …/:contactId/resend` (re-issues + revokes old token, re-emails; only invited/enrolment_pending → else 409)
+and `POST …/:contactId/revoke` (membership `deactivated`, ALL sessions revoked immediately, pending invite
+revoked; idempotent; audited once via `withAudit`). `supplier:manage`; foreign/unknown supplier or contact,
+internal-member ids and other suppliers' partners → 404. No migration (uses existing columns). Web: header
+"Invite to portal" restyled to the canvas (ghost, beside Scorecard PDF), invite dialog with Scope note + red
+error panel (staff 409), and the new "Portal access" tab (count chip, table, Resend/Revoke-with-confirm, footer
+note) on real endpoints via TanStack hooks (`use-portal-contacts.ts`); browser-verified against the canvas
+(default/error dialog states, tab, revoke). Tests: `portal-contacts.test.ts` (6). Gaps: the canvas's "Schedule
+audit" / "Raise SCAR" header buttons don't exist on this screen yet, so "Raise SCAR" is not shown as primary;
+revoked *invitations* disappear from the list (revoked memberships show as Revoked); memberships have no
+`lock_version`, so revoke relies on idempotency rather than optimistic concurrency.
 **Tests:** new `partner-invite.test.ts` (11: capability gate, foreign/unknown supplier 404, internal-member
 409, scoped+audited invite, re-invite supersedes / spent / expired, enrolment-only token blocked on portal +
 `/v1/me` + `/v1/suppliers` + sessions + mfa/disable, wrong code doesn't upgrade, activate upgrades, next
@@ -2651,10 +2664,9 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 - **P11 Supplier Portal — TOTP/enrolment/invite: DONE (2026-09-26).** (a) TOTP enrolment + recovery codes
   and (b) the per-login verify step were already built (`mfa.service.ts`, `mfa.controller.ts`, sign-in demands
   a code when `mfa_secret` is set) — the earlier note here was stale. (c) is now built: partner invite +
-  enrolment-only session (see Current status + Decisions log). Remaining, honest gaps: no jsx design for the
-  "Invite to portal" control (added as a plain header button; needs design sign-off), no UI to list/revoke a
-  supplier's portal contacts or resend beyond re-inviting, and the mobile app cannot run the enrolment flow
-  (it ends an enrolment-only session with a "use the web app" error). The sign-in `blocked` stage
+  enrolment-only session (see Current status + Decisions log). Contacts list/resend/revoke + the
+  design-approved invite UI are now built (see Current status). Remaining, honest gap: the mobile app cannot run
+  the enrolment flow (it ends an enrolment-only session with a "use the web app" error). The sign-in `blocked` stage
   (`MfaRequiredBlocked`) is no longer reachable for partners.
 - **P11 Supplier Portal — evidence UPLOAD ✅ (2026-08-06).** The last deferred write. A partner-scoped
   mirror of the internal presign flow that never touches `/v1/files/*`: `POST /v1/portal/files/presign`

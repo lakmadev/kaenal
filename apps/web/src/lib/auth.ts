@@ -1,5 +1,5 @@
 import { CSRF_COOKIE, CSRF_HEADER, TENANT_HEADER } from "@kaenal/api-client";
-import type { PartnerInviteResult } from "@kaenal/types";
+import type { Page, PartnerInviteResult, PortalContactDto } from "@kaenal/types";
 import { env } from "@/lib/env";
 import { getActiveTenant } from "@/lib/tenant";
 
@@ -250,6 +250,32 @@ export function invitePortalContact(
   return authPost<PartnerInviteResult>(
     `/v1/suppliers/${encodeURIComponent(supplierId)}/portal-invite`,
     { email },
+    { tenant: getActiveTenant() },
+  );
+}
+
+/** The supplier's portal contacts (partners + pending invitations), cursor-paged. */
+export function listPortalContacts(supplierId: string, cursor?: string): Promise<Page<PortalContactDto>> {
+  const qs = cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+  return authGet<Page<PortalContactDto>>(`/v1/suppliers/${encodeURIComponent(supplierId)}/portal-contacts${qs}`, {
+    tenant: getActiveTenant(),
+  });
+}
+
+/** Re-issue a pending contact's invitation (old link revoked, new one emailed). */
+export function resendPortalContact(supplierId: string, contactId: string): Promise<PartnerInviteResult> {
+  return authPost<PartnerInviteResult>(
+    `/v1/suppliers/${encodeURIComponent(supplierId)}/portal-contacts/${encodeURIComponent(contactId)}/resend`,
+    {},
+    { tenant: getActiveTenant() },
+  );
+}
+
+/** Revoke a contact: membership deactivated and every session ended immediately. */
+export function revokePortalContact(supplierId: string, contactId: string): Promise<PortalContactDto> {
+  return authPost<PortalContactDto>(
+    `/v1/suppliers/${encodeURIComponent(supplierId)}/portal-contacts/${encodeURIComponent(contactId)}/revoke`,
+    {},
     { tenant: getActiveTenant() },
   );
 }

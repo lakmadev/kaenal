@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type pg from "pg";
-import type { Role } from "@kaenal/types";
+import type { Page, PortalContactDto, Role } from "@kaenal/types";
 import { withAudit, withTenant, type Tx } from "@kaenal/db";
 import {
   canRedeemToken,
@@ -16,6 +16,7 @@ import {
   slideSessionExpiry,
 } from "@kaenal/core";
 import { ApiError } from "../errors.js";
+import { clampLimit, decodeCursor, encodeCursor } from "../http/pagination.js";
 import { loadSessionPolicy } from "../settings/settings.service.js";
 import { CONTROL_POOL } from "../tokens.js";
 import { generateToken, hashPassword, hashToken, verifyPassword, equalizeTiming } from "./passwords.js";
@@ -651,6 +652,170 @@ export class AuthService {
     }
 
     return this.invite(tx, tenantId, actorId, email, "partner", [], supplierId);
+  }
+
+  // --- Supplier-portal contacts (P11) ---------------------------------------
+  // Only ever `partner` memberships / partner invitations scoped to the given
+  // supplier — internal members are never listed or touched here.
+
+  private async requireSupplier(tx: Tx, supplierId: string): Promise<void> {
+    const { rows } = await tx.query("SELECT 1 FROM suppliers WHERE id = $1 AND deleted_at IS NULL", [supplierId]);
+    if (rows.length === 0) throw new ApiError("NOT_FOUND", "Supplier not found");
+  }
+
+  /** All contacts of a supplier, newest first, keyset-paged on (invitedAt, id). */
+  async listPortalContacts(
+    tx: Tx,
+    supplierId: string,
+    opts: { cursor?: string; limit: number },
+  ): Promise<Page<PortalContactDto>> {
+    await this.requireSupplier(tx, supplierId);
+    const all = await this.loadContacts(tx, supplierId);
+    all.sort((a, b) => (a.invitedAt === b.invitedAt ? (a.id < b.id ? 1 : -1) : a.invitedAt < b.invitedAt ? 1 : -1));
+    const limit = clampLimit(opts.limit);
+    let start = 0;
+    if (opts.cursor !== undefined) {
+      const c = decodeCursor(opts.cursor);
+      const at = new Date(c.createdAt).toISOString();
+      start = all.findIndex((r) => r.invitedAt < at || (r.invitedAt === at && r.id < c.id));
+      if (start === -1) start = all.length;
+    }
+    const slice = all.slice(start, start + limit);
+    const last = slice[slice.length - 1];
+    const nextCursor =
+      start + limit < all.length && last !== undefined ? encodeCursor({ createdAt: last.invitedAt, id: last.id }) : null;
+    return { items: slice, nextCursor };
+  }
+
+  private async loadContacts(tx: Tx, supplierId: string): Promise<PortalContactDto[]> {
+    interface UserRow {
+      id: string;
+      email: string;
+      name: string;
+      mfa: boolean;
+      last_login_at: Date | null;
+    }
+    const { rows: members } = await tx.query<{ user_id: string; status: string; created_at: Date }>(
+      `SELECT user_id, status, created_at FROM memberships
+        WHERE role = 'partner' AND supplier_scope = $1 AND deleted_at IS NULL`,
+      [supplierId],
+    );
+    const { rows: invites } = await tx.query<{ id: string; email: string; created_at: Date; expires_at: Date }>(
+      `SELECT id, email::text AS email, created_at, expires_at FROM invitations
+        WHERE role = 'partner' AND supplier_scope = $1 AND accepted_at IS NULL AND revoked_at IS NULL`,
+      [supplierId],
+    );
+    const ids = members.map((m) => m.user_id);
+    const users: UserRow[] =
+      ids.length === 0
+        ? []
+        : (
+            await this.control.query<UserRow>(
+              "SELECT id, email::text AS email, name, mfa_secret IS NOT NULL AS mfa, last_login_at FROM control.users WHERE id = ANY($1)",
+              [ids],
+            )
+          ).rows;
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const out: PortalContactDto[] = [];
+    const memberEmails = new Set<string>();
+    for (const m of members) {
+      const u = byId.get(m.user_id);
+      if (u === undefined) continue;
+      memberEmails.add(u.email.toLowerCase());
+      out.push({
+        id: m.user_id,
+        email: u.email,
+        name: u.name,
+        status: m.status !== "active" ? "revoked" : u.mfa ? "active" : "enrolment_pending",
+        mfaEnrolled: u.mfa,
+        lastSignInAt: u.last_login_at === null ? null : u.last_login_at.toISOString(),
+        invitedAt: m.created_at.toISOString(),
+        expiresAt: null,
+      });
+    }
+    for (const i of invites) {
+      if (memberEmails.has(i.email.toLowerCase())) continue; // a re-issued link for an existing contact
+      out.push({
+        id: i.id,
+        email: i.email,
+        name: null,
+        status: "invited",
+        mfaEnrolled: false,
+        lastSignInAt: null,
+        invitedAt: i.created_at.toISOString(),
+        expiresAt: i.expires_at.toISOString(),
+      });
+    }
+    return out;
+  }
+
+  private async findContact(tx: Tx, supplierId: string, contactId: string): Promise<PortalContactDto> {
+    await this.requireSupplier(tx, supplierId);
+    const found = (await this.loadContacts(tx, supplierId)).find((c) => c.id === contactId);
+    if (found === undefined) throw new ApiError("NOT_FOUND", "Contact not found");
+    return found;
+  }
+
+  /** Re-issues the invite (old link revoked, new one returned to be emailed). */
+  async resendPortalContact(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    supplierId: string,
+    contactId: string,
+  ): Promise<{ email: string; token: string; expiresAt: Date }> {
+    const contact = await this.findContact(tx, supplierId, contactId);
+    if (contact.status !== "invited" && contact.status !== "enrolment_pending") {
+      throw new ApiError("CONFLICT", "Only pending contacts can be re-invited");
+    }
+    const { token, expiresAt } = await this.invitePartner(tx, tenantId, actorId, supplierId, contact.email);
+    return { email: contact.email, token, expiresAt };
+  }
+
+  /**
+   * Revokes a contact: membership deactivated, every session revoked NOW, any
+   * pending invitation revoked. Idempotent — revoking a revoked contact is a no-op.
+   */
+  async revokePortalContact(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    supplierId: string,
+    contactId: string,
+  ): Promise<PortalContactDto> {
+    const contact = await this.findContact(tx, supplierId, contactId);
+    if (contact.status === "revoked") return contact;
+    const isInvite = contact.status === "invited";
+
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: isInvite ? "invitation" : "membership",
+        entityId: contactId,
+        action: "updated",
+        after: { revoked: true, email: contact.email, supplierId },
+      },
+      async (t) => {
+        await t.query(
+          `UPDATE invitations SET revoked_at = now()
+            WHERE email = $1 AND role = 'partner' AND supplier_scope = $2
+              AND accepted_at IS NULL AND revoked_at IS NULL`,
+          [contact.email, supplierId],
+        );
+        if (!isInvite) {
+          await t.query(
+            `UPDATE memberships SET status = 'deactivated'
+              WHERE user_id = $1 AND role = 'partner' AND supplier_scope = $2`,
+            [contactId, supplierId],
+          );
+          await t.query("UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL", [contactId]);
+        }
+      },
+    );
+    return { ...contact, status: "revoked" };
   }
 
   /**
