@@ -13,6 +13,7 @@ import type {
   FmeaItemDto,
   IntegrationDto,
   IntegrationEventDto,
+  WebhookPolicyDto,
   ConnectorSchemaResult,
   ImportTargetsResult,
   ImportProfileDto,
@@ -365,6 +366,10 @@ export const apiQueries = {
     schema: (client: ApiClient, id: string): QueryOption<ConnectorSchemaResult> => ({
       queryKey: queryKeys.integrations.schema(id),
       queryFn: () => client.getIntegrationSchema({ params: { id } }).then((r) => unwrap<ConnectorSchemaResult>(r)),
+    }),
+    webhookPolicy: (client: ApiClient): QueryOption<WebhookPolicyDto> => ({
+      queryKey: queryKeys.integrations.webhookPolicy(),
+      queryFn: () => client.getWebhookPolicy().then((r) => unwrap<WebhookPolicyDto>(r)),
     }),
     events: (client: ApiClient, id: string): QueryOption<Page<IntegrationEventDto>> => ({
       queryKey: queryKeys.integrations.events(id),

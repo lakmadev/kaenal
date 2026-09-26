@@ -139,8 +139,24 @@ const EnvSchema = z.object({
    * invalidates stored TOTP secrets (re-enrol), which is why prod should set this.
    */
   MFA_ENCRYPTION_KEY: z.string().min(1).optional(),
+
+  /**
+   * Encryption key for webhook signing secrets at rest (32 bytes, base64). Left
+   * unset, a distinct key is HKDF-derived from AUTH_SECRET. Set it in production
+   * so it rotates independently.
+   */
+  WEBHOOK_ENCRYPTION_KEY: z.string().min(1).optional(),
+
+  /**
+   * SSRF guard override for outbound webhooks. `true` allows http and
+   * private/loopback targets — DEV/TEST ONLY. Ignored (forced off) when
+   * NODE_ENV=production. Parsed as an exact string, never `coerce.boolean`
+   * (which would read "false" as true).
+   */
+  WEBHOOK_ALLOW_PRIVATE_TARGETS: z.enum(["true", "false"]).optional(),
 }).transform((e) => ({
   ...e,
+  WEBHOOK_ALLOW_PRIVATE: e.WEBHOOK_ALLOW_PRIVATE_TARGETS === "true" && e.NODE_ENV !== "production",
   RATE_LIMIT_ENABLED: e.RATE_LIMIT_ENABLED ?? e.NODE_ENV !== "test",
   JOBS_ENABLED: e.JOBS_ENABLED ?? e.NODE_ENV !== "test",
 }));

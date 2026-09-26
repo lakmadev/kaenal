@@ -15,6 +15,8 @@ import { RequestLifecycleInterceptor } from "./lifecycle.interceptor.js";
 import { RequestIdMiddleware } from "./request-id.middleware.js";
 import { TenantRegistry } from "./tenant/registry.js";
 import { TenantPoolManager } from "./tenant/pool-manager.js";
+import { WebhookSecretBox, WebhookSecretResolver } from "./outbox/webhook-secret-box.js";
+import { FetchWebhookTransport } from "./outbox/webhook-transport.js";
 import { EnvSecretResolver, type SecretResolver } from "./tenant/secret-resolver.js";
 import { ShutdownService } from "./shutdown.service.js";
 import { AuthService } from "./auth/auth.service.js";
@@ -448,7 +450,19 @@ import {
     { provide: FMEA_SERVICE, useFactory: () => new FmeaService() },
     { provide: QUERY_SERVICE, useFactory: () => new QueryService() },
     { provide: REPORTS_SERVICE, useFactory: () => new ReportsService() },
-    { provide: INTEGRATIONS_SERVICE, useFactory: () => new IntegrationsService() },
+    {
+      provide: INTEGRATIONS_SERVICE,
+      useFactory: (env: Env) => {
+        const box = new WebhookSecretBox({ authSecret: env.AUTH_SECRET, key: env.WEBHOOK_ENCRYPTION_KEY });
+        return new IntegrationsService(
+          new WebhookSecretResolver(box, new EnvSecretResolver()),
+          new FetchWebhookTransport({ policy: { allowPrivateTargets: env.WEBHOOK_ALLOW_PRIVATE } }),
+          () => new Date(),
+          { policy: { allowPrivateTargets: env.WEBHOOK_ALLOW_PRIVATE }, box },
+        );
+      },
+      inject: [ENV],
+    },
     { provide: IMPORT_SERVICE, useFactory: () => new ImportService() },
     { provide: SPC_SERVICE, useFactory: () => new SpcService() },
     {

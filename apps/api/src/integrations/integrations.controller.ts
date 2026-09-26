@@ -1,13 +1,16 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put } from "@nestjs/common";
 import { z } from "zod";
 import {
+  ConfigureWebhookBody,
   ConnectIntegrationBody,
   CreateIntegrationBody,
   UpdateIntegrationBody,
+  type ConfigureWebhookResult,
   type ConnectorSchemaResult,
   type IntegrationDto,
   type IntegrationEventDto,
   type Page,
+  type WebhookPolicyDto,
   type WebhookTestResultDto,
 } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
@@ -40,6 +43,12 @@ export class IntegrationsController {
   @Post("v1/integrations")
   async create(@Body() body: unknown): Promise<IntegrationDto> {
     return this.integrations.create(currentTx(), currentContext().tenantId, actorIdOf(), parse(CreateIntegrationBody, body), auditCtxOf());
+  }
+
+  /** Declared BEFORE `:id` so it isn't captured as an id. */
+  @Get("v1/integrations/webhook-policy")
+  webhookPolicy(): WebhookPolicyDto {
+    return this.integrations.webhookPolicy();
   }
 
   @Get("v1/integrations/:id")
@@ -78,6 +87,12 @@ export class IntegrationsController {
   @HttpCode(200)
   async remove(@Param("id") id: string): Promise<IntegrationDto> {
     return this.integrations.remove(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
+  }
+
+  /** URL + events + (re)generate signing secret; the secret is revealed once in this response. */
+  @Put("v1/integrations/:id/webhook")
+  async configureWebhook(@Param("id") id: string, @Body() body: unknown): Promise<ConfigureWebhookResult> {
+    return this.integrations.configureWebhook(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), parse(ConfigureWebhookBody, body), auditCtxOf());
   }
 
   /** Send a real signed `webhook.ping` to this endpoint and report the outcome. */

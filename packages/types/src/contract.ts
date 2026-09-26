@@ -173,6 +173,7 @@ import {
   ConnectIntegrationBody,
   WebhookTestResultDto,
 } from "./integration.js";
+import { ConfigureWebhookBody, ConfigureWebhookResult, WebhookPolicyDto } from "./webhook-config.js";
 import {
   ImportTargetsResult,
   ImportProfileDto,
@@ -1249,6 +1250,20 @@ export const contract = c.router(
       body: z.object({}),
       responses: { 200: IntegrationDto, ...commonErrors },
       summary: "Remove a connector — purges secrets (integration:manage)",
+    },
+    getWebhookPolicy: {
+      method: "GET",
+      path: "/v1/integrations/webhook-policy",
+      responses: { 200: WebhookPolicyDto, ...commonErrors },
+      summary: "Webhook target policy for this deployment (integration:manage)",
+    },
+    configureWebhook: {
+      method: "PUT",
+      path: "/v1/integrations/:id/webhook",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: ConfigureWebhookBody,
+      responses: { 200: ConfigureWebhookResult, ...commonErrors },
+      summary: "Set a webhook's URL/events and (re)generate its signing secret (integration:manage; optimistic; secret shown once)",
     },
     testIntegration: {
       method: "POST",
