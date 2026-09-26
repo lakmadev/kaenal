@@ -20,3 +20,6 @@ CREDENTIALS.md
 # Playwright e2e artifacts
 apps/web/test-results/
 apps/web/playwright-report/
+
+# Claude Code model-router decision log
+.claude/hooks/router.log.jsonl

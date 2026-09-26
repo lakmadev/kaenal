@@ -3,7 +3,12 @@
 // directive. A hook cannot switch the running session's model; savings come from delegating
 // to agents whose frontmatter pins a cheaper model/effort (see .claude/agents/*.md).
 
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Decision log (git-ignored) so routing quality can be audited: `jq -s 'group_by(.tier)|map({tier:.[0].tier,n:length})' .claude/hooks/router.log.jsonl`
+const LOG = join(dirname(fileURLToPath(import.meta.url)), "router.log.jsonl");
 
 const TIERS = {
   plan: { model: "opus", effort: "high", agent: "planner" },
@@ -39,7 +44,7 @@ const DOMAINS = [
   [/\b(vitest|playwright|e2e|flaky|test suite|write tests?|add tests?|coverage)\b/i, "test-engineer"],
   [/\b(controller|endpoint|ts-rest|nestjs|contract|service|outbox|webhook|bullmq|job handler|apps\/api)\b/i, "api-engineer"],
   [/\b(component|tsx|react|next\.?js|tailwind|shadcn|screen|page|ui|apps\/web)\b/i, "react-coder"],
-  [/\b(typecheck|lint|ci gate|pre-push|ci\b)/i, "ci-gate-runner"],
+  [/\b(typecheck|lint(ing)?|ci (gate|run|checks?|pipeline)|pre-push|run the gate)\b/i, "ci-gate-runner"],
   [/\b(progress\.md|progress_mobile|decisions log|known issues)\b/i, "progress-scribe"],
   [/\b(proofread|wording|typo|spelling|grammar|copy edit)\b/i, "proofreader"],
   [/\b(where is|which files?|find (the|all)|who calls|references? (to|of)|locate|grep)\b/i, "codebase-scout"],
@@ -100,7 +105,17 @@ function main() {
   if (!prompt.trim() || prompt.trimStart().startsWith("/")) return;
   if (/task-notification|SYSTEM NOTIFICATION|<agent-message|Subagent hand-back/i.test(prompt)) return;
 
-  const additionalContext = directive(decide(prompt));
+  const decision = decide(prompt);
+  try {
+    if (process.env.KAENAL_ROUTER_NOLOG) throw new Error("log disabled");
+    appendFileSync(
+      LOG,
+      `${JSON.stringify({ ts: new Date().toISOString(), tier: decision.tier, agent: decision.domain ?? null, words: prompt.trim().split(/\s+/).length })}\n`,
+    );
+  } catch {
+    // logging is best-effort
+  }
+  const additionalContext = directive(decision);
   process.stdout.write(
     JSON.stringify({ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext } }),
   );
