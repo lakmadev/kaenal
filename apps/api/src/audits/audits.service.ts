@@ -17,6 +17,7 @@ import type {
   RaiseNcrFromFindingBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import {
   clampLimit,
   decodeCursor,
@@ -243,7 +244,7 @@ export class AuditsService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const decision = auditMachine.canTransition(row.status as AuditPhase, body.to, {});
     if (!decision.ok) throw ApiError.from(decision);
@@ -271,7 +272,7 @@ export class AuditsService {
           [id, body.version, body.to, actorId],
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The audit changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "audits", key: id, message: "The audit changed since you loaded it" });
         return toAuditDto(updated);
       },
     );
@@ -460,9 +461,9 @@ export class AuditsService {
     throw notFound();
   }
 
-  private assertVersion(actual: number, expected: number): void {
+  private async assertVersion(tx: Tx, id: string, actual: number, expected: number): Promise<void> {
     if (actual !== expected) {
-      throw new ApiError("STALE_WRITE", "The record changed since you loaded it", { expected, actual });
+      throw await staleWriteError(tx, { table: "audits", key: id, message: "The record changed since you loaded it", expected, actual });
     }
   }
 }

@@ -240,6 +240,11 @@ describe("RBAC + concurrency", () => {
     const res = await authed("post", `/v1/eight-ds/${ed.id}/steps/1`, mgrTok).send({ status: "complete", version: ed.lockVersion + 5 });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("STALE_WRITE");
+    expect(res.body.error.details).toMatchObject({
+      expected: ed.lockVersion + 5,
+      updatedBy: { id: expect.any(String), name: expect.any(String) },
+    });
+    expect(new Date(res.body.error.details.updatedAt as string).toISOString()).toBe(res.body.error.details.updatedAt);
   });
 });
 

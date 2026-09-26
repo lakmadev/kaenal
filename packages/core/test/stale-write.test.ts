@@ -14,6 +14,12 @@ describe("parseStaleWrite", () => {
     const body = { error: { code: "STALE_WRITE", message: "m", details: { expected: 1, actual: 2, updatedBy: "u" } } };
     expect(parseStaleWrite(409, body)).toEqual({ message: "m", expected: 1, actual: 2, updatedBy: "u" });
   });
+  it("reads updatedBy {id,name} and tolerates nulls", () => {
+    const body = { error: { code: "STALE_WRITE", message: "m", details: { expected: 1, actual: 2, updatedAt: "2026-01-01T00:00:00.000Z", updatedBy: { id: "u1", name: "Ada" } } } };
+    expect(parseStaleWrite(409, body)).toEqual({ message: "m", expected: 1, actual: 2, updatedAt: "2026-01-01T00:00:00.000Z", updatedBy: "u1", updatedByName: "Ada" });
+    const nul = { error: { code: "STALE_WRITE", message: "m", details: { updatedAt: null, updatedBy: null } } };
+    expect(parseStaleWrite(409, nul)).toEqual({ message: "m" });
+  });
   it("ignores other responses", () => {
     expect(parseStaleWrite(409, { error: { code: "INVALID_TRANSITION", message: "x" } })).toBeNull();
     expect(parseStaleWrite(500, { error: { code: "STALE_WRITE" } })).toBeNull();

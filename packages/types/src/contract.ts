@@ -57,6 +57,7 @@ import {
   CountDto,
   NewDocumentVersionBody,
   NotificationDto,
+  NotificationPageDto,
   NotificationPrefsDto,
   UpdateUserPreferencesBody,
   UserPreferencesDto,
@@ -1607,7 +1608,7 @@ export const contract = c.router(
         /** Notification kind filter, e.g. `mention` for the Mentions tab. */
         type: z.string().max(40).optional(),
       }),
-      responses: { 200: page(NotificationDto), ...commonErrors },
+      responses: { 200: NotificationPageDto, ...commonErrors },
       summary: "List the current user's notifications (cursor-paginated; unread/starred/type filters)",
     },
     unreadCount: {

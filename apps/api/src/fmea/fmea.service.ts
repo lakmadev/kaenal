@@ -12,6 +12,7 @@ import type {
   UpdateFmeaItemBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
 interface FmeaRow {
@@ -141,7 +142,7 @@ export class FmeaService {
 
   async update(tx: Tx, tenantId: string, actorId: string, id: string, body: UpdateFmeaBody, ctx: AuditContext): Promise<FmeaDto> {
     const current = await this.loadFmea(tx, id);
-    assertVersion(current.lock_version, body.version, "FMEA");
+    await assertVersion(tx, "fmeas", id, current.lock_version, body.version, "FMEA");
     return withAudit(
       tx,
       tenantId,
@@ -153,7 +154,7 @@ export class FmeaService {
           [id, body.version, body.type, body.partCode, body.partName, body.revision, actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw staleWrite("FMEA");
+        if (row === undefined) throw await staleWriteError(t, { table: "fmeas", key: id, message: "This FMEA changed since you loaded it" });
         return this.get(t, id);
       },
     );
@@ -230,7 +231,7 @@ export class FmeaService {
 
   async updateItem(tx: Tx, tenantId: string, actorId: string, fmeaId: string, itemId: string, body: UpdateFmeaItemBody, ctx: AuditContext): Promise<FmeaItemDto> {
     const current = await this.loadItem(tx, fmeaId, itemId);
-    assertVersion(current.lock_version, body.version, "failure mode");
+    await assertVersion(tx, "fmea_items", itemId, current.lock_version, body.version, "failure mode");
     return withAudit(
       tx,
       tenantId,
@@ -249,7 +250,7 @@ export class FmeaService {
           ],
         );
         const row = rows[0];
-        if (row === undefined) throw staleWrite("failure mode");
+        if (row === undefined) throw await staleWriteError(t, { table: "fmea_items", key: itemId, message: "This failure mode changed since you loaded it" });
         return toItemDto(row);
       },
     );
@@ -272,13 +273,10 @@ export class FmeaService {
   }
 }
 
-function assertVersion(actual: number, expected: number, label: string): void {
+async function assertVersion(tx: Tx, table: "fmeas" | "fmea_items", id: string, actual: number, expected: number, label: string): Promise<void> {
   if (actual !== expected) {
-    throw new ApiError("STALE_WRITE", `This ${label} changed since you loaded it`, { expected, actual });
+    throw await staleWriteError(tx, { table, key: id, message: `This ${label} changed since you loaded it`, expected, actual });
   }
-}
-function staleWrite(label: string): ApiError {
-  return new ApiError("STALE_WRITE", `This ${label} changed since you loaded it`);
 }
 type AuditVerb = "created" | "updated" | "deleted";
 function audit(

@@ -7,6 +7,7 @@ import type {
   AiSummaryDto,
 } from "@kaenal/types";
 import { ApiError } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 import type { Membership } from "@kaenal/core";
 import type { AiChatChunk, AiChatRequest } from "@kaenal/types";
@@ -145,7 +146,7 @@ export class AiService {
         // 0 rows = the version moved since the client read it. Throwing here
         // rolls back before the audit event is written (no phantom acceptance).
         if (r.rows[0] === undefined) {
-          throw new ApiError("STALE_WRITE", "The document changed since you loaded it — refetch and retry");
+          throw await staleWriteError(t, { table: "documents", key: body.documentId, message: "The document changed since you loaded it — refetch and retry" });
         }
         lockVersion = r.rows[0].lock_version;
       },

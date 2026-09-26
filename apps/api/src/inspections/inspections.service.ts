@@ -25,6 +25,7 @@ import {
   type SetRecurrenceBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import {
   clampLimit,
@@ -264,7 +265,7 @@ export class InspectionsService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row, expectedVersion);
+    await this.assertVersion(tx, row, expectedVersion);
 
     const transition = inspectionMachine.canTransition(row.status as InspectionStatus, "in_progress", {
       requiredItemIds: [],
@@ -305,7 +306,7 @@ export class InspectionsService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row, expectedVersion);
+    await this.assertVersion(tx, row, expectedVersion);
 
     const schema = await this.pinnedSchema(tx, row.template_id, row.template_version);
 
@@ -370,7 +371,7 @@ export class InspectionsService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
     if (row.series_id !== null) {
       throw new ApiError("CONFLICT", "A generated occurrence cannot carry its own recurrence");
     }
@@ -417,7 +418,7 @@ export class InspectionsService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     if (body.inspectorId !== null) await this.assertMember(tx, body.inspectorId);
 
@@ -628,12 +629,9 @@ export class InspectionsService {
     if (rows.length === 0) throw new ApiError("VALIDATION_FAILED", "That user is not an active member");
   }
 
-  private assertVersion(row: InspectionRow, expected: number): void {
+  private async assertVersion(tx: Tx, row: InspectionRow, expected: number): Promise<void> {
     if (row.lock_version !== expected) {
-      throw new ApiError("STALE_WRITE", "The inspection changed since you loaded it", {
-        expected,
-        actual: row.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "inspections", key: row.id, message: "The inspection changed since you loaded it", expected, actual: row.lock_version });
     }
   }
 
@@ -657,7 +655,7 @@ export class InspectionsService {
       [id, expectedVersion, ...extraParams],
     );
     const row = rows[0];
-    if (row === undefined) throw new ApiError("STALE_WRITE", "The inspection changed since you loaded it");
+    if (row === undefined) throw await staleWriteError(tx, { table: "inspections", key: id, message: "The inspection changed since you loaded it" });
     return toInspectionDto(row);
   }
 }

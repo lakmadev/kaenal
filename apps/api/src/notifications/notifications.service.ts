@@ -3,8 +3,8 @@ import { Injectable } from "@nestjs/common";
 import type { Tx } from "@kaenal/db";
 import type {
   NotificationDto,
+  NotificationPageDto,
   NotificationPrefsDto,
-  Page,
   UpdateNotificationPrefsBody,
 } from "@kaenal/types";
 import { notFound } from "../errors.js";
@@ -91,7 +91,7 @@ export class NotificationsService {
       cursor?: string;
       limit: number;
     },
-  ): Promise<Page<NotificationDto>> {
+  ): Promise<NotificationPageDto> {
     const limit = clampLimit(opts.limit);
     const cursor: Cursor | null = opts.cursor !== undefined ? decodeCursor(opts.cursor) : null;
     const params: unknown[] = [userId];
@@ -108,6 +108,13 @@ export class NotificationsService {
       where += ` AND kind = $${params.length}`;
     }
 
+    // Total of the caller's rows matching the same filters (ignores the cursor).
+    const { rows: totalRows } = await tx.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM notifications ${where}`,
+      params,
+    );
+    const total = Number(totalRows[0]?.n ?? "0");
+
     const keyset = keysetPredicate(cursor, params.length + 1);
     params.push(...keyset.params);
     params.push(limit + 1);
@@ -117,7 +124,7 @@ export class NotificationsService {
         ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,
       params,
     );
-    return toPage(rows, limit, toDto);
+    return { ...toPage(rows, limit, toDto), total };
   }
 
   async unreadCount(tx: Tx, userId: string): Promise<number> {

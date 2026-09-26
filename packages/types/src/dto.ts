@@ -656,6 +656,15 @@ export const NotificationDto = z.object({
 });
 export type NotificationDto = z.infer<typeof NotificationDto>;
 
+/** Notification list page: the standard cursor page plus an optional `total`
+ *  (the caller's notifications matching the same filters, ignoring the cursor). */
+export const NotificationPageDto = z.object({
+  items: z.array(NotificationDto),
+  nextCursor: z.string().nullable(),
+  total: z.number().int().nonnegative().optional(),
+});
+export type NotificationPageDto = z.infer<typeof NotificationPageDto>;
+
 /** Toggle the star on one of the caller's notifications. */
 export const StarNotificationBody = z.object({ starred: z.boolean() });
 export type StarNotificationBody = z.infer<typeof StarNotificationBody>;

@@ -238,6 +238,11 @@ describe("CAPA actions + concurrency + RBAC", () => {
     });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("STALE_WRITE");
+    expect(res.body.error.details).toMatchObject({
+      expected: capa.lockVersion + 5,
+      updatedBy: { id: expect.any(String), name: expect.any(String) },
+    });
+    expect(new Date(res.body.error.details.updatedAt as string).toISOString()).toBe(res.body.error.details.updatedAt);
   });
 
   it("lets a viewer read but not open or advance a CAPA", async () => {
