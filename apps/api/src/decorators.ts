@@ -5,6 +5,7 @@ export const IS_PUBLIC = "kaenal:isPublic";
 export const IS_ANONYMOUS = "kaenal:isAnonymous";
 export const REQUIRED_CAPABILITY = "kaenal:capability";
 export const IS_INTERNAL = "kaenal:isInternal";
+export const ALLOW_ENROLMENT = "kaenal:allowEnrolment";
 
 /**
  * Marks a route as reachable without a tenant or a session: health checks,
@@ -41,3 +42,12 @@ export const RequireCapability = (capability: Capability): MethodDecorator & Cla
  * `@RequireCapability` — it gates on the role axis, not the capability one.
  */
 export const Internal = (): MethodDecorator & ClassDecorator => SetMetadata(IS_INTERNAL, true);
+
+/**
+ * Marks a route reachable with an ENROLMENT-ONLY session (a partner who has not
+ * yet activated TOTP, P11). Default-deny: every route without this refuses such a
+ * session with 403, so it can reach only the MFA enrol/activate/status routes and
+ * sign-out — never the portal or any other data.
+ */
+export const AllowEnrolment = (): MethodDecorator & ClassDecorator =>
+  SetMetadata(ALLOW_ENROLMENT, true);

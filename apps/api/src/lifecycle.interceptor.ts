@@ -16,7 +16,7 @@ import { runWithContext } from "./context.js";
 import { readCookie, TENANT_COOKIE } from "./http/cookies.js";
 import { slugFromHost, TenantRegistry } from "./tenant/registry.js";
 import type { TenantPoolManager } from "./tenant/pool-manager.js";
-import { IS_ANONYMOUS, IS_INTERNAL, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
+import { ALLOW_ENROLMENT, IS_ANONYMOUS, IS_INTERNAL, IS_PUBLIC, REQUIRED_CAPABILITY } from "./decorators.js";
 import {
   AUTHENTICATOR,
   ENV,
@@ -81,7 +81,10 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     const internalOnly =
       this.reflector.getAllAndOverride<boolean>(IS_INTERNAL, [handler, controller]) ?? false;
 
-    return from(this.run(req, next, required, allowAnonymous, internalOnly));
+    const allowEnrolment =
+      this.reflector.getAllAndOverride<boolean>(ALLOW_ENROLMENT, [handler, controller]) ?? false;
+
+    return from(this.run(req, next, required, allowAnonymous, internalOnly, allowEnrolment));
   }
 
   private async run(
@@ -90,6 +93,7 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
     required: Capability | undefined,
     allowAnonymous: boolean,
     internalOnly: boolean,
+    allowEnrolment: boolean,
   ): Promise<unknown> {
     // --- 1. Resolve tenant ------------------------------------------------
     // Subdomain for web; X-Tenant-Id header for the mobile app (01 §3.3). Then,
@@ -160,6 +164,17 @@ export class RequestLifecycleInterceptor implements NestInterceptor {
       // @RequireCapability on a new route yields a 401, not an open endpoint.
       if (session === null && !allowAnonymous) {
         throw new ApiError("UNAUTHENTICATED", "Authentication required");
+      }
+
+      // An enrolment-only session (partner pre-TOTP, P11) is default-denied on
+      // every route that has not opted in with @AllowEnrolment — checked BEFORE
+      // internal/RBAC so it can never reach the portal or any other data.
+      if (session !== null && session.enrolmentOnly === true && !allowEnrolment) {
+        throw new ApiError(
+          "FORBIDDEN",
+          "Complete multi-factor enrolment to continue",
+          { reason: "mfa_enrolment_required" },
+        );
       }
 
       if (session !== null) {

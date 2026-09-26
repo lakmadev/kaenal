@@ -1,4 +1,5 @@
 import { CSRF_COOKIE, CSRF_HEADER, TENANT_HEADER } from "@kaenal/api-client";
+import type { PartnerInviteResult } from "@kaenal/types";
 import { env } from "@/lib/env";
 import { getActiveTenant } from "@/lib/tenant";
 
@@ -15,6 +16,12 @@ export interface SignInResult {
   userId: string;
   role: string;
   expiresAt: string;
+  /**
+   * True when the password verified but the account (a supplier-portal partner)
+   * has no second factor yet: the session is ENROLMENT-ONLY and the client must
+   * run the MFA enrolment flow before anything else works (P11).
+   */
+  enrolmentRequired?: true;
 }
 
 /** Thrown on a non-2xx auth response, carrying the API error envelope. */
@@ -86,6 +93,10 @@ export type SignInResponse = SignInResult | { mfaRequired: true };
 
 export function isMfaRequired(res: SignInResponse): res is { mfaRequired: true } {
   return "mfaRequired" in res;
+}
+
+export function isEnrolmentRequired(res: SignInResponse): res is SignInResult & { enrolmentRequired: true } {
+  return "enrolmentRequired" in res && res.enrolmentRequired === true;
 }
 
 export function signIn(input: {
@@ -170,8 +181,8 @@ export function mfaEnroll(): Promise<{ otpauthUri: string; qrDataUri: string }> 
 }
 
 /** Activate a pending enrolment with a first code; returns the one-time recovery codes. */
-export function mfaActivate(code: string): Promise<{ recoveryCodes: string[] }> {
-  return authPost<{ recoveryCodes: string[] }>("/v1/auth/mfa/activate", { code }, { tenant: getActiveTenant() });
+export function mfaActivate(code: string): Promise<{ recoveryCodes: string[]; sessionUpgraded: boolean }> {
+  return authPost<{ recoveryCodes: string[]; sessionUpgraded: boolean }>("/v1/auth/mfa/activate", { code }, { tenant: getActiveTenant() });
 }
 
 /** Turn MFA off — requires a current TOTP or recovery code. */
@@ -225,4 +236,20 @@ export function revokeSession(id: string): Promise<{ ok: true }> {
 /** Sign out every other device, keeping the current one. */
 export function revokeOtherSessions(): Promise<{ revoked: number }> {
   return authPost<{ revoked: number }>("/v1/auth/sessions/revoke-others", {}, { tenant: getActiveTenant() });
+}
+
+/**
+ * Invite a supplier contact to the portal (P11). Authenticated (`supplier:manage`),
+ * plain REST like the staff invite. Returns the invitation expiry; the raw token
+ * is included by the API only outside production.
+ */
+export function invitePortalContact(
+  supplierId: string,
+  email: string,
+): Promise<PartnerInviteResult> {
+  return authPost<PartnerInviteResult>(
+    `/v1/suppliers/${encodeURIComponent(supplierId)}/portal-invite`,
+    { email },
+    { tenant: getActiveTenant() },
+  );
 }

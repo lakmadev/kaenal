@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   CreateSupplierBody,
   PageQuery,
+  PartnerInviteBody,
+  type PartnerInviteResult,
   RiskLevel,
   ScorecardWeightsQuery,
   SupplierStatus,
@@ -15,7 +17,12 @@ import { currentContext, currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
-import { SUPPLIERS_SERVICE } from "../tokens.js";
+import { AUTH_SERVICE, ENV, JOB_PRODUCER, SUPPLIERS_SERVICE } from "../tokens.js";
+import { INVITATION_TTL_MS } from "@kaenal/core";
+import type { AuthService } from "../auth/auth.service.js";
+import type { Env } from "../env.js";
+import type { JobProducer } from "../jobs/producer.js";
+import { renderInvite } from "../providers/email/index.js";
 import type { SuppliersService } from "./suppliers.service.js";
 
 const uuid = z.string().uuid();
@@ -37,7 +44,12 @@ const ListQuery = PageQuery.extend({
  */
 @Controller()
 export class SuppliersController {
-  constructor(@Inject(SUPPLIERS_SERVICE) private readonly suppliers: SuppliersService) {}
+  constructor(
+    @Inject(SUPPLIERS_SERVICE) private readonly suppliers: SuppliersService,
+    @Inject(AUTH_SERVICE) private readonly auth: AuthService,
+    @Inject(ENV) private readonly env: Env,
+    @Inject(JOB_PRODUCER) private readonly jobs: JobProducer,
+  ) {}
 
   @Get("v1/suppliers")
   @RequireCapability("supplier:view")
@@ -95,5 +107,44 @@ export class SuppliersController {
       input,
       auditCtxOf(),
     );
+  }
+
+  /**
+   * Invite a supplier contact to the portal (P11). Mints a `partner` invitation
+   * bound to THIS supplier; an unknown or foreign-tenant supplier is a 404. Re-
+   * inviting the same address revokes the previous link and issues a fresh one, so
+   * a retried request is safe. The audit event is written in the invite's own
+   * transaction; the email is enqueued (never sent inside the DB transaction).
+   */
+  @Post("v1/suppliers/:id/portal-invite")
+  @RequireCapability("supplier:manage")
+  async invitePortalContact(@Param("id") id: string, @Body() body: unknown): Promise<PartnerInviteResult> {
+    const { email } = parse(PartnerInviteBody, body);
+    const ctx = currentContext();
+    const { token, expiresAt } = await this.auth.invitePartner(
+      currentTx(),
+      ctx.tenantId,
+      actorIdOf(),
+      parse(uuid, id),
+      email,
+    );
+
+    const url = `${this.env.APP_BASE_URL}/invite/${encodeURIComponent(token)}?workspace=${encodeURIComponent(ctx.tenantSlug)}`;
+    await this.jobs.sendEmail({
+      message: {
+        to: email,
+        ...renderInvite({
+          url,
+          workspaceName: ctx.tenantSlug,
+          expiresHours: Math.round(INVITATION_TTL_MS / 3_600_000),
+        }),
+      },
+    });
+
+    // As with the staff invite: the raw token leaves the API only outside
+    // production (no mail delivery there); in production it travels by email only.
+    return this.env.NODE_ENV === "production"
+      ? { email, expiresAt: expiresAt.toISOString() }
+      : { email, expiresAt: expiresAt.toISOString(), token };
   }
 }

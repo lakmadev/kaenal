@@ -17,6 +17,7 @@ import {
   ClipboardCheck,
   ShieldCheck,
   FileText,
+  Mail,
 } from "lucide-react";
 import { weightedSupplierScore, type ScoreWeights, type SupplierMetrics } from "@kaenal/core";
 import type { EntityKind, EntityLinkDto, PpapSubmissionDto, ScarDto, SupplierDto } from "@kaenal/types";
@@ -24,6 +25,8 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import type { Page } from "@kaenal/types";
 import { longDate, shortDate, titleCase } from "@/lib/format";
 import { useSupplier } from "@/hooks/use-suppliers";
+import { useCan } from "@/hooks/use-me";
+import { SupplierPortalInviteDialog } from "./supplier-portal-invite-dialog";
 import { useEntityLinks } from "@/hooks/use-entity-links";
 import { usePpapList } from "@/hooks/use-ppap";
 import { useScarList } from "@/hooks/use-scar";
@@ -84,6 +87,8 @@ interface LinkRow {
 function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const canManage = useCan("supplier:manage");
   const insights = aiInsights(s.profile);
 
   // Real supplier-scoped records for the split tabs. PPAP and SCARs have their
@@ -139,10 +144,24 @@ function SupplierDetailView({ s }: { s: SupplierDto }): React.ReactElement {
         title={s.name}
         description={desc}
         actions={
-          <Button>
-            <Download size={14} /> Scorecard PDF
-          </Button>
+          <>
+            {canManage && (
+              <Button onClick={() => setInviteOpen(true)}>
+                <Mail size={14} /> Invite to portal
+              </Button>
+            )}
+            <Button>
+              <Download size={14} /> Scorecard PDF
+            </Button>
+          </>
         }
+      />
+
+      <SupplierPortalInviteDialog
+        supplierId={s.id}
+        supplierName={s.name}
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
       />
 
       {/* 360 header strip */}

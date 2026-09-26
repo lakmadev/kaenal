@@ -46,7 +46,7 @@ async function post<T>(path: string, tenant: string, body: unknown, token?: stri
 
 export type SignInResponse =
   | { mfaRequired: true }
-  | { userId: string; role: string; expiresAt: string; sessionToken: string };
+  | { userId: string; role: string; expiresAt: string; sessionToken: string; enrolmentRequired?: true };
 
 /** Sign in. Pass `code` on the second step (TOTP or recovery code). */
 export function signInRequest(

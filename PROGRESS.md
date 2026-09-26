@@ -5,6 +5,29 @@
 
 ## Current status
 
+**P11 Supplier Portal — partner invite + first-login MFA enrolment (2026-09-26).** Closes the last
+production gate on the portal (Known issue "TOTP verify/enrolment subsystem", item c): a supplier contact can
+now be invited, accept, enrol TOTP and reach the portal — no admin hand-seeding. **Backend:** `POST
+/v1/suppliers/:id/portal-invite` (`supplier:manage`; body `PartnerInviteBody` in `@kaenal/types`) →
+`AuthService.invitePartner`: supplier read under RLS (unknown/foreign → 404), refuses an address that is
+already an internal member (409), then reuses `invite()` with `supplier_scope` (revokes any prior link →
+re-invite is safe; audited `invitation created {email, role, supplierId}`; email enqueued via the existing
+`renderInvite` path, raw token only outside production). `acceptInvitation` now carries `supplier_scope` into
+the membership (and the audit). **Enrolment bootstrap:** migration `0042_session_scope` adds `sessions.scope`
+(`full`|`mfa_enrol`). A partner with a correct password and no `mfa_secret` gets a 15-min ENROLMENT-ONLY
+session (`enrolmentRequired: true`); `RequestLifecycleInterceptor` default-denies it (403
+`mfa_enrolment_required`) on every route except those marked `@AllowEnrolment` (MFA status/enroll/activate +
+sign-out). A verified TOTP `activate` promotes that session in place to a full 2h partner session
+(`sessionUpgraded: true`); later sign-ins are the normal password+code flow. **Web:** "Invite to portal"
+button + dialog on the supplier detail (gated `supplier:manage`; no jsx design exists for it — Known issues),
+and the sign-in form's new `enroll` stage reuses the designed `MfaEnrollModal` (QR → code → recovery codes).
+**Mobile:** a partner's enrolment-only sign-in is ended with an explicit "finish two-factor on the web" error.
+**Tests:** new `partner-invite.test.ts` (11: capability gate, foreign/unknown supplier 404, internal-member
+409, scoped+audited invite, re-invite supersedes / spent / expired, enrolment-only token blocked on portal +
+`/v1/me` + `/v1/suppliers` + sessions + mfa/disable, wrong code doesn't upgrade, activate upgrades, next
+sign-in demands the code); `portal.test.ts` no-MFA case updated (403 → enrolment-only session that can't reach
+the portal).
+
 **Sequence 2 (verify slice) — "Send test event" for webhook endpoints (2026-08-22).** Closes the webhook
 verify loop: an admin pings an endpoint and gets the REAL delivery outcome, the same signed path a live event
 takes — no mock. The per-endpoint send was extracted from the fan-out handler into `outbox/webhook-deliver.ts`
@@ -1949,6 +1972,18 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Decisions log
 
+- **P11 partner invite + enrolment-only session (2026-09-26).** Chicken-and-egg (a partner must have MFA but
+  can't enrol without a session) resolved with the smallest secure design: a `scope` on the existing
+  `sessions` row, not a new token type/table. Password-correct + no factor → session `mfa_enrol`, 15 min, usable
+  only on routes tagged `@AllowEnrolment` (default-deny in the lifecycle, checked before RBAC so it can never
+  reach portal data). Promotion to `full` happens only inside `POST /v1/auth/mfa/activate`, after the TOTP code
+  verified against the pending secret, so the existing "MFA required" gate for a full session is untouched
+  (a full partner session still cannot exist without `mfa_secret`). Trust-on-first-use caveat: whoever holds
+  the invite token + chosen password enrols the first factor — same trust root as any invite. Partner
+  invites are bound to one supplier by the existing DB coupling CHECK; an internal member's address is
+  refused (409) so an invite can't silently convert staff into an external account. The staff invite
+  (`InternalRole`-only) is unchanged.
+
 - [x] Bulk-import commit runs synchronously in the request transaction (2026-08-12, Phase J) — the plan
       called for a BullMQ `imports` job, but the commit is implemented as a self-contained tenant-tx step
       (`ImportService.commit`: re-plan against current keys → upsert each non-error row idempotently by
@@ -2613,15 +2648,14 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Known issues / TODO
 
-- **P11 Supplier Portal — TOTP verify/enrolment subsystem is a HARD dependency before production exposure.**
-  The partner MFA gate (`mfaRequiredFor` + the sign-in check) currently enforces only that a `mfa_secret`
-  is *enrolled*, not that a TOTP code was verified this login — no TOTP challenge/enrolment subsystem
-  exists anywhere in the codebase yet (the `control.users.mfa_secret` column is schema-only). The portal
-  must NOT be opened to real external suppliers until: (a) TOTP enrolment (QR/secret provisioning +
-  recovery codes) and (b) a per-login verify step are built, and (c) the partner-invite/onboarding flow
-  (a supplier-scoped variant of the staff invite — deferred) mints the `partner` membership + drives
-  enrolment. The read-only portal backend + isolation model are done and proven; these are the gates on
-  turning it on. See P11 Decisions log entry.
+- **P11 Supplier Portal — TOTP/enrolment/invite: DONE (2026-09-26).** (a) TOTP enrolment + recovery codes
+  and (b) the per-login verify step were already built (`mfa.service.ts`, `mfa.controller.ts`, sign-in demands
+  a code when `mfa_secret` is set) — the earlier note here was stale. (c) is now built: partner invite +
+  enrolment-only session (see Current status + Decisions log). Remaining, honest gaps: no jsx design for the
+  "Invite to portal" control (added as a plain header button; needs design sign-off), no UI to list/revoke a
+  supplier's portal contacts or resend beyond re-inviting, and the mobile app cannot run the enrolment flow
+  (it ends an enrolment-only session with a "use the web app" error). The sign-in `blocked` stage
+  (`MfaRequiredBlocked`) is no longer reachable for partners.
 - **P11 Supplier Portal — evidence UPLOAD ✅ (2026-08-06).** The last deferred write. A partner-scoped
   mirror of the internal presign flow that never touches `/v1/files/*`: `POST /v1/portal/files/presign`
   (`portal:respond`) creates the file **unlinked and owned by the caller** — the partner supplies only

@@ -11,6 +11,23 @@ export const SESSION_COOKIE = "kaenal_session";
 export const CSRF_COOKIE = "kaenal_csrf";
 export const CSRF_HEADER = "x-csrf-token";
 
+/** The raw session token on a request (bearer header, else the session cookie), or null. */
+export function requestSessionToken(req: Request): string | null {
+  const auth = req.header("authorization");
+  if (auth !== undefined && auth.startsWith("Bearer ")) {
+    const token = auth.slice("Bearer ".length).trim();
+    return token === "" ? null : token;
+  }
+  for (const part of (req.header("cookie") ?? "").split(";")) {
+    const eq = part.indexOf("=");
+    if (eq !== -1 && part.slice(0, eq).trim() === SESSION_COOKIE) {
+      const v = part.slice(eq + 1).trim();
+      return v === "" ? null : decodeURIComponent(v);
+    }
+  }
+  return null;
+}
+
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
@@ -63,6 +80,7 @@ export class SessionAuthenticator implements Authenticator {
 
     return {
       userId: resolved.userId,
+      enrolmentOnly: resolved.enrolmentOnly,
       membership: {
         role: resolved.role,
         plantIds: resolved.plantIds,

@@ -22,6 +22,13 @@ export const WEB_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
  * re-authenticate often, and a leaked partner token should expire fast.
  */
 export const PARTNER_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Lifetime of an enrolment-only session (P11): minted when a partner's password
+ * verifies but no TOTP factor exists yet. Deliberately short — it only has to
+ * span scanning a QR code and typing the first code.
+ */
+export const ENROLMENT_SESSION_TTL_MS = 15 * 60 * 1000;
 export const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 export const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -112,10 +119,9 @@ export function slideSessionExpiry(now: Date, role: Role = "viewer"): Date {
  * `partner` accounts cross the tenant trust boundary, so MFA is mandatory for
  * them; internal roles follow the tenant's own MFA policy (not gated here).
  *
- * NOTE: this gates on MFA being *enrolled* (a secret exists). A per-login TOTP
- * challenge/verify step is a separate dependency (no TOTP subsystem exists yet)
- * — tracked in PROGRESS Known issues; the portal must not be exposed to real
- * suppliers until it lands.
+ * A role for which this is true and that has no factor yet receives only an
+ * enrolment-only session at sign-in (see ENROLMENT_SESSION_TTL_MS); the full
+ * session follows a verified TOTP activation.
  */
 export function mfaRequiredFor(role: Role): boolean {
   return role === "partner";

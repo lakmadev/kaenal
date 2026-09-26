@@ -1213,6 +1213,20 @@ export const UpdateSupplierBody = CreateSupplierBody.partial().extend({
 });
 export type UpdateSupplierBody = z.infer<typeof UpdateSupplierBody>;
 
+/** Invite a supplier contact to the supplier portal (P11). The supplier comes from the URL. */
+export const PartnerInviteBody = z.object({
+  email: z.string().email().max(320),
+});
+export type PartnerInviteBody = z.infer<typeof PartnerInviteBody>;
+
+export const PartnerInviteResult = z.object({
+  email: z.string(),
+  expiresAt: z.string(),
+  /** Returned outside production only (no mail delivery there); never in production. */
+  token: z.string().optional(),
+});
+export type PartnerInviteResult = z.infer<typeof PartnerInviteResult>;
+
 /** Optional scorecard weights, as query params on the scorecard endpoint. */
 export const ScorecardWeightsQuery = z.object({
   wPpm: z.coerce.number().min(0).optional(),
