@@ -1,4 +1,5 @@
-import { ApiRequestError } from "@kaenal/api-client";
+import { ApiRequestError, OfflineWriteError } from "@kaenal/api-client";
+import { parseStaleWrite } from "@kaenal/core";
 
 /**
  * Reads the API's error envelope (03 §4: `{ error: { code, message, requestId,
@@ -29,12 +30,12 @@ export function apiErrorInfo(err: unknown): ApiErrorInfo | null {
 
 /** A 409 optimistic-concurrency conflict — the row changed under the caller. */
 export function isStaleWrite(err: unknown): boolean {
-  const info = apiErrorInfo(err);
-  return info?.status === 409 && info.code === "STALE_WRITE";
+  return err instanceof ApiRequestError && parseStaleWrite(err.status, err.body) !== null;
 }
 
 /** A short, human message for a mutation failure toast. */
 export function errorMessage(err: unknown): string {
+  if (err instanceof OfflineWriteError) return err.message;
   const info = apiErrorInfo(err);
   if (info === null) return "Something went wrong. Please try again.";
   if (isStaleWrite(err)) return "This record changed since you loaded it — refresh and try again.";

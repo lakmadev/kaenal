@@ -1,5 +1,6 @@
-import { QueryClient, defaultShouldDehydrateQuery, isServer } from "@tanstack/react-query";
+import { MutationCache, QueryClient, defaultShouldDehydrateQuery, isServer } from "@tanstack/react-query";
 import { ApiRequestError } from "@kaenal/api-client";
+import { handleMutationError } from "@/lib/stale-write-flow";
 
 /**
  * TanStack Query setup (04 §1). Defaults tuned for a data-dense QMS:
@@ -9,7 +10,19 @@ import { ApiRequestError } from "@kaenal/api-client";
  *    5xx/network error twice.
  */
 function makeQueryClient(): QueryClient {
+  // Every mutation failure passes through here once, so a 409 STALE_WRITE opens
+  // the global reconcile dialog without any per-screen wiring (S1-5).
+  const mutationCache = new MutationCache({
+    onError: (error, variables, _context, mutation) => {
+      if (isServer) return;
+      const qc = getQueryClient();
+      // Re-running builds a fresh mutation from the same options, so the hook's
+      // own onSuccess (cache invalidation) fires again on the merged save.
+      handleMutationError(qc, error, variables, (v) => qc.getMutationCache().build(qc, mutation.options).execute(v));
+    },
+  });
   return new QueryClient({
+    mutationCache,
     defaultOptions: {
       queries: {
         staleTime: 30_000,

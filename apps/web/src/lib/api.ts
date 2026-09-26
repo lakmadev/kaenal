@@ -1,3 +1,4 @@
+import { onlineManager } from "@tanstack/react-query";
 import { createApiClient, type ApiClient } from "@kaenal/api-client";
 import { env } from "@/lib/env";
 import { getActiveTenant } from "@/lib/tenant";
@@ -21,6 +22,7 @@ export function getApiClient(): ApiClient {
     baseUrl: env.apiBaseUrl,
     credentials: "include",
     tenant: () => getActiveTenant(),
+    isOnline: () => onlineManager.isOnline(),
   });
   return client;
 }

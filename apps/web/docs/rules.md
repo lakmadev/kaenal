@@ -48,6 +48,13 @@ config, and the rest by review.
     send `lockVersion`; a 409 triggers the stale-write reconcile flow, not a
     silent overwrite.
 
+12. **Strings go through i18n.** Every user-visible string in new or touched code
+    is a `next-intl` key in `messages/en.json` (`useTranslations("ns")`); no
+    hard-coded JSX text in `components/shell/**`. Dates/numbers/relative times use
+    the `@kaenal/core` locale helpers (`src/lib/format.ts`). Legacy module strings
+    migrate opportunistically (Known issue, not a blocker). English only for now;
+    mobile does not adopt i18n.
+
 ## Lint / typecheck / build gates
 
 ```bash

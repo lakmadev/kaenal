@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 import { Providers } from "@/components/providers";
 import { themeInitScript } from "@/lib/theme";
 import "@/styles/globals.css";
@@ -34,15 +36,19 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }): React.ReactElement {
+export default async function RootLayout({ children }: { children: React.ReactNode }): Promise<React.ReactElement> {
+  const locale = await getLocale();
+  const messages = await getMessages();
   return (
-    <html lang="en" className={`${archivo.variable} ${jetbrains.variable}`} suppressHydrationWarning>
+    <html lang={locale}className={`${archivo.variable} ${jetbrains.variable}`} suppressHydrationWarning>
       <head>
         {/* Sets data-theme before paint to prevent a flash of the wrong theme. */}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body>
-        <Providers>{children}</Providers>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <Providers>{children}</Providers>
+        </NextIntlClientProvider>
       </body>
     </html>
   );
