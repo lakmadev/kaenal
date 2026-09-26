@@ -1,26 +1,67 @@
 "use client";
 
-import { useState } from "react";
-import { usePathname } from "next/navigation";
-import { Menu, PanelLeft, Search, Moon, Sun, Bell, ChevronRight } from "lucide-react";
+import { Suspense, useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
+import {
+  Menu,
+  PanelLeft,
+  Search,
+  Moon,
+  Sun,
+  Bell,
+  ChevronRight,
+} from "lucide-react";
 import type { MeDto } from "@kaenal/types";
 import { useTheme } from "@/lib/theme";
 import { useUiStore } from "@/lib/stores/ui";
 import { useUnreadCount } from "@/hooks/use-notifications";
-import { ROUTE_LABELS } from "@/config/navigation";
+import { breadcrumbsFor } from "@/config/breadcrumbs";
+import { Tooltip } from "@/components/ui";
 import { NotificationsPanel } from "@/features/notifications/notifications-panel";
 import { ProfileMenu } from "./profile-menu";
 
 function Breadcrumbs({ pathname }: { pathname: string }): React.ReactElement {
-  const segments = pathname.split("/").filter(Boolean);
-  const first = segments[0] ?? "dashboard";
-  const label = ROUTE_LABELS[first] ?? first.charAt(0).toUpperCase() + first.slice(1);
+  const view = useSearchParams().get("view");
+  const crumbs = breadcrumbsFor(pathname, view);
+  const base =
+    "max-w-[280px] truncate whitespace-nowrap rounded-sm px-1.5 py-1";
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[13px]">
-      <span className="text-muted">Workspace</span>
-      <ChevronRight size={14} className="text-subtle" />
-      <span className="font-medium text-text">{label}</span>
-    </nav>
+    <ol className="m-0 flex min-w-0 list-none items-center gap-2 p-0">
+      {crumbs.map((c, i) => {
+        const last = i === crumbs.length - 1;
+        return (
+          <li
+            key={`${c.label}-${i}`}
+            className="flex min-w-0 items-center gap-2"
+          >
+            {i > 0 && (
+              <ChevronRight
+                size={14}
+                strokeWidth={1.5}
+                className="shrink-0 text-subtle"
+              />
+            )}
+            {c.href !== undefined ? (
+              <Link
+                href={c.href}
+                className={`${base} text-muted hover:bg-bg-subtle`}
+              >
+                {c.label}
+              </Link>
+            ) : (
+              <span
+                className={`${base} ${last ? "font-semibold text-text" : "text-muted"}`}
+                aria-current={last ? "page" : undefined}
+              >
+                {c.label}
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -40,7 +81,7 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
   const unreadCount = unread?.count ?? 0;
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-surface px-4">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b border-border bg-surface px-5">
       {/* Sidebar toggle (04 §3 / shell.jsx) — collapse on desktop, open drawer on mobile. */}
       <button
         type="button"
@@ -59,22 +100,27 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
         <Menu size={18} />
       </button>
 
-      <Breadcrumbs pathname={pathname} />
+      <nav aria-label="Breadcrumb" className="min-w-0 flex-1 text-[13px]">
+        {/* useSearchParams needs a Suspense boundary; the fallback is the path without a view. */}
+        <Suspense fallback={<span className="px-1.5 text-muted">…</span>}>
+          <Breadcrumbs pathname={pathname} />
+        </Suspense>
+      </nav>
 
-      <div className="mx-auto hidden w-full max-w-[400px] md:block">
-        <button
-          type="button"
-          onClick={() => openCommand(true)}
-          className="k-input flex w-full items-center gap-2 text-left text-muted"
-          aria-label="Search"
-        >
-          <Search size={15} />
-          <span className="text-[13px]">Search inspections, NCRs, 8Ds…</span>
-          <span className="kbd ml-auto">⌘K</span>
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={() => openCommand(true)}
+        aria-label="Search"
+        className="hidden h-[38px] w-[400px] max-w-[40vw] items-center gap-2.5 rounded-md border border-border bg-bg-subtle pl-3.5 pr-2 text-left text-[13px] text-muted md:inline-flex"
+      >
+        <Search size={16} strokeWidth={1.75} />
+        <span className="flex-1 truncate">Search inspections, NCRs, 8Ds…</span>
+        <kbd className="shrink-0 rounded border border-border bg-surface px-[7px] py-[3px] font-mono text-[10.5px] text-muted">
+          ⌘K
+        </kbd>
+      </button>
 
-      <div className="ml-auto flex items-center gap-1">
+      <div className="flex items-center gap-1">
         <button
           type="button"
           aria-label="Search"
@@ -83,35 +129,66 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
         >
           <Search size={18} />
         </button>
-        <button
-          type="button"
-          aria-label="Notifications"
-          onClick={() => setNotifOpen((v) => !v)}
-          aria-expanded={notifOpen}
-          className="k-btn k-btn-plain k-btn-icon relative"
-        >
-          <Bell size={18} />
-          {unreadCount > 0 && (
-            <span
-              className="pointer-events-none absolute -right-1 -top-1 z-10 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-danger px-[5px] text-[10px] font-bold leading-none text-white"
-              style={{ border: "2px solid var(--surface)" }}
+        <Popover.Root open={notifOpen} onOpenChange={setNotifOpen}>
+          {/* Anchor pinned 18px from the right edge under the 56px bar, as in notifications.jsx. */}
+          <Popover.Anchor asChild>
+            <span className="pointer-events-none fixed right-2 top-14 h-0 w-0 sm:right-[18px]" />
+          </Popover.Anchor>
+          <Tooltip content="Notifications">
+            <Popover.Trigger asChild>
+              <button
+                type="button"
+                aria-label="Notifications"
+                className="k-btn k-btn-plain k-btn-icon relative"
+              >
+                <Bell size={17} strokeWidth={1.75} />
+                {unreadCount > 0 && (
+                  <span
+                    className="pointer-events-none absolute right-1 top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9.5px] font-bold leading-none text-white"
+                    style={{ border: "2px solid var(--surface)" }}
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </button>
+            </Popover.Trigger>
+          </Tooltip>
+          <Popover.Portal>
+            <Popover.Content
+              side="bottom"
+              align="end"
+              sideOffset={0}
+              collisionPadding={8}
+              className="k-surface fade-in z-50 flex max-h-[calc(100vh-80px)] w-[min(420px,calc(100vw-16px))] flex-col p-0 shadow-xl"
+              style={{ borderRadius: "var(--r-lg)" }}
             >
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
-          )}
-        </button>
-        {notifOpen && <NotificationsPanel onClose={() => setNotifOpen(false)} />}
-        <button
-          type="button"
-          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          onClick={toggleTheme}
-          className="k-btn k-btn-plain k-btn-icon"
-        >
-          {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
+              <NotificationsPanel onClose={() => setNotifOpen(false)} />
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+        <Tooltip content="Toggle theme">
+          <button
+            type="button"
+            aria-label={
+              theme === "dark"
+                ? "Switch to light theme"
+                : "Switch to dark theme"
+            }
+            onClick={toggleTheme}
+            className="k-btn k-btn-plain k-btn-icon"
+          >
+            {theme === "dark" ? (
+              <Sun size={17} strokeWidth={1.75} />
+            ) : (
+              <Moon size={17} strokeWidth={1.75} />
+            )}
+          </button>
+        </Tooltip>
 
-        {/* Profile menu */}
-        <ProfileMenu me={me} />
+        {/* Profile menu (divider on its left, shell.jsx) */}
+        <div className="ml-1 border-l border-border pl-2">
+          <ProfileMenu me={me} />
+        </div>
       </div>
     </header>
   );

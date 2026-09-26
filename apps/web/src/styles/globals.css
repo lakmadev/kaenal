@@ -131,6 +131,14 @@
     outline-offset: 2px;
     border-radius: var(--r-sm);
   }
+
+  /* D-F1: the keyboard-highlighted row of a Radix menu gets the hover fill plus
+     an inset 2px accent ring (inset so overflow-hidden menus do not clip it). */
+  [role="menuitem"][data-highlighted] {
+    outline: none;
+    background: var(--bg-subtle);
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
 }
 
 /**

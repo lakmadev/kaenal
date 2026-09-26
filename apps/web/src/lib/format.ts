@@ -36,3 +36,11 @@ export function titleCase(s: string): string {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
+
+/** "Manjunath Kumar" -> "Manjunath K." (top-bar profile button, shell.jsx). */
+export function shortName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1] : undefined;
+  return last !== undefined && last !== "" ? `${first} ${last.charAt(0).toUpperCase()}.` : first;
+}

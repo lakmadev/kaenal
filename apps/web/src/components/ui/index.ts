@@ -17,3 +17,4 @@ export { Skeleton } from "./skeleton";
 export { Spinner } from "./spinner";
 export { EmptyState, type EmptyStateProps } from "./empty-state";
 export { ToastProvider, useToast } from "./toast";
+export { Tooltip } from "./tooltip";
