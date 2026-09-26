@@ -17,6 +17,7 @@ import type {
   RiskLevel,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import {
   clampLimit,
   decodeCursor,
@@ -236,7 +237,7 @@ export class CapaService {
   ): Promise<CapaDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const decision = capaMachine.canTransition(row.status as CapaPhase, body.to, {});
     if (!decision.ok) throw ApiError.from(decision);
@@ -258,7 +259,7 @@ export class CapaService {
   ): Promise<CapaDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const decision = canRevertCapa(row.status as CapaPhase, body.to, { reason: body.reason });
     if (!decision.ok) throw ApiError.from(decision);
@@ -283,7 +284,7 @@ export class CapaService {
   ): Promise<CapaDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     if (body.ownerId != null) await this.assertMember(tx, body.ownerId);
     if (body.sponsorId != null) await this.assertMember(tx, body.sponsorId);
@@ -331,7 +332,7 @@ export class CapaService {
           params,
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The CAPA changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "capas", key: id, message: "The CAPA changed since you loaded it" });
         return toCapaDto(updated);
       },
     );
@@ -416,7 +417,7 @@ export class CapaService {
     );
     const current = rows[0];
     if (current === undefined) throw notFound();
-    this.assertVersion(current.lock_version, version);
+    await this.assertVersion(tx, actionId, current.lock_version, version, "capa_actions");
 
     return withAudit(
       tx,
@@ -441,7 +442,7 @@ export class CapaService {
           [actionId, version, status, actorId],
         );
         const row = updated[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "The action changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "capa_actions", key: actionId, message: "The action changed since you loaded it" });
         return toActionDto(row);
       },
     );
@@ -483,7 +484,7 @@ export class CapaService {
           [id, version, to, actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "The CAPA changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "capas", key: id, message: "The CAPA changed since you loaded it" });
         return toCapaDto(row);
       },
     );
@@ -505,9 +506,9 @@ export class CapaService {
     if (rows.length === 0) throw new ApiError("VALIDATION_FAILED", "That user is not an active member");
   }
 
-  private assertVersion(actual: number, expected: number): void {
+  private async assertVersion(tx: Tx, id: string, actual: number, expected: number, table: "capas" | "capa_actions" = "capas"): Promise<void> {
     if (actual !== expected) {
-      throw new ApiError("STALE_WRITE", "The record changed since you loaded it", { expected, actual });
+      throw await staleWriteError(tx, { table, key: id, message: "The record changed since you loaded it", expected, actual });
     }
   }
 }

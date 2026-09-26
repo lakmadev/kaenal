@@ -25,6 +25,7 @@ import {
   type Page,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -261,7 +262,7 @@ export class ImportService {
     ctx: AuditContext,
   ): Promise<ImportRunDto> {
     const run = await this.loadRun(tx, id);
-    assertVersion(run.lock_version, body.version);
+    await assertVersion(tx, id, run.lock_version, body.version);
     if (run.status !== "validated") {
       throw new ApiError("VALIDATION_FAILED", `Only a validated run can be committed (this run is ${run.status})`);
     }
@@ -291,7 +292,7 @@ export class ImportService {
           [id, JSON.stringify(counts), JSON.stringify(sampleResults(results)), actorId, body.version],
         );
         const row = updated[0];
-        if (row === undefined) throw staleWrite();
+        if (row === undefined) throw await staleWriteError(t, { table: "import_runs", key: id, message: "This import run changed since you loaded it" });
         return toRunDto(row);
       },
     );
@@ -388,11 +389,8 @@ function toRunDto(row: RunRow): ImportRunDto {
   };
 }
 
-function assertVersion(actual: number, expected: number): void {
-  if (actual !== expected) throw new ApiError("STALE_WRITE", "This import run changed since you loaded it", { expected, actual });
-}
-function staleWrite(): ApiError {
-  return new ApiError("STALE_WRITE", "This import run changed since you loaded it");
+async function assertVersion(tx: Tx, id: string, actual: number, expected: number): Promise<void> {
+  if (actual !== expected) throw await staleWriteError(tx, { table: "import_runs", key: id, message: "This import run changed since you loaded it", expected, actual });
 }
 
 type AuditVerb = "created" | "updated" | "deleted";

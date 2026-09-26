@@ -11,6 +11,7 @@ import {
   type UpdateLegalHoldBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
 interface HoldRow {
@@ -174,10 +175,7 @@ export class LegalHoldsService {
   ): Promise<LegalHoldDto> {
     const current = await this.load(tx, id);
     if (current.lock_version !== body.version) {
-      throw new ApiError("STALE_WRITE", "This hold changed since you loaded it", {
-        expected: body.version,
-        actual: current.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "legal_holds", key: id, message: "This hold changed since you loaded it", expected: body.version, actual: current.lock_version });
     }
     const scope = storedFromInput(body.scope);
 
@@ -205,7 +203,7 @@ export class LegalHoldsService {
           [id, body.version, body.name, body.matter, JSON.stringify(scope), body.notes, actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "This hold changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "legal_holds", key: id, message: "This hold changed since you loaded it" });
         return toDto(row);
       },
     );
@@ -222,10 +220,7 @@ export class LegalHoldsService {
   ): Promise<LegalHoldDto> {
     const current = await this.load(tx, id);
     if (current.lock_version !== version) {
-      throw new ApiError("STALE_WRITE", "This hold changed since you loaded it", {
-        expected: version,
-        actual: current.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "legal_holds", key: id, message: "This hold changed since you loaded it", expected: version, actual: current.lock_version });
     }
     if (current.released_at !== null) {
       throw new ApiError("CONFLICT", "This hold is already released");
@@ -255,7 +250,7 @@ export class LegalHoldsService {
           [id, version, actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "This hold changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "legal_holds", key: id, message: "This hold changed since you loaded it" });
         return toDto(row);
       },
     );

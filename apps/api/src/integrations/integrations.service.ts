@@ -23,6 +23,7 @@ import type {
   WebhookTestResultDto,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 import { EnvSecretResolver, type SecretResolver } from "../tenant/secret-resolver.js";
 import { FetchWebhookTransport, type WebhookTransport } from "../outbox/webhook-transport.js";
@@ -176,7 +177,7 @@ export class IntegrationsService {
 
   async update(tx: Tx, tenantId: string, actorId: string, id: string, body: UpdateIntegrationBody, ctx: AuditContext): Promise<IntegrationDto> {
     const current = await this.load(tx, id);
-    assertVersion(current.lock_version, body.version);
+    await assertVersion(tx, id, current.lock_version, body.version);
     const config = body.config ?? (current.config as Record<string, string>);
     if (current.provider === "generic_webhook" && body.config !== undefined) this.assertWebhookConfig(config);
     return withAudit(
@@ -190,7 +191,7 @@ export class IntegrationsService {
           [id, body.version, body.name, JSON.stringify(config), actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw staleWrite();
+        if (row === undefined) throw await staleWriteError(t, { table: "integrations", key: id, message: "This integration changed since you loaded it" });
         return toDto(row);
       },
     );
@@ -296,7 +297,7 @@ export class IntegrationsService {
     if (current.provider !== "generic_webhook") {
       throw new ApiError("VALIDATION_FAILED", "Only webhook endpoints have a URL and signing secret");
     }
-    assertVersion(current.lock_version, body.version);
+    await assertVersion(tx, id, current.lock_version, body.version);
     const events = encodeWebhookEvents(body.events);
     const nextConfig: Record<string, string> = { ...(current.config as Record<string, string>), url: body.url.trim(), events };
     this.assertWebhookConfig(nextConfig);
@@ -322,7 +323,7 @@ export class IntegrationsService {
           [id, body.version, JSON.stringify(nextConfig), ref, actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw staleWrite();
+        if (row === undefined) throw await staleWriteError(t, { table: "integrations", key: id, message: "This integration changed since you loaded it" });
         return toDto(row);
       },
     );
@@ -397,11 +398,8 @@ function toDto(row: Row): IntegrationDto {
   };
 }
 
-function assertVersion(actual: number, expected: number): void {
-  if (actual !== expected) throw new ApiError("STALE_WRITE", "This integration changed since you loaded it", { expected, actual });
-}
-function staleWrite(): ApiError {
-  return new ApiError("STALE_WRITE", "This integration changed since you loaded it");
+async function assertVersion(tx: Tx, id: string, actual: number, expected: number): Promise<void> {
+  if (actual !== expected) throw await staleWriteError(tx, { table: "integrations", key: id, message: "This integration changed since you loaded it", expected, actual });
 }
 
 type AuditVerb = "created" | "updated" | "deleted";

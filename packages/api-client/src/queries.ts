@@ -38,7 +38,7 @@ import type {
   MemberDto,
   NcrActionDto,
   NcrDto,
-  NotificationDto,
+  NotificationPageDto,
   NotificationPrefsDto,
   Page,
   PpapSubmissionDto,
@@ -277,9 +277,9 @@ export const apiQueries = {
   },
 
   notifications: {
-    list: (client: ApiClient, args?: Arg<"listNotifications">): QueryOption<Page<NotificationDto>> => ({
+    list: (client: ApiClient, args?: Arg<"listNotifications">): QueryOption<NotificationPageDto> => ({
       queryKey: queryKeys.notifications.list(args?.query),
-      queryFn: () => client.listNotifications(args).then((r) => unwrap<Page<NotificationDto>>(r)),
+      queryFn: () => client.listNotifications(args).then((r) => unwrap<NotificationPageDto>(r)),
     }),
     unreadCount: (client: ApiClient): QueryOption<UnreadCountDto> => ({
       queryKey: queryKeys.notifications.unreadCount(),

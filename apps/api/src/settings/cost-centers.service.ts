@@ -14,6 +14,7 @@ import type {
   UpdateCostCenterBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 import { loadChargebackSettings } from "./settings.service.js";
 
@@ -126,10 +127,7 @@ export class CostCentersService {
   ): Promise<CostCenterDto> {
     const current = await this.load(tx, id);
     if (current.lock_version !== body.version) {
-      throw new ApiError("STALE_WRITE", "This cost center changed since you loaded it", {
-        expected: body.version,
-        actual: current.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "cost_centers", key: id, message: "This cost center changed since you loaded it", expected: body.version, actual: current.lock_version });
     }
     if (body.parentId === id) {
       throw new ApiError("VALIDATION_FAILED", "A cost center cannot be its own parent");
@@ -159,7 +157,7 @@ export class CostCentersService {
           [id, body.version, body.code, body.name, body.parentId, actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "This cost center changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "cost_centers", key: id, message: "This cost center changed since you loaded it" });
         return toDto(row);
       },
     ).catch(rethrowDuplicateCode);

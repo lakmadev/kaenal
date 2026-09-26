@@ -168,6 +168,11 @@ describe("audit lifecycle", () => {
     const res = await authed("post", `/v1/audits/${audit.id}/advance`, auditorTok).send({ to: "preparation", version: audit.lockVersion + 3 });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("STALE_WRITE");
+    expect(res.body.error.details).toMatchObject({
+      expected: audit.lockVersion + 3,
+      updatedBy: { id: expect.any(String), name: expect.any(String) },
+    });
+    expect(new Date(res.body.error.details.updatedAt as string).toISOString()).toBe(res.body.error.details.updatedAt);
   });
 });
 

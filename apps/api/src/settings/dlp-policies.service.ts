@@ -8,6 +8,7 @@ import type {
   UpdateDlpPolicyBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
 interface PolicyRow {
@@ -106,10 +107,7 @@ export class DlpPoliciesService {
     const current = existing[0];
     if (current === undefined) throw notFound();
     if (current.lock_version !== body.version) {
-      throw new ApiError("STALE_WRITE", "This policy changed since you loaded it", {
-        expected: body.version,
-        actual: current.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "dlp_policies", key: id, message: "This policy changed since you loaded it", expected: body.version, actual: current.lock_version });
     }
 
     return withAudit(
@@ -136,7 +134,7 @@ export class DlpPoliciesService {
           [id, body.version, body.name, body.pattern, body.action, body.surface, body.note, body.enabled, actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "This policy changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "dlp_policies", key: id, message: "This policy changed since you loaded it" });
         return toDto(row);
       },
     );

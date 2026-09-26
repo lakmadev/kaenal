@@ -6,8 +6,8 @@ import {
   UpdateNotificationPrefsBody,
   type CountDto,
   type NotificationDto,
+  type NotificationPageDto,
   type NotificationPrefsDto,
-  type Page,
   type UnreadCountDto,
 } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
@@ -34,7 +34,7 @@ export class NotificationsController {
   constructor(@Inject(NOTIFICATIONS_SERVICE) private readonly notifications: NotificationsService) {}
 
   @Get("v1/notifications")
-  async list(@Query() query: unknown): Promise<Page<NotificationDto>> {
+  async list(@Query() query: unknown): Promise<NotificationPageDto> {
     const q = parse(ListQuery, query);
     return this.notifications.list(currentTx(), actorIdOf(), {
       ...(q.unread !== undefined ? { unread: q.unread } : {}),

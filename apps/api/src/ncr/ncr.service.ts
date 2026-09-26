@@ -27,6 +27,7 @@ import type {
   TransitionNcrBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import {
   clampLimit,
   decodeCursor,
@@ -383,7 +384,7 @@ export class NcrService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const decision = ncrMachine.canTransition(row.status as NcrStatus, body.to, {
       actions: await this.actionsFor(tx, id),
@@ -433,7 +434,7 @@ export class NcrService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row.lock_version, version);
+    await this.assertVersion(tx, id, row.lock_version, version);
 
     const decision = ncrMachine.canTransition(row.status as NcrStatus, "verified", {
       actions: await this.actionsFor(tx, id),
@@ -491,7 +492,7 @@ export class NcrService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     if (body.ownerId !== null) await this.assertMember(tx, body.ownerId);
 
@@ -618,7 +619,7 @@ export class NcrService {
     const current = rows[0];
     if (current === undefined) throw notFound();
     this.assertInScope(membership, current.plant_id);
-    this.assertVersion(current.lock_version, version);
+    await this.assertVersion(tx, actionId, current.lock_version, version, "ncr_actions");
 
     return withAudit(
       tx,
@@ -643,7 +644,7 @@ export class NcrService {
           [actionId, version, status, actorId],
         );
         const row = updated[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "The action changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "ncr_actions", key: actionId, message: "The action changed since you loaded it" });
         return toActionDto(row);
       },
     );
@@ -756,7 +757,7 @@ export class NcrService {
       [id, expectedVersion, ...extraParams],
     );
     const row = rows[0];
-    if (row === undefined) throw new ApiError("STALE_WRITE", "The NCR changed since you loaded it");
+    if (row === undefined) throw await staleWriteError(tx, { table: "ncrs", key: id, message: "The NCR changed since you loaded it" });
     return toNcrDto(row);
   }
 
@@ -775,9 +776,9 @@ export class NcrService {
     throw notFound();
   }
 
-  private assertVersion(actual: number, expected: number): void {
+  private async assertVersion(tx: Tx, id: string, actual: number, expected: number, table: "ncrs" | "ncr_actions" = "ncrs"): Promise<void> {
     if (actual !== expected) {
-      throw new ApiError("STALE_WRITE", "The record changed since you loaded it", { expected, actual });
+      throw await staleWriteError(tx, { table, key: id, message: "The record changed since you loaded it", expected, actual });
     }
   }
 }

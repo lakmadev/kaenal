@@ -6,7 +6,7 @@ import {
   type UpdateUserPreferencesBody,
   type UserPreferencesDto,
 } from "@kaenal/types";
-import { ApiError } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
 interface PrefRow {
@@ -60,7 +60,7 @@ export class PreferencesService {
     const { version, ...patch } = body;
     const current = await this.get(tx, userId);
     if (current.lockVersion !== version) {
-      throw new ApiError("STALE_WRITE", STALE, { expected: version, actual: current.lockVersion });
+      throw await staleWriteError(tx, { table: "user_preferences", key: userId, message: STALE, expected: version, actual: current.lockVersion });
     }
     const { lockVersion: _lockVersion, ...before } = current;
     const merged = UserPreferencesSettings.parse({ ...before, ...patch });
@@ -104,7 +104,7 @@ export class PreferencesService {
           ],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", STALE);
+        if (row === undefined) throw await staleWriteError(t, { table: "user_preferences", key: userId, message: STALE });
         return toDto(row);
       },
     );

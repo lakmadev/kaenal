@@ -20,6 +20,7 @@ import type {
 } from "@kaenal/types";
 import { SupplierScorecard as SupplierScorecardSchema, SupplierProfile as SupplierProfileSchema } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import { clampLimit, decodeCursor, keysetPredicate, toPage, type Cursor } from "../http/pagination.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
@@ -283,10 +284,7 @@ export class SuppliersService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     if (row.lock_version !== body.version) {
-      throw new ApiError("STALE_WRITE", "The supplier changed since you loaded it", {
-        expected: body.version,
-        actual: row.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "suppliers", key: id, message: "The supplier changed since you loaded it", expected: body.version, actual: row.lock_version });
     }
 
     // Only columns the body actually carries are touched (a partial update).
@@ -339,7 +337,7 @@ export class SuppliersService {
           params,
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The supplier changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "suppliers", key: id, message: "The supplier changed since you loaded it" });
         return toSupplierDto(updated);
       },
     );

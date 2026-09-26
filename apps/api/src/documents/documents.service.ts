@@ -14,6 +14,7 @@ import type {
   TransitionDocumentBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import {
   clampLimit,
   decodeCursor,
@@ -230,7 +231,7 @@ export class DocumentsService {
   ): Promise<DocumentDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const decision = documentMachine.canTransition(row.status as DocumentStatus, body.to, {
       actorId,
@@ -257,7 +258,7 @@ export class DocumentsService {
     const to: DocumentStatus = body.decision === "approve" ? "approved" : "rejected";
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const decision = documentMachine.canTransition(row.status as DocumentStatus, to, {
       actorId,
@@ -331,7 +332,7 @@ export class DocumentsService {
   ): Promise<DocumentDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     if (row.status !== "approved") {
       throw new ApiError("INVALID_TRANSITION", "A new version can only be opened from an approved document", {
@@ -368,7 +369,7 @@ export class DocumentsService {
           [id, body.version, body.nextVersion, body.fileId ?? null, actorId],
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The document changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "documents", key: id, message: "The document changed since you loaded it" });
         return toDocumentDto(updated);
       },
     );
@@ -413,7 +414,7 @@ export class DocumentsService {
           [id, actorId, ...extraParams, version],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "The document changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "documents", key: id, message: "The document changed since you loaded it" });
         if (sideEffect !== undefined) await sideEffect(t);
         return toDocumentDto(row);
       },
@@ -461,9 +462,9 @@ export class DocumentsService {
     return rows[0] ?? null;
   }
 
-  private assertVersion(actual: number, expected: number): void {
+  private async assertVersion(tx: Tx, id: string, actual: number, expected: number): Promise<void> {
     if (actual !== expected) {
-      throw new ApiError("STALE_WRITE", "The record changed since you loaded it", { expected, actual });
+      throw await staleWriteError(tx, { table: "documents", key: id, message: "The record changed since you loaded it", expected, actual });
     }
   }
 }

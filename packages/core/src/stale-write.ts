@@ -12,7 +12,21 @@ export interface StaleWriteInfo {
   expected?: number;
   actual?: number;
   updatedAt?: string;
+  /** Last actor's user id (legacy string form or `updatedBy.id`). */
   updatedBy?: string;
+  /** Last actor's display name when the API resolved it. */
+  updatedByName?: string;
+}
+
+function actorOf(v: unknown): { updatedBy?: string; updatedByName?: string } {
+  if (typeof v === "string") return { updatedBy: v };
+  if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+    const r = v as Record<string, unknown>;
+    if (typeof r["id"] === "string") {
+      return { updatedBy: r["id"], ...(typeof r["name"] === "string" ? { updatedByName: r["name"] } : {}) };
+    }
+  }
+  return {};
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -30,7 +44,7 @@ export function parseStaleWrite(status: number, body: unknown): StaleWriteInfo |
     ...(typeof d["expected"] === "number" ? { expected: d["expected"] } : {}),
     ...(typeof d["actual"] === "number" ? { actual: d["actual"] } : {}),
     ...(typeof d["updatedAt"] === "string" ? { updatedAt: d["updatedAt"] } : {}),
-    ...(typeof d["updatedBy"] === "string" ? { updatedBy: d["updatedBy"] } : {}),
+    ...actorOf(d["updatedBy"]),
   };
 }
 

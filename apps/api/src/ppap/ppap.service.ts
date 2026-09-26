@@ -22,6 +22,7 @@ import type {
 } from "@kaenal/types";
 import { PpapElementDto as PpapElementSchema, PpapAiPrediction as PpapAiPredictionSchema } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import { clampLimit, decodeCursor, keysetPredicate, toPage, type Cursor } from "../http/pagination.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
@@ -262,7 +263,7 @@ export class PpapService {
   ): Promise<PpapSubmissionDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     const sets: string[] = [];
     const params: unknown[] = [id, body.version];
@@ -315,7 +316,7 @@ export class PpapService {
   ): Promise<PpapSubmissionDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     const elements = parseElements(row.elements);
     const idx = elements.findIndex((e) => e.id === elementNo);
@@ -365,7 +366,7 @@ export class PpapService {
   ): Promise<PpapSubmissionDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     const elements = parseElements(row.elements).map((e) => ({ id: e.id, status: e.status }));
     if (body.decision === "approve" && !isPpapApprovable(elements)) {
@@ -404,12 +405,9 @@ export class PpapService {
     );
   }
 
-  private assertVersion(row: PpapRow, version: number): void {
+  private async assertVersion(tx: Tx, row: PpapRow, version: number): Promise<void> {
     if (row.lock_version !== version) {
-      throw new ApiError("STALE_WRITE", "The PPAP submission changed since you loaded it", {
-        expected: version,
-        actual: row.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "ppap_submissions", key: row.id, message: "The PPAP submission changed since you loaded it", expected: version, actual: row.lock_version });
     }
   }
 
@@ -423,7 +421,7 @@ export class PpapService {
       params,
     );
     const updated = rows[0];
-    if (updated === undefined) throw new ApiError("STALE_WRITE", "The PPAP submission changed since you loaded it");
+    if (updated === undefined) throw await staleWriteError(t, { table: "ppap_submissions", key: String(params[0]), message: "The PPAP submission changed since you loaded it" });
     return toPpapDto(updated);
   }
 

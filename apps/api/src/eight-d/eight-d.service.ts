@@ -22,6 +22,7 @@ import type {
   UpdateEightDStepBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import {
   clampLimit,
@@ -246,7 +247,7 @@ export class EightDService {
     if (row.status !== "active") {
       throw new ApiError("INVALID_TRANSITION", "This 8D is not active; its disciplines are frozen");
     }
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const key = stepKey(stepN);
     const current = row.steps[key] ?? { status: "pending" };
@@ -288,7 +289,7 @@ export class EightDService {
           [id, body.version, JSON.stringify(steps), currentStep, actorId],
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The 8D changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "eight_ds", key: id, message: "The 8D changed since you loaded it" });
         return toDto(updated);
       },
     );
@@ -307,7 +308,7 @@ export class EightDService {
     if (row.status !== "active") {
       throw new ApiError("INVALID_TRANSITION", `An 8D that is '${row.status}' cannot change state`);
     }
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     if (body.to === "completed" && !allStepsComplete(statusesOf(row.steps))) {
       throw new ApiError("INVALID_TRANSITION", "All eight disciplines must be complete before an 8D can be completed", {
@@ -338,7 +339,7 @@ export class EightDService {
           [id, body.version, body.to, actorId],
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The 8D changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "eight_ds", key: id, message: "The 8D changed since you loaded it" });
         return toDto(updated);
       },
     );
@@ -366,7 +367,7 @@ export class EightDService {
     if (row.status !== "active") {
       throw new ApiError("INVALID_TRANSITION", `An 8D that is '${row.status}' cannot change its team`);
     }
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     if (body.teamLeadId != null) await this.assertMember(tx, body.teamLeadId);
     if (body.championId != null) await this.assertMember(tx, body.championId);
@@ -413,7 +414,7 @@ export class EightDService {
           params,
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The 8D changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "eight_ds", key: id, message: "The 8D changed since you loaded it" });
         const dto = toDto(updated);
         // Notify a newly named lead and/or champion (skip self and unassigns).
         const named = new Set<string>();
@@ -463,9 +464,9 @@ export class EightDService {
     if (rows.length === 0) throw new ApiError("VALIDATION_FAILED", "That user is not an active member");
   }
 
-  private assertVersion(actual: number, expected: number): void {
+  private async assertVersion(tx: Tx, id: string, actual: number, expected: number): Promise<void> {
     if (actual !== expected) {
-      throw new ApiError("STALE_WRITE", "The record changed since you loaded it", { expected, actual });
+      throw await staleWriteError(tx, { table: "eight_ds", key: id, message: "The record changed since you loaded it", expected, actual });
     }
   }
 }

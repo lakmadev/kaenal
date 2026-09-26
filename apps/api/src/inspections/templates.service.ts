@@ -9,6 +9,7 @@ import {
   type UpdateTemplateBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import {
   clampLimit,
   decodeCursor,
@@ -155,10 +156,7 @@ export class TemplatesService {
       throw new ApiError("CONFLICT", `Only a draft can be edited (this template is ${current.status}); publish a new version instead`);
     }
     if (current.lock_version !== body.version) {
-      throw new ApiError("STALE_WRITE", "The template changed since you loaded it", {
-        expected: body.version,
-        actual: current.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "inspection_templates", key: id, message: "The template changed since you loaded it", expected: body.version, actual: current.lock_version });
     }
 
     return withAudit(
@@ -185,7 +183,7 @@ export class TemplatesService {
           [id, body.version, body.name, JSON.stringify(body.schema), actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "The template changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "inspection_templates", key: id, message: "The template changed since you loaded it" });
         return toDto(row);
       },
     );
@@ -258,10 +256,7 @@ export class TemplatesService {
     if (current === null) throw notFound();
     if (current.status === "archived") return toDto(current);
     if (current.lock_version !== expectedVersion) {
-      throw new ApiError("STALE_WRITE", "The template changed since you loaded it", {
-        expected: expectedVersion,
-        actual: current.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "inspection_templates", key: id, message: "The template changed since you loaded it", expected: expectedVersion, actual: current.lock_version });
     }
 
     return withAudit(
@@ -287,7 +282,7 @@ export class TemplatesService {
           [id, expectedVersion, actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "The template changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "inspection_templates", key: id, message: "The template changed since you loaded it" });
         return toDto(row);
       },
     );
@@ -312,10 +307,7 @@ export class TemplatesService {
       throw new ApiError("CONFLICT", `Only a draft can be published (this template is ${current.status})`);
     }
     if (current.lock_version !== expectedVersion) {
-      throw new ApiError("STALE_WRITE", "The template changed since you loaded it", {
-        expected: expectedVersion,
-        actual: current.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "inspection_templates", key: id, message: "The template changed since you loaded it", expected: expectedVersion, actual: current.lock_version });
     }
 
     return withAudit(
@@ -345,7 +337,7 @@ export class TemplatesService {
         // Lost the compare-and-set to a concurrent writer between the read and
         // here: the row moved, so the caller's version is now stale.
         if (row === undefined) {
-          throw new ApiError("STALE_WRITE", "The template changed since you loaded it");
+          throw await staleWriteError(t, { table: "inspection_templates", key: id, message: "The template changed since you loaded it" });
         }
         return toDto(row);
       },

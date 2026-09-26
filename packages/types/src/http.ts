@@ -31,8 +31,9 @@ export type ErrorBody = z.infer<typeof ErrorBody>;
 export const StaleWriteDetails = z.object({
   expected: z.number().int().optional(),
   actual: z.number().int().optional(),
-  updatedAt: z.string().optional(),
-  updatedBy: z.string().optional(),
+  updatedAt: z.string().nullable().optional(),
+  /** Last actor. API emits {id,name} (null when unknown / outside the tenant); legacy: bare id string. */
+  updatedBy: z.union([z.string(), z.object({ id: z.string(), name: z.string() })]).nullable().optional(),
 });
 export type StaleWriteDetails = z.infer<typeof StaleWriteDetails>;
 
