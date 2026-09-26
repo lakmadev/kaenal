@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { queryKeys } from "@kaenal/api-client";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { apiQueries, queryKeys } from "@kaenal/api-client";
+import { shouldToast } from "@kaenal/core";
 import type { RealtimeEvent } from "@kaenal/types";
 import { env } from "@/lib/env";
 import { presenceKey, usePresenceStore } from "@/stores/presence";
 import { collabRoom, dispatchCollabUpdate } from "@/lib/collab-bus";
+import { getApiClient } from "@/lib/api";
+import { entityHref } from "@/lib/entity-routes";
+import { useLiveStore } from "@/stores/live";
 
 /**
  * Realtime consumer (Phase R1).
@@ -56,9 +60,34 @@ function keysForTopic(topic: RealtimeEvent["topic"]): readonly unknown[] | null 
   }
 }
 
+/**
+ * Live mode (S1-3): a notification aimed at this user just landed. When live
+ * mode is on, read it (the bus carries only its id) and toast it if someone else
+ * caused it and its record has a real detail route. Off => no toast, no fetch.
+ */
+async function announce(qc: QueryClient, event: RealtimeEvent, userId: string): Promise<void> {
+  const live = useLiveStore.getState();
+  if (live.enabledByUser[userId] !== true || event.action !== "created" || event.entityId === undefined) return;
+  const page = await qc.fetchQuery({
+    ...apiQueries.notifications.list(getApiClient(), { query: { limit: 10 } }),
+    staleTime: 0,
+  });
+  const n = page.items.find((i) => i.id === event.entityId);
+  if (n === undefined || n.entityKind === null || n.entityId === null) return;
+  if (!shouldToast(n, userId, (kind) => entityHref(kind, "x") !== null)) return;
+  live.pushToast({
+    id: n.id,
+    title: n.title,
+    body: n.body,
+    entityKind: n.entityKind,
+    entityId: n.entityId,
+    actorId: n.actorId,
+  });
+}
+
 /** @param enabled connect only for an authenticated internal session (AppShell
  *  passes false while unauthenticated / portal-only, so no 401 reconnect loop). */
-export function useRealtime(enabled: boolean): void {
+export function useRealtime(enabled: boolean, userId: string | undefined): void {
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -66,6 +95,9 @@ export function useRealtime(enabled: boolean): void {
     if (typeof window === "undefined" || typeof EventSource === "undefined") return;
 
     const source = new EventSource(`${env.apiBaseUrl}/v1/events`, { withCredentials: true });
+
+    source.onopen = (): void => useLiveStore.getState().setConnection("open");
+    source.onerror = (): void => useLiveStore.getState().setConnection("reconnecting");
 
     source.onmessage = (e: MessageEvent<string>): void => {
       let event: RealtimeEvent;
@@ -102,9 +134,13 @@ export function useRealtime(enabled: boolean): void {
       }
       const key = keysForTopic(event.topic);
       if (key !== null) void qc.invalidateQueries({ queryKey: key });
+      if (event.topic === "notifications" && userId !== undefined) {
+        // Best effort: a failed read just means no toast (the bell still updates).
+        void announce(qc, event, userId).catch(() => undefined);
+      }
     };
 
     // EventSource reconnects itself on a transient drop; nothing to do here.
     return () => source.close();
-  }, [enabled, qc]);
+  }, [enabled, qc, userId]);
 }

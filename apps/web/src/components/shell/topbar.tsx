@@ -22,7 +22,9 @@ import { useEntityCode } from "@/hooks/use-entity-code";
 import { breadcrumbsFor } from "@/config/breadcrumbs";
 import { Tooltip } from "@/components/ui";
 import { NotificationsPanel } from "@/features/notifications/notifications-panel";
+import { AiButton } from "@/features/ai/ai-button";
 import { ProfileMenu } from "./profile-menu";
+import { LiveModeButton } from "./live-mode-button";
 
 function Breadcrumbs({ pathname }: { pathname: string }): React.ReactElement {
   const view = useSearchParams().get("view");
@@ -133,6 +135,8 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
         >
           <Search size={18} />
         </button>
+        {me !== undefined && <LiveModeButton userId={me.userId} />}
+        <AiButton />
         <Popover.Root open={notifOpen} onOpenChange={setNotifOpen}>
           {/* Anchor pinned 18px from the right edge under the 56px bar, as in notifications.jsx. */}
           <Popover.Anchor asChild>

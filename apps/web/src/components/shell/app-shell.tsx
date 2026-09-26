@@ -14,6 +14,8 @@ import { CommandPalette } from "./command-palette";
 import { Skeleton } from "@/components/ui";
 import { OfflineBanner } from "./offline-banner";
 import { StaleWriteDialog } from "./stale-write-dialog";
+import { LiveToasts } from "./live-toasts";
+import { AiDrawer } from "@/features/ai/ai-drawer";
 
 /**
  * The authenticated shell (04 §3). It owns the client-side session guard: a 401
@@ -52,7 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
   // Realtime signal stream (Phase R1): live-invalidate queries as changes land
   // elsewhere. Connect only for an authenticated internal session, so an
   // unauthenticated or portal-only page never opens a stream that would 401.
-  useRealtime(me !== undefined && !unauthenticated && !portalOnly);
+  useRealtime(me !== undefined && !unauthenticated && !portalOnly, me?.userId);
 
   // Warm the members directory once the session is known (internal users only).
   // Nearly every screen resolves an owner/inspector/author/assignee id → name
@@ -80,6 +82,8 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
       </div>
       <CommandPalette />
       <StaleWriteDialog />
+      <LiveToasts />
+      <AiDrawer />
     </div>
   );
 }

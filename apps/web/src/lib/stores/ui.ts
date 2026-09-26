@@ -19,6 +19,10 @@ interface UiState {
   commandOpen: boolean;
   setCommandOpen: (open: boolean) => void;
   toggleCommand: () => void;
+
+  /** The AI assistant drawer (S1-4). Session-only; the palette action opens it too. */
+  aiOpen: boolean;
+  setAiOpen: (open: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -32,6 +36,8 @@ export const useUiStore = create<UiState>()(
       commandOpen: false,
       setCommandOpen: (commandOpen) => set({ commandOpen }),
       toggleCommand: () => set((s) => ({ commandOpen: !s.commandOpen })),
+      aiOpen: false,
+      setAiOpen: (aiOpen) => set({ aiOpen }),
     }),
     {
       name: "kaenal-ui",

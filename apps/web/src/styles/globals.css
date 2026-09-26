@@ -450,6 +450,19 @@
   animation: fadeIn 200ms ease-out;
 }
 
+/* Right-side drawer entrance (AI assistant, tokens.css .drawer-in). */
+.drawer-in {
+  animation: drawerIn 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes drawerIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
 @keyframes kSpin {
   to {
     transform: rotate(360deg);
