@@ -69,7 +69,8 @@ function StaleWriteBody({ c }: { c: StaleWriteCase }): React.ReactElement {
   const updatedAt = c.info.updatedAt ?? (typeof fresh?.["updatedAt"] === "string" ? fresh["updatedAt"] : undefined);
   const updatedBy = c.info.updatedBy ?? (typeof fresh?.["updatedBy"] === "string" ? fresh["updatedBy"] : undefined);
   const time = updatedAt !== undefined ? new Date(updatedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : null;
-  const who = updatedBy !== undefined ? members.nameOf(updatedBy) : t("someone");
+  const who =
+    c.info.updatedByName ?? (updatedBy !== undefined ? members.nameOf(updatedBy) : t("someone"));
 
   const deleted = c.fresh.kind === "deleted";
   const failed = requested && c.fresh.kind === "failed";
