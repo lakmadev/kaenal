@@ -58,6 +58,8 @@ import {
   NewDocumentVersionBody,
   NotificationDto,
   NotificationPrefsDto,
+  UpdateUserPreferencesBody,
+  UserPreferencesDto,
   StarNotificationBody,
   PresignFileBody,
   PresignFileResult,
@@ -1587,6 +1589,8 @@ export const contract = c.router(
         unread: z.coerce.boolean().optional(),
         starred: z.coerce.boolean().optional(),
         entityKind: z.string().max(40).optional(),
+        /** Notification kind filter, e.g. `mention` for the Mentions tab. */
+        type: z.string().max(40).optional(),
       }),
       responses: { 200: page(NotificationDto), ...commonErrors },
       summary: "List the current user's notifications (cursor-paginated; unread/starred/type filters)",
@@ -1640,6 +1644,20 @@ export const contract = c.router(
       body: UpdateNotificationPrefsBody,
       responses: { 200: NotificationPrefsDto, ...commonErrors },
       summary: "Replace the current user's notification channel matrix",
+    },
+
+    getUserPreferences: {
+      method: "GET",
+      path: "/v1/me/preferences",
+      responses: { 200: UserPreferencesDto, ...commonErrors },
+      summary: "The current user's appearance/interaction preferences (defaults when never saved)",
+    },
+    updateUserPreferences: {
+      method: "PATCH",
+      path: "/v1/me/preferences",
+      body: UpdateUserPreferencesBody,
+      responses: { 200: UserPreferencesDto, ...commonErrors },
+      summary: "Partially update the current user's preferences (optimistic: version; audited)",
     },
 
     // --- Files -------------------------------------------------------------

@@ -686,6 +686,46 @@ export const UpdateNotificationPrefsBody = z.object({
 });
 export type UpdateNotificationPrefsBody = z.infer<typeof UpdateNotificationPrefsBody>;
 
+// --- User preferences (self-scoped; S1-9 / S1-7) -----------------------------
+
+export const AiProminence = z.enum(["front", "normal", "quiet"]);
+export type AiProminence = z.infer<typeof AiProminence>;
+export const AccentKey = z.enum(["ink", "blue", "indigo", "teal", "orange"]);
+export type AccentKey = z.infer<typeof AccentKey>;
+export const DensityKey = z.enum(["comfy", "dense"]);
+export type DensityKey = z.infer<typeof DensityKey>;
+
+export const UserPreferencesSettings = z.object({
+  aiProminence: AiProminence,
+  accent: AccentKey,
+  density: DensityKey,
+  keyboardShortcuts: z.boolean(),
+  showKeyboardHints: z.boolean(),
+  locale: z.enum(["en"]),
+});
+export type UserPreferencesSettings = z.infer<typeof UserPreferencesSettings>;
+
+export const USER_PREFERENCES_DEFAULTS: UserPreferencesSettings = {
+  aiProminence: "normal",
+  accent: "ink",
+  density: "comfy",
+  keyboardShortcuts: true,
+  showKeyboardHints: true,
+  locale: "en",
+};
+
+/** The caller's preferences; `lockVersion` 0 = never saved (defaults). */
+export const UserPreferencesDto = UserPreferencesSettings.extend({
+  lockVersion: z.number().int().nonnegative(),
+});
+export type UserPreferencesDto = z.infer<typeof UserPreferencesDto>;
+
+/** Partial update (PATCH semantics) guarded by the `version` last read. */
+export const UpdateUserPreferencesBody = UserPreferencesSettings.partial()
+  .extend({ version: z.number().int().nonnegative() })
+  .refine((b) => Object.keys(b).some((k) => k !== "version"), { message: "Nothing to update" });
+export type UpdateUserPreferencesBody = z.infer<typeof UpdateUserPreferencesBody>;
+
 // --- 8D ----------------------------------------------------------------------
 
 export const EightDStepDto = z.object({
@@ -1023,6 +1063,19 @@ export const CreateCommentBody = z.object({
   parentId: z.string().uuid().nullable().optional(),
 });
 export type CreateCommentBody = z.infer<typeof CreateCommentBody>;
+
+/**
+ * A member mention inside a comment body is the token `@[Display Name](user:<uuid>)`.
+ * The server extracts these ids (deduped) to raise `mention` notifications.
+ */
+export function extractMentionedUserIds(body: string): string[] {
+  const ids = new Set<string>();
+  for (const m of body.matchAll(/@\[[^\]\n]{1,120}\]\(user:([0-9a-fA-F-]{36})\)/g)) {
+    const id = m[1]?.toLowerCase();
+    if (id !== undefined && z.string().uuid().safeParse(id).success) ids.add(id);
+  }
+  return [...ids];
+}
 
 /**
  * One row of an entity's access log — a projection of `audit_events` that

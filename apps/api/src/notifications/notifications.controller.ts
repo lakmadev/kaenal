@@ -21,6 +21,7 @@ const ListQuery = PageQuery.extend({
   unread: z.coerce.boolean().optional(),
   starred: z.coerce.boolean().optional(),
   entityKind: z.string().max(40).optional(),
+  type: z.string().max(40).optional(),
 });
 
 /**
@@ -39,6 +40,7 @@ export class NotificationsController {
       ...(q.unread !== undefined ? { unread: q.unread } : {}),
       ...(q.starred !== undefined ? { starred: q.starred } : {}),
       ...(q.entityKind !== undefined ? { entityKind: q.entityKind } : {}),
+      ...(q.type !== undefined ? { type: q.type } : {}),
       ...(q.cursor !== undefined ? { cursor: q.cursor } : {}),
       limit: q.limit,
     });
