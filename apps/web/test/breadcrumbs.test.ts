@@ -20,6 +20,11 @@ describe("breadcrumbsFor", () => {
       { label: "Detail" },
     ]);
   });
+  it("detail pages show the entity code once loaded", () => {
+    expect(breadcrumbsFor("/ncrs/abc", null, "NCR-0012")[1]).toEqual({
+      label: "NCR-0012",
+    });
+  });
   it("group crumbs precede grouped modules", () => {
     expect(breadcrumbsFor("/suppliers/x", null)[0]).toEqual({
       label: "Supply chain",

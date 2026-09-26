@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   Search,
   ArrowRight,
@@ -29,19 +30,26 @@ interface PaletteItem {
   href: string;
 }
 
+interface QuickAction {
+  id: string;
+  labelKey: string;
+  icon: LucideIcon;
+  href: string;
+}
+
 /** Curated navigation targets shown when the box is empty and matched by label
  *  once the user types (so "8d" surfaces both the nav shortcut and records). */
-const QUICK_ACTIONS: PaletteItem[] = [
-  { id: "nav-dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { id: "nav-inspections", label: "Inspections", icon: ClipboardCheck, href: "/inspections" },
-  { id: "nav-ncrs", label: "Non-Conformities (NCRs)", icon: TriangleAlert, href: "/ncrs" },
-  { id: "nav-8d", label: "8D Reports", icon: Brain, href: "/8d" },
-  { id: "nav-capa", label: "CAPA", icon: ClipboardList, href: "/capa" },
-  { id: "nav-documents", label: "Documents", icon: FileText, href: "/documents" },
-  { id: "nav-suppliers", label: "Suppliers", icon: Truck, href: "/suppliers" },
-  { id: "nav-reports", label: "Reports", icon: BarChart3, href: "/reports" },
-  { id: "nav-notifications", label: "Notifications", icon: Bell, href: "/notifications" },
-  { id: "nav-settings", label: "Settings", icon: Settings, href: "/settings/profile" },
+const QUICK_ACTIONS: QuickAction[] = [
+  { id: "nav-dashboard", labelKey: "navDashboard", icon: LayoutDashboard, href: "/dashboard" },
+  { id: "nav-inspections", labelKey: "navInspections", icon: ClipboardCheck, href: "/inspections" },
+  { id: "nav-ncrs", labelKey: "navNcrs", icon: TriangleAlert, href: "/ncrs" },
+  { id: "nav-8d", labelKey: "nav8d", icon: Brain, href: "/8d" },
+  { id: "nav-capa", labelKey: "navCapa", icon: ClipboardList, href: "/capa" },
+  { id: "nav-documents", labelKey: "navDocuments", icon: FileText, href: "/documents" },
+  { id: "nav-suppliers", labelKey: "navSuppliers", icon: Truck, href: "/suppliers" },
+  { id: "nav-reports", labelKey: "navReports", icon: BarChart3, href: "/reports" },
+  { id: "nav-notifications", labelKey: "navNotifications", icon: Bell, href: "/notifications" },
+  { id: "nav-settings", labelKey: "navSettings", icon: Settings, href: "/settings/profile" },
 ];
 
 /**
@@ -52,6 +60,7 @@ const QUICK_ACTIONS: PaletteItem[] = [
  * label. ↑/↓ move the selection, ↵ opens it, esc closes.
  */
 export function CommandPalette(): React.ReactElement {
+  const t = useTranslations("palette");
   const router = useRouter();
   const open = useUiStore((s) => s.commandOpen);
   const setOpen = useUiStore((s) => s.setCommandOpen);
@@ -81,18 +90,18 @@ export function CommandPalette(): React.ReactElement {
     if (open) {
       setQuery("");
       setSelectedIdx(0);
-      const t = setTimeout(() => inputRef.current?.focus(), 20);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => inputRef.current?.focus(), 20);
+      return () => clearTimeout(timer);
     }
     return undefined;
   }, [open]);
 
   const q = query.trim().toLowerCase();
 
-  const actions = useMemo(
-    () => (q === "" ? QUICK_ACTIONS : QUICK_ACTIONS.filter((a) => a.label.toLowerCase().includes(q))),
-    [q],
-  );
+  const actions = useMemo<PaletteItem[]>(() => {
+    const all = QUICK_ACTIONS.map((a) => ({ id: a.id, label: t(a.labelKey), icon: a.icon, href: a.href }));
+    return q === "" ? all : all.filter((a) => a.label.toLowerCase().includes(q));
+  }, [q, t]);
 
   const records = useMemo<PaletteItem[]>(() => {
     if (q === "" || data === undefined) return [];
@@ -190,7 +199,7 @@ export function CommandPalette(): React.ReactElement {
       />
       <div
         role="dialog"
-        aria-label="Command palette"
+        aria-label={t("title")}
         className="k-surface fade-in fixed left-1/2 top-[15vh] z-[201] flex max-h-[70vh] w-[min(640px,92vw)] -translate-x-1/2 flex-col p-0 shadow-2xl"
       >
         <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
@@ -203,7 +212,7 @@ export function CommandPalette(): React.ReactElement {
               setSelectedIdx(0);
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search NCRs, inspections, CAPAs, documents…"
+            placeholder={t("placeholder")}
             className="flex-1 border-none bg-transparent py-1 text-[15px] text-text outline-none placeholder:text-muted"
           />
           <span className="kbd">ESC</span>
@@ -212,12 +221,12 @@ export function CommandPalette(): React.ReactElement {
         <div className="flex-1 overflow-y-auto py-1">
           {flat.length === 0 ? (
             <div className="px-4 py-10 text-center text-[13px] text-muted">
-              {q === "" ? "Type to search…" : isFetching ? "Searching…" : `No results for "${query.trim()}"`}
+              {q === "" ? t("typeToSearch") : isFetching ? t("searching") : t("noResults", { query: query.trim() })}
             </div>
           ) : (
             <>
-              {renderGroup("Navigation", actions)}
-              {renderGroup("Records", records)}
+              {renderGroup(t("groupNavigation"), actions)}
+              {renderGroup(t("groupRecords"), records)}
             </>
           )}
         </div>
@@ -225,15 +234,15 @@ export function CommandPalette(): React.ReactElement {
         <div className="flex items-center gap-3.5 border-t border-border px-4 py-2 text-[11px] text-muted">
           <span>
             <span className="kbd mr-1">↑</span>
-            <span className="kbd">↓</span> navigate
+            <span className="kbd">↓</span> {t("navigate")}
           </span>
           <span>
-            <span className="kbd">↵</span> select
+            <span className="kbd">↵</span> {t("select")}
           </span>
           <span>
-            <span className="kbd">esc</span> close
+            <span className="kbd">esc</span> {t("close")}
           </span>
-          <span className="ml-auto">{flat.length} results</span>
+          <span className="ml-auto">{t("resultCount", { count: flat.length })}</span>
         </div>
       </div>
     </>

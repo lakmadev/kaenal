@@ -49,7 +49,11 @@ function viewLabel(root: string, view: string): string | undefined {
  * Page-driven breadcrumbs from the route (shell.jsx `TopBar` breadcrumbs):
  * parents are links, the last crumb is the current page. Pure; unit-tested.
  */
-export function breadcrumbsFor(pathname: string, view: string | null): Crumb[] {
+export function breadcrumbsFor(
+  pathname: string,
+  view: string | null,
+  entityCode: string | null = null,
+): Crumb[] {
   const segs = pathname.split("/").filter(Boolean);
   const root = segs[0] ?? "dashboard";
   const label = LABEL_OVERRIDE[root] ?? ROUTE_LABELS[root] ?? titleCase(root);
@@ -77,5 +81,5 @@ export function breadcrumbsFor(pathname: string, view: string | null): Crumb[] {
   }
   if (root === "inspections" && sub === "schedule")
     return [{ label, href: rootHref }, { label: "Schedule" }];
-  return [...lead, { label, href: rootHref }, { label: "Detail" }];
+  return [...lead, { label, href: rootHref }, { label: entityCode ?? "Detail" }];
 }

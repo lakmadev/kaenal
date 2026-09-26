@@ -12,10 +12,11 @@ import {
   useMarkNotificationRead,
   useMarkAllNotificationsRead,
   notificationItems,
+  notificationTotal,
 } from "@/hooks/use-notifications";
 import { notifMeta, isAssignment, NotifAvatar } from "./notification-bits";
 
-type Filter = "all" | "unread" | "assigned";
+type Filter = "all" | "unread" | "mentions" | "assigned";
 
 function rowHref(n: NotificationDto): string | null {
   return n.entityKind !== null && n.entityId !== null
@@ -35,20 +36,30 @@ export function NotificationsPanel({
   onClose: () => void;
 }): React.ReactElement {
   const router = useRouter();
-  const { data, isLoading } = useNotifications({ limit: 30 });
+  const [filter, setFilter] = useState<Filter>("all");
+  const { data, isLoading: loadingAll } = useNotifications({ limit: 30 });
+  // Mentions come from the server-side `type=mention` filter, not a client filter.
+  const { data: mentionData, isLoading: loadingMentions } = useNotifications({
+    limit: 30,
+    type: "mention",
+  });
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const members = useMemberLookup();
-  const [filter, setFilter] = useState<Filter>("all");
 
   const all = notificationItems(data);
+  const isLoading = filter === "mentions" ? loadingMentions : loadingAll;
   const unreadCount = all.filter((n) => n.readAt === null).length;
 
   const filtered = useMemo(() => {
+    if (filter === "mentions") return notificationItems(mentionData);
     if (filter === "unread") return all.filter((n) => n.readAt === null);
     if (filter === "assigned") return all.filter((n) => isAssignment(n.kind));
     return all;
-  }, [all, filter]);
+  }, [all, mentionData, filter]);
+
+  const total = filter === "mentions" ? notificationTotal(mentionData) : notificationTotal(data);
+  const shown = filter === "mentions" ? filtered.length : all.length;
 
   const open = (n: NotificationDto): void => {
     if (n.readAt === null) markRead.mutate(n.id);
@@ -60,6 +71,7 @@ export function NotificationsPanel({
   const filters: { id: Filter; label: string }[] = [
     { id: "all", label: "All" },
     { id: "unread", label: `Unread (${unreadCount})` },
+    { id: "mentions", label: "Mentions" },
     { id: "assigned", label: "Assigned" },
   ];
 
@@ -186,7 +198,9 @@ export function NotificationsPanel({
         >
           See all notifications →
         </button>
-        <span className="text-[11px] text-muted">{all.length} shown</span>
+        <span className="text-[11px] text-muted">
+          {total !== null ? `${total} total` : `${shown} shown`}
+        </span>
       </div>
     </>
   );

@@ -2,6 +2,7 @@
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   ChevronDown,
   User,
@@ -31,6 +32,7 @@ export function ProfileMenu({
 }: {
   me: MeDto | undefined;
 }): React.ReactElement {
+  const t = useTranslations("profile");
   const router = useRouter();
   const signOut = useSignOut();
   const openCommand = useUiStore((s) => s.setCommandOpen);
@@ -50,30 +52,30 @@ export function ProfileMenu({
   const openItems: string[] = [];
   if (me !== undefined) {
     if (me.openNcrs > 0)
-      openItems.push(`${me.openNcrs} NCR${me.openNcrs === 1 ? "" : "s"}`);
+      openItems.push(t("openNcrs", { count: me.openNcrs }));
     if (me.openCapas > 0)
-      openItems.push(`${me.openCapas} CAPA${me.openCapas === 1 ? "" : "s"}`);
+      openItems.push(t("openCapas", { count: me.openCapas }));
   }
   const openItemsLabel =
-    openItems.length > 0 ? openItems.join(" · ") : "None open";
+    openItems.length > 0 ? openItems.join(" · ") : t("noneOpen");
   const assignmentsHint =
-    me !== undefined ? `${me.openNcrs + me.openCapas} open items` : "";
+    me !== undefined ? t("openItemsHint", { count: me.openNcrs + me.openCapas }) : "";
 
   const menuItems = [
     {
-      label: "Your profile",
+      label: t("yourProfile"),
       icon: User,
-      hint: "Name, photo, contact info",
+      hint: t("yourProfileHint"),
       href: "/settings/profile",
     },
     {
-      label: "Account settings",
+      label: t("accountSettings"),
       icon: Settings,
-      hint: "Notifications, language, MFA",
+      hint: t("accountSettingsHint"),
       href: "/settings",
     },
     {
-      label: "My assignments",
+      label: t("myAssignments"),
       icon: ClipboardList,
       hint: assignmentsHint,
       href: "/ncrs?view=mine",
@@ -82,7 +84,7 @@ export function ProfileMenu({
 
   return (
     <DropdownMenu.Root>
-      <Tooltip content="Account">
+      <Tooltip content={t("account")}>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
@@ -133,33 +135,33 @@ export function ProfileMenu({
           {/* Quick facts */}
           <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 border-b border-border px-4 py-3">
             <Fact
-              label="Tenant"
+              label={t("tenant")}
               value={me?.tenantName ?? me?.tenantSlug ?? "—"}
             />
             <Fact
-              label="Plant"
+              label={t("plant")}
               value={
                 me === undefined
                   ? "—"
                   : me.plants.length === 0
-                    ? "All plants"
+                    ? t("allPlants")
                     : me.plants.length === 1
                       ? me.plants[0]!.name
-                      : `${me.plants.length} plants`
+                      : t("plantCount", { count: me.plants.length })
               }
             />
-            <Fact label="Open items" value={openItemsLabel} />
+            <Fact label={t("openItems")} value={openItemsLabel} />
             <Fact
-              label="MFA"
+              label={t("mfa")}
               value={
                 <span className="inline-flex items-center gap-1">
                   {me?.mfaEnabled === true ? (
                     <>
                       <ShieldCheck size={11} style={{ color: "#16a34a" }} />{" "}
-                      Enabled
+                      {t("mfaEnabled")}
                     </>
                   ) : (
-                    "Not set"
+                    t("mfaNotSet")
                   )}
                 </span>
               }
@@ -197,10 +199,10 @@ export function ProfileMenu({
               <Command size={15} className="shrink-0 text-muted" />
               <span className="min-w-0 flex-1">
                 <span className="block text-[12.5px] font-medium text-text">
-                  Command palette
+                  {t("commandPalette")}
                 </span>
                 <span className="block text-[10.5px] text-muted">
-                  Search & quick actions · ⌘K
+                  {t("commandPaletteHint")}
                 </span>
               </span>
             </DropdownMenu.Item>
@@ -210,7 +212,7 @@ export function ProfileMenu({
           {workspaces !== undefined && workspaces.items.length > 0 && (
             <div className="border-t border-border p-1.5">
               <div className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted">
-                {workspaces.items.length > 1 ? "Switch workspace" : "Workspace"}
+                {workspaces.items.length > 1 ? t("switchWorkspace") : t("workspace")}
               </div>
               {workspaces.items.map((w) => (
                 <DropdownMenu.Item
@@ -258,7 +260,7 @@ export function ProfileMenu({
               className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[12.5px] font-medium hover:bg-[rgba(220,38,38,0.08)]"
               style={{ color: "var(--danger-600)" }}
             >
-              <LogOut size={15} /> Sign out
+              <LogOut size={15} /> {t("signOut")}
             </DropdownMenu.Item>
           </div>
         </DropdownMenu.Content>

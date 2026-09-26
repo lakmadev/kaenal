@@ -51,6 +51,7 @@ export function StaleWriteDialog(): React.ReactElement {
 
 function StaleWriteBody({ c }: { c: StaleWriteCase }): React.ReactElement {
   const t = useTranslations("stale");
+  const tOffline = useTranslations("offline");
   const toast = useToast();
   const qc = useQueryClient();
   const online = useOnline();
@@ -224,12 +225,12 @@ function StaleWriteBody({ c }: { c: StaleWriteCase }): React.ReactElement {
           <>
             <Button onClick={close}>{t("discard")}</Button>
             {review ? (
-              <Button variant="primary" onClick={() => void save()} disabled={saving || !online} autoFocus>
+              <Button variant="primary" onClick={() => void save()} disabled={saving || !online} disabledReason={!online ? tOffline("writeDisabledReason") : undefined} autoFocus>
                 {saving && <Spinner size={14} />}
                 {saving ? t("saving") : t("save")}
               </Button>
             ) : failed ? (
-              <Button variant="primary" disabled={!online} onClick={() => void reloadFresh(qc)} autoFocus>
+              <Button variant="primary" disabled={!online} disabledReason={!online ? tOffline("writeDisabledReason") : undefined} onClick={() => void reloadFresh(qc)} autoFocus>
                 {t("tryAgain")}
               </Button>
             ) : (

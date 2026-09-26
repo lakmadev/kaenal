@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AtSign,
   Bell,
   Star,
   Check,
@@ -23,12 +24,13 @@ import {
   useStarNotification,
   useDismissNotification,
   notificationItems,
+  notificationTotal,
 } from "@/hooks/use-notifications";
 import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui";
 import { notifMeta, NotifAvatar } from "./notification-bits";
 
-type View = "all" | "unread" | "starred";
+type View = "all" | "unread" | "mentions" | "starred";
 
 /**
  * The full-page notifications center (notifications-center.jsx): a type rail on
@@ -39,6 +41,8 @@ type View = "all" | "unread" | "starred";
 export function NotificationsCenter(): React.ReactElement {
   const router = useRouter();
   const { data, isLoading, refetch, isRefetching } = useNotifications({ limit: 100 });
+  // Mentions use the server-side `type=mention` filter (D-N1), not a client filter.
+  const { data: mentionData } = useNotifications({ limit: 100, type: "mention" });
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
   const star = useStarNotification();
@@ -52,6 +56,8 @@ export function NotificationsCenter(): React.ReactElement {
 
   const all = notificationItems(data);
   const unreadCount = all.filter((n) => n.readAt === null).length;
+  const mentions = notificationItems(mentionData);
+  const total = notificationTotal(data);
   const starredCount = all.filter((n) => n.starred).length;
 
   // Distinct entity kinds present, with counts, for the "By type" rail.
@@ -65,14 +71,14 @@ export function NotificationsCenter(): React.ReactElement {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return all.filter((n) => {
+    return (view === "mentions" ? mentions : all).filter((n) => {
       if (view === "unread" && n.readAt !== null) return false;
       if (view === "starred" && !n.starred) return false;
       if (type !== null && n.entityKind !== type) return false;
       if (q !== "" && !`${n.title} ${n.body ?? ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [all, view, type, search]);
+  }, [all, mentions, view, type, search]);
 
   const toggleSelect = (id: string): void =>
     setSelected((s) => {
@@ -105,6 +111,7 @@ export function NotificationsCenter(): React.ReactElement {
   const railTop: { id: View; icon: LucideIcon; label: string; count: number }[] = [
     { id: "all", icon: Bell, label: "All", count: all.length },
     { id: "unread", icon: Bell, label: "Unread", count: unreadCount },
+    { id: "mentions", icon: AtSign, label: "Mentions", count: mentions.length },
     { id: "starred", icon: Star, label: "Starred", count: starredCount },
   ];
 
@@ -173,7 +180,7 @@ export function NotificationsCenter(): React.ReactElement {
         <div className="px-4 pt-5 sm:px-7">
           <PageHeader
             title="Notifications"
-            description={`${filtered.length} shown · ${unreadCount} unread`}
+            description={`${filtered.length} shown${total !== null ? ` of ${total}` : ""} · ${unreadCount} unread`}
             actions={
               selected.size > 0 ? (
                 <>

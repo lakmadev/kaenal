@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Menu,
@@ -17,6 +18,7 @@ import type { MeDto } from "@kaenal/types";
 import { useTheme } from "@/lib/theme";
 import { useUiStore } from "@/lib/stores/ui";
 import { useUnreadCount } from "@/hooks/use-notifications";
+import { useEntityCode } from "@/hooks/use-entity-code";
 import { breadcrumbsFor } from "@/config/breadcrumbs";
 import { Tooltip } from "@/components/ui";
 import { NotificationsPanel } from "@/features/notifications/notifications-panel";
@@ -24,7 +26,8 @@ import { ProfileMenu } from "./profile-menu";
 
 function Breadcrumbs({ pathname }: { pathname: string }): React.ReactElement {
   const view = useSearchParams().get("view");
-  const crumbs = breadcrumbsFor(pathname, view);
+  const entityCode = useEntityCode(pathname);
+  const crumbs = breadcrumbsFor(pathname, view, entityCode);
   const base =
     "max-w-[280px] truncate whitespace-nowrap rounded-sm px-1.5 py-1";
   return (
@@ -71,6 +74,7 @@ function Breadcrumbs({ pathname }: { pathname: string }): React.ReactElement {
  * affordances (later), notifications, theme toggle, and the profile menu.
  */
 export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
+  const t = useTranslations("topbar");
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
   const setMobileOpen = useUiStore((s) => s.setMobileNavOpen);
@@ -85,7 +89,7 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
       {/* Sidebar toggle (04 §3 / shell.jsx) — collapse on desktop, open drawer on mobile. */}
       <button
         type="button"
-        aria-label="Collapse sidebar"
+        aria-label={t("collapseSidebar")}
         onClick={toggleSidebar}
         className="k-btn k-btn-plain k-btn-icon hidden lg:flex"
       >
@@ -93,14 +97,14 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
       </button>
       <button
         type="button"
-        aria-label="Open navigation"
+        aria-label={t("openNavigation")}
         onClick={() => setMobileOpen(true)}
         className="k-btn k-btn-plain k-btn-icon lg:hidden"
       >
         <Menu size={18} />
       </button>
 
-      <nav aria-label="Breadcrumb" className="min-w-0 flex-1 text-[13px]">
+      <nav aria-label={t("breadcrumb")} className="min-w-0 flex-1 text-[13px]">
         {/* useSearchParams needs a Suspense boundary; the fallback is the path without a view. */}
         <Suspense fallback={<span className="px-1.5 text-muted">…</span>}>
           <Breadcrumbs pathname={pathname} />
@@ -110,11 +114,11 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
       <button
         type="button"
         onClick={() => openCommand(true)}
-        aria-label="Search"
+        aria-label={t("search")}
         className="hidden h-[38px] w-[400px] max-w-[40vw] items-center gap-2.5 rounded-md border border-border bg-bg-subtle pl-3.5 pr-2 text-left text-[13px] text-muted md:inline-flex"
       >
         <Search size={16} strokeWidth={1.75} />
-        <span className="flex-1 truncate">Search inspections, NCRs, 8Ds…</span>
+        <span className="flex-1 truncate">{t("searchPlaceholder")}</span>
         <kbd className="shrink-0 rounded border border-border bg-surface px-[7px] py-[3px] font-mono text-[10.5px] text-muted">
           ⌘K
         </kbd>
@@ -123,7 +127,7 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
       <div className="flex items-center gap-1">
         <button
           type="button"
-          aria-label="Search"
+          aria-label={t("search")}
           onClick={() => openCommand(true)}
           className="k-btn k-btn-plain k-btn-icon md:hidden"
         >
@@ -134,11 +138,11 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
           <Popover.Anchor asChild>
             <span className="pointer-events-none fixed right-2 top-14 h-0 w-0 sm:right-[18px]" />
           </Popover.Anchor>
-          <Tooltip content="Notifications">
+          <Tooltip content={t("notifications")}>
             <Popover.Trigger asChild>
               <button
                 type="button"
-                aria-label="Notifications"
+                aria-label={t("notifications")}
                 className="k-btn k-btn-plain k-btn-icon relative"
               >
                 <Bell size={17} strokeWidth={1.75} />
@@ -166,13 +170,13 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
             </Popover.Content>
           </Popover.Portal>
         </Popover.Root>
-        <Tooltip content="Toggle theme">
+        <Tooltip content={t("toggleTheme")}>
           <button
             type="button"
             aria-label={
               theme === "dark"
-                ? "Switch to light theme"
-                : "Switch to dark theme"
+                ? t("switchToLight")
+                : t("switchToDark")
             }
             onClick={toggleTheme}
             className="k-btn k-btn-plain k-btn-icon"
