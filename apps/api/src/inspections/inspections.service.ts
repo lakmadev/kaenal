@@ -185,7 +185,10 @@ export class InspectionsService {
   ): Promise<InspectionDto> {
     // CreateWizard foreign ids: a plant / person from another tenant reads as 404.
     await assertPlantExists(tx, body.plantId);
-    assertNotPast("scheduledAt", body.scheduledAt);
+    // A recurring series head's scheduledAt is the recurrence anchor, not a
+    // single due date — an anchor in the past is normal (a weekly walk that
+    // "started" last month) and materialisation catches occurrences up to now.
+    if (body.recurrence == null) assertNotPast("scheduledAt", body.scheduledAt);
     const people = dedupePeople(body.people);
     await assertPeopleAreMembers(tx, people);
     const inspectorId = body.inspectorId ?? firstWithRole(people, "owner");
