@@ -5,6 +5,8 @@
 
 ## Current status
 
+**Sprint 01 Phase B — Full-page CreateWizard + palette enhancements + Live mode + AI drawer (2026-09-27).** Merged three feature branches: S1-1 (quick-create "New" menu + full-page CreateWizard: 4 steps Type/Details/Assignees/Review at /create/[type], replacing per-entity dialogs; CAPA keeps its dialog per Q1), S1-2 + S1-9 (command palette parity: real keyboard shortcuts ⌘K/⌘I/⌘D/? with live-bound-keys-only chips, shortcuts dialog, Tweaks panel "Appearance" with Theme/Density/Accent/AI-prominence controls in reusable appearance-controls.tsx, user_preferences persisted via API), S1-3 + S1-4 (Live mode toggle + live event toasts, AI chat drawer with streamed reply, confidence chips, model label, pin-to-record, Generate PDF using existing export pipeline). **Backend:** migration 0060 (`priority`, `description`, `area_label` fields on entity bodies, `entity_people` junction table, idempotency-key support, assignee notifications). `POST /v1/ai/chat` SSE (from Phase A) now exposed via drawer. Realtime structures for Live mode (Phase A). **Web:** CreateWizard form (4-step, /create/[type], NCR/Inspection/8D/Document via real entity-people picker + template picker; CAPA dialog unchanged), New menu in topbar (⌘N), palette quick-actions real (⌘K/⌘I/⌘D → real endpoints, chips only if key is bound), shortcuts dialog (?), Tweaks panel (Theme/Density/Accent/AI-prominence live-apply + persist), Live toggle in topbar, AI drawer (chat → confidence chips + model label, Generate PDF). **Fixes:** (1) past-due-date validation on `scheduledAt` scoped to `body.recurrence == null` — recurring series anchors in past are normal; (2) seed `targetAt` made relative (`Date.now() + 45 days`) so test fixtures stay valid as wall-clock time advances. **Verified end-to-end:** CreateWizard 4-step (created real NCR-2026-0002), palette ⌘K/⌘I/⌘D, shortcuts dialog, Tweaks panel (after menu-fix), Live toggle, AI drawer (chat + model label + confidence, PDF download). **Test suite:** api 541 (wizard 4, ai 8, preferences 11, etc.), core 736, db 361, web 100, mobile 73, types 74, api-client 11; `test:rls` 323/323; `db:check` 53 tables ✓; demo sign-in 201 ✓. **Honest gap:** CreateWizard dirty-leave-confirm (Cancel, Esc) does NOT intercept browser back-button or sidebar clicks — App Router hook limitation, flagged as Phase C follow-up.
+
 **Sprint 01 Phase A — Shell foundations (2026-09-26).** Eight stories closing the app shell so every
 control the design shows is real: top bar (breadcrumbs page-driven, entity-code crumb, search + bell,
 Live toggle, AI button, Quick-create "New" menu deferred), offline + stale-write (409) infrastructure,
@@ -2043,6 +2045,8 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Decisions log
 
+- **Never hardcode absolute calendar dates in test fixtures or seed data when validation checks wall-clock time (2026-09-27).** CreateWizard's past-due-date validation (`assertNotPast`) applied to `scheduledAt` broke once test anchor dates drifted into the past. Root causes: (1) recurring-series anchors legitimately live in the past (e.g. weekly walk "started" last month, materialization catches occurrences up to now) — the check must exclude `body.recurrence != null`; (2) seed data's hardcoded absolute dates (demo 8D targetAt = 2026-05-15) became stale as wall-clock time progressed. Solution: use relative dates in both fixtures and seed (e.g. `Date.now() + 45 days`) so they stay valid indefinitely, ensuring the test suite and dev login remain re-seedable across calendar boundaries.
+
 - **S1 user decisions Q1–Q9 (2026-09-26, ROADMAP.md section 0):** Q1 wizard replaces per-entity dialogs
   (CAPA keeps its dialog); Q2 no backend design approval needed for Phase A; Q3 `pqe` excluded (no spec),
   removed from nav/sidebar/palette; Q4 English-only this sprint, mobile no i18n (Q4); Q5 deferred
@@ -2756,15 +2760,7 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Known issues / TODO
 
-- **S1 Phase B (UI only): New menu + CreateWizard (S1-1), palette quick-actions + shortcuts dialog (S1-2),
-  Live-mode toggle + event toasts (S1-3), AI drawer UI (S1-4), Tweaks panel UI (S1-9), toast second-line
-  (D-T2) deferred until kanban exists (2026-09-26).** Backends for S1-4 (chat), S1-3 (realtime), S1-9
-  (preferences) are built; UI only awaits. S1-1 wizard body schemas may need new columns (audit at build
-  start). S1-2 palette quick-actions verified via contract; bindings + chip display + shortcuts dialog UX
-  deferred. S1-3 Live event toast pipeline ready; toggle UI + toast styles pending. S1-4 chat endpoint
-  live; message bubbles/copy/pin/insert/generate-PDF/trust-chips deferred. S1-9 Tweaks panel approval
-  pending (board W10 with accent/density icons D-A1–D-A3); preferences API complete. S1-9/S1-2 keyboard
-  toggles wired per design but live only after the respective UI lands.
+- **S1 Phase B ✅ complete: CreateWizard + palette + Live mode + AI drawer (2026-09-27).** All UI built + verified end-to-end. Honest remaining gap: CreateWizard's dirty-leave-confirm guard (triggered by Cancel button, Esc key) does NOT intercept browser back-button or sidebar navigation clicks — a Next.js App Router limitation (no stable `beforeunload`-equivalent hook). This is flagged as a Phase C follow-up.
 
 - **S1 design approvals pending (2026-09-26).** Visual sign-off needed on DESIGN-01: offline banner
   (W1-A..D), 409 dialog (W2-A..F), shortcuts dialog (W3-A..D), palette states (W4-A..H), Live-mode states
