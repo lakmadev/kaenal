@@ -15,6 +15,8 @@ function makeQueryClient(): QueryClient {
   const mutationCache = new MutationCache({
     onError: (error, variables, _context, mutation) => {
       if (isServer) return;
+      // Self-scoped, single-field saves (user preferences) reconcile on their own.
+      if (mutation.meta?.["skipStaleDialog"] === true) return;
       const qc = getQueryClient();
       // Re-running builds a fresh mutation from the same options, so the hook's
       // own onSuccess (cache invalidation) fires again on the merged save.

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./tokens.css";
+@import "./preferences.css";
 
 /**
  * Bind the token font families to the self-hosted `next/font` faces (root layout
