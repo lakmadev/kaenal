@@ -18,6 +18,8 @@ import { StaleWriteDialog } from "./stale-write-dialog";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 import { TweaksPanel } from "./tweaks-panel";
 import { PreferencesApplier } from "./preferences-applier";
+import { LiveToasts } from "./live-toasts";
+import { AiDrawer } from "@/features/ai/ai-drawer";
 
 /**
  * The authenticated shell (04 §3). It owns the client-side session guard: a 401
@@ -56,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
   // Realtime signal stream (Phase R1): live-invalidate queries as changes land
   // elsewhere. Connect only for an authenticated internal session, so an
   // unauthenticated or portal-only page never opens a stream that would 401.
-  useRealtime(me !== undefined && !unauthenticated && !portalOnly);
+  useRealtime(me !== undefined && !unauthenticated && !portalOnly, me?.userId);
   useGlobalShortcuts();
 
   // Warm the members directory once the session is known (internal users only).
@@ -88,6 +90,8 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
       <TweaksPanel />
       <PreferencesApplier />
       <StaleWriteDialog />
+      <LiveToasts />
+      <AiDrawer />
     </div>
   );
 }

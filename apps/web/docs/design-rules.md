@@ -57,3 +57,9 @@ call the screen done. Silent divergence is precisely the failure this rule exist
 by it — see PROGRESS.md). Where a jsx hardcodes a hex that maps to a token, use the token. Where a
 jsx hardcodes a semantic accent the token system doesn't cover (e.g. the Supplier Portal's teal),
 reproduce that value locally to the feature — the jsx's intent wins on look.
+
+## AI prominence vocabulary (Q8)
+
+One vocabulary everywhere: `aiProminence = front | normal | quiet`, persisted in `GET/PATCH /v1/me/preferences`.
+The `quiet | visible` values in the `ai.jsx` TweaksPanel are retired (visible maps to normal). `front` adds the
+"ON" chip to the top-bar AI button, `quiet` removes the button (the palette action still opens the drawer).

@@ -25,6 +25,10 @@ interface UiState {
   setShortcutsOpen: (open: boolean) => void;
   tweaksOpen: boolean;
   setTweaksOpen: (open: boolean) => void;
+
+  /** The AI assistant drawer (S1-4). Session-only; the palette action opens it too. */
+  aiOpen: boolean;
+  setAiOpen: (open: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -42,6 +46,8 @@ export const useUiStore = create<UiState>()(
       setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
       tweaksOpen: false,
       setTweaksOpen: (tweaksOpen) => set({ tweaksOpen }),
+      aiOpen: false,
+      setAiOpen: (aiOpen) => set({ aiOpen }),
     }),
     {
       name: "kaenal-ui",
