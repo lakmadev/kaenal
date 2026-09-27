@@ -85,14 +85,27 @@ export function SettingsRow({
   );
 }
 
-export function Toggle({ on, onChange }: { on: boolean; onChange?: (next: boolean) => void }): React.ReactElement {
+export function Toggle({
+  on,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  on: boolean;
+  onChange?: (next: boolean) => void;
+  /** Accessible name; pass it whenever the toggle has no visible label of its own. */
+  label?: string;
+  disabled?: boolean;
+}): React.ReactElement {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
+      aria-label={label}
+      disabled={disabled}
       onClick={() => onChange?.(!on)}
-      className="relative shrink-0 rounded-full transition-colors"
+      className="relative shrink-0 rounded-full transition-colors disabled:cursor-not-allowed"
       style={{ width: 36, height: 20, background: on ? "var(--accent)" : "var(--border)" }}
     >
       <span

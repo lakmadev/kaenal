@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ApiRequestError, apiQueries } from "@kaenal/api-client";
 import { useMe } from "@/hooks/use-me";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
 import { roleSeesRoute } from "@/config/rbac";
 import { getApiClient } from "@/lib/api";
 import { Sidebar } from "./sidebar";
@@ -14,6 +15,9 @@ import { CommandPalette } from "./command-palette";
 import { Skeleton } from "@/components/ui";
 import { OfflineBanner } from "./offline-banner";
 import { StaleWriteDialog } from "./stale-write-dialog";
+import { ShortcutsDialog } from "./shortcuts-dialog";
+import { TweaksPanel } from "./tweaks-panel";
+import { PreferencesApplier } from "./preferences-applier";
 
 /**
  * The authenticated shell (04 §3). It owns the client-side session guard: a 401
@@ -53,6 +57,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
   // elsewhere. Connect only for an authenticated internal session, so an
   // unauthenticated or portal-only page never opens a stream that would 401.
   useRealtime(me !== undefined && !unauthenticated && !portalOnly);
+  useGlobalShortcuts();
 
   // Warm the members directory once the session is known (internal users only).
   // Nearly every screen resolves an owner/inspector/author/assignee id → name
@@ -79,6 +84,9 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
         </main>
       </div>
       <CommandPalette />
+      <ShortcutsDialog />
+      <TweaksPanel />
+      <PreferencesApplier />
       <StaleWriteDialog />
     </div>
   );

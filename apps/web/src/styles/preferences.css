@@ -1,0 +1,115 @@
+/**
+ * Per-user appearance preferences (S1-9, board W10). The provider sets
+ * `data-accent`, `data-density` and `data-hints` on <html>. Ink is the default
+ * and has no override. Coloured accents move only accent-related tokens; the
+ * values are the W10-H set (AA contrast, deviation D-A1: teal and orange use the
+ * darker jsx hover shades as base). Light foreground is white, dark is ink.
+ */
+
+:root[data-accent="indigo"] {
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef2ff;
+  --ring: rgba(79, 70, 229, 0.18);
+  --sidebar-accent: #818cf8;
+  --sidebar-active-bg: rgba(129, 140, 248, 0.16);
+}
+:root[data-accent="teal"] {
+  --accent: #0f766e;
+  --accent-hover: #115e59;
+  --accent-soft: #f0fdfa;
+  --ring: rgba(15, 118, 110, 0.18);
+  --sidebar-accent: #5eead4;
+  --sidebar-active-bg: rgba(94, 234, 212, 0.14);
+}
+:root[data-accent="orange"] {
+  --accent: #c2410c;
+  --accent-hover: #9a3412;
+  --accent-soft: #fff7ed;
+  --ring: rgba(194, 65, 12, 0.18);
+  --sidebar-accent: #fb923c;
+  --sidebar-active-bg: rgba(251, 146, 60, 0.14);
+}
+
+:root[data-theme="dark"][data-accent="indigo"] {
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-fg: #18181b;
+  --accent-soft: rgba(129, 140, 248, 0.14);
+  --ring: rgba(129, 140, 248, 0.32);
+}
+:root[data-theme="dark"][data-accent="teal"] {
+  --accent: #5eead4;
+  --accent-hover: #99f6e4;
+  --accent-fg: #18181b;
+  --accent-soft: rgba(94, 234, 212, 0.14);
+  --ring: rgba(94, 234, 212, 0.32);
+}
+:root[data-theme="dark"][data-accent="orange"] {
+  --accent: #fb923c;
+  --accent-hover: #fdba74;
+  --accent-fg: #18181b;
+  --accent-soft: rgba(251, 146, 60, 0.14);
+  --ring: rgba(251, 146, 60, 0.32);
+}
+
+/* Compact density = the jsx "dense" rules (Kaenal.html). */
+:root[data-density="compact"] .k-surface {
+  border-radius: var(--r-md);
+}
+:root[data-density="compact"] .k-table td {
+  padding: 7px 12px;
+  font-size: 12.5px;
+}
+:root[data-density="compact"] .k-table th {
+  padding: 7px 12px;
+}
+:root[data-density="compact"] .k-btn {
+  height: 30px;
+  padding: 6px 11px;
+}
+
+/* "Show keyboard hints" off hides key-cap chips; the shortcuts dialog keeps its own. */
+:root[data-hints="off"] .kbd:not(.kbd-keep),
+:root[data-hints="off"] kbd:not(.kbd-keep) {
+  display: none;
+}
+
+/* Status tones used by banners (offline, save failed, 409). Defined here because no
+   other stylesheet declares them; derived from the palette scales in tokens.css. */
+:root {
+  --success-bg: var(--success-50);
+  --success-fg: var(--success-700);
+  --warn-bg: var(--warning-50);
+  --warn-fg: var(--warning-700);
+  --danger-bg: var(--danger-50);
+  --danger-fg: var(--danger-700);
+}
+:root[data-theme="dark"] {
+  --success-bg: rgba(34, 197, 94, 0.14);
+  --success-fg: #86efac;
+  --warn-bg: rgba(245, 158, 11, 0.14);
+  --warn-fg: #fcd34d;
+  --danger-bg: rgba(239, 68, 68, 0.14);
+  --danger-fg: #fca5a5;
+}
+
+/* Fixed light/dark previews for the Preferences theme picker (same in both themes). */
+:root {
+  --preview-light: #ffffff;
+  --preview-dark: #0f172a;
+}
+
+/* Accent swatch fills for the Tweaks panel / Preferences (the accent's own colour per theme). */
+:root {
+  --swatch-ink: #18181b;
+  --swatch-indigo: #4f46e5;
+  --swatch-teal: #0f766e;
+  --swatch-orange: #c2410c;
+}
+:root[data-theme="dark"] {
+  --swatch-ink: #fafafa;
+  --swatch-indigo: #818cf8;
+  --swatch-teal: #5eead4;
+  --swatch-orange: #fb923c;
+}

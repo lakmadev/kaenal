@@ -8,7 +8,8 @@ import {
   User,
   Settings,
   ClipboardList,
-  Command,
+  Keyboard,
+  SlidersHorizontal,
   LogOut,
   Check,
   ShieldCheck,
@@ -35,7 +36,8 @@ export function ProfileMenu({
   const t = useTranslations("profile");
   const router = useRouter();
   const signOut = useSignOut();
-  const openCommand = useUiStore((s) => s.setCommandOpen);
+  const setShortcutsOpen = useUiStore((s) => s.setShortcutsOpen);
+  const setTweaksOpen = useUiStore((s) => s.setTweaksOpen);
   const { data: workspaces } = useWorkspaces();
   const switchWorkspace = useSwitchWorkspace();
 
@@ -193,17 +195,28 @@ export function ProfileMenu({
               );
             })}
             <DropdownMenu.Item
-              onSelect={() => openCommand(true)}
+              onSelect={() => {
+                // The panel is a non-modal Dialog; opening it on the same click that
+                // dismisses this menu can trigger Radix's outside-click layer to close
+                // it again in the same tick. Deferring past the menu's own close avoids that race.
+                setTimeout(() => setTweaksOpen(true), 0);
+              }}
               className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-bg-subtle"
             >
-              <Command size={15} className="shrink-0 text-muted" />
+              <SlidersHorizontal size={15} className="shrink-0 text-muted" />
               <span className="min-w-0 flex-1">
-                <span className="block text-[12.5px] font-medium text-text">
-                  {t("commandPalette")}
-                </span>
-                <span className="block text-[10.5px] text-muted">
-                  {t("commandPaletteHint")}
-                </span>
+                <span className="block text-[12.5px] font-medium text-text">{t("appearance")}</span>
+                <span className="block text-[10.5px] text-muted">{t("appearanceHint")}</span>
+              </span>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item
+              onSelect={() => setShortcutsOpen(true)}
+              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-bg-subtle"
+            >
+              <Keyboard size={15} className="shrink-0 text-muted" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12.5px] font-medium text-text">{t("keyboardShortcuts")}</span>
+                <span className="block text-[10.5px] text-muted">{t("keyboardShortcutsHint")}</span>
               </span>
             </DropdownMenu.Item>
           </div>
