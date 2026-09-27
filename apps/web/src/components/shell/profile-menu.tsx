@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -40,6 +41,11 @@ export function ProfileMenu({
   const setTweaksOpen = useUiStore((s) => s.setTweaksOpen);
   const { data: workspaces } = useWorkspaces();
   const switchWorkspace = useSwitchWorkspace();
+  // Set right before opening the Tweaks panel from a menu item: Radix's default
+  // "return focus to the trigger" on menu close fires a focusout that the
+  // Dialog's own focus-scope reads as an outside interaction and dismisses it
+  // in the same tick. Skipping that one auto-focus avoids the race.
+  const skipCloseAutoFocus = useRef(false);
 
   const go = (href: string): void => {
     router.push(href);
@@ -113,6 +119,12 @@ export function ProfileMenu({
           collisionPadding={8}
           className="k-surface fade-in z-50 w-[min(312px,calc(100vw-16px))] overflow-hidden p-0 shadow-xl"
           style={{ borderRadius: "var(--r-lg)" }}
+          onCloseAutoFocus={(event) => {
+            if (skipCloseAutoFocus.current) {
+              event.preventDefault();
+              skipCloseAutoFocus.current = false;
+            }
+          }}
         >
           {/* Identity header */}
           <div className="flex items-center gap-3 border-b border-border bg-bg-subtle px-4 py-3.5">
@@ -196,9 +208,10 @@ export function ProfileMenu({
             })}
             <DropdownMenu.Item
               onSelect={() => {
-                // The panel is a non-modal Dialog; opening it on the same click that
-                // dismisses this menu can trigger Radix's outside-click layer to close
-                // it again in the same tick. Deferring past the menu's own close avoids that race.
+                // The menu's own onCloseAutoFocus (above) skips returning focus
+                // to the trigger this one time — that focus-return is what was
+                // closing the Tweaks panel in the same tick (see the ref above).
+                skipCloseAutoFocus.current = true;
                 setTimeout(() => setTweaksOpen(true), 0);
               }}
               className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-bg-subtle"
