@@ -13,7 +13,6 @@ import { MemberCell } from "@/components/member-cell";
 import { Button, Segmented, StatusBadge, PriorityBadge, EmptyState, Skeleton } from "@/components/ui";
 import { SlaIndicator } from "./ncr-bits";
 import { NcrKanban } from "./ncr-kanban";
-import { NcrCreateDialog } from "./ncr-create-dialog";
 
 type View = "list" | "kanban";
 type StatusFilter = "all" | NcrStatus;
@@ -50,7 +49,6 @@ export function NcrList(): React.ReactElement {
   const [view, setView] = useState<View>("list");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [extra, setExtra] = useState<ExtraFilters>(EMPTY_FILTERS);
   const filterRef = useRef<HTMLDivElement>(null);
@@ -137,7 +135,7 @@ export function NcrList(): React.ReactElement {
               <Download size={14} /> Export
             </Button>
             {canCreate && (
-              <Button variant="primary" onClick={() => setCreateOpen(true)}>
+              <Button variant="primary" onClick={() => router.push("/create/ncr")}>
                 <Plus size={14} /> New NCR
               </Button>
             )}
@@ -177,7 +175,7 @@ export function NcrList(): React.ReactElement {
             body="Raise a non-conformity to start tracking it."
             action={
               canCreate ? (
-                <Button variant="primary" onClick={() => setCreateOpen(true)}>
+                <Button variant="primary" onClick={() => router.push("/create/ncr")}>
                   <Plus size={14} /> New NCR
                 </Button>
               ) : undefined
@@ -243,7 +241,6 @@ export function NcrList(): React.ReactElement {
         </p>
       )}
 
-      <NcrCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

@@ -15,6 +15,15 @@ import type {
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
 import { staleWriteError } from "../stale-write.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
+import {
+  assertPeopleAreMembers,
+  assertPlantExists,
+  dedupePeople,
+  firstWithRole,
+  insertEntityPeople,
+  notifyPeople,
+} from "../http/create-extras.js";
 import {
   clampLimit,
   decodeCursor,
@@ -119,6 +128,8 @@ function toVersionDto(row: VersionRow): DocumentVersionDto {
  */
 @Injectable()
 export class DocumentsService {
+  constructor(private readonly notifications: NotificationsService = new NotificationsService()) {}
+
   async list(
     tx: Tx,
     opts: { status?: string; category?: string; cursor?: string; limit: number },
@@ -162,6 +173,13 @@ export class DocumentsService {
     body: CreateDocumentBody,
     context: AuditContext,
   ): Promise<DocumentDto> {
+    // CreateWizard foreign ids: a plant / person from another tenant reads as 404.
+    await assertPlantExists(tx, body.plantId);
+    const people = dedupePeople(body.people);
+    await assertPeopleAreMembers(tx, people);
+    const ownerId = firstWithRole(people, "owner") ?? actorId;
+    const approverId = firstWithRole(people, "approver");
+
     const now = new Date();
     const year = counterYear(now, "UTC"); // documents have no plant/timezone
     const id = randomUUID();
@@ -176,7 +194,13 @@ export class DocumentsService {
         entityKind: "document",
         entityId: id,
         action: "created",
-        after: { title: body.title, category: body.category, version },
+        after: {
+          title: body.title,
+          category: body.category,
+          version,
+          template: body.template ?? null,
+          people: people.map((p) => `${p.userId}:${p.role}`),
+        },
         requestId: context.requestId,
         ip: context.ip,
         userAgent: context.userAgent,
@@ -194,8 +218,9 @@ export class DocumentsService {
         const { rows } = await t.query<DocumentRow>(
           `INSERT INTO documents
              (id, tenant_id, code, title, category, status, version, file_id, owner_id,
-              expires_at, frameworks, created_by, updated_by)
-           VALUES ($1,$2,$3,$4,$5,'draft',$6,$7,$8,$9,$10,$8,$8)
+              expires_at, frameworks, created_by, updated_by,
+              approver_id, description, area_label, plant_id, template)
+           VALUES ($1,$2,$3,$4,$5,'draft',$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16)
            RETURNING ${DOCUMENT_COLUMNS}`,
           [
             id,
@@ -205,15 +230,23 @@ export class DocumentsService {
             body.category,
             version,
             body.fileId ?? null,
-            actorId,
+            ownerId,
             body.expiresAt ?? null,
             body.frameworks ?? [],
+            actorId,
+            approverId,
+            body.description ?? null,
+            body.areaLabel ?? null,
+            body.plantId ?? null,
+            body.template ?? null,
           ],
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Document was not created");
 
         await this.insertVersion(t, tenantId, id, version, body.fileId ?? null, body.changelog ?? null, actorId);
+        await insertEntityPeople(t, tenantId, actorId, "document", id, people);
+        await notifyPeople(t, this.notifications, tenantId, actorId, "document", id, row.code, people);
         return toDocumentDto(row);
       },
     );

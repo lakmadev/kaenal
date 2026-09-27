@@ -32,3 +32,4 @@ export * from "./report-dashboards.js";
 export * from "./connectors.js";
 export * from "./import.js";
 export * from "./spc.js";
+export * from "./create-wizard.js";

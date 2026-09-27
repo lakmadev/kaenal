@@ -28,6 +28,15 @@ import { ApiError, notFound } from "../errors.js";
 import { staleWriteError } from "../stale-write.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import {
+  assertNotPast,
+  assertPeopleAreMembers,
+  assertPlantExists,
+  dedupePeople,
+  firstWithRole,
+  insertEntityPeople,
+  notifyPeople,
+} from "../http/create-extras.js";
+import {
   clampLimit,
   decodeCursor,
   keysetPredicate,
@@ -174,6 +183,13 @@ export class InspectionsService {
     body: CreateInspectionBody,
     context: AuditContext,
   ): Promise<InspectionDto> {
+    // CreateWizard foreign ids: a plant / person from another tenant reads as 404.
+    await assertPlantExists(tx, body.plantId);
+    assertNotPast("scheduledAt", body.scheduledAt);
+    const people = dedupePeople(body.people);
+    await assertPeopleAreMembers(tx, people);
+    const inspectorId = body.inspectorId ?? firstWithRole(people, "owner");
+
     // Only a published template can back a new inspection: a draft's schema can
     // still change, which would leave the pinned template_version pointing at a
     // shape that no longer exists.
@@ -203,7 +219,11 @@ export class InspectionsService {
         entityKind: "inspection",
         entityId: id,
         action: "created",
-        after: { title: body.title, templateId: body.templateId },
+        after: {
+          title: body.title,
+          templateId: body.templateId,
+          people: people.map((p) => `${p.userId}:${p.role}`),
+        },
         requestId: context.requestId,
         ip: context.ip,
         userAgent: context.userAgent,
@@ -227,8 +247,8 @@ export class InspectionsService {
           `INSERT INTO inspections
              (id, tenant_id, code, title, template_id, template_version,
               inspector_id, plant_id, area_id, status, scheduled_at, recurrence,
-              created_by, updated_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled', $10, $11, $12, $12)
+              created_by, updated_by, priority, description, area_label)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled', $10, $11, $12, $12, $13, $14, $15)
            RETURNING ${INSPECTION_COLUMNS}`,
           [
             id,
@@ -237,16 +257,21 @@ export class InspectionsService {
             body.title,
             body.templateId,
             template.version,
-            body.inspectorId ?? null,
+            inspectorId,
             body.plantId ?? null,
             body.areaId ?? null,
             body.scheduledAt ?? null,
             body.recurrence != null ? JSON.stringify(body.recurrence) : null,
             actorId,
+            body.priority ?? null,
+            body.description ?? null,
+            body.areaLabel ?? null,
           ],
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Inspection was not created");
+        await insertEntityPeople(t, tenantId, actorId, "inspection", id, people);
+        await notifyPeople(t, this.notifications, tenantId, actorId, "inspection", id, code, people);
         return toInspectionDto(row);
       },
     );

@@ -11,7 +11,11 @@ import {
   CapaType,
   DocumentCategory,
   DocumentStatus,
+  DocumentTemplate,
   EightDStatus,
+  EightDTemplate,
+  EntityPersonRole,
+  WizardPriority,
   EntityKind,
   EightDStepStatus,
   ExportFormat,
@@ -109,6 +113,24 @@ export type UpdateTemplateBody = z.infer<typeof UpdateTemplateBody>;
 export const TemplateVersionBody = z.object({ version: z.number().int().nonnegative() });
 export type TemplateVersionBody = z.infer<typeof TemplateVersionBody>;
 
+/** One person + role from the wizard's "Assignees & approvals" step. The server
+ *  derives the record's primary columns (owner/inspector/lead/approver) from it
+ *  and stores every entry in `entity_people`. */
+export const EntityPersonInput = z.object({
+  userId: z.string().uuid(),
+  role: EntityPersonRole,
+});
+export type EntityPersonInput = z.infer<typeof EntityPersonInput>;
+export const EntityPeopleInput = z.array(EntityPersonInput).max(50);
+
+/** A site the caller may raise records in (wizard "Site" select). */
+export const PlantDto = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  code: z.string(),
+});
+export type PlantDto = z.infer<typeof PlantDto>;
+
 // --- Inspections ------------------------------------------------------------
 
 /**
@@ -164,6 +186,11 @@ export const CreateInspectionBody = z.object({
   scheduledAt: z.string().datetime().nullable().optional(),
   /** Makes this a recurring series head; occurrences are materialised by 06. */
   recurrence: RecurrenceRule.nullable().optional(),
+  /** CreateWizard fields (S1-1). */
+  priority: WizardPriority.nullable().optional(),
+  description: z.string().max(8000).nullable().optional(),
+  areaLabel: z.string().max(200).nullable().optional(),
+  people: EntityPeopleInput.optional(),
 });
 export type CreateInspectionBody = z.infer<typeof CreateInspectionBody>;
 
@@ -286,6 +313,11 @@ export const CreateNcrBody = z.object({
   containment: z.array(z.string().min(1).max(2000)).max(20).optional(),
   /** Evidence files already uploaded via presign; linked to this NCR on create. */
   evidenceFileIds: z.array(z.string().uuid()).max(20).optional(),
+  /** CreateWizard fields (S1-1): an explicit due date overrides the SLA-derived
+   *  one; free-text area; assignees + roles. */
+  dueAt: z.string().datetime().nullable().optional(),
+  areaLabel: z.string().max(200).nullable().optional(),
+  people: EntityPeopleInput.optional(),
 });
 export type CreateNcrBody = z.infer<typeof CreateNcrBody>;
 
@@ -515,6 +547,12 @@ export const CreateDocumentBody = z.object({
   frameworks: z.array(z.string().min(1).max(64)).max(50).optional(),
   expiresAt: z.string().datetime().nullable().optional(),
   changelog: z.string().max(4000).nullable().optional(),
+  /** CreateWizard fields (S1-1). */
+  template: DocumentTemplate.nullable().optional(),
+  description: z.string().max(8000).nullable().optional(),
+  plantId: z.string().uuid().nullable().optional(),
+  areaLabel: z.string().max(200).nullable().optional(),
+  people: EntityPeopleInput.optional(),
 });
 export type CreateDocumentBody = z.infer<typeof CreateDocumentBody>;
 
@@ -773,6 +811,15 @@ export const CreateEightDBody = z.object({
   championId: z.string().uuid().nullable().optional(),
   memberIds: z.array(z.string().uuid()).max(50).optional(),
   targetAt: z.string().datetime().nullable().optional(),
+  /** CreateWizard fields (S1-1). `ncrCode` links by the human code the wizard
+   *  collects ("NCR-2026-…"); it is resolved server-side (unknown → 404). */
+  ncrCode: z.string().min(1).max(64).optional(),
+  template: EightDTemplate.nullable().optional(),
+  priority: WizardPriority.nullable().optional(),
+  description: z.string().max(8000).nullable().optional(),
+  plantId: z.string().uuid().nullable().optional(),
+  areaLabel: z.string().max(200).nullable().optional(),
+  people: EntityPeopleInput.optional(),
 });
 export type CreateEightDBody = z.infer<typeof CreateEightDBody>;
 

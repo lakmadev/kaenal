@@ -183,6 +183,12 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
   await q(`INSERT INTO user_preferences (tenant_id, user_id) VALUES ($1, $2) RETURNING id`, [t, userId]);
 
   await q(
+    `INSERT INTO entity_people (tenant_id, entity_kind, entity_id, user_id, role)
+     VALUES ($1, 'ncr', $2, $3, 'owner') RETURNING id`,
+    [t, ncrId, userId],
+  );
+
+  await q(
     `INSERT INTO comments (tenant_id, entity_kind, entity_id, author_id, body)
      VALUES ($1, 'ncr', $2, $3, 'Containment applied on shift 2.') RETURNING id`,
     [t, ncrId, userId],

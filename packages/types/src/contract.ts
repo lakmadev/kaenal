@@ -47,6 +47,7 @@ import {
   WorkspaceDto,
   SwitchWorkspaceBody,
   MemberDto,
+  PlantDto,
   MemberWorkloadList,
   NcrActionDto,
   NcrDto,
@@ -247,6 +248,12 @@ export const contract = c.router(
       query: PageQuery,
       responses: { 200: page(MemberDto), ...commonErrors },
       summary: "List this tenant's members (id → name + role) so the UI can resolve people",
+    },
+    listPlants: {
+      method: "GET",
+      path: "/v1/plants",
+      responses: { 200: z.object({ items: z.array(PlantDto) }), ...commonErrors },
+      summary: "Sites the caller may raise records in (plant-scoped by role) — the CreateWizard Site select",
     },
     listMemberWorkload: {
       method: "GET",

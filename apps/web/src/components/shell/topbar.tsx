@@ -23,6 +23,7 @@ import { breadcrumbsFor } from "@/config/breadcrumbs";
 import { Tooltip } from "@/components/ui";
 import { NotificationsPanel } from "@/features/notifications/notifications-panel";
 import { ProfileMenu } from "./profile-menu";
+import { QuickCreateButton } from "./quick-create";
 
 function Breadcrumbs({ pathname }: { pathname: string }): React.ReactElement {
   const view = useSearchParams().get("view");
@@ -133,6 +134,9 @@ export function Topbar({ me }: { me: MeDto | undefined }): React.ReactElement {
         >
           <Search size={18} />
         </button>
+        {/* Quick-create "New" menu (S1-1, shell.jsx line 290 placement) — sits
+            before Live/AI, which other work owns; not touched here. */}
+        <QuickCreateButton />
         <Popover.Root open={notifOpen} onOpenChange={setNotifOpen}>
           {/* Anchor pinned 18px from the right edge under the 56px bar, as in notifications.jsx. */}
           <Popover.Anchor asChild>

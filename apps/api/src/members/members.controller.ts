@@ -1,8 +1,9 @@
 import { Controller, Get, Inject, Query } from "@nestjs/common";
-import { PageQuery, type MemberDto, type MemberWorkloadDto, type Page } from "@kaenal/types";
+import { PageQuery, type MemberDto, type MemberWorkloadDto, type Page, type PlantDto } from "@kaenal/types";
 import { currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
+import { membershipOf } from "../ncr/handler-ctx.js";
 import { MEMBERS_SERVICE } from "../tokens.js";
 import type { MembersService } from "./members.service.js";
 
@@ -27,6 +28,15 @@ export class MembersController {
       ...(q.cursor !== undefined ? { cursor: q.cursor } : {}),
       limit: q.limit,
     });
+  }
+
+  /** Sites the caller may raise records in — the CreateWizard "Site" select.
+   *  Plant-scoped roles see only their own plants (same rule the create paths
+   *  enforce), so the select never offers a site that would 404. */
+  @Get("v1/plants")
+  @RequireCapability("ncr:view")
+  async plants(): Promise<{ items: PlantDto[] }> {
+    return { items: await this.members.listPlants(currentTx(), membershipOf()) };
   }
 
   /** The assign sheet's roster + live workload. Gated on `ncr:manage` — the

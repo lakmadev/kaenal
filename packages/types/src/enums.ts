@@ -414,3 +414,22 @@ export const ErrorCode = defineEnum([
   "INTERNAL",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
+
+// --- Create wizard (Sprint 01 S1-1) ------------------------------------------
+
+/** The wizard's 4-level priority (createwizard.jsx). NCRs keep their own
+ *  minor/major/critical column; core maps between the two. */
+export const WizardPriority = defineEnum(["low", "medium", "high", "critical"]);
+export type WizardPriority = z.infer<typeof WizardPriority>;
+
+/** A person's role on a record in the wizard's "Assignees & approvals" step. */
+export const EntityPersonRole = defineEnum(["owner", "reviewer", "approver", "watcher"]);
+export type EntityPersonRole = z.infer<typeof EntityPersonRole>;
+
+/** The 8D template choices (createwizard.jsx ENTITY_TYPES['8d']). */
+export const EightDTemplate = defineEnum(["auto", "medical", "aero", "standard"]);
+export type EightDTemplate = z.infer<typeof EightDTemplate>;
+
+/** The document template choices (createwizard.jsx ENTITY_TYPES.document). */
+export const DocumentTemplate = defineEnum(["sop", "wi", "form", "policy", "manual", "upload"]);
+export type DocumentTemplate = z.infer<typeof DocumentTemplate>;

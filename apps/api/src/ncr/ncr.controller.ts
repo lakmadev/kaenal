@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
   AssignNcrBody,
@@ -17,7 +17,8 @@ import {
 import { currentContext, currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
-import { NCR_SERVICE } from "../tokens.js";
+import type { IdempotencyStore } from "../http/idempotency.js";
+import { IDEMPOTENCY, NCR_SERVICE } from "../tokens.js";
 import type { NcrService } from "./ncr.service.js";
 import { actorIdOf, auditCtxOf, membershipOf } from "./handler-ctx.js";
 
@@ -37,7 +38,10 @@ const ListQuery = PageQuery.extend({
  */
 @Controller()
 export class NcrController {
-  constructor(@Inject(NCR_SERVICE) private readonly ncrs: NcrService) {}
+  constructor(
+    @Inject(NCR_SERVICE) private readonly ncrs: NcrService,
+    @Inject(IDEMPOTENCY) private readonly idempotency: IdempotencyStore,
+  ) {}
 
   @Get("v1/ncrs")
   @RequireCapability("ncr:view")
@@ -54,9 +58,16 @@ export class NcrController {
 
   @Post("v1/ncrs")
   @RequireCapability("ncr:create")
-  async create(@Body() body: unknown): Promise<NcrDto> {
+  async create(
+    @Body() body: unknown,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+  ): Promise<NcrDto> {
     const input = parse(CreateNcrBody, body);
-    return this.ncrs.create(currentTx(), currentContext().tenantId, membershipOf(), actorIdOf(), input, auditCtxOf());
+    const ctx = currentContext();
+    const { result } = await this.idempotency.run(`${ctx.tenantId}:create-ncr`, idempotencyKey, () =>
+      this.ncrs.create(currentTx(), ctx.tenantId, membershipOf(), actorIdOf(), input, auditCtxOf()),
+    );
+    return result;
   }
 
   @Get("v1/ncrs/:id")
