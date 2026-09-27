@@ -40,7 +40,7 @@ export function AiDrawer(): React.ReactElement | null {
   const send = (text: string): void => {
     if (!online || chat.streaming || text.trim() === "") return;
     setInput("");
-    chat.send(text, context.entityRef);
+    chat.send(text, context.entityRef, context.entityRef !== undefined ? context.label : undefined);
   };
 
   const suggestions = [

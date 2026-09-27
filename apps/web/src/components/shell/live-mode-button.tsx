@@ -24,7 +24,14 @@ export function LiveModeButton({ userId }: { userId: string }): React.ReactEleme
   const tip = paused ? t("pausedTip") : reconnecting ? t("reconnectingTip") : on ? t("onTip") : t("offTip");
 
   const tone = paused || reconnecting ? "var(--warning-600)" : on ? "var(--success-600)" : "var(--text-muted)";
-  const dot = paused ? "var(--text-subtle)" : reconnecting ? "var(--warning-500)" : on ? "var(--success-500)" : "var(--text-subtle)";
+  // Paused (W5-D): a hollow ring, not a filled dot — distinguishes "waiting to
+  // resume" from the solid off-state dot at a glance, colour never the only signal.
+  const dotStyle: React.CSSProperties = paused
+    ? { background: "transparent", border: "1.5px solid var(--text-subtle)" }
+    : {
+        background: reconnecting ? "var(--warning-500)" : on ? "var(--success-500)" : "var(--text-subtle)",
+        animation: on && !reconnecting ? "pulseDot 1.6s ease-in-out infinite" : "none",
+      };
 
   return (
     <Tooltip content={tip}>
@@ -44,14 +51,7 @@ export function LiveModeButton({ userId }: { userId: string }): React.ReactEleme
           cursor: paused ? "not-allowed" : "pointer",
         }}
       >
-        <span
-          aria-hidden
-          className="h-2 w-2 rounded-full"
-          style={{
-            background: dot,
-            animation: on && !paused && !reconnecting ? "pulseDot 1.6s ease-in-out infinite" : "none",
-          }}
-        />
+        <span aria-hidden className="h-2 w-2 rounded-full" style={dotStyle} />
         <span className="max-sm:hidden">{label}</span>
       </button>
     </Tooltip>

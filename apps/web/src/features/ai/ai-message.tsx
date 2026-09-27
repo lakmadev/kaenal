@@ -71,6 +71,10 @@ function ReplyActions({ message }: { message: ChatMessage }): React.ReactElement
   const provenance = message.provenance;
   const entityRef = message.entityRef;
 
+  // Board copy names the record ("Pin to NCR-2026-0014"), falling back to the
+  // kind when the code wasn't resolved yet.
+  const recordName = message.entityLabel ?? (entityRef !== undefined ? entityLabel(entityRef.kind) : "");
+
   const pin = useMutation({
     mutationFn: (entity: NonNullable<ChatMessage["entityRef"]>) =>
       getApiClient()
@@ -113,7 +117,7 @@ function ReplyActions({ message }: { message: ChatMessage }): React.ReactElement
           <>
             <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-success-600">
               <Check size={13} aria-hidden />
-              {t("pinnedShort")}
+              {t("pinnedTo", { record: recordName })}
             </span>
             {pinnedHref !== null && (
               <Button size="sm" variant="plain" onClick={() => router.push(pinnedHref)}>
@@ -131,7 +135,7 @@ function ReplyActions({ message }: { message: ChatMessage }): React.ReactElement
             title={t("pinTip", { kind: entityLabel(entityRef.kind) })}
           >
             <MessageSquare size={13} aria-hidden />
-            {t("pin")}
+            {t("pinTo", { record: recordName })}
           </Button>
         ))}
       <ActionButton

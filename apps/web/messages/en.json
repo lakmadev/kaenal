@@ -157,10 +157,8 @@
     "copy": "Copy",
     "copied": "Copied",
     "copyFailed": "Couldn't copy",
-    "pin": "Pin to entity",
     "pinTip": "Save this reply as a comment on this {kind}",
     "pinned": "Pinned as a comment",
-    "pinnedShort": "Pinned",
     "pinFailed": "Couldn't pin the reply",
     "pinPrefix": "[AI-generated reply · model: {provider}]",
     "viewComment": "View comment",
@@ -187,6 +185,8 @@
       "NETWORK": "Couldn't reach Kaenal AI. Check your connection and try again.",
       "FORBIDDEN": "You don't have access to use the AI assistant.",
       "NOT_FOUND": "That record isn't available to the assistant."
-    }
+    },
+    "pinTo": "Pin to {record}",
+    "pinnedTo": "Pinned to {record}"
   }
 }

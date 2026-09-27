@@ -25,6 +25,8 @@ export interface ChatMessage {
   /** The user prompt an assistant message answers, so Try again can re-send it. */
   question?: string;
   entityRef?: AiChatEntityRef | undefined;
+  /** The record's display code at send time (e.g. "NCR-2026-0014"), for "Pin to {label}". */
+  entityLabel?: string | undefined;
 }
 
 const MAX_HISTORY = 20;
@@ -114,7 +116,7 @@ export function useAiChat() {
       .slice(-MAX_HISTORY)
       .map((m) => ({ role: m.role, content: m.text.slice(0, 4000) }));
 
-  const send = (text: string, entityRef: AiChatEntityRef | undefined): void => {
+  const send = (text: string, entityRef: AiChatEntityRef | undefined, entityLabel?: string): void => {
     const question = text.trim();
     if (question === "" || streaming) return;
     const n = ++counter.current;
@@ -123,7 +125,7 @@ export function useAiChat() {
     setMessages((all) => [
       ...all,
       { id: `u${n}`, role: "user", text: question, status: "done" },
-      { id: replyId, role: "assistant", text: "", status: "streaming", question, entityRef },
+      { id: replyId, role: "assistant", text: "", status: "streaming", question, entityRef, entityLabel },
     ]);
     void run(replyId, question, entityRef, history);
   };
