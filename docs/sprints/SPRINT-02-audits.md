@@ -468,6 +468,17 @@ one explicitly-scoped-out control — flagged honestly per rule 10, not disguise
 - **Q13 (new).** Graph node kinds / "graph seeds" for audits (ROADMAP §8 standing rule 2) are explicitly
   Sprint 03's concern (the graph explorer doesn't exist yet) — this sprint's `entity-routes.ts`/search
   work is upstream-compatible with it but does not build the graph integration itself.
+- **Q14 (new, security-reviewer, W2-review pass).** The Evidence tab's "Upload" button is hidden unless
+  `audit:manage`, implying evidence attachment is manager-gated — but `POST /v1/files/presign` /
+  `/complete` / `GET /v1/files` carry no `@RequireCapability` at all (`apps/api/src/files/files.controller.ts`
+  — access is RLS/tenant-scoped only, by the controller's own comment). Any authenticated tenant member
+  (e.g. `audit:view`-only) can call the presign/complete routes directly and attach evidence despite the
+  UI implying otherwise. This is pre-existing Files-module architecture (not introduced by Sprint 02,
+  and shared by every entity's evidence/attachments — NCR, CAPA, inspections), so it is NOT fixed inline
+  here: a capability check added to `FilesService` is a cross-cutting change affecting every entity kind,
+  deserving its own reviewed slice, not a Sprint 02 side-effect. Needs a product/security decision:
+  either add entity-aware capability checks to the Files module, or relabel the UI so it stops implying
+  stronger enforcement than exists. Flagged for the next sprint's Gate 1, not silently shipped as fixed.
 - Unresolved items above go to `PROGRESS.md` Known issues at sprint close, per SCRUM.md rule "never
   silently drop scope."
 
