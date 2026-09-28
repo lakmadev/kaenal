@@ -153,7 +153,8 @@ tile merge) and one control-removal decision (§2.3) are recorded, not left impl
 question is confirmed already closed in `DESIGN-03-graph.md`, not re-opened here. Mobile requires nothing this
 sprint (§4, verified independently).
 
-**Designer sign-off: APPROVED** for Part B (P1-P6) — pending the user's visual sign-off on the 2 new boards
-before Gate 1 build starts, per SCRUM.md. Engineering may proceed to the architecture review once
-product-owner sign-off (already `APPROVED` for use-case coverage) and this design sign-off are both green and
+**Designer sign-off: APPROVED** for Part B (P1-P6).
+**User visual sign-off: APPROVED (2026-09-28)** — both new boards approved as-is. Gate 1 for Part B's UI
+is now fully closed; the web build (architecture review's slice 7-8) can proceed. Engineering may proceed
+to the architecture review once product-owner sign-off (already `APPROVED` for use-case coverage) and
 the 2 boards are approved.
