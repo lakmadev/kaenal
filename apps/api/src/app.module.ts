@@ -58,6 +58,8 @@ import { SuppliersController } from "./suppliers/suppliers.controller.js";
 import { SuppliersService } from "./suppliers/suppliers.service.js";
 import { PpapController } from "./ppap/ppap.controller.js";
 import { PpapService } from "./ppap/ppap.service.js";
+import { PredictionsController } from "./predictions/predictions.controller.js";
+import { PredictionsService } from "./predictions/predictions.service.js";
 import { ScarController } from "./scar/scar.controller.js";
 import { ScarService } from "./scar/scar.service.js";
 import { PortalController } from "./portal/portal.controller.js";
@@ -131,6 +133,7 @@ import {
   DOCUMENTS_SERVICE,
   SUPPLIERS_SERVICE,
   PPAP_SERVICE,
+  PREDICTIONS_SERVICE,
   SCAR_SERVICE,
   PORTAL_SERVICE,
   EIGHT_D_SERVICE,
@@ -194,6 +197,7 @@ import {
     DocumentsController,
     SuppliersController,
     PpapController,
+    PredictionsController,
     ScarController,
     PortalController,
     FilesController,
@@ -365,6 +369,7 @@ import {
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
     { provide: SUPPLIERS_SERVICE, useFactory: () => new SuppliersService() },
     { provide: PPAP_SERVICE, useFactory: () => new PpapService() },
+    { provide: PREDICTIONS_SERVICE, useFactory: () => new PredictionsService() },
     {
       provide: SCAR_SERVICE,
       useFactory: (n: NotificationsService) => new ScarService(n),

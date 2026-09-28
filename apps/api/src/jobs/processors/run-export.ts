@@ -86,6 +86,15 @@ const AUDIT_REPORT_SPEC: Exportable = {
   headers: ["Field", "Value"],
 };
 
+/** Not a table export either: the current ranked lines+suppliers forecast
+ *  (Sprint 03 Part B, `predictive.jsx` "Forecast pack"). */
+const PREDICTIVE_FORECAST_PACK_SPEC: Exportable = {
+  table: "",
+  plantScoped: false,
+  columns: [],
+  headers: ["Kind", "Subject", "Horizon", "Predicted", "Confidence", "80% band", "Driver"],
+};
+
 /**
  * Render ONE audit's report (S2-2 AC5/6) — re-derived from the DB at render
  * time, never from the stored `filters` payload alone: the requester's plant
@@ -145,6 +154,57 @@ async function auditReportRows(
     out.push([f.clause ?? "—", `${f.kind}: ${f.title ?? f.description.slice(0, 80)}`]);
   }
   return out;
+}
+
+/**
+ * Render the current ranked lines+suppliers forecast (Sprint 03 Part B, P4),
+ * scoped to the requesting caller exactly like every other export — re-derived
+ * from the DB at render time, never from a stale `filters` snapshot. Line
+ * subjects are plant-scoped through their `areas.plant_id` (mirrors
+ * `SearchService`'s per-kind plant filter); suppliers carry no plant, so they
+ * are never narrowed. Capped at 200 rows, ranked by predicted volume.
+ */
+async function forecastPackRows(
+  tx: Parameters<Parameters<typeof withTenant>[2]>[0],
+  membership: Membership,
+): Promise<unknown[][]> {
+  const params: unknown[] = [];
+  let where = "WHERE rp.deleted_at IS NULL";
+  if (isPlantScoped(membership.role) && membership.plantIds.length > 0) {
+    params.push(membership.plantIds);
+    where += ` AND (rp.subject_kind <> 'line' OR a.plant_id = ANY($${params.length}::uuid[]))`;
+  }
+
+  const { rows } = await tx.query<{
+    subject_kind: string;
+    subject_name: string | null;
+    horizon: string;
+    predicted_value: string;
+    confidence: number;
+    band_low: string;
+    band_high: string;
+    reasoning: string;
+  }>(
+    `SELECT rp.subject_kind, COALESCE(a.name, s.name) AS subject_name, rp.horizon,
+            rp.predicted_value, rp.confidence, rp.band_low, rp.band_high, rp.reasoning
+       FROM risk_predictions rp
+       LEFT JOIN areas a ON rp.subject_kind = 'line' AND a.id = rp.subject_id AND a.tenant_id = rp.tenant_id
+       LEFT JOIN suppliers s ON rp.subject_kind = 'supplier' AND s.id = rp.subject_id AND s.tenant_id = rp.tenant_id
+       ${where}
+       ORDER BY rp.predicted_value DESC, rp.id DESC
+       LIMIT 200`,
+    params,
+  );
+
+  return rows.map((r) => [
+    r.subject_kind,
+    r.subject_name ?? "—",
+    r.horizon,
+    Number(r.predicted_value),
+    r.confidence,
+    `${Number(r.band_low)}–${Number(r.band_high)}`,
+    r.reasoning,
+  ]);
 }
 
 /** Wrap the reply text to the PDF column width and append provenance lines. */
@@ -232,7 +292,14 @@ export async function runExport(
     try {
       const aiReply = job.resource === "ai_reply" ? AiReplyExportPayload.parse(job.payload) : null;
       const isAuditReport = job.resource === "audit_report";
-      const spec = isAuditReport ? AUDIT_REPORT_SPEC : aiReply !== null ? AI_REPLY_SPEC : EXPORTABLES[job.resource];
+      const isForecastPack = job.resource === "predictive_forecast_pack";
+      const spec = isAuditReport
+        ? AUDIT_REPORT_SPEC
+        : isForecastPack
+          ? PREDICTIVE_FORECAST_PACK_SPEC
+          : aiReply !== null
+            ? AI_REPLY_SPEC
+            : EXPORTABLES[job.resource];
       if (spec === undefined) throw new Error(`Unknown export resource: ${job.resource}`);
 
       const membership = job.requested_by === null ? null : await loadMembership(tx, job.requested_by);
@@ -240,9 +307,11 @@ export async function runExport(
 
       const rows = isAuditReport
         ? await auditReportRows(tx, job.filters, membership)
-        : aiReply !== null
-          ? aiReplyRows(aiReply)
-          : await fetchRows(tx, spec, job.filters, membership);
+        : isForecastPack
+          ? await forecastPackRows(tx, membership)
+          : aiReply !== null
+            ? aiReplyRows(aiReply)
+            : await fetchRows(tx, spec, job.filters, membership);
       const stringRows = rows.map((r) => r.map(cell));
 
       // Serialise per format. XLSX/PDF are single documents (they page/scroll

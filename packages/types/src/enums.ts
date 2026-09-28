@@ -322,6 +322,9 @@ export const ExportResource = defineEnum([
   // A single audit's PDF report (Sprint 02 S2-2 AC5/6) — distinct from the
   // `audits` table-dump resource above.
   "audit_report",
+  // Sprint 03 Part B — the current ranked lines+suppliers forecast, as scoped
+  // to the requesting caller, rendered to PDF (`predictive.jsx` "Forecast pack").
+  "predictive_forecast_pack",
 ]);
 export type ExportResource = z.infer<typeof ExportResource>;
 
@@ -365,6 +368,20 @@ export const EntityKind = defineEnum([
   "finding",
 ]);
 export type EntityKind = z.infer<typeof EntityKind>;
+
+// --- Predictive risk (Sprint 03 Part B, §3B) --------------------------------
+
+/**
+ * The subject kinds `risk_predictions` forecasts — production lines
+ * (`areas` rows) and suppliers. `'ncr'` from the P21 draft proposal is
+ * deliberately dropped: the binding jsx forecasts lines + suppliers only
+ * (§3B, Q19 in SPRINT-03-graph-predictive.md).
+ */
+export const PredictionSubjectKind = defineEnum(["line", "supplier"]);
+export type PredictionSubjectKind = z.infer<typeof PredictionSubjectKind>;
+
+export const PredictionRiskLevel = defineEnum(["critical", "high", "medium", "low"]);
+export type PredictionRiskLevel = z.infer<typeof PredictionRiskLevel>;
 
 export const AuditAction = defineEnum([
   "created",

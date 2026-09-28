@@ -26,6 +26,10 @@ export const CAPABILITIES = [
   "capa:manage",
   "audit:view",
   "audit:manage",
+  // Predictive risk (Sprint 03 Part B). Read-only: the nightly job owns the
+  // data, no capability gates writing it. admin/manager/auditor only —
+  // matches ROLE_NAV's existing web curation of `/predictive`.
+  "prediction:view",
   "document:view",
   "document:manage",
   "document:approve",
@@ -108,6 +112,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "capa:manage",
     "audit:view",
     "audit:manage",
+    "prediction:view",
     "document:view",
     "document:manage",
     "document:approve",
@@ -138,6 +143,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "capa:view",
     "audit:view",
     "audit:manage",
+    "prediction:view",
     "document:view",
     "supplier:view",
     "ppap:view",
