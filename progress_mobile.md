@@ -168,6 +168,9 @@ mobile-specific endpoint added. `pnpm --filter @kaenal/mobile typecheck` stays g
 shared-type changes only (`PredictionSubjectKind`/`PredictionRiskLevel` enums, `RiskPredictionDto`, the
 new `predictive_forecast_pack` export resource) — verified via the repo-root `pnpm typecheck`.
 
+Sprint 03 (Graph + Predictive) — web-only sprint, mobile unaffected; no mobile screens or endpoints
+touched, `pnpm --filter @kaenal/mobile typecheck` stays green on additive shared-type changes only.
+
 Sprint 02 (Audits) — web-only sprint, mobile unaffected; no mobile screens or endpoints touched.
 
 **S1-11 mobile + manage-web wiring + theme fix (2026-09-26).** Per user decision Q9 voice transcription
