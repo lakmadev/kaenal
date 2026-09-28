@@ -579,38 +579,41 @@ rule 10 is "never stub," not "never say no."
 ## 8. Definition of Done
 
 **Part A (no gate — can close independently of Part B):**
-- [ ] `entity_links` CHECK + `EntityKind` gain `finding`; migration applied; `pnpm db:check` green;
+- [x] `entity_links` CHECK + `EntityKind` gain `finding`; migration applied; `pnpm db:check` green;
       `pnpm test:rls` green including the new kind.
-- [ ] Contract gains `GET /v1/graph/expand`, `GET /v1/graph/query/:queryId`; `graph:view` capability added
+- [x] Contract gains `GET /v1/graph/expand`, `GET /v1/graph/query/:queryId`; `graph:view` capability added
       to `packages/core/src/rbac.ts` and enforced via `@RequireCapability`.
-- [ ] `packages/core/graph-layout.ts` + `graph-queries.ts` unit-tested (layout geometry, all 4 named
+- [x] `packages/core/graph-layout.ts` + `graph-queries.ts` unit-tested (layout geometry, all 4 named
       queries against a fixture graph, cap/truncation behaviour).
-- [ ] Web `/graph` fully real: seed chips, 4 query chips + typed router, expand/cluster, detail drawer,
+- [x] Web `/graph` fully real: seed chips, 4 query chips + typed router, expand/cluster, detail drawer,
       click-through for all 8 node kinds (incl. `finding`), empty/error/offline states — browser-verified
-      side-by-side against `graph-explorer.jsx`.
-- [ ] No synthetic-mass generator shipped (G3).
-- [ ] Full gate green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
-- [ ] Demo login re-seeded and proven 201 after the suite run (rule 12).
-- [ ] `PROGRESS.md` updated; `progress_mobile.md` gets an explicit "Sprint 03 Part A — mobile unaffected"
+      side-by-side against `graph-explorer.jsx` (2026-09-28, including a live named-query "why" panel run).
+- [x] No synthetic-mass generator shipped (G3).
+- [x] Full gate green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
+- [x] Demo login re-seeded and proven 201 after the suite run (rule 12).
+- [x] `PROGRESS.md` updated; `progress_mobile.md` gets an explicit "Sprint 03 Part A — mobile unaffected"
       line (not silently skipped, per Sprint 02's own DoD lesson).
 
 **Part B (gated — cannot start until §3B is approved):**
-- [ ] User has explicitly approved §3B (schema, v1 method, thresholds, corrected model-banner copy) —
-      recorded here with a date once given.
-- [ ] Migration `0062_risk_predictions.sql` (or next free number after Part A's migrations land) applied;
-      `pnpm db:check`/`pnpm test:rls` green.
-- [ ] `predict-risk.sweep`/`predict-risk.compute` jobs registered, tested (unit + integration against a
+- [x] User has explicitly approved §3B (schema, v1 method, thresholds, corrected model-banner copy) —
+      approved as proposed, 2026-09-28 (see §3B and this doc's sign-off block below).
+- [x] Migration `0062_risk_predictions.sql` applied; `pnpm db:check`/`pnpm test:rls` green.
+- [x] `predict-risk.sweep`/`predict-risk.compute` jobs registered, tested (unit + integration against a
       seeded NCR history fixture), audited.
-- [ ] `packages/core/forecast.ts` unit-tested against a hand-computed reference series.
-- [ ] Contract gains the 2 read-only prediction routes + `predictive_forecast_pack` export resource;
+- [x] `packages/core/forecast.ts` unit-tested against a hand-computed reference series.
+- [x] Contract gains the 2 read-only prediction routes + `predictive_forecast_pack` export resource;
       `prediction:view` capability enforced.
-- [ ] Web `/predictive` real: KPI strip (3 honest tiles, not 5 fabricated ones), model banner (corrected
+- [x] Web `/predictive` real: KPI strip (3 honest tiles, not 5 fabricated ones), model banner (corrected
       copy), horizon control, both ranked panels with real `ForecastSpark`, forecast-pack export,
       "not enough history" empty state, governance disclosure replacing "Tune model" — browser-verified
       against `predictive.jsx` **minus** the excluded failure-modes panel.
 - [ ] `ppap_submissions.ai_prediction` shows real values for at-risk demo PPAP submissions (P6),
-      browser-verified in `ppap-list.tsx`/`ppap-detail.tsx`.
-- [ ] Full gate green (same commands as Part A, run again after Part B lands).
+      browser-verified in `ppap-list.tsx`/`ppap-detail.tsx`. **Not checked, honestly**: `predict-risk.ts`'s
+      write path is code-verified (audited UPDATE), but `seed-demo.ts` creates zero PPAP submissions and
+      no area/supplier has 6 periods of NCR history for the job to score anything — nothing exists to
+      browser-verify yet. Pre-existing seed-data gap, not a Sprint 03 defect; logged as a backlog candidate
+      (enrich `seed-demo.ts`) rather than silently checked off.
+- [x] Full gate green (same commands as Part A, run again after Part B lands).
 - [ ] Demo login re-seeded and proven 201 (rule 12).
 - [ ] `PROGRESS.md` updated (Decisions log: v1 baseline vs jsx's fabricated v3 claim, `areas`-as-"line"
       resolution, `subject_kind` scope cut to line/supplier); `progress_mobile.md` "Part B — mobile
