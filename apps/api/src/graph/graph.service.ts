@@ -10,7 +10,17 @@ import {
   type QueryEdge,
   type QueryNode,
 } from "@kaenal/core";
-import { EntityKind, type GraphExpandResult, type GraphQueryId, type GraphQueryResult, type NeighborGroupDto, type NodeDto } from "@kaenal/types";
+import {
+  EntityKind,
+  type GraphExpandResult,
+  type GraphQueryId,
+  type GraphQueryResult,
+  type GraphSeedDto,
+  type GraphSeedsResult,
+  type NeighborGroupDto,
+  type NeighborItemDto,
+  type NodeDto,
+} from "@kaenal/types";
 import { ApiError } from "../errors.js";
 import { clampLimit, decodeCursor, keysetPredicate, type Cursor } from "../http/pagination.js";
 import { tableFor } from "../collab/entity-ref.js";
@@ -44,6 +54,13 @@ const GRAPH_KINDS: readonly EntityKind[] = [
  */
 const PLANT_SCOPED_KINDS = new Set<EntityKind>(["inspection", "ncr", "audit", "finding"]);
 
+/**
+ * The 4 "start from a record" seed kinds (jsx `SEEDS`: an NCR, an 8D, a
+ * supplier, an audit). Not `inspection`/`finding`/`document`/`capa` — those
+ * match the jsx's own curated list, not every graph-eligible kind.
+ */
+const SEED_KINDS: readonly EntityKind[] = ["ncr", "eight_d", "supplier", "audit"];
+
 /** Builds the SELECT for one kind's node fields. Table names are interpolated from the closed `tableFor` map only. */
 function selectSqlFor(kind: EntityKind): string {
   switch (kind) {
@@ -62,7 +79,7 @@ function selectSqlFor(kind: EntityKind): string {
     case "supplier":
       return `SELECT id, code, name AS title, status, COALESCE(risk_tier, '—') AS extra1 FROM suppliers`;
     case "finding":
-      return `SELECT f.id, f.item_ref AS code, f.item_ref AS title, f.severity AS status, f.description
+      return `SELECT f.id, f.item_ref AS code, f.item_ref AS title, f.severity AS status, f.description, f.inspection_id
                 FROM findings f`;
     default:
       throw new ApiError("VALIDATION_FAILED", `'${kind}' is not a graph node kind`);
@@ -81,7 +98,8 @@ function toNodeDto(kind: EntityKind, row: Record<string, unknown>): NodeDto {
   if (extra1 !== undefined && extra1 !== null) {
     fields.push({ label: extraLabel(kind), value: extra1 });
   }
-  return { kind, id, title, status, summary, fields: fields.slice(0, 4) };
+  const parentId = kind === "finding" ? ((row.inspection_id as string | undefined) ?? null) : null;
+  return { kind, id, title, status, summary, fields: fields.slice(0, 4), parentId };
 }
 
 function extraLabel(kind: EntityKind): string {
@@ -171,6 +189,41 @@ export class GraphService {
       .map((k) => nodeDtoIndex.get(k))
       .filter((n): n is NodeDto => n !== undefined);
 
+    return this.buildQueryResult(outNodes, result);
+  }
+
+  /**
+   * "Start from a record" seed chips (G2 AC1; jsx `SEEDS`) — the most recent
+   * real record of each of the 4 seed kinds the caller can see, tenant/plant
+   * scoped exactly like everything else in this service. A kind with zero
+   * visible rows is simply omitted, never a broken chip (G3).
+   */
+  async listSeeds(tx: Tx, membership: Membership): Promise<GraphSeedsResult> {
+    const items = await Promise.all(SEED_KINDS.map((kind) => this.fetchMostRecent(tx, kind, membership)));
+    return { items: items.filter((s): s is GraphSeedDto => s !== null) };
+  }
+
+  private async fetchMostRecent(tx: Tx, kind: EntityKind, membership: Membership): Promise<GraphSeedDto | null> {
+    const base = selectSqlFor(kind);
+    const params: unknown[] = [];
+    let where = "deleted_at IS NULL";
+    if (PLANT_SCOPED_KINDS.has(kind) && isPlantScoped(membership.role) && membership.plantIds.length > 0) {
+      params.push(membership.plantIds);
+      where += ` AND plant_id = ANY($${params.length}::uuid[])`;
+    }
+    const sql = `${base} WHERE ${where} ORDER BY created_at DESC LIMIT 1`;
+    const { rows } = await tx.query<Record<string, unknown>>(sql, params);
+    const row = rows[0];
+    if (row === undefined) return null;
+    const node = toNodeDto(kind, row);
+    const label = node.title.length > 0 ? node.title : (node.fields[0]?.value ?? node.id);
+    return { kind, id: node.id, label };
+  }
+
+  private buildQueryResult(
+    outNodes: NodeDto[],
+    result: { edgeKeys: string[]; truncated: boolean; summary: string; steps: string[] },
+  ): GraphQueryResult {
     return {
       nodes: outNodes,
       edgeKeys: result.edgeKeys,
@@ -269,19 +322,19 @@ export class GraphService {
     const fetchLimit = clampedLimit + 1;
     params.push(fetchLimit);
 
-    const { rows } = await tx.query<{ id: string; created_at: Date; n_id: string }>(
+    const { rows } = await tx.query<{ id: string; created_at: Date; n_id: string; relation: string }>(
       `WITH edges AS (
-         SELECT id, created_at, to_id AS n_id FROM entity_links
+         SELECT id, created_at, to_id AS n_id, relation FROM entity_links
           WHERE deleted_at IS NULL AND from_kind=$1 AND from_id=$2 AND to_kind=$3
          UNION ALL
-         SELECT id, created_at, from_id AS n_id FROM entity_links
+         SELECT id, created_at, from_id AS n_id, relation FROM entity_links
           WHERE deleted_at IS NULL AND to_kind=$1 AND to_id=$2 AND from_kind=$3
        ), visible AS (
-         SELECT e.id, e.created_at, e.n_id FROM edges e
+         SELECT e.id, e.created_at, e.n_id, e.relation FROM edges e
          ${visibleCte.join}
          WHERE ${visibleCte.where}
        )
-       SELECT id, created_at, n_id FROM visible
+       SELECT id, created_at, n_id, relation FROM visible
         WHERE true ${keyset.sql}
         ORDER BY created_at DESC, id DESC
         LIMIT $${params.length}`,
@@ -298,8 +351,14 @@ export class GraphService {
         ? Buffer.from(`${nextCursorObj.createdAt}|${nextCursorObj.id}`, "utf8").toString("base64url")
         : null;
 
+    // A neighbour can be reached by more than one edge (e.g. two distinct
+    // relations to the same record) — the first (most recent) relation wins,
+    // matching the row order `fetchNodes` doesn't otherwise preserve.
+    const relationById = new Map<string, string>();
+    for (const r of visibleRows) if (!relationById.has(r.n_id)) relationById.set(r.n_id, r.relation);
     const ids = visibleRows.map((r) => r.n_id);
-    const items = await this.fetchNodes(tx, neighborKind, ids, membership);
+    const nodes = await this.fetchNodes(tx, neighborKind, ids, membership);
+    const items: NeighborItemDto[] = nodes.map((node) => ({ node, relation: relationById.get(node.id) ?? "linked" }));
 
     // "remaining" = rows strictly beyond this page (not "total minus this
     // page's size", which would be wrong on any page after the first) —

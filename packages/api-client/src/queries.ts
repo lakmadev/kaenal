@@ -51,6 +51,10 @@ import type {
   PortalScarDto,
   PortalPpapDto,
   EightDDto,
+  GraphExpandResult,
+  GraphQueryId,
+  GraphQueryResult,
+  GraphSeedsResult,
   SearchResults,
   SupplierDto,
   UnreadCountDto,
@@ -435,6 +439,29 @@ export const apiQueries = {
     chart: (client: ApiClient, part: string, characteristic: string): QueryOption<SpcChartDto> => ({
       queryKey: queryKeys.spc.chart(part, characteristic),
       queryFn: () => client.getSpcChart({ query: { part, characteristic } }).then((r) => unwrap<SpcChartDto>(r)),
+    }),
+  },
+
+  // Knowledge graph explorer (Sprint 03 G1-G4; graph-explorer.jsx). All three
+  // routes require `graph:view`; the UI never calls fetch directly.
+  graph: {
+    seeds: (client: ApiClient): QueryOption<GraphSeedsResult> => ({
+      queryKey: queryKeys.graph.seeds(),
+      queryFn: () => client.listGraphSeeds().then((r) => unwrap<GraphSeedsResult>(r)),
+    }),
+    expand: (client: ApiClient, seed: string, type?: string, after?: string): QueryOption<GraphExpandResult> => ({
+      queryKey: queryKeys.graph.expand(seed, type, after),
+      queryFn: () =>
+        client
+          .expandGraph({ query: { seed, ...(type !== undefined ? { type: type as EntityKind } : {}), ...(after !== undefined ? { after } : {}) } })
+          .then((r) => unwrap<GraphExpandResult>(r)),
+    }),
+    query: (client: ApiClient, queryId: GraphQueryId, focus?: string): QueryOption<GraphQueryResult> => ({
+      queryKey: queryKeys.graph.query(queryId, focus),
+      queryFn: () =>
+        client
+          .runGraphQuery({ params: { queryId }, query: focus !== undefined ? { focus } : {} })
+          .then((r) => unwrap<GraphQueryResult>(r)),
     }),
   },
 

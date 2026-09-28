@@ -198,7 +198,7 @@ import {
   SpcChartDto,
   IngestMeasurementsBody,
 } from "./spc.js";
-import { GraphExpandResult, GraphQueryId, GraphQueryResult } from "./graph.js";
+import { GraphExpandResult, GraphQueryId, GraphQueryResult, GraphSeedsResult } from "./graph.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -1420,6 +1420,12 @@ export const contract = c.router(
     },
 
     // --- Knowledge graph explorer (Sprint 03 G1-G4; graph-explorer.jsx) ----
+    listGraphSeeds: {
+      method: "GET",
+      path: "/v1/graph/seeds",
+      responses: { 200: GraphSeedsResult, ...commonErrors },
+      summary: "Up to 4 'start from a record' seed chips — most recent real record per seed kind (graph:view)",
+    },
     expandGraph: {
       method: "GET",
       path: "/v1/graph/expand",

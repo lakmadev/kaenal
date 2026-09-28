@@ -18,12 +18,30 @@ export const NodeDto = z.object({
   summary: z.string().nullable(),
   /** 2-4 key fields, e.g. [{label:"Plant", value:"P-2"}] — sourced from a real row read. */
   fields: z.array(z.object({ label: z.string(), value: z.string() })).max(4),
+  /**
+   * A `finding` node's real parent inspection id (`findings.inspection_id`) —
+   * `null` for every other kind. `finding` has no detail route of its own
+   * (jsx `openRecord`): the UI navigates to this inspection and highlights the
+   * finding there, so the id has to travel on the node itself, not be guessed.
+   */
+  parentId: z.string().uuid().nullable(),
 });
 export type NodeDto = z.infer<typeof NodeDto>;
 
+/**
+ * A neighbour node paired with the `entity_links.relation` text describing
+ * *why* it's linked to the center (e.g. "escalated to", "requires") — the jsx
+ * canvas's edge-label pills (`e.rel`). Real column data, not synthesized.
+ */
+export const NeighborItemDto = z.object({
+  node: NodeDto,
+  relation: z.string(),
+});
+export type NeighborItemDto = z.infer<typeof NeighborItemDto>;
+
 /** One neighbour type's bounded batch: capped items + the exact remaining count. */
 export const NeighborGroupDto = z.object({
-  items: z.array(NodeDto),
+  items: z.array(NeighborItemDto),
   total: z.number().int().nonnegative(),
   remaining: z.number().int().nonnegative(),
   /** Present when more of THIS type remain — pass back as `after` to reveal the next CLUSTER_REVEAL batch. */
@@ -69,3 +87,21 @@ export const GraphQueryResult = z.object({
   steps: z.array(z.string()),
 });
 export type GraphQueryResult = z.infer<typeof GraphQueryResult>;
+
+/**
+ * One "start from a record" seed chip (jsx `SEEDS`) — the most recent real
+ * record of one of the 4 seed-worthy kinds (ncr/eight_d/supplier/audit, jsx's
+ * own SEEDS list). `GET /v1/graph/seeds` (G2 AC1) is the real replacement for
+ * the jsx's hard-coded ids: a kind with zero live data is simply omitted.
+ */
+export const GraphSeedDto = z.object({
+  kind: EntityKind,
+  id: z.string().uuid(),
+  label: z.string(),
+});
+export type GraphSeedDto = z.infer<typeof GraphSeedDto>;
+
+export const GraphSeedsResult = z.object({
+  items: z.array(GraphSeedDto),
+});
+export type GraphSeedsResult = z.infer<typeof GraphSeedsResult>;

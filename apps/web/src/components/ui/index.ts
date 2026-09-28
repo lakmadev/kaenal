@@ -8,7 +8,7 @@
 export { Button, type ButtonProps } from "./button";
 export { Card, CardHeader, CardTitle, CardContent } from "./card";
 export { Chip, type ChipProps } from "./chip";
-export { StatusBadge, PriorityBadge, RiskBadge } from "./badge";
+export { StatusBadge, PriorityBadge, RiskBadge, statusDotColor } from "./badge";
 export { Input, type InputProps } from "./input";
 export { Field, type FieldProps } from "./field";
 export { Segmented, type SegmentedOption } from "./segmented";

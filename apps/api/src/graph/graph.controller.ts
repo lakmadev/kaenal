@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Param, Query } from "@nestjs/common";
 import { z } from "zod";
-import { EntityKind, GraphQueryId, type GraphExpandResult, type GraphQueryResult } from "@kaenal/types";
+import { EntityKind, GraphQueryId, type GraphExpandResult, type GraphQueryResult, type GraphSeedsResult } from "@kaenal/types";
 import { currentTx } from "../context.js";
 import { Internal, RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
@@ -28,6 +28,11 @@ const queryParams = z.object({ queryId: GraphQueryId });
 @RequireCapability("graph:view")
 export class GraphController {
   constructor(@Inject(GRAPH_SERVICE) private readonly graph: GraphService) {}
+
+  @Get("v1/graph/seeds")
+  async seeds(): Promise<GraphSeedsResult> {
+    return this.graph.listSeeds(currentTx(), membershipOf());
+  }
 
   @Get("v1/graph/expand")
   async expand(@Query() query: unknown): Promise<GraphExpandResult> {
