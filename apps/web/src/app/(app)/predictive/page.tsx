@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
-import { LineChart } from "lucide-react";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { Suspense } from "react";
+import { PredictiveRiskPage } from "@/features/predictive/predictive-risk-page";
 
-export const metadata: Metadata = { title: "Predictive Analytics" };
+export const metadata: Metadata = { title: "Predictive risk" };
 
 export default function Page(): React.ReactElement {
-  return <ModulePlaceholder title="Predictive Analytics" icon={LineChart} />;
+  return (
+    <Suspense>
+      <PredictiveRiskPage />
+    </Suspense>
+  );
 }

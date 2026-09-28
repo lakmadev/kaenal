@@ -172,4 +172,10 @@ export const queryKeys = {
     metric: (key: string) => ["query", "metric", key] as const,
     series: (key: string) => ["query", "series", key] as const,
   },
+
+  predictions: {
+    all: ["predictions"] as const,
+    list: (params?: unknown) => ["predictions", "list", params ?? null] as const,
+    detail: (subjectKind: string, id: string) => ["predictions", "detail", subjectKind, id] as const,
+  },
 } as const;
