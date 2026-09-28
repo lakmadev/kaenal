@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
-import { withAudit, type Tx } from "@kaenal/db";
+import { withAudit, type AuditEventInput, type Tx } from "@kaenal/db";
 import {
   computeDueAt,
   counterYear,
@@ -281,20 +281,40 @@ export class NcrService {
     const year = counterYear(now, tz);
     const id = randomUUID();
 
-    return withAudit(
-      tx,
-      tenantId,
+    const auditEvents: AuditEventInput[] = [
       {
         actorId,
-        actorKind: "user",
+        actorKind: "user" as const,
         entityKind: "ncr",
         entityId: id,
-        action: "created",
+        action: "created" as const,
         after: { title: body.title, priority: body.priority, source, people: people.map((p) => `${p.userId}:${p.role}`) },
         requestId: context.requestId,
         ip: context.ip,
         userAgent: context.userAgent,
       },
+    ];
+    // Sprint 03 G1 AC4 / architecture review correction #1: the finding->ncr
+    // graph edge is written here (not at finding creation), because a
+    // finding's ncr_id is NULL until an NCR is actually raised from it.
+    if (finding !== null) {
+      auditEvents.push({
+        actorId,
+        actorKind: "user" as const,
+        entityKind: "finding",
+        entityId: finding.id,
+        action: "linked" as const,
+        after: { toKind: "ncr", toId: id, relation: "linked" },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      });
+    }
+
+    return withAudit(
+      tx,
+      tenantId,
+      auditEvents,
       async (t) => {
         const { rows: counter } = await t.query<{ value: number }>(
           `INSERT INTO counters (tenant_id, kind, year, value) VALUES ($1, 'ncr', $2, 1)
@@ -371,6 +391,17 @@ export class NcrService {
           if (linked.rowCount === 0) {
             throw new ApiError("CONFLICT", "That finding was just linked to another NCR");
           }
+
+          // Graph edge for the explorer (Sprint 03 G1 AC4) — written here,
+          // not at finding creation, since ncr_id was NULL until this instant.
+          await t.query(
+            `INSERT INTO entity_links
+               (id, tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by, updated_by)
+             VALUES ($1,$2,'finding',$3,'ncr',$4,'linked',$5,$5)
+             ON CONFLICT (tenant_id, from_kind, from_id, to_kind, to_id, relation)
+               WHERE deleted_at IS NULL DO NOTHING`,
+            [randomUUID(), tenantId, finding.id, id, actorId],
+          );
         }
 
         return toNcrDto(row);

@@ -360,6 +360,9 @@ export const EntityKind = defineEnum([
   "document",
   "supplier",
   "scar",
+  // Sprint 03 G1 AC4 — an inspection finding, now a first-class graph node
+  // (`entity_links`'s CHECK gained it in migration 0063).
+  "finding",
 ]);
 export type EntityKind = z.infer<typeof EntityKind>;
 

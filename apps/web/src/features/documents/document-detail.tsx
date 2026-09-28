@@ -59,6 +59,9 @@ const ENTITY_ROUTE: Record<EntityKind, string> = {
   document: "documents",
   supplier: "suppliers",
   scar: "scars",
+  // Findings have no detail route of their own — they route to their parent
+  // inspection (Sprint 03 G2 wires the finding-highlighted variant).
+  finding: "inspections",
 };
 const ENTITY_LABEL: Record<EntityKind, string> = {
   inspection: "Inspection",
@@ -68,6 +71,7 @@ const ENTITY_LABEL: Record<EntityKind, string> = {
   capa: "CAPA",
   document: "Document",
   supplier: "Supplier",
+  finding: "Finding",
   scar: "SCAR",
 };
 

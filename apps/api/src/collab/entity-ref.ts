@@ -20,6 +20,7 @@ const ENTITY_TABLES: Record<EntityKind, string> = {
   document: "documents",
   supplier: "suppliers",
   scar: "scars",
+  finding: "findings",
 };
 
 export function tableFor(kind: EntityKind): string {

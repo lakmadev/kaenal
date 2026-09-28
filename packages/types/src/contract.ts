@@ -151,6 +151,7 @@ import {
   DocumentCategory,
   DocumentStatus,
   EightDStatus,
+  EntityKind,
   ExportResource,
   ExportStatus,
   InspectionStatus,
@@ -194,6 +195,7 @@ import {
   SpcChartDto,
   IngestMeasurementsBody,
 } from "./spc.js";
+import { GraphExpandResult, GraphQueryId, GraphQueryResult } from "./graph.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -1391,6 +1393,29 @@ export const contract = c.router(
       body: IngestMeasurementsBody,
       responses: { 201: z.object({ inserted: z.number() }), ...commonErrors },
       summary: "Ingest measurements for a characteristic (measurement:manage)",
+    },
+
+    // --- Knowledge graph explorer (Sprint 03 G1-G4; graph-explorer.jsx) ----
+    expandGraph: {
+      method: "GET",
+      path: "/v1/graph/expand",
+      query: z.object({
+        seed: z.string().min(1),
+        type: EntityKind.optional(),
+        after: z.string().optional(),
+      }),
+      responses: { 200: GraphExpandResult, ...commonErrors },
+      summary:
+        "Click-to-expand neighbour reveal (graph:view). No `type`: every neighbour type " +
+        "capped at 6. With `type` (+ optional `after`): that one type's next 12-item batch.",
+    },
+    runGraphQuery: {
+      method: "GET",
+      path: "/v1/graph/query/:queryId",
+      pathParams: z.object({ queryId: GraphQueryId }),
+      query: z.object({ focus: z.string().optional() }),
+      responses: { 200: GraphQueryResult, ...commonErrors },
+      summary: "One of the 4 fixed named analytical queries, capped at 60 nodes (graph:view)",
     },
 
     // --- Suppliers (FEATURES §11.1) ----------------------------------------

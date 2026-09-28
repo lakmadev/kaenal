@@ -8,6 +8,7 @@ export * from "./report.js";
 export * from "./integration.js";
 export * from "./import.js";
 export * from "./spc.js";
+export * from "./graph.js";
 export * from "./realtime.js";
 export * from "./contract.js";
 export * from "./webhook-config.js";

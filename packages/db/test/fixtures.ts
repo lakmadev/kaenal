@@ -88,7 +88,7 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
     [t, `NCR-${tag}-0001`, userId, plantId],
   );
 
-  await q(
+  const findingId = await q(
     `INSERT INTO findings (tenant_id, inspection_id, item_ref, severity, description, ncr_id)
      VALUES ($1, $2, 'i1', 'major', 'Porosity on bead', $3) RETURNING id`,
     [t, inspectionId, ncrId],
@@ -204,6 +204,19 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
     `INSERT INTO entity_links (tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by)
      VALUES ($1, 'document', $2, 'ncr', $3, 'reference', $4) RETURNING id`,
     [t, documentId, ncrId, userId],
+  );
+
+  // Sprint 03 G1 — `finding` on both sides of an edge (RLS suite must cover
+  // this new kind specifically, not just the pre-existing document->ncr row).
+  await q(
+    `INSERT INTO entity_links (tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by)
+     VALUES ($1, 'inspection', $2, 'finding', $3, 'linked', $4) RETURNING id`,
+    [t, inspectionId, findingId, userId],
+  );
+  await q(
+    `INSERT INTO entity_links (tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by)
+     VALUES ($1, 'finding', $2, 'ncr', $3, 'linked', $4) RETURNING id`,
+    [t, findingId, ncrId, userId],
   );
 
   await q(
