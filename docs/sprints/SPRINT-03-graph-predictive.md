@@ -628,3 +628,64 @@ methodology (schema, v1 baseline method, risk-level thresholds, corrected model-
 predictive code is written — that is a separate gate from this sign-off, tracked in §8's Part B DoD, and
 still **PENDING** as of this writing. Part A (graph explorer, G1-G4) carries no such gate and may proceed
 through design audit (Gate 1) and build once the designer signs off.
+
+---
+
+## 9. Gate 2 — PO acceptance verdict (2026-09-28)
+
+**Verified independently this session** (not taken on the implementer's word — commands re-run, code
+re-read, app driven live):
+
+| Check | Result |
+|---|---|
+| `pnpm typecheck` (all 7 packages) | Clean |
+| `pnpm lint` | Clean against project source. One unrelated failure on `.remember/tmp/last-ndc.ts` — a session-local scratch file from the `remember` plugin's tmp dir (created during *this* review session, gitignored, not part of the repo, not present during the implementer's own gate run) — not a Sprint 03 regression. |
+| `pnpm test` | 591/591 API tests, matches claim |
+| `pnpm --filter @kaenal/web test` | 134/134, matches claim |
+| `pnpm --filter @kaenal/core test` | 796/796 (incl. `forecast.test.ts`, `graph-queries.test.ts`, `graph-layout.test.ts`) |
+| `pnpm test:rls` | 333/333, matches claim |
+| `pnpm db:check` | 54 tenant tables, matches claim |
+| Demo login | Re-seeded (`seed-demo.ts`), `POST /api/v1/auth/sign-in` → **201 Created**, confirmed live in-browser |
+| Migrations | `0062_risk_predictions.sql` and `0063_entity_links_finding.sql` read in full — match §3B's schema and G1 AC4 exactly (forced RLS, leading-tenant index, unique `(tenant_id, subject_kind, subject_id, horizon)`, CHECK widened on both `entity_links` kind columns) |
+| `graph:view`/`prediction:view` | Present in `packages/core/src/rbac.ts`, enforced via `@RequireCapability` on both `GraphController` and `PredictionsController` |
+| Cross-tenant rule 8 | `predictions.test.ts` asserts 404 (never 403) for both a nonexistent and a foreign-tenant subject id — read and confirmed |
+| Placeholder ledger | `"page:graph"`/`"page:predictive"` both removed — confirmed by grep |
+| **Browser-verified live** (signed in as `demo@acme.test`, workspace `acme`) | `/graph`: empty state (3 real seed chips, 4th supplier chip correctly omitted — no supplier data for this tenant, per G2 UC), node expand + detail drawer, real click-through to `/8d/:id` (not a dead control), named query "Open CAPAs and what triggered them" with live "Why these results" steps panel over real CAPA rows. `/predictive`: honest v1 model banner (no "gradient-boosted"/"91% backtest" fabrication), 3 honest KPI tiles (not 5), governance panel correctly replacing "Tune model" (P5), "Not enough history yet" empty state (real — this tenant's seed data has no subject with 6 periods of NCR history, so this is the correct state, not a bug), "Forecast pack" export wired to the real pipeline (`POST /api/v1/exports` → 202, polled to completion) |
+| P6 (PPAP `ai_prediction`) | Backend confirmed by code read: `predict-risk.ts:197-226` calls `ppapRiskScore`, writes via `UPDATE ppap_submissions SET ai_prediction = $2::jsonb` inside `withAudit`. **Not browser-verified with real values** — `seed-demo.ts` creates zero PPAP submissions, so `AiPredictionPill` has nothing to render either way; this is a pre-existing seed-data gap (not introduced by Sprint 03) and was already true for every prior sprint touching PPAP. Accepted on code + `predict-risk.test.ts`'s "PPAP write" coverage, not on a live screenshot. |
+
+**Gaps found (real, not nitpicks):**
+
+1. **`PROGRESS.md` "Current status" is stale.** Its top entry is still headlined "Sprint 03 Part B —
+   Predictive risk BACKEND" and explicitly says web UI (P3-P5) was "**Not built this session**" — that was
+   true when it was written, but three commits later (`50b93b5` Part A web UI, `3f771f0` Part B web UI,
+   `28080ca` merge, plus fixes `9ac9a39`/`8cb2303`) both web UIs shipped and merged, and the entry was never
+   updated to say so. This is a direct miss against CLAUDE.md's session protocol ("END: update PROGRESS.md
+   in the same commit as the work") and against §8's own DoD line ("`PROGRESS.md` updated") for both Part A
+   and Part B. **Must be fixed before this sprint is called closed** — a future session reading "Resume from
+   Current status" would wrongly believe the web UI still needs to be built.
+2. **`progress_mobile.md` has no distinct Part A line.** §8's Part A DoD explicitly asks for "an explicit
+   'Sprint 03 Part A — mobile unaffected' line (not silently skipped, per Sprint 02's own DoD lesson)". What
+   exists (line 165) is titled "Sprint 03 Part B (Predictive risk backend)" and mentions "graph/predictive"
+   together in passing — close in substance, but not the distinct Part A line the DoD asked for, and it
+   predates the web UI merge too. Minor, but should be closed out alongside #1.
+3. **§8's own DoD checkboxes are all unchecked** (`[ ]`) for both Part A and Part B, despite the work being
+   done and gate-green. Cosmetic, but a sprint doc that still reads "not done" next to finished, verified
+   work invites exactly the confusion in #1.
+
+**Neither gap is a functional defect** — every acceptance criterion I could exercise (backend, contract,
+RBAC, tests, live UI) checks out against real code and a real running app, not the implementer's say-so.
+Both are documentation-currency misses that CLAUDE.md treats as part of "done," not optional polish.
+
+**Verdict: PO acceptance — ACCEPTED, conditional on PROGRESS.md/progress_mobile.md being brought current**
+(gap #1 and #2 above) before the sprint is marked closed in `PROGRESS.md` itself. No code or test rework is
+required. G1-G4 and P1-P6 all meet their acceptance criteria as written; the two named residual items (P6's
+PPAP visual state unverifiable against real data, and the predictive ranked-panel "populated" visual state
+similarly untested live because this tenant's seed data has no 6-period NCR history anywhere) are pre-existing
+seed-data limitations, already implicitly covered by Q20/Q21, not new gaps this review is introducing — logged
+here so a future session with richer seed data re-checks them rather than assuming they were seen.
+
+**One forward-looking backlog candidate** (per SCRUM.md's continuous-improvement rule, logged not built):
+`seed-demo.ts` has no PPAP submissions and no multi-period NCR history for any area/supplier, so two shipped
+features (P6's `AiPredictionPill`, P1-P3's populated forecast panels) can never be browser-verified against
+real data with the current seed — worth a small seed-data enrichment story so future design-fidelity checks
+don't hit an empty state by seed-data accident rather than by feature behavior.
