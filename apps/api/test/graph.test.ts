@@ -247,16 +247,16 @@ describe("G1 AC4 — finding graph edges written at the real write sites", () =>
     const res = await acme("get", `/v1/graph/expand?seed=inspection:${inspectionId}`);
     expect(res.status).toBe(200);
     expect(res.body.center.id).toBe(inspectionId);
-    const findingItems = res.body.neighbors.finding.items as { id: string }[];
-    expect(findingItems.some((n) => n.id === findingId)).toBe(true);
+    const findingItems = res.body.neighbors.finding.items as { node: { id: string } }[];
+    expect(findingItems.some((n) => n.node.id === findingId)).toBe(true);
   });
 
   it("finding->ncr is linked when the NCR is raised from the finding (not at finding creation)", async () => {
     const res = await acme("get", `/v1/graph/expand?seed=finding:${findingId}`);
     expect(res.status).toBe(200);
     expect(res.body.center.id).toBe(findingId);
-    const ncrItems = res.body.neighbors.ncr.items as { id: string }[];
-    expect(ncrItems.some((n) => n.id === ncrId)).toBe(true);
+    const ncrItems = res.body.neighbors.ncr.items as { node: { id: string } }[];
+    expect(ncrItems.some((n) => n.node.id === ncrId)).toBe(true);
   });
 });
 
@@ -265,11 +265,11 @@ describe("expand — click-to-expand neighbours", () => {
     const res = await acme("get", `/v1/graph/expand?seed=ncr:${ncrId}`);
     expect(res.status).toBe(200);
     expect(res.body.center).toMatchObject({ kind: "ncr", id: ncrId });
-    const items = (kind: string): { id: string }[] => res.body.neighbors[kind].items as { id: string }[];
-    expect(items("supplier").some((n) => n.id === supplierId)).toBe(true);
-    expect(items("eight_d").some((n) => n.id === eightDId)).toBe(true);
-    expect(items("capa").some((n) => n.id === capaOpenId)).toBe(true);
-    expect(items("finding").some((n) => n.id === findingId)).toBe(true);
+    const items = (kind: string): { node: { id: string } }[] => res.body.neighbors[kind].items as { node: { id: string } }[];
+    expect(items("supplier").some((n) => n.node.id === supplierId)).toBe(true);
+    expect(items("eight_d").some((n) => n.node.id === eightDId)).toBe(true);
+    expect(items("capa").some((n) => n.node.id === capaOpenId)).toBe(true);
+    expect(items("finding").some((n) => n.node.id === findingId)).toBe(true);
   });
 
   it("an unknown/empty seed never errors — empty neighbours, not a 404", async () => {
@@ -322,14 +322,14 @@ describe("expand — cap/truncation and per-(seed,type) cursor pagination", () =
 
     const second = await acme("get", `/v1/graph/expand?seed=ncr:${ncrId}&type=capa&after=${encodeURIComponent(cursor)}`);
     expect(second.status).toBe(200);
-    const group = second.body.neighbors.capa as { items: { id: string }[]; total: number; remaining: number };
+    const group = second.body.neighbors.capa as { items: { node: { id: string } }[]; total: number; remaining: number };
     expect(group.items.length).toBe(3);
     expect(group.remaining).toBe(0);
     expect(Object.keys(second.body.neighbors)).toEqual(["capa"]); // only the requested type comes back
 
     const seenIds = new Set([
-      ...(first.body.neighbors.capa.items as { id: string }[]).map((n) => n.id),
-      ...group.items.map((n) => n.id),
+      ...(first.body.neighbors.capa.items as { node: { id: string } }[]).map((n) => n.node.id),
+      ...group.items.map((n) => n.node.id),
     ]);
     expect(seenIds.size).toBe(9); // 6 + 3, no overlap, no gaps
   });
@@ -377,5 +377,44 @@ describe("the 4 named analytical queries (G1 AC2)", () => {
     // Exactly this suite's fixtures — never artificially bulked up.
     expect((res.body.nodes as unknown[]).length).toBeLessThan(50);
     expect(res.body.truncated).toBe(false);
+  });
+});
+
+describe("GET /v1/graph/seeds (G2 AC1)", () => {
+  it("returns the most-recent record of each seed kind the caller can see", async () => {
+    const res = await acme("get", "/v1/graph/seeds");
+    expect(res.status).toBe(200);
+    const items = res.body.items as { kind: string; id: string }[];
+    expect(items.length).toBeGreaterThan(0);
+    // Every item is a real, distinct kind — no fabricated/duplicate chip.
+    const kinds = items.map((i) => i.kind);
+    expect(new Set(kinds).size).toBe(kinds.length);
+    expect(items.some((i) => i.id === ncrId)).toBe(true);
+  });
+
+  it("is capability-gated the same as expand", async () => {
+    expect((await acme("get", "/v1/graph/seeds", adminTok)).status).toBe(200);
+    expect((await acme("get", "/v1/graph/seeds", inspectorTok)).status).toBe(403);
+  });
+
+  it("cross-tenant caller sees only its own tenant's seeds", async () => {
+    const res = await request(server()).get("/v1/graph/seeds").set("X-Tenant-Id", GLOBEX).set("Authorization", `Bearer ${globexTok}`);
+    expect(res.status).toBe(200);
+    const items = res.body.items as { id: string }[];
+    expect(items.some((i) => i.id === ncrId)).toBe(false);
+  });
+});
+
+describe("finding node's parentId (G4 click-through)", () => {
+  it("a finding's center card carries its real parent inspection id", async () => {
+    const res = await acme("get", `/v1/graph/expand?seed=finding:${findingId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.center).toMatchObject({ kind: "finding", id: findingId, parentId: inspectionId });
+  });
+
+  it("a non-finding node's parentId is null, not omitted or fabricated", async () => {
+    const res = await acme("get", `/v1/graph/expand?seed=ncr:${ncrId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.center.parentId).toBeNull();
   });
 });
