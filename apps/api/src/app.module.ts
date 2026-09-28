@@ -355,8 +355,8 @@ import {
     },
     {
       provide: AUDITS_SERVICE,
-      useFactory: (ncrs: NcrService, capas: CapaService) => new AuditsService(ncrs, capas),
-      inject: [NCR_SERVICE, CAPA_SERVICE],
+      useFactory: (ncrs: NcrService, capas: CapaService, n: NotificationsService) => new AuditsService(ncrs, capas, n),
+      inject: [NCR_SERVICE, CAPA_SERVICE, NOTIFICATIONS_SERVICE],
     },
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
     { provide: SUPPLIERS_SERVICE, useFactory: () => new SuppliersService() },
@@ -397,8 +397,8 @@ import {
     },
     {
       provide: EXPORTS_SERVICE,
-      useFactory: (storage: Storage, jobs: JobProducer) => new ExportsService(storage, jobs),
-      inject: [STORAGE, JOB_PRODUCER],
+      useFactory: (storage: Storage, jobs: JobProducer, audits: AuditsService) => new ExportsService(storage, jobs, audits),
+      inject: [STORAGE, JOB_PRODUCER, AUDITS_SERVICE],
     },
     // The AI gateway is the one model chokepoint (06 §3). The provider is chosen
     // by env: `stub` (default — deterministic, no model, keeps dev/test/CI free of

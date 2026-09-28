@@ -58,6 +58,12 @@ export async function prepareChat(
   if (body.entityRef !== undefined) {
     const spec = ENTITY_SPECS[body.entityRef.kind];
     if (!authorize(membership, spec.view).ok) throw notFound();
+    // Same role exclusion as `SearchService`: inspector/viewer never reach
+    // `/audits` (rbac.ts ROLE_NAV), so an `audit`-kind source cited here would
+    // be the same dead-end leak a search hit would be (Sprint 02 §3).
+    if (body.entityRef.kind === "audit" && (membership.role === "inspector" || membership.role === "viewer")) {
+      throw notFound();
+    }
     const cols = spec.plantScoped
       ? `code, ${spec.label} AS label, status, plant_id`
       : `code, ${spec.label} AS label, status`;

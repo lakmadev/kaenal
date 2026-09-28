@@ -21,7 +21,17 @@ const KINDS: Readonly<Record<SearchEntityKind, KindConfig>> = {
   ncr: { table: "ncrs", plantScoped: true },
   capa: { table: "capas", plantScoped: false },
   document: { table: "documents", plantScoped: false },
+  audit: { table: "audits", plantScoped: true },
 };
+
+/**
+ * `audit:view` is granted to every role, but `rbac.ts`'s ROLE_NAV never
+ * surfaces `/audits` to inspector/viewer (Sprint 02 architecture review §8
+ * item 1 / PO resolution §8a item 1) — a search hit they can't open would be a
+ * new dead end, so those two roles never see `audit`-kind hits at all. Not a
+ * capability change: `audit:view` still gates the direct `GET /v1/audits/:id`.
+ */
+export const AUDIT_HIDDEN_ROLES: ReadonlySet<Membership["role"]> = new Set(["inspector", "viewer"]);
 
 interface HitRow {
   id: string;
@@ -45,6 +55,7 @@ export class SearchService {
   async search(tx: Tx, membership: Membership, q: string): Promise<SearchResults> {
     const items: SearchResultDto[] = [];
     for (const kind of Object.keys(KINDS) as SearchEntityKind[]) {
+      if (kind === "audit" && AUDIT_HIDDEN_ROLES.has(membership.role)) continue;
       const rows = await this.queryKind(tx, kind, membership, q);
       for (const r of rows) {
         items.push({ kind, id: r.id, code: r.code, title: r.title, rank: r.rank });

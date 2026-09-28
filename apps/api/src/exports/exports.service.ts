@@ -8,6 +8,7 @@ import { clampLimit, decodeCursor, keysetPredicate, toPage, type Cursor } from "
 import type { AuditContext } from "../ncr/audit-context.js";
 import { NoopProducer, type JobProducer } from "../jobs/producer.js";
 import type { Storage } from "../files/storage.js";
+import type { AuditsService } from "../audits/audits.service.js";
 
 interface ExportRow {
   id: string;
@@ -37,6 +38,8 @@ const VIEW_CAPABILITY: Readonly<Record<ExportResource, Capability>> = {
   audits: "audit:view",
   // An AI reply is exportable by anyone who may use the assistant (S1-4).
   ai_reply: "ai:use",
+  // A single audit's PDF report — reading a report you can view (S2-2).
+  audit_report: "audit:view",
 };
 
 /**
@@ -55,6 +58,7 @@ export class ExportsService {
   constructor(
     private readonly storage: Storage,
     private readonly jobs: JobProducer = new NoopProducer(),
+    private readonly audits?: AuditsService,
   ) {}
 
   async create(
@@ -69,6 +73,16 @@ export class ExportsService {
     const capability = VIEW_CAPABILITY[body.resource];
     const decision = authorize(membership, capability);
     if (!decision.ok) throw ApiError.from(decision);
+
+    // A single-audit report must be scoped (RLS + plant) BEFORE enqueueing —
+    // a foreign/unknown auditId is a 404 here, never a job that fails later
+    // (rule 8, architecture review §8 item 2).
+    if (body.resource === "audit_report") {
+      const auditId = body.filters?.auditId;
+      if (auditId === undefined) throw new ApiError("VALIDATION_FAILED", "filters.auditId is required");
+      if (this.audits === undefined) throw new ApiError("INTERNAL", "Audit report export is not wired");
+      await this.audits.assertViewable(tx, membership, auditId);
+    }
 
     const id = randomUUID();
     const filters = body.filters ?? {};

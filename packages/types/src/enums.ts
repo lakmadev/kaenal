@@ -160,11 +160,18 @@ export type EightDStepStatus = z.infer<typeof EightDStepStatus>;
 
 // --- Audits ----------------------------------------------------------------
 
+/**
+ * Corrected to the binding design's 5 values (`audits.jsx` `AUDIT_TYPES`,
+ * Sprint 02 S2-3 AC3) — `process` (unused: no seed row, no test) is replaced
+ * by `customer`/`gap`, closing the enum mismatch flagged in
+ * `docs/sprints/SPRINT-02-audits.md` §1a.
+ */
 export const AuditType = defineEnum([
   "internal",
   "certification",
   "supplier",
-  "process",
+  "customer",
+  "gap",
 ]);
 export type AuditType = z.infer<typeof AuditType>;
 
@@ -183,6 +190,22 @@ export const AuditFindingKind = defineEnum([
   "opportunity",
 ]);
 export type AuditFindingKind = z.infer<typeof AuditFindingKind>;
+
+/**
+ * Audit checklist item status (Sprint 02 S2-4, `CHECKLIST_STATUS` in
+ * `audits.jsx`). `major_nc`/`minor_nc`/`opportunity` share their literal
+ * values with `AuditFindingKind` by design — scoring one of these auto-links a
+ * finding of the same kind.
+ */
+export const AuditChecklistStatus = defineEnum([
+  "pending",
+  "conformant",
+  "minor_nc",
+  "major_nc",
+  "opportunity",
+  "na",
+]);
+export type AuditChecklistStatus = z.infer<typeof AuditChecklistStatus>;
 
 // --- CAPA ------------------------------------------------------------------
 
@@ -290,7 +313,16 @@ export type ChargebackStatus = z.infer<typeof ChargebackStatus>;
 // --- Exports (03 §8, 06 `reports` queue) -----------------------------------
 
 /** The record kinds an export can render. Each has a list endpoint + view cap. */
-export const ExportResource = defineEnum(["ncrs", "inspections", "capas", "audits", "ai_reply"]);
+export const ExportResource = defineEnum([
+  "ncrs",
+  "inspections",
+  "capas",
+  "audits",
+  "ai_reply",
+  // A single audit's PDF report (Sprint 02 S2-2 AC5/6) — distinct from the
+  // `audits` table-dump resource above.
+  "audit_report",
+]);
 export type ExportResource = z.infer<typeof ExportResource>;
 
 /**
@@ -355,6 +387,9 @@ export const AuditAction = defineEnum([
   "ai_draft_accepted",
   "ai_chat",
   "support_accessed",
+  // A checklist clause scored (Sprint 02 S2-4) — distinct from `status_changed`
+  // (phase advance) since it targets one checklist item, not the audit's phase.
+  "checklist_item_scored",
 ]);
 export type AuditAction = z.infer<typeof AuditAction>;
 

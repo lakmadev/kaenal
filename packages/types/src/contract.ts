@@ -14,6 +14,9 @@ import {
   AssignScarBody,
   AuditDto,
   AuditFindingDto,
+  AuditFrequencyResult,
+  AuditStatsDto,
+  UpdateAuditChecklistItemBody,
   CapaActionDto,
   CapaDto,
   CreateAuditBody,
@@ -563,12 +566,31 @@ export const contract = c.router(
       method: "GET",
       path: "/v1/audits",
       query: PageQuery.extend({
-        status: AuditPhase.optional(),
+        status: z.union([AuditPhase, z.enum(["active", "completed"])]).optional(),
         type: AuditType.optional(),
         plantId: z.string().uuid().optional(),
+        /** Free-text title/code filter — distinct from federated `/v1/search`. */
+        q: z.string().min(1).max(200).optional(),
+        /** Caller is lead auditor, in `team`, or in `auditeeIds`. */
+        mine: z.coerce.boolean().optional(),
+        /** Audits whose [startAt, endAt] overlaps this window (schedule view). */
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
       }),
       responses: { 200: page(AuditDto), ...commonErrors },
       summary: "List audits (cursor-paginated, plant-scoped by role)",
+    },
+    getAuditFrequency: {
+      method: "GET",
+      path: "/v1/audits/frequency",
+      responses: { 200: AuditFrequencyResult, ...commonErrors },
+      summary: "Last-6-months audit counts grouped by type",
+    },
+    getAuditStats: {
+      method: "GET",
+      path: "/v1/audits/stats",
+      responses: { 200: AuditStatsDto, ...commonErrors },
+      summary: "KPI strip: active / planned-next-90d / completed-YTD / open-findings",
     },
     createAudit: {
       method: "POST",
@@ -591,6 +613,14 @@ export const contract = c.router(
       body: AdvanceAuditBody,
       responses: { 200: AuditDto, ...commonErrors },
       summary: "Advance an audit one phase forward",
+    },
+    updateAuditChecklistItem: {
+      method: "PATCH",
+      path: "/v1/audits/:id/checklist/:itemId",
+      pathParams: z.object({ id: z.string().uuid(), itemId: z.string().uuid() }),
+      body: UpdateAuditChecklistItemBody,
+      responses: { 200: AuditDto, ...commonErrors },
+      summary: "Score one checklist clause; auto-links a finding on a first NC/opportunity",
     },
     listAuditFindings: {
       method: "GET",
