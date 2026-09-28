@@ -55,6 +55,8 @@ import type {
   SupplierDto,
   UnreadCountDto,
   WorkspacesDto,
+  RiskPredictionDto,
+  PredictionDetailResponse,
 } from "@kaenal/types";
 import type { ApiClient } from "./client.js";
 import { queryKeys } from "./query-keys.js";
@@ -456,6 +458,22 @@ export const apiQueries = {
     series: (client: ApiClient, q: Query): QueryOption<QuerySeriesResult> => ({
       queryKey: queryKeys.query.series(JSON.stringify(q)),
       queryFn: () => client.runQuerySeries({ body: q }).then((r) => unwrap<QuerySeriesResult>(r)),
+    }),
+  },
+
+  // Predictive risk (Sprint 03 Part B). Read-only end to end — the nightly
+  // `predict-risk` job owns the data, no mutation here (P2/P21).
+  predictions: {
+    list: (client: ApiClient, args?: Arg<"listPredictions">): QueryOption<Page<RiskPredictionDto>> => ({
+      queryKey: queryKeys.predictions.list(args?.query),
+      queryFn: () => client.listPredictions(args).then((r) => unwrap<Page<RiskPredictionDto>>(r)),
+    }),
+    detail: (client: ApiClient, subjectKind: string, id: string): QueryOption<PredictionDetailResponse> => ({
+      queryKey: queryKeys.predictions.detail(subjectKind, id),
+      queryFn: () =>
+        client
+          .getPrediction({ params: { subjectKind: subjectKind as RiskPredictionDto["subjectKind"], id } })
+          .then((r) => unwrap<PredictionDetailResponse>(r)),
     }),
   },
 } as const;
