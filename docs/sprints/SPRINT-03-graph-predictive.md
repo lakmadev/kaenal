@@ -615,7 +615,7 @@ rule 10 is "never stub," not "never say no."
       (enrich `seed-demo.ts`) rather than silently checked off.
 - [x] Full gate green (same commands as Part A, run again after Part B lands).
 - [ ] Demo login re-seeded and proven 201 (rule 12).
-- [ ] `PROGRESS.md` updated (Decisions log: v1 baseline vs jsx's fabricated v3 claim, `areas`-as-"line"
+- [x] `PROGRESS.md` updated (Decisions log: v1 baseline vs jsx's fabricated v3 claim, `areas`-as-"line"
       resolution, `subject_kind` scope cut to line/supplier); `progress_mobile.md` "Part B — mobile
       unaffected" line.
 
