@@ -23,7 +23,6 @@ export const PLACEHOLDER_LEDGER: Readonly<Record<string, number>> = {
   "planned:pdf-templates": 10,
 
   // Static pages that render <ModulePlaceholder> (app/(app)/*/page.tsx)
-  "page:audits": 2,
   "page:graph": 3,
   "page:predictive": 3,
 

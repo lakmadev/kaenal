@@ -26,6 +26,10 @@ import type {
   QueryRowsResult,
   QueryMetricResult,
   QuerySeriesResult,
+  AuditDto,
+  AuditFindingDto,
+  AuditFrequencyResult,
+  AuditStatsDto,
   CapaDto,
   CommentDto,
   DocumentDto,
@@ -156,6 +160,29 @@ export const apiQueries = {
     detail: (client: ApiClient, id: string): QueryOption<CapaDto> => ({
       queryKey: queryKeys.capas.detail(id),
       queryFn: () => client.getCapa({ params: { id } }).then((r) => unwrap<CapaDto>(r)),
+    }),
+  },
+
+  audits: {
+    list: (client: ApiClient, args?: Arg<"listAudits">): QueryOption<Page<AuditDto>> => ({
+      queryKey: queryKeys.audits.list(args?.query),
+      queryFn: () => client.listAudits(args).then((r) => unwrap<Page<AuditDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<AuditDto> => ({
+      queryKey: queryKeys.audits.detail(id),
+      queryFn: () => client.getAudit({ params: { id } }).then((r) => unwrap<AuditDto>(r)),
+    }),
+    findings: (client: ApiClient, id: string): QueryOption<Page<AuditFindingDto>> => ({
+      queryKey: queryKeys.audits.findings(id),
+      queryFn: () => client.listAuditFindings({ params: { id } }).then((r) => unwrap<Page<AuditFindingDto>>(r)),
+    }),
+    frequency: (client: ApiClient): QueryOption<AuditFrequencyResult> => ({
+      queryKey: queryKeys.audits.frequency(),
+      queryFn: () => client.getAuditFrequency().then((r) => unwrap<AuditFrequencyResult>(r)),
+    }),
+    stats: (client: ApiClient): QueryOption<AuditStatsDto> => ({
+      queryKey: queryKeys.audits.stats(),
+      queryFn: () => client.getAuditStats().then((r) => unwrap<AuditStatsDto>(r)),
     }),
   },
 
