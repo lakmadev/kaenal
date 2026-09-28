@@ -158,3 +158,52 @@ sprint (§4, verified independently).
 is now fully closed; the web build (architecture review's slice 7-8) can proceed. Engineering may proceed
 to the architecture review once product-owner sign-off (already `APPROVED` for use-case coverage) and
 the 2 boards are approved.
+
+## 6. Gate 2 — built-vs-design confirmation (2026-09-28)
+
+Read the built files on `integration/sprint-03-graph-predictive` against §1/§2's audit and the approved
+canvas boards.
+
+- `apps/web/src/app/(app)/predictive/page.tsx` renders the real `PredictiveRiskPage` (no longer
+  `ModulePlaceholder`).
+- §2.1 risk-chip decision: `risk-chip.tsx`'s `PRED_LEVELS` reproduces the exact label set (Critical/High/
+  Watch/Stable) and colours as a local map on the base `Chip` primitive, not the shared `RiskBadge` — matches
+  the decision verbatim.
+- §2.2 KPI-strip decision: `predictive-kpi-strip.tsx` ships exactly 3 tiles (`repeat(3,1fr)`; no "Forecast
+  accuracy" tile), with "Lines / suppliers flagged" merged into one tile as specified — matches.
+- §2.3 governance-panel decision: `governance-panel.tsx` replaces "Tune model" with a static 4-row read-only
+  panel (Model & version / Retrain cadence / Inputs / Tunable parameters: "None"), no button, neutral
+  "Read-only" chip, placed directly below `model-banner.tsx` — matches the decision and the board's before/
+  after exactly. `model-banner.tsx`'s copy is the corrected v1 text ("NC-Forecast v1 · statistical baseline"),
+  never the jsx's fabricated v3 copy — matches.
+- §2.4 board State B (panel-level not-enough-history) and State C (page-level): `ranked-panel.tsx`'s
+  `items.length === 0` branch renders the built `EmptyState` per panel (State B), and
+  `predictive-risk-page.tsx`'s `tenantWideEmpty` gate (both queries settled, no error, both empty) renders
+  **one** page-wide `EmptyState` in place of both panels (State C) — both match the board exactly.
+
+**Divergence found — board State A (row-level "Insufficient history" row inside an otherwise-populated
+list) is unreachable in the built product, not merely unbuilt.** Traced
+`apps/api/src/jobs/processors/predict-risk.ts` `scoreSubject()`: `if (forecast === null) return false; // below
+the minimum-history gate (§3B) — no row written`, backed by `packages/core/src/forecast.ts`'s
+`MIN_HISTORY_PERIODS_WITH_DATA = 4` gate. A subject below the gate never gets a `risk_predictions` row at
+all — it is silently absent from the API response, indistinguishable from "this subject doesn't exist."
+Confirmed no code path renders a dashed-border/"Insufficient history"/period-count row anywhere in
+`lead-row.tsx` or `ranked-panel.tsx` — there is no data source for it. This is the same category as
+`DESIGN-03-graph.md`'s synthetic-footer precedent (an approved jsx/board branch made unreachable by a
+legitimate, already-approved backend decision, §3B's own minimum-history gate) — not a build defect, since
+nothing in the sprint doc asked engineering to invent a "some rows scored, one flagged insufficient" data
+shape the backend deliberately doesn't produce. But unlike the Part A precedent, this was **not** already
+flagged before Gate 2, so it is recorded here now: **board State A is design-approved but currently
+unbuildable given the §3B minimum-history gate as implemented.** If a future sprint wants the mixed-list
+row to be reachable, `scoreSubject` would need to write a marker row (or the API would need a separate
+"tracked but unscored subjects" list) instead of skipping silently — a product/architecture decision, not
+a design one; flagged here for the PO/architect, not resolved unilaterally.
+
+States B and C — the two reachable not-enough-history granularities — are confirmed correctly built.
+State A's board remains the approved spec for if/when the data shape exists; it is not superseded, just
+currently dormant.
+
+**Confirmed for Gate 2 (Sprint 03 close): APPROVED with one flagged, non-blocking divergence** (board State A,
+above) — every other screen/state/decision in this doc is built exactly as designed. Sign-off stands; the
+State A gap is a data-availability question for the PO/architect at the next planning point, not a
+re-interpretation of an approved board.

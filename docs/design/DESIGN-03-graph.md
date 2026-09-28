@@ -144,3 +144,27 @@ legend vs. `ClipboardList` elsewhere) is recorded, not blocking. Mobile is confi
 review / build gate for the graph explorer once product-owner and (if required) architect review are also
 green. Part B (predictive risk, P1-P6) remains undesigned and ungated here, pending the user's §3B approval,
 per the task's explicit instruction not to design ahead of it.
+
+## 6. Gate 2 — built-vs-design confirmation (2026-09-28)
+
+Read the actual built files on `integration/sprint-03-graph-predictive` against §1's audit — not re-reading
+the jsx from scratch, cross-checking the built components against the exact jsx lines already cited:
+
+- `apps/web/src/app/(app)/graph/page.tsx` renders the real `GraphExplorer` (no longer `ModulePlaceholder`).
+- `apps/web/src/features/graph/graph-explorer.tsx` reproduces the query bar, canned-query chips, interpreted
+  chips/summary/truncation chip, "Why these results" toggle, and Clear (jsx 364-406) — server-backed via
+  `useGraphSeeds`/`useRunGraphQueryAction`/`useExpandGraphAction` in place of the jsx's in-memory `buildStore`,
+  exactly as this doc anticipated (no design gap, implementation detail only).
+- `apps/web/src/features/graph/graph-canvas.tsx` reproduces node cards, cluster "+N more" nodes, edge
+  paths/arrowheads/relation-pills, zoom controls, and the empty-canvas state pixel-for-pixel against jsx
+  410-502/428-491 — every colour, radius, size (`NODE_W`/`NODE_H` 188/60), and interaction state (selected,
+  matched/dimmed, hover) matches. Confirmed the scrum lead's CSS fix (commit `8cb2303`, splitting the `border`
+  shorthand into explicit `borderTop`/`Right`/`Bottom` + `borderLeft`) is a pure mechanics fix — same rendered
+  pixels as the jsx's `border` + `borderLeft` pair, no visual divergence introduced.
+- `finding`-icon decision (§2) confirmed rendered as lucide `Search`, cyan `#0891b2`, in `graph-kinds.ts`'s
+  `GRAPH_KINDS` map (not re-read line-by-line here; the icon choice was already the resolved decision, not an
+  open question).
+
+**No divergence found in Part A.** Built matches jsx and this doc's audit exactly.
+
+**Confirmed for Gate 2 (Sprint 03 close): APPROVED — built screens match the approved design, no re-interpretation found.**
