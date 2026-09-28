@@ -11,6 +11,7 @@ import {
   type UpdateReportBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
 interface ReportRow {
@@ -89,7 +90,7 @@ export class ReportsService {
   async update(tx: Tx, tenantId: string, actorId: string, id: string, body: UpdateReportBody, ctx: AuditContext): Promise<ReportDefinitionDto> {
     refuseBuiltin(id);
     const current = await this.load(tx, id);
-    assertVersion(current.lock_version, body.version);
+    await assertVersion(tx, id, current.lock_version, body.version);
     const doc = docFrom(body);
     return withAudit(
       tx,
@@ -102,7 +103,7 @@ export class ReportsService {
           [id, body.version, body.name, body.description, JSON.stringify(doc), actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw staleWrite();
+        if (row === undefined) throw await staleWriteError(t, { table: "report_definitions", key: id, message: "This report changed since you loaded it" });
         return toDto(row);
       },
     );
@@ -155,13 +156,10 @@ function refuseBuiltin(id: string): void {
   }
 }
 
-function assertVersion(actual: number, expected: number): void {
+async function assertVersion(tx: Tx, id: string, actual: number, expected: number): Promise<void> {
   if (actual !== expected) {
-    throw new ApiError("STALE_WRITE", "This report changed since you loaded it", { expected, actual });
+    throw await staleWriteError(tx, { table: "report_definitions", key: id, message: "This report changed since you loaded it", expected, actual });
   }
-}
-function staleWrite(): ApiError {
-  return new ApiError("STALE_WRITE", "This report changed since you loaded it");
 }
 
 type AuditVerb = "created" | "updated" | "deleted";

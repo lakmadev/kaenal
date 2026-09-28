@@ -5,6 +5,119 @@
 
 ## Current status
 
+**Sprint 02 — Audits module (2026-09-28), Gate 2 accepted, sprint closeable.** Backend: migration 0061
+(`audits`/`audit_findings`, `next_activity`/`closed_at` columns, `progress` column dropped in favour of
+computed value), contract routes, `audits.controller.ts`/`audits.service.ts`, `audit_report` export
+resource, 35 API tests green (`audits.test.ts` 18, `exports.test.ts` audit_report block 10,
+`search.test.ts` audit-exclusion block 7). Web: list/cards/KPI chart/schedule view, detail
+(header/tracker/sidebar/Team/Evidence/Report tabs), checklist tab (IATF bank seed + scoring + auto-link
+finding), findings tab (manual add + raise NCR/CAPA), Create Audit dialog — 33 web tests +
+8 `packages/core` audit-checklist tests green. Full gate green: typecheck/lint clean, 556 API tests,
+323 RLS tests, `db:check` 53 tables, demo login re-seeded and confirmed 201. Architecture-review gaps
+(role routing, `audit_report` export, data sources for `nextActivity`/`progress`/evidence count/
+Completed YTD, contract gaps, legacy-checklist handling, closed-audit scoring 422) resolved per
+`docs/sprints/SPRINT-02-audits.md` §8/§8a. Design Gate 2 confirmed per `docs/design/DESIGN-02-audits.md`
+§6a; the one flagged divergence (add-finding toggle not flipping to "Cancel"/X) is fixed (`f8501fe`).
+
+**Sprint 01 Phase B — Full-page CreateWizard + palette enhancements + Live mode + AI drawer (2026-09-27).** Merged three feature branches: S1-1 (quick-create "New" menu + full-page CreateWizard: 4 steps Type/Details/Assignees/Review at /create/[type], replacing per-entity dialogs; CAPA keeps its dialog per Q1), S1-2 + S1-9 (command palette parity: real keyboard shortcuts ⌘K/⌘I/⌘D/? with live-bound-keys-only chips, shortcuts dialog, Tweaks panel "Appearance" with Theme/Density/Accent/AI-prominence controls in reusable appearance-controls.tsx, user_preferences persisted via API), S1-3 + S1-4 (Live mode toggle + live event toasts, AI chat drawer with streamed reply, confidence chips, model label, pin-to-record, Generate PDF using existing export pipeline). **Backend:** migration 0060 (`priority`, `description`, `area_label` fields on entity bodies, `entity_people` junction table, idempotency-key support, assignee notifications). `POST /v1/ai/chat` SSE (from Phase A) now exposed via drawer. Realtime structures for Live mode (Phase A). **Web:** CreateWizard form (4-step, /create/[type], NCR/Inspection/8D/Document via real entity-people picker + template picker; CAPA dialog unchanged), New menu in topbar (⌘N), palette quick-actions real (⌘K/⌘I/⌘D → real endpoints, chips only if key is bound), shortcuts dialog (?), Tweaks panel (Theme/Density/Accent/AI-prominence live-apply + persist), Live toggle in topbar, AI drawer (chat → confidence chips + model label, Generate PDF). **Fixes:** (1) past-due-date validation on `scheduledAt` scoped to `body.recurrence == null` — recurring series anchors in past are normal; (2) seed `targetAt` made relative (`Date.now() + 45 days`) so test fixtures stay valid as wall-clock time advances. **Verified end-to-end:** CreateWizard 4-step (created real NCR-2026-0002), palette ⌘K/⌘I/⌘D, shortcuts dialog, Tweaks panel (after menu-fix), Live toggle, AI drawer (chat + model label + confidence, PDF download). **Test suite:** api 541 (wizard 4, ai 8, preferences 11, etc.), core 736, db 361, web 100, mobile 73, types 74, api-client 11; `test:rls` 323/323; `db:check` 53 tables ✓; demo sign-in 201 ✓. **Honest gap:** CreateWizard dirty-leave-confirm (Cancel, Esc) does NOT intercept browser back-button or sidebar clicks — App Router hook limitation, flagged as Phase C follow-up.
+
+**Sprint 01 Phase A — Shell foundations (2026-09-26).** Eight stories closing the app shell so every
+control the design shows is real: top bar (breadcrumbs page-driven, entity-code crumb, search + bell,
+Live toggle, AI button, Quick-create "New" menu deferred), offline + stale-write (409) infrastructure,
+i18n scaffold, AI chat backend, preferences (accent/density/AI prominence), accessibility (Radix
+menus/tooltips, focus rings), placeholder ledger, and mobile wiring. **Backend (migrations 0050–0051):**
+`POST /v1/ai/chat` (SSE streaming = server-side chunking of a completed reply; `ai:use` capability;
+stub provider; audit `ai.chat`), `GET/PATCH /v1/me/preferences` (accent `ink|indigo|teal|orange`,
+density `comfortable|compact`, aiProminence `front|normal|quiet`, + mention-notification flags;
+audit per update), response details on 409 stale-write errors now include `updatedAt`/`updatedBy`
+via `stale-write.ts` helper, mention notifications via comment @mention parsing + `?type=mention` filter
++ total count, preferences & notification-prefs services extended. **Web:** shell breadcrumbs from
+page-route map (clickable parents + entity detail crumb); top-bar access to AI + Live-mode toggle (UI
+deferred, structures in place); Radix `@radix-ui/react-dropdown-menu`, `-popover`, `-tooltip` replace
+hand-rolled for menus/profile/notifications/quick-create, zero visual regression, axe-core + keyboard
+audit clean; offline banner + global 409 reconcile dialog from MutationCache interceptor (reapply logic
+in `packages/core`), mutation gating (disabled with tooltip), mentions filter on notifications; i18n
+`next-intl` wired for App Router, shell strings keyed, missing-key fails CI + dev; preferences section
+wired (accent/density/AI prominence/keyboard toggles); trait of shell touched by S1 is i18n-keyed;
+legacy strings remain (tracked as Known issue). **Mobile:** S1-11 voice quick-log control removed (entry
+in capture/Quick-Log, `/app/voice.tsx` route, `expo-audio` + config plugin, features/capture/transcribe
++ CapVoice design reference); "Manage in web app" list rows wired to real routes via `EXPO_PUBLIC_WEB_URL`
+(native/PWA); theme provider hydration fix. **Test suite:** api 529 (ai 8, preferences 11, outbox 14, etc.),
+core 721 (stale-write + preferences schemas, reconcile), db 355, web 51, mobile 73, types 74, api-client 11;
+`test:rls` 317/317 (preferences self-scoped); `db:check` 52 tables ✓; demo sign-in 201 ✓. **Deferred to
+Phase B:** S1-1 New menu + full-page CreateWizard; S1-2 palette quick-actions group + shortcuts dialog +
+keyboard bindings (⌘I/⌘D/⌘K/?); S1-3 Live-mode toggle UI + event toasts (structures ready, missing toast
+UI); S1-4 AI drawer UI (endpoint ready, chat message bubbles/copy/pin/insert/generate-PDF deferred);
+S1-9 Tweaks panel UI (preferences persisted, no dedicated UI yet; board W10 approved incl. accent/density
+icons D-A1–D-A3); D-T2 toast second-line formatting deferred until a kanban exists to test it. **Honest
+gaps:** mobile enrolment (partner TOTP setup) only on web; design visual approval pending (DESIGN-01 new
+offline banner, 409 dialog, shortcuts dialog, palette states, live/AI states, wizard states, phone width);
+Tweaks panel board still needed (S1-9); D-05 View-as-role omitted (user approval pending). **Code:** all
+new fields + routes strictly opt-in; mobile untouched except voice removal + manage-web wiring; shared
+types updated additively.
+
+**P11 Supplier Portal — partner invite + first-login MFA enrolment (2026-09-26).** Closes the last
+production gate on the portal (Known issue "TOTP verify/enrolment subsystem", item c): a supplier contact can
+now be invited, accept, enrol TOTP and reach the portal — no admin hand-seeding. **Backend:** `POST
+/v1/suppliers/:id/portal-invite` (`supplier:manage`; body `PartnerInviteBody` in `@kaenal/types`) →
+`AuthService.invitePartner`: supplier read under RLS (unknown/foreign → 404), refuses an address that is
+already an internal member (409), then reuses `invite()` with `supplier_scope` (revokes any prior link →
+re-invite is safe; audited `invitation created {email, role, supplierId}`; email enqueued via the existing
+`renderInvite` path, raw token only outside production). `acceptInvitation` now carries `supplier_scope` into
+the membership (and the audit). **Enrolment bootstrap:** migration `0042_session_scope` adds `sessions.scope`
+(`full`|`mfa_enrol`). A partner with a correct password and no `mfa_secret` gets a 15-min ENROLMENT-ONLY
+session (`enrolmentRequired: true`); `RequestLifecycleInterceptor` default-denies it (403
+`mfa_enrolment_required`) on every route except those marked `@AllowEnrolment` (MFA status/enroll/activate +
+sign-out). A verified TOTP `activate` promotes that session in place to a full 2h partner session
+(`sessionUpgraded: true`); later sign-ins are the normal password+code flow. **Web:** "Invite to portal"
+button + dialog on the supplier detail (gated `supplier:manage`), and the sign-in form's new `enroll` stage reuses the designed `MfaEnrollModal` (QR → code → recovery codes).
+**Mobile:** a partner's enrolment-only sign-in is ended with an explicit "finish two-factor on the web" error.
+**Portal contacts (2026-09-26, design-approved canvas):** `GET /v1/suppliers/:id/portal-contacts`
+(cursor-paged; `PortalContactDto` in `@kaenal/types`; status `invited|enrolment_pending|active|revoked`
+derived from pending partner invitations + partner memberships + `control.users.mfa_secret`),
+`POST …/:contactId/resend` (re-issues + revokes old token, re-emails; only invited/enrolment_pending → else 409)
+and `POST …/:contactId/revoke` (membership `deactivated`, ALL sessions revoked immediately, pending invite
+revoked; idempotent; audited once via `withAudit`). `supplier:manage`; foreign/unknown supplier or contact,
+internal-member ids and other suppliers' partners → 404. No migration (uses existing columns). Web: header
+"Invite to portal" restyled to the canvas (ghost, beside Scorecard PDF), invite dialog with Scope note + red
+error panel (staff 409), and the new "Portal access" tab (count chip, table, Resend/Revoke-with-confirm, footer
+note) on real endpoints via TanStack hooks (`use-portal-contacts.ts`); browser-verified against the canvas
+(default/error dialog states, tab, revoke). Tests: `portal-contacts.test.ts` (6). Gaps: the canvas's "Schedule
+audit" / "Raise SCAR" header buttons don't exist on this screen yet, so "Raise SCAR" is not shown as primary;
+revoked *invitations* disappear from the list (revoked memberships show as Revoked); memberships have no
+`lock_version`, so revoke relies on idempotency rather than optimistic concurrency.
+**Tests:** new `partner-invite.test.ts` (11: capability gate, foreign/unknown supplier 404, internal-member
+409, scoped+audited invite, re-invite supersedes / spent / expired, enrolment-only token blocked on portal +
+`/v1/me` + `/v1/suppliers` + sessions + mfa/disable, wrong code doesn't upgrade, activate upgrades, next
+sign-in demands the code); `portal.test.ts` no-MFA case updated (403 → enrolment-only session that can't reach
+the portal).
+**Sequence 2 (config slice) — Webhook configuration form + real signing-secret store + SSRF guard (2026-09-26).**
+An admin can now set URL + subscribed events + signing secret on the `generic_webhook` card and "Send test
+event" succeeds against a live receiver. **Backend:** `packages/types/src/webhook-config.ts` (pure, shared by
+API + web): `validateWebhookUrl`/`isBlockedIp`/`webhookConfigSchema` (https-only; rejects non-http(s), embedded
+creds, loopback/private/link-local/CGNAT/metadata IPs incl. decimal/hex/octal/IPv4-mapped/NAT64/6to4 forms,
+internal hostnames) + `ConfigureWebhookBody/Result`, events = `*` | exact | `domain.*`. `PUT
+/v1/integrations/:id/webhook` (`configureWebhook`; optimistic `version`, audited, secret never in audit) and
+`GET /v1/integrations/webhook-policy`. **Secret store (no real one existed):** `outbox/webhook-secret-box.ts` —
+server-generated `whsec_…`, AES-256-GCM sealed (key = `WEBHOOK_ENCRYPTION_KEY` or HKDF of `AUTH_SECRET`) into
+`credentials_ref` as `enc:v1:…`; a `WebhookSecretResolver` decrypts it (other schemes fall through to
+`EnvSecretResolver`); revealed ONCE in the configure response, never by any GET (DTO only has `hasCredentials`).
+No migration (column already text). **SSRF at delivery:** `FetchWebhookTransport` now re-validates the URL and
+pins a DNS-lookup guard on the socket (blocks rebinding), never follows redirects; `WEBHOOK_ALLOW_PRIVATE_TARGETS=true`
+(`.env.example`; forced off in production) allows http/localhost for dev/tests. Save-time validation also runs on
+generic `create`/`update` (no back door); `connect` for a webhook now requires a valid URL + a sealed secret
+(422 otherwise) and keeps the existing secret. **Web:** `WebhookConfigForm` in the card detail (URL, event chips +
+custom pattern, generate/rotate secret with one-time copy reveal, inline errors from the shared schema under the
+deployment policy); Connect on an unconfigured webhook opens the form; "Send test event" enabled once URL + secret
+exist. **Tests:** types 49 (SSRF vectors); api `webhook-config.test.ts` 15 (live local receiver: signature verifies
+under the revealed secret, rotate changes signature/old fails, sealed at rest, audit has no secret, stale 409,
+strict-policy 422s, transport refuses private targets/no redirects/DNS guard, manager 403, cross-tenant 404, no GET
+leaks the secret). Gate: typecheck 7/7, lint clean, test 7/7 (api 493, types 74), `test:rls` 311, `db:check` 51.
+Login re-seeded. **Not browser-verified** (no dev servers in this worktree) — the form is typechecked/linted only.
+**Known:** DNS rebinding is closed by the socket-level lookup guard, but proxies/egress firewalls remain the
+defence in depth for prod; disconnect purges the secret (09 §8), so reconnect needs a fresh generate; rotating
+invalidates the old secret immediately (no overlap window).
+
 **Sequence 2 (verify slice) — "Send test event" for webhook endpoints (2026-08-22).** Closes the webhook
 verify loop: an admin pings an endpoint and gets the REAL delivery outcome, the same signed path a live event
 takes — no mock. The per-endpoint send was extracted from the fan-out handler into `outbox/webhook-deliver.ts`
@@ -25,10 +138,7 @@ ping delivered + `ok` logged; 5xx → failure not fake success; no-secret → no
 with the honest `no destination URL configured` failure (the card connect sets a credential pointer but no
 URL) — proving button → `POST /test` → `sendTest` → `deliverToEndpoint` → `integration_events` → UI, all live.
 Had to restart the API preview once (stale tsx watch after the new `@kaenal/types` export) and re-seed the
-demo login. **Flagged next:** a real webhook config form (URL + events + secret) on the card so a test can
-succeed against a live receiver — today the URL isn't capturable in the card UI (`connectorSchema` for
-`generic_webhook` is empty); the API accepts it via the free-map `config`, so the endpoint is fully
-configurable by API, just not yet by form.
+demo login. (The config-form follow-up flagged here is now done — see the entry above.)
 
 **Sequence 2 (delivery slice) — Webhook delivery: signed fan-out through the integrations substrate
 (2026-08-22).** Turns the outbox from durable-but-undelivered into real outbound events. The outbox drainer's
@@ -1949,6 +2059,73 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Decisions log
 
+- **Sprint 02 Audits — architecture-review gaps resolved (2026-09-27/28, full detail:
+  `docs/sprints/SPRINT-02-audits.md` §8/§8a).** Role routing: `/audits` stays hidden from
+  inspector/viewer per `rbac.ts`/`rbac.jsx` — filter search/AI-chat hits for those roles rather than
+  opening the route; creation notifications are NOT role-filtered (an auditee may be an inspector and
+  must still be told). New `audit_report` export resource (distinct from the existing `audits`
+  table-dump). Data sources: `nextActivity` is a new nullable column set optionally at create/advance
+  (never auto-derived); `progress` computed from the checklist in `packages/core`, the dead stored
+  column dropped rather than kept as a second stale source of truth; checklist `evidence` count
+  dropped this sprint (no attach-to-checklist-item mechanism exists — Known issue, not a fake zero);
+  `closed_at` added and set on advance-to-closed for "Completed YTD". Legacy `checklist = []` audits:
+  no SQL backfill, generic EmptyState renders instead. Checklist scoring on a closed audit: `422
+  VALIDATION_FAILED` (phase-driven refusal, not a capability 403).
+- **Sprint 02 Audits — smallest-reasonable-choice defaults.** One fixed IATF clause checklist bank
+  seeded at audit creation (no configurable-template settings screen this sprint — Q11). Finding
+  severity maps to raise-NCR/CAPA priority at creation time as the simplest direct mapping, no separate
+  severity-to-priority config surface.
+- **Never hardcode absolute calendar dates in test fixtures or seed data when validation checks wall-clock time (2026-09-27).** CreateWizard's past-due-date validation (`assertNotPast`) applied to `scheduledAt` broke once test anchor dates drifted into the past. Root causes: (1) recurring-series anchors legitimately live in the past (e.g. weekly walk "started" last month, materialization catches occurrences up to now) — the check must exclude `body.recurrence != null`; (2) seed data's hardcoded absolute dates (demo 8D targetAt = 2026-05-15) became stale as wall-clock time progressed. Solution: use relative dates in both fixtures and seed (e.g. `Date.now() + 45 days`) so they stay valid indefinitely, ensuring the test suite and dev login remain re-seedable across calendar boundaries.
+
+- **S1 user decisions Q1–Q9 (2026-09-26, ROADMAP.md section 0):** Q1 wizard replaces per-entity dialogs
+  (CAPA keeps its dialog); Q2 no backend design approval needed for Phase A; Q3 `pqe` excluded (no spec),
+  removed from nav/sidebar/palette; Q4 English-only this sprint, mobile no i18n (Q4); Q5 deferred
+  external-infra settings (sso/scim/byok/status-page/backup-restore/warehouse) hidden from nav, listed in
+  `excluded.md` with re-include instructions; Q6 sidebar lock icon deferred (Sprint 10, entitlements); Q7
+  AI "Generate PDF" uses existing exports pipeline (no new PDF designer); Q8 Tweaks panel + AI prominence
+  real, persisted (`front|normal|quiet` vocabulary supersedes the older `quiet|visible`); Q9 mobile voice
+  quick-log removed (no transcription backend). Phase A resolves Q1, Q3, Q4, Q7, Q8, Q9; Q2 is implicit
+  (implementation/01..09 sufficient); Q5/Q6 are structural (nav/exclusions).
+
+- **S1 hidden settings slugs (2026-09-26).** Settings entries in `SETTINGS_NAV` marked `hidden: true`
+  (sso, scim, byok, status-page, backup-restore, warehouse) do not render in the rail. An unknown slug
+  falls back to Profile (no 404). Listed in `excluded.md` so they can never reappear as dead entries.
+
+- **S1 global 409 stale-write dialog (2026-09-26).** Per-mutation error handling diverges from the global
+  handler: a 409 is trapped in the `@kaenal/api-client` interceptor, not surfaced as an exception, and
+  written to a `MutationCache` keyed by `(mutation, variables)`. The `app-shell` mounts a global dialog
+  component listening to that cache — only one 409 at a time blocks the UI. Reapply logic (`reapplyChange`)
+  lives in `packages/core`, shared by web + mobile (mobile via its sync engine's conflict policy).
+
+- **S1 offline writes rejected in api-client (2026-09-26).** `@kaenal/api-client` POST/PATCH/DELETE
+  methods check `navigator.onLine` before issuing (mobile sync engine gates independently). Disabled
+  mutations show a tooltip; no silent queueing.
+
+- **S1 locale resolution chain (2026-09-26).** `next-intl` resolves locale (for Intl formatting + message
+  catalogs) by: user preference (if set), tenant setting, `Accept-Language` header. User preference
+  persists via `preferences.locale`.
+
+- **S1 SCRUM workflow adopted (2026-09-26).** Build order per `SCRUM.md`: backend vertical slices
+  (migrations, contract, service, tests) before web UI, tests ship with the module. Branches are per-story
+  cluster, merged only when the cluster is complete.
+
+- **P11 partner invite + enrolment-only session (2026-09-26).** Chicken-and-egg (a partner must have MFA but
+  can't enrol without a session) resolved with the smallest secure design: a `scope` on the existing
+  `sessions` row, not a new token type/table. Password-correct + no factor → session `mfa_enrol`, 15 min, usable
+  only on routes tagged `@AllowEnrolment` (default-deny in the lifecycle, checked before RBAC so it can never
+  reach portal data). Promotion to `full` happens only inside `POST /v1/auth/mfa/activate`, after the TOTP code
+  verified against the pending secret, so the existing "MFA required" gate for a full session is untouched
+  (a full partner session still cannot exist without `mfa_secret`). Trust-on-first-use caveat: whoever holds
+  the invite token + chosen password enrols the first factor — same trust root as any invite. Partner
+  invites are bound to one supplier by the existing DB coupling CHECK; an internal member's address is
+  refused (409) so an invite can't silently convert staff into an external account. The staff invite
+  (`InternalRole`-only) is unchanged.
+- [x] Webhook signing secrets are sealed in `credentials_ref` (`enc:v1:` AES-256-GCM, server key) rather than a new
+      column/secret manager (2026-09-26) — smallest real store, no migration, resolved by `WebhookSecretResolver`;
+      a cloud secret manager can replace it behind the `SecretResolver` seam. Secret is server-generated and shown
+      once (never client-supplied). SSRF policy is shared pure code in `packages/types`, enforced at save AND at
+      delivery (DNS-lookup guard, no redirects); `WEBHOOK_ALLOW_PRIVATE_TARGETS` is dev/test-only and ignored in prod.
+
 - [x] Bulk-import commit runs synchronously in the request transaction (2026-08-12, Phase J) — the plan
       called for a BullMQ `imports` job, but the commit is implemented as a self-contained tenant-tx step
       (`ImportService.commit`: re-plan against current keys → upsert each non-error row idempotently by
@@ -2613,15 +2790,44 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Known issues / TODO
 
-- **P11 Supplier Portal — TOTP verify/enrolment subsystem is a HARD dependency before production exposure.**
-  The partner MFA gate (`mfaRequiredFor` + the sign-in check) currently enforces only that a `mfa_secret`
-  is *enrolled*, not that a TOTP code was verified this login — no TOTP challenge/enrolment subsystem
-  exists anywhere in the codebase yet (the `control.users.mfa_secret` column is schema-only). The portal
-  must NOT be opened to real external suppliers until: (a) TOTP enrolment (QR/secret provisioning +
-  recovery codes) and (b) a per-login verify step are built, and (c) the partner-invite/onboarding flow
-  (a supplier-scoped variant of the staff invite — deferred) mints the `partner` membership + drives
-  enrolment. The read-only portal backend + isolation model are done and proven; these are the gates on
-  turning it on. See P11 Decisions log entry.
+- **Sprint 02 Audits — carried-forward known issues (2026-09-28, `docs/sprints/SPRINT-02-audits.md`
+  §7/§9, Q10-Q14).** Q10: "Send to auditee" (Report tab) has no design or recipient model — who "the
+  auditee" is for a send action is undefined, correctly deferred. Q11: configurable audit-checklist
+  templates (settings screen to edit/version the clause bank) deferred — one fixed IATF bank this
+  sprint. Q12: `lead_auditor_id` is a plain FK to `users(id)`, not this sprint's composite-FK-to-
+  memberships pattern — pre-existing inconsistency, not side-effect-fixed here. Q13: graph-explorer
+  node kinds/seeds for audits deferred to Sprint 03. Q14 (security-reviewer finding): the Files
+  module's Upload/Evidence-tab access has no entity-aware capability check — cross-cutting, not fixed
+  inline. Also: checklist-item "evidence" count dropped this sprint, no attach-file-to-checklist-item
+  mechanism exists yet.
+
+- **S1 Phase B ✅ complete: CreateWizard + palette + Live mode + AI drawer (2026-09-27).** All UI built + verified end-to-end. Honest remaining gap: CreateWizard's dirty-leave-confirm guard (triggered by Cancel button, Esc key) does NOT intercept browser back-button or sidebar navigation clicks — a Next.js App Router limitation (no stable `beforeunload`-equivalent hook). This is flagged as a Phase C follow-up.
+
+- **S1 design approvals pending (2026-09-26).** Visual sign-off needed on DESIGN-01: offline banner
+  (W1-A..D), 409 dialog (W2-A..F), shortcuts dialog (W3-A..D), palette states (W4-A..H), Live-mode states
+  (W5-A..H), AI states (W6-A..I), New menu/wizard states (W7-A..J), phone-width rules (W9-B/C), and Tweaks
+  panel board (S1-9, not yet designed). Deviations D-P1 (shortcuts chips on bound keys only), D-W1 (toast
+  no emoji), D-T1 (new tooltip), D-T2 (second-line), D-F1 (focus-ring inset), D-R1 (narrow top-bar),
+  D-S1 (409 no X, ignores Esc) all require user approval. D-05 (View-as-role omitted) is a deliberate
+  design choice needing sign-off.
+
+- **Mobile enrolment TOTP flow (2026-09-26).** Partner enrolment-only sessions reject all mobile access
+  (M16 error "use the web app"). Running `POST /v1/auth/mfa/enroll` + `activate` on mobile is future work
+  (requires a mobile-native barcode scanner + OTP code UI that isn't designed yet). Workaround: partners
+  must enrol on the web app.
+
+- **S1 i18n legacy strings (2026-09-26).** Strings introduced in S1 are keyed; legacy (`components/`,
+  `features/` outside S1-touched modules) remain hard-coded `en`. A per-sprint migration is impractical; a
+  full i18n audit before launching de/es translations (Q4) is the follow-up. CI check warns on new hard-coded
+  JSX text in `components/shell/**` and `features/create-wizard/**` to prevent regression.
+
+- **P11 Supplier Portal — TOTP/enrolment/invite: DONE (2026-09-26).** (a) TOTP enrolment + recovery codes
+  and (b) the per-login verify step were already built (`mfa.service.ts`, `mfa.controller.ts`, sign-in demands
+  a code when `mfa_secret` is set) — the earlier note here was stale. (c) is now built: partner invite +
+  enrolment-only session (see Current status + Decisions log). Contacts list/resend/revoke + the
+  design-approved invite UI are now built (see Current status). Remaining, honest gap: the mobile app cannot run
+  the enrolment flow (it ends an enrolment-only session with a "use the web app" error). The sign-in `blocked` stage
+  (`MfaRequiredBlocked`) is no longer reachable for partners.
 - **P11 Supplier Portal — evidence UPLOAD ✅ (2026-08-06).** The last deferred write. A partner-scoped
   mirror of the internal presign flow that never touches `/v1/files/*`: `POST /v1/portal/files/presign`
   (`portal:respond`) creates the file **unlinked and owned by the caller** — the partner supplies only

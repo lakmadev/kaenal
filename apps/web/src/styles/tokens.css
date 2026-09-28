@@ -67,6 +67,9 @@
   --risk-low: #22c55e;
   --risk-info: #6366f1;
 
+  /* AI mark gradient (ai.jsx AIDrawer avatar) */
+  --ai-gradient: linear-gradient(135deg, #6366f1, #db2777);
+
   /* Semantic mapping — LIGHT (near-monochrome, ink accent) */
   --bg: #f4f4f5;
   --bg-subtle: #ececee;

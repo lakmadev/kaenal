@@ -27,6 +27,7 @@ import type {
   TransitionNcrBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import {
   clampLimit,
   decodeCursor,
@@ -36,6 +37,15 @@ import {
 } from "../http/pagination.js";
 import type { AuditContext } from "./audit-context.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
+import {
+  assertNotPast,
+  assertPeopleAreMembers,
+  assertPlantExists,
+  dedupePeople,
+  firstWithRole,
+  insertEntityPeople,
+  notifyPeople,
+} from "../http/create-extras.js";
 
 export interface NcrRow {
   id: string;
@@ -239,6 +249,12 @@ export class NcrService {
 
     // A plant-scoped author can only raise NCRs inside their plants.
     this.assertInScope(membership, plantId);
+    // CreateWizard foreign ids: a plant / person from another tenant reads as 404.
+    await assertPlantExists(tx, plantId);
+    assertNotPast("dueAt", body.dueAt);
+    const people = dedupePeople(body.people);
+    await assertPeopleAreMembers(tx, people);
+    const ownerId = firstWithRole(people, "owner");
 
     // Configurable NCR validation rules (Settings > Process): a firing `block`
     // rule rejects the create before any row/counter is written.
@@ -254,8 +270,13 @@ export class NcrService {
     const now = new Date();
     const tz = await this.plantTimezone(tx, plantId);
     const slaConfig = await this.loadSlaConfig(tx);
+    // An explicit wizard due date wins over the SLA-derived one.
     const dueAt =
-      slaConfig[body.priority] !== undefined ? computeDueAt(now, body.priority, slaConfig, tz) : null;
+      body.dueAt != null
+        ? new Date(body.dueAt)
+        : slaConfig[body.priority] !== undefined
+          ? computeDueAt(now, body.priority, slaConfig, tz)
+          : null;
 
     const year = counterYear(now, tz);
     const id = randomUUID();
@@ -269,7 +290,7 @@ export class NcrService {
         entityKind: "ncr",
         entityId: id,
         action: "created",
-        after: { title: body.title, priority: body.priority, source },
+        after: { title: body.title, priority: body.priority, source, people: people.map((p) => `${p.userId}:${p.role}`) },
         requestId: context.requestId,
         ip: context.ip,
         userAgent: context.userAgent,
@@ -287,8 +308,8 @@ export class NcrService {
         const { rows } = await t.query<NcrRow>(
           `INSERT INTO ncrs
              (id, tenant_id, code, title, description, source, source_id, priority, category, status,
-              plant_id, area_id, due_at, sla_state, created_by, updated_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,'on_track',$13,$13)
+              plant_id, area_id, due_at, sla_state, created_by, updated_by, owner_id, area_label)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,'on_track',$13,$13,$14,$15)
            RETURNING ${NCR_COLUMNS}${NCR_NAME_SUBSELECTS}`,
           [
             id,
@@ -304,10 +325,15 @@ export class NcrService {
             body.areaId ?? null,
             dueAt,
             actorId,
+            ownerId,
+            body.areaLabel ?? null,
           ],
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "NCR was not created");
+
+        await insertEntityPeople(t, tenantId, actorId, "ncr", id, people);
+        await notifyPeople(t, this.notifications, tenantId, actorId, "ncr", id, row.code, people);
 
         // Persist selected immediate containment as real ncr_actions rows
         // (kind='containment') — the create design's checklist, made durable and
@@ -383,7 +409,7 @@ export class NcrService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const decision = ncrMachine.canTransition(row.status as NcrStatus, body.to, {
       actions: await this.actionsFor(tx, id),
@@ -433,7 +459,7 @@ export class NcrService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row.lock_version, version);
+    await this.assertVersion(tx, id, row.lock_version, version);
 
     const decision = ncrMachine.canTransition(row.status as NcrStatus, "verified", {
       actions: await this.actionsFor(tx, id),
@@ -491,7 +517,7 @@ export class NcrService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     if (body.ownerId !== null) await this.assertMember(tx, body.ownerId);
 
@@ -618,7 +644,7 @@ export class NcrService {
     const current = rows[0];
     if (current === undefined) throw notFound();
     this.assertInScope(membership, current.plant_id);
-    this.assertVersion(current.lock_version, version);
+    await this.assertVersion(tx, actionId, current.lock_version, version, "ncr_actions");
 
     return withAudit(
       tx,
@@ -643,7 +669,7 @@ export class NcrService {
           [actionId, version, status, actorId],
         );
         const row = updated[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "The action changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "ncr_actions", key: actionId, message: "The action changed since you loaded it" });
         return toActionDto(row);
       },
     );
@@ -756,7 +782,7 @@ export class NcrService {
       [id, expectedVersion, ...extraParams],
     );
     const row = rows[0];
-    if (row === undefined) throw new ApiError("STALE_WRITE", "The NCR changed since you loaded it");
+    if (row === undefined) throw await staleWriteError(tx, { table: "ncrs", key: id, message: "The NCR changed since you loaded it" });
     return toNcrDto(row);
   }
 
@@ -775,9 +801,9 @@ export class NcrService {
     throw notFound();
   }
 
-  private assertVersion(actual: number, expected: number): void {
+  private async assertVersion(tx: Tx, id: string, actual: number, expected: number, table: "ncrs" | "ncr_actions" = "ncrs"): Promise<void> {
     if (actual !== expected) {
-      throw new ApiError("STALE_WRITE", "The record changed since you loaded it", { expected, actual });
+      throw await staleWriteError(tx, { table, key: id, message: "The record changed since you loaded it", expected, actual });
     }
   }
 }

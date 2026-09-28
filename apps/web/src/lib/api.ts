@@ -1,4 +1,5 @@
-import { createApiClient, type ApiClient } from "@kaenal/api-client";
+import { onlineManager } from "@tanstack/react-query";
+import { createApiClient, type ApiClient, type ApiClientOptions } from "@kaenal/api-client";
 import { env } from "@/lib/env";
 import { getActiveTenant } from "@/lib/tenant";
 
@@ -16,11 +17,17 @@ import { getActiveTenant } from "@/lib/tenant";
  */
 let client: ApiClient | undefined;
 
-export function getApiClient(): ApiClient {
-  client ??= createApiClient({
+/** The client options, shared with streaming calls (`streamAiChat`) that sit outside the ts-rest client. */
+export function getApiClientOptions(): ApiClientOptions {
+  return {
     baseUrl: env.apiBaseUrl,
     credentials: "include",
     tenant: () => getActiveTenant(),
-  });
+    isOnline: () => onlineManager.isOnline(),
+  };
+}
+
+export function getApiClient(): ApiClient {
+  client ??= createApiClient(getApiClientOptions());
   return client;
 }

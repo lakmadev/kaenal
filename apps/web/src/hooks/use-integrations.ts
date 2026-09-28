@@ -3,6 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiQueries, queryKeys, unwrap } from "@kaenal/api-client";
 import type {
+  ConfigureWebhookBody,
+  ConfigureWebhookResult,
   ConnectIntegrationBody,
   CreateIntegrationBody,
   IntegrationDto,
@@ -96,6 +98,26 @@ export function useTestWebhook() {
   return useMutation({
     mutationFn: (id: string) =>
       client.testIntegration({ params: { id }, body: {} }).then((r) => unwrap<WebhookTestResultDto>(r)),
+    onSuccess: invalidate,
+  });
+}
+
+/** The deployment's webhook target policy (dev flag) — so the form validates inline like the server will. */
+export function useWebhookPolicy() {
+  return useQuery(apiQueries.integrations.webhookPolicy(getApiClient()));
+}
+
+/**
+ * Save a webhook's URL/events and optionally rotate its signing secret. The
+ * result carries `signingSecret` ONCE (only when generated/rotated) — the caller
+ * shows it and must not persist it.
+ */
+export function useConfigureWebhook() {
+  const client = getApiClient();
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ConfigureWebhookBody }) =>
+      client.configureWebhook({ params: { id }, body }).then((r) => unwrap<ConfigureWebhookResult>(r)),
     onSuccess: invalidate,
   });
 }

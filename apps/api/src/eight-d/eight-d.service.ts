@@ -22,7 +22,17 @@ import type {
   UpdateEightDStepBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
+import {
+  assertNotPast,
+  assertPeopleAreMembers,
+  assertPlantExists,
+  dedupePeople,
+  firstWithRole,
+  insertEntityPeople,
+  notifyPeople,
+} from "../http/create-extras.js";
 import {
   clampLimit,
   decodeCursor,
@@ -159,9 +169,36 @@ export class EightDService {
       if (uid != null) await this.assertMember(tx, uid);
     }
 
+    // CreateWizard foreign ids: a plant / person / NCR code from another tenant
+    // reads as 404 (rule 8).
+    await assertPlantExists(tx, body.plantId);
+    assertNotPast("targetAt", body.targetAt);
+    const people = dedupePeople(body.people);
+    await assertPeopleAreMembers(tx, people);
+    const teamLeadId = body.teamLeadId ?? firstWithRole(people, "owner");
+    const championId = body.championId ?? firstWithRole(people, "approver");
+    const memberIds =
+      body.memberIds ??
+      people
+        .filter((p) => p.role === "reviewer" || p.role === "watcher")
+        .map((p) => p.userId)
+        .filter((uid) => uid !== teamLeadId && uid !== championId);
+
     let ncrId: string | null = null;
     if (body.ncrId !== undefined) {
       ncrId = await this.loadUnlinkedNcr(tx, body.ncrId);
+    } else if (body.ncrCode !== undefined) {
+      const { rows: byCode } = await tx.query<{ id: string }>(
+        "SELECT id FROM ncrs WHERE code = $1 AND deleted_at IS NULL",
+        [body.ncrCode.trim()],
+      );
+      const found = byCode[0];
+      if (found === undefined) {
+        throw new ApiError("VALIDATION_FAILED", "Request is invalid", {
+          issues: [{ path: "ncrCode", message: "No NCR with that code" }],
+        });
+      }
+      ncrId = await this.loadUnlinkedNcr(tx, found.id);
     }
 
     const now = new Date();
@@ -179,7 +216,7 @@ export class EightDService {
         entityKind: "eight_d",
         entityId: id,
         action: "created",
-        after: { title: body.title, ncrId },
+        after: { title: body.title, ncrId, template: body.template ?? null, people: people.map((p) => `${p.userId}:${p.role}`) },
         requestId: context.requestId,
         ip: context.ip,
         userAgent: context.userAgent,
@@ -197,8 +234,9 @@ export class EightDService {
         const { rows } = await t.query<EightDRow>(
           `INSERT INTO eight_ds
              (id, tenant_id, code, title, ncr_id, status, team_lead_id, champion_id, member_ids,
-              started_at, target_at, current_step, steps, created_by, updated_by)
-           VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,1,$11,$12,$12)
+              started_at, target_at, current_step, steps, created_by, updated_by,
+              priority, description, area_label, template, plant_id)
+           VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,$9,$10,1,$11,$12,$12,$13,$14,$15,$16,$17)
            RETURNING ${EIGHT_D_COLUMNS}`,
           [
             id,
@@ -206,13 +244,18 @@ export class EightDService {
             formatCode("eight_d", year, seq),
             body.title,
             ncrId,
-            body.teamLeadId ?? null,
-            body.championId ?? null,
-            body.memberIds ?? [],
+            teamLeadId,
+            championId,
+            memberIds,
             now,
             body.targetAt ?? null,
             JSON.stringify(steps),
             actorId,
+            body.priority ?? null,
+            body.description ?? null,
+            body.areaLabel ?? null,
+            body.template ?? null,
+            body.plantId ?? null,
           ],
         );
         const row = rows[0];
@@ -227,6 +270,8 @@ export class EightDService {
             throw new ApiError("CONFLICT", "That NCR already has an 8D");
           }
         }
+        await insertEntityPeople(t, tenantId, actorId, "eight_d", id, people);
+        await notifyPeople(t, this.notifications, tenantId, actorId, "eight_d", id, row.code, people);
         return toDto(row);
       },
     );
@@ -246,7 +291,7 @@ export class EightDService {
     if (row.status !== "active") {
       throw new ApiError("INVALID_TRANSITION", "This 8D is not active; its disciplines are frozen");
     }
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const key = stepKey(stepN);
     const current = row.steps[key] ?? { status: "pending" };
@@ -288,7 +333,7 @@ export class EightDService {
           [id, body.version, JSON.stringify(steps), currentStep, actorId],
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The 8D changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "eight_ds", key: id, message: "The 8D changed since you loaded it" });
         return toDto(updated);
       },
     );
@@ -307,7 +352,7 @@ export class EightDService {
     if (row.status !== "active") {
       throw new ApiError("INVALID_TRANSITION", `An 8D that is '${row.status}' cannot change state`);
     }
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     if (body.to === "completed" && !allStepsComplete(statusesOf(row.steps))) {
       throw new ApiError("INVALID_TRANSITION", "All eight disciplines must be complete before an 8D can be completed", {
@@ -338,7 +383,7 @@ export class EightDService {
           [id, body.version, body.to, actorId],
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The 8D changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "eight_ds", key: id, message: "The 8D changed since you loaded it" });
         return toDto(updated);
       },
     );
@@ -366,7 +411,7 @@ export class EightDService {
     if (row.status !== "active") {
       throw new ApiError("INVALID_TRANSITION", `An 8D that is '${row.status}' cannot change its team`);
     }
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     if (body.teamLeadId != null) await this.assertMember(tx, body.teamLeadId);
     if (body.championId != null) await this.assertMember(tx, body.championId);
@@ -413,7 +458,7 @@ export class EightDService {
           params,
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The 8D changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "eight_ds", key: id, message: "The 8D changed since you loaded it" });
         const dto = toDto(updated);
         // Notify a newly named lead and/or champion (skip self and unassigns).
         const named = new Set<string>();
@@ -463,9 +508,9 @@ export class EightDService {
     if (rows.length === 0) throw new ApiError("VALIDATION_FAILED", "That user is not an active member");
   }
 
-  private assertVersion(actual: number, expected: number): void {
+  private async assertVersion(tx: Tx, id: string, actual: number, expected: number): Promise<void> {
     if (actual !== expected) {
-      throw new ApiError("STALE_WRITE", "The record changed since you loaded it", { expected, actual });
+      throw await staleWriteError(tx, { table: "eight_ds", key: id, message: "The record changed since you loaded it", expected, actual });
     }
   }
 }

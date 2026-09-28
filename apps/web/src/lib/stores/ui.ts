@@ -19,6 +19,16 @@ interface UiState {
   commandOpen: boolean;
   setCommandOpen: (open: boolean) => void;
   toggleCommand: () => void;
+
+  /** Keyboard-shortcuts dialog (W3) and Appearance/Tweaks panel (W10). Session-only. */
+  shortcutsOpen: boolean;
+  setShortcutsOpen: (open: boolean) => void;
+  tweaksOpen: boolean;
+  setTweaksOpen: (open: boolean) => void;
+
+  /** The AI assistant drawer (S1-4). Session-only; the palette action opens it too. */
+  aiOpen: boolean;
+  setAiOpen: (open: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -32,6 +42,12 @@ export const useUiStore = create<UiState>()(
       commandOpen: false,
       setCommandOpen: (commandOpen) => set({ commandOpen }),
       toggleCommand: () => set((s) => ({ commandOpen: !s.commandOpen })),
+      shortcutsOpen: false,
+      setShortcutsOpen: (shortcutsOpen) => set({ shortcutsOpen }),
+      tweaksOpen: false,
+      setTweaksOpen: (tweaksOpen) => set({ tweaksOpen }),
+      aiOpen: false,
+      setAiOpen: (aiOpen) => set({ aiOpen }),
     }),
     {
       name: "kaenal-ui",

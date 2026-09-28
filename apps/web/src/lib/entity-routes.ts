@@ -8,6 +8,7 @@ import {
   Package,
   Truck,
   Award,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,6 +39,8 @@ export function entityHref(kind: string, id: string): string | null {
       return `/ppap/${id}`;
     case "supplier":
       return `/suppliers/${id}`;
+    case "audit":
+      return `/audits/${id}`;
     default:
       return null;
   }
@@ -55,6 +58,10 @@ const ICONS: Record<string, LucideIcon> = {
   ppap: Package,
   supplier: Truck,
   training: Award,
+  // `ClipboardCheck` (visually a clipboard+check) is already `inspection`'s
+  // glyph — reusing it for `audit` would collide in search/notifications, so
+  // audits get `ShieldCheck` instead (DESIGN-02-audits.md §2.5).
+  audit: ShieldCheck,
 };
 
 export function entityIcon(kind: string): LucideIcon {
@@ -73,6 +80,7 @@ const LABELS: Record<string, string> = {
   ppap: "PPAP",
   supplier: "Supplier",
   training: "Training",
+  audit: "Audit",
 };
 
 export function entityLabel(kind: string): string {

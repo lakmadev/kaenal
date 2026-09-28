@@ -16,7 +16,7 @@ describe("roleSeesNavRoot", () => {
 
   it("manager sees everything except platform/admin modules", () => {
     expect(roleSeesNavRoot("manager", "suppliers")).toBe(true);
-    expect(roleSeesNavRoot("manager", "pqe")).toBe(true);
+    expect(roleSeesNavRoot("manager", "audits")).toBe(true);
     expect(roleSeesNavRoot("manager", "ai-governance")).toBe(false);
     expect(roleSeesNavRoot("manager", "dev-platform")).toBe(false);
     expect(roleSeesNavRoot("manager", "pdf-designer")).toBe(false);

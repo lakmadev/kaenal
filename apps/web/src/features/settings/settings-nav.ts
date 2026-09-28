@@ -43,6 +43,8 @@ export interface SettingsNavItem {
   icon: LucideIcon;
   count?: number;
   built?: boolean;
+  /** Deferred external-infrastructure entry: not shown in the rail and not resolvable (see config/excluded.md). */
+  hidden?: boolean;
 }
 
 export interface SettingsNavGroup {
@@ -73,8 +75,8 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     group: "Security & Identity",
     items: [
       { id: "trust", label: "Trust Center", icon: ShieldCheck },
-      { id: "sso", label: "Single Sign-On", icon: KeyRound },
-      { id: "scim", label: "SCIM provisioning", icon: Users },
+      { id: "sso", label: "Single Sign-On", icon: KeyRound, hidden: true },
+      { id: "scim", label: "SCIM provisioning", icon: Users, hidden: true },
       { id: "network", label: "Network policy", icon: Shield },
       { id: "sessions", label: "Session policies", icon: Clock, built: true },
       { id: "service-accounts", label: "Service accounts", icon: Bot },
@@ -87,7 +89,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       { id: "dsar", label: "Data subject requests", icon: User },
       { id: "legal-hold", label: "Legal hold", icon: Lock, built: true },
       { id: "dlp", label: "DLP policies", icon: Shield, built: true },
-      { id: "byok", label: "Customer-managed keys", icon: KeyRound },
+      { id: "byok", label: "Customer-managed keys", icon: KeyRound, hidden: true },
     ],
   },
   {
@@ -127,9 +129,9 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
   {
     group: "Operations",
     items: [
-      { id: "status-page", label: "System status", icon: Sparkles },
-      { id: "backup-restore", label: "Backup & restore", icon: RefreshCw },
-      { id: "warehouse", label: "Data warehouse sync", icon: Package },
+      { id: "status-page", label: "System status", icon: Sparkles, hidden: true },
+      { id: "backup-restore", label: "Backup & restore", icon: RefreshCw, hidden: true },
+      { id: "warehouse", label: "Data warehouse sync", icon: Package, hidden: true },
       { id: "bulk-import", label: "Bulk import", icon: Upload, built: true },
     ],
   },
@@ -157,8 +159,10 @@ const BY_ID = new Map<string, SettingsNavItem>(
   SETTINGS_NAV.flatMap((g) => g.items).map((i) => [i.id, i]),
 );
 
+/** A visible settings item by id; hidden (deferred) items resolve to undefined. */
 export function settingsItem(id: string): SettingsNavItem | undefined {
-  return BY_ID.get(id);
+  const item = BY_ID.get(id);
+  return item !== undefined && item.hidden !== true ? item : undefined;
 }
 
 /** The section a bare/unknown slug resolves to. */

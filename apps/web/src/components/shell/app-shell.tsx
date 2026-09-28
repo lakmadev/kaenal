@@ -6,12 +6,20 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ApiRequestError, apiQueries } from "@kaenal/api-client";
 import { useMe } from "@/hooks/use-me";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
 import { roleSeesRoute } from "@/config/rbac";
 import { getApiClient } from "@/lib/api";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { CommandPalette } from "./command-palette";
 import { Skeleton } from "@/components/ui";
+import { OfflineBanner } from "./offline-banner";
+import { StaleWriteDialog } from "./stale-write-dialog";
+import { ShortcutsDialog } from "./shortcuts-dialog";
+import { TweaksPanel } from "./tweaks-panel";
+import { PreferencesApplier } from "./preferences-applier";
+import { LiveToasts } from "./live-toasts";
+import { AiDrawer } from "@/features/ai/ai-drawer";
 
 /**
  * The authenticated shell (04 §3). It owns the client-side session guard: a 401
@@ -50,7 +58,8 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
   // Realtime signal stream (Phase R1): live-invalidate queries as changes land
   // elsewhere. Connect only for an authenticated internal session, so an
   // unauthenticated or portal-only page never opens a stream that would 401.
-  useRealtime(me !== undefined && !unauthenticated && !portalOnly);
+  useRealtime(me !== undefined && !unauthenticated && !portalOnly, me?.userId);
+  useGlobalShortcuts();
 
   // Warm the members directory once the session is known (internal users only).
   // Nearly every screen resolves an owner/inspector/author/assignee id → name
@@ -71,11 +80,18 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar me={me} />
+        <OfflineBanner />
         <main className="flex-1 overflow-y-auto">
           {isLoading ? <ShellSkeleton /> : children}
         </main>
       </div>
       <CommandPalette />
+      <ShortcutsDialog />
+      <TweaksPanel />
+      <PreferencesApplier />
+      <StaleWriteDialog />
+      <LiveToasts />
+      <AiDrawer />
     </div>
   );
 }

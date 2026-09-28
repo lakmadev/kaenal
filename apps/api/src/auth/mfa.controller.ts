@@ -1,9 +1,13 @@
-import { Body, Controller, Get, Inject, Post } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Post, Req } from "@nestjs/common";
+import type { Request } from "express";
 import { z } from "zod";
 import { withAudit } from "@kaenal/db";
 import { currentContext, currentTx } from "../context.js";
 import { ApiError } from "../errors.js";
-import { MFA_SERVICE } from "../tokens.js";
+import { AllowEnrolment } from "../decorators.js";
+import { AUTH_SERVICE, MFA_SERVICE } from "../tokens.js";
+import type { AuthService } from "./auth.service.js";
+import { requestSessionToken } from "./session.authenticator.js";
 import type { MfaService, MfaStatus } from "./mfa.service.js";
 
 /**
@@ -22,25 +26,38 @@ function parseCode(body: unknown): string {
 
 @Controller("v1/auth/mfa")
 export class MfaController {
-  constructor(@Inject(MFA_SERVICE) private readonly mfa: MfaService) {}
+  constructor(
+    @Inject(MFA_SERVICE) private readonly mfa: MfaService,
+    @Inject(AUTH_SERVICE) private readonly auth: AuthService,
+  ) {}
 
+  // status / enroll / activate are reachable with an enrolment-only session (a
+  // partner's first login, P11) — they are the only routes that session may use.
+  @AllowEnrolment()
   @Get()
   status(): Promise<MfaStatus> {
     return this.mfa.status(this.userId());
   }
 
   /** Begin enrolment — returns the otpauth URI + a QR data-URI to scan. */
+  @AllowEnrolment()
   @Post("enroll")
   enroll(): Promise<{ otpauthUri: string; qrDataUri: string }> {
     return this.mfa.startEnrollment(this.userId());
   }
 
   /** Activate a pending enrolment with a first code; returns one-time recovery codes. */
+  @AllowEnrolment()
   @Post("activate")
-  async activate(@Body() body: unknown): Promise<{ recoveryCodes: string[] }> {
+  async activate(@Body() body: unknown, @Req() req: Request): Promise<{ recoveryCodes: string[]; sessionUpgraded: boolean }> {
     const result = await this.mfa.activate(this.userId(), parseCode(body));
     await this.audit("enabled");
-    return result;
+    // The code just verified is what earns a full session: promote an
+    // enrolment-only session in place (no-op for an ordinary one).
+    const token = requestSessionToken(req);
+    const sessionUpgraded =
+      token !== null && (await this.auth.promoteEnrolmentSession(currentTx(), this.userId(), token));
+    return { ...result, sessionUpgraded };
   }
 
   /** Disable MFA — requires a current code. */

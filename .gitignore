@@ -23,3 +23,4 @@ apps/web/playwright-report/
 
 # Claude Code model-router decision log
 .claude/hooks/router.log.jsonl
+.claude/worktrees/

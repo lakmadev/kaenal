@@ -285,13 +285,17 @@ describe("supplier portal — isolation (rule 8, one boundary out)", () => {
 });
 
 describe("supplier portal — external auth policy (P11)", () => {
-  it("refuses sign-in for a partner without MFA configured", async () => {
+  it("gives a partner without MFA an ENROLMENT-ONLY session that cannot reach the portal", async () => {
     const res = await request(server())
       .post("/v1/auth/sign-in")
       .set("X-Tenant-Id", ACME)
+      .set("X-Auth-Mode", "bearer")
       .send({ email: "portal-nomfa@a.test", password: PASSWORD });
-    expect(res.status).toBe(403);
-    expect(String(res.body.error?.message ?? res.body.message ?? "")).toMatch(/multi-factor/i);
+    expect(res.status).toBe(201);
+    expect(res.body.enrolmentRequired).toBe(true);
+    const tok = String(res.body.sessionToken);
+    expect((await authed("get", "/v1/portal/scars", tok)).status).toBe(403);
+    expect((await authed("get", "/v1/portal/me", tok)).status).toBe(403);
   });
 
   it("issues a short-lived session for a partner (< 3h)", async () => {

@@ -3,6 +3,7 @@ import {
   AiConfidence,
   AiFeature,
   AuditAction,
+  AuditChecklistStatus,
   AuditFindingKind,
   AuditPhase,
   AuditType,
@@ -11,7 +12,11 @@ import {
   CapaType,
   DocumentCategory,
   DocumentStatus,
+  DocumentTemplate,
   EightDStatus,
+  EightDTemplate,
+  EntityPersonRole,
+  WizardPriority,
   EntityKind,
   EightDStepStatus,
   ExportFormat,
@@ -109,6 +114,24 @@ export type UpdateTemplateBody = z.infer<typeof UpdateTemplateBody>;
 export const TemplateVersionBody = z.object({ version: z.number().int().nonnegative() });
 export type TemplateVersionBody = z.infer<typeof TemplateVersionBody>;
 
+/** One person + role from the wizard's "Assignees & approvals" step. The server
+ *  derives the record's primary columns (owner/inspector/lead/approver) from it
+ *  and stores every entry in `entity_people`. */
+export const EntityPersonInput = z.object({
+  userId: z.string().uuid(),
+  role: EntityPersonRole,
+});
+export type EntityPersonInput = z.infer<typeof EntityPersonInput>;
+export const EntityPeopleInput = z.array(EntityPersonInput).max(50);
+
+/** A site the caller may raise records in (wizard "Site" select). */
+export const PlantDto = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  code: z.string(),
+});
+export type PlantDto = z.infer<typeof PlantDto>;
+
 // --- Inspections ------------------------------------------------------------
 
 /**
@@ -164,6 +187,11 @@ export const CreateInspectionBody = z.object({
   scheduledAt: z.string().datetime().nullable().optional(),
   /** Makes this a recurring series head; occurrences are materialised by 06. */
   recurrence: RecurrenceRule.nullable().optional(),
+  /** CreateWizard fields (S1-1). */
+  priority: WizardPriority.nullable().optional(),
+  description: z.string().max(8000).nullable().optional(),
+  areaLabel: z.string().max(200).nullable().optional(),
+  people: EntityPeopleInput.optional(),
 });
 export type CreateInspectionBody = z.infer<typeof CreateInspectionBody>;
 
@@ -286,6 +314,11 @@ export const CreateNcrBody = z.object({
   containment: z.array(z.string().min(1).max(2000)).max(20).optional(),
   /** Evidence files already uploaded via presign; linked to this NCR on create. */
   evidenceFileIds: z.array(z.string().uuid()).max(20).optional(),
+  /** CreateWizard fields (S1-1): an explicit due date overrides the SLA-derived
+   *  one; free-text area; assignees + roles. */
+  dueAt: z.string().datetime().nullable().optional(),
+  areaLabel: z.string().max(200).nullable().optional(),
+  people: EntityPeopleInput.optional(),
 });
 export type CreateNcrBody = z.infer<typeof CreateNcrBody>;
 
@@ -515,6 +548,12 @@ export const CreateDocumentBody = z.object({
   frameworks: z.array(z.string().min(1).max(64)).max(50).optional(),
   expiresAt: z.string().datetime().nullable().optional(),
   changelog: z.string().max(4000).nullable().optional(),
+  /** CreateWizard fields (S1-1). */
+  template: DocumentTemplate.nullable().optional(),
+  description: z.string().max(8000).nullable().optional(),
+  plantId: z.string().uuid().nullable().optional(),
+  areaLabel: z.string().max(200).nullable().optional(),
+  people: EntityPeopleInput.optional(),
 });
 export type CreateDocumentBody = z.infer<typeof CreateDocumentBody>;
 
@@ -619,7 +658,7 @@ export type DownloadFileResult = z.infer<typeof DownloadFileResult>;
 // --- Search -----------------------------------------------------------------
 
 /** The entity kinds the command palette federates over (03 §1, 04). */
-export const SearchEntityKind = z.enum(["inspection", "ncr", "capa", "document"]);
+export const SearchEntityKind = z.enum(["inspection", "ncr", "capa", "document", "audit"]);
 export type SearchEntityKind = z.infer<typeof SearchEntityKind>;
 
 export const SearchResultDto = z.object({
@@ -656,6 +695,15 @@ export const NotificationDto = z.object({
 });
 export type NotificationDto = z.infer<typeof NotificationDto>;
 
+/** Notification list page: the standard cursor page plus an optional `total`
+ *  (the caller's notifications matching the same filters, ignoring the cursor). */
+export const NotificationPageDto = z.object({
+  items: z.array(NotificationDto),
+  nextCursor: z.string().nullable(),
+  total: z.number().int().nonnegative().optional(),
+});
+export type NotificationPageDto = z.infer<typeof NotificationPageDto>;
+
 /** Toggle the star on one of the caller's notifications. */
 export const StarNotificationBody = z.object({ starred: z.boolean() });
 export type StarNotificationBody = z.infer<typeof StarNotificationBody>;
@@ -685,6 +733,46 @@ export const UpdateNotificationPrefsBody = z.object({
   matrix: z.record(z.string(), ChannelPrefs),
 });
 export type UpdateNotificationPrefsBody = z.infer<typeof UpdateNotificationPrefsBody>;
+
+// --- User preferences (self-scoped; S1-9 / S1-7) -----------------------------
+
+export const AiProminence = z.enum(["front", "normal", "quiet"]);
+export type AiProminence = z.infer<typeof AiProminence>;
+export const AccentKey = z.enum(["ink", "indigo", "teal", "orange"]);
+export type AccentKey = z.infer<typeof AccentKey>;
+export const DensityKey = z.enum(["comfortable", "compact"]);
+export type DensityKey = z.infer<typeof DensityKey>;
+
+export const UserPreferencesSettings = z.object({
+  aiProminence: AiProminence,
+  accent: AccentKey,
+  density: DensityKey,
+  keyboardShortcuts: z.boolean(),
+  showKeyboardHints: z.boolean(),
+  locale: z.enum(["en"]),
+});
+export type UserPreferencesSettings = z.infer<typeof UserPreferencesSettings>;
+
+export const USER_PREFERENCES_DEFAULTS: UserPreferencesSettings = {
+  aiProminence: "normal",
+  accent: "ink",
+  density: "comfortable",
+  keyboardShortcuts: true,
+  showKeyboardHints: true,
+  locale: "en",
+};
+
+/** The caller's preferences; `lockVersion` 0 = never saved (defaults). */
+export const UserPreferencesDto = UserPreferencesSettings.extend({
+  lockVersion: z.number().int().nonnegative(),
+});
+export type UserPreferencesDto = z.infer<typeof UserPreferencesDto>;
+
+/** Partial update (PATCH semantics) guarded by the `version` last read. */
+export const UpdateUserPreferencesBody = UserPreferencesSettings.partial()
+  .extend({ version: z.number().int().nonnegative() })
+  .refine((b) => Object.keys(b).some((k) => k !== "version"), { message: "Nothing to update" });
+export type UpdateUserPreferencesBody = z.infer<typeof UpdateUserPreferencesBody>;
 
 // --- 8D ----------------------------------------------------------------------
 
@@ -724,6 +812,15 @@ export const CreateEightDBody = z.object({
   championId: z.string().uuid().nullable().optional(),
   memberIds: z.array(z.string().uuid()).max(50).optional(),
   targetAt: z.string().datetime().nullable().optional(),
+  /** CreateWizard fields (S1-1). `ncrCode` links by the human code the wizard
+   *  collects ("NCR-2026-…"); it is resolved server-side (unknown → 404). */
+  ncrCode: z.string().min(1).max(64).optional(),
+  template: EightDTemplate.nullable().optional(),
+  priority: WizardPriority.nullable().optional(),
+  description: z.string().max(8000).nullable().optional(),
+  plantId: z.string().uuid().nullable().optional(),
+  areaLabel: z.string().max(200).nullable().optional(),
+  people: EntityPeopleInput.optional(),
 });
 export type CreateEightDBody = z.infer<typeof CreateEightDBody>;
 
@@ -762,19 +859,63 @@ export type AssignEightDBody = z.infer<typeof AssignEightDBody>;
 
 // --- Audits ------------------------------------------------------------------
 
+/** One clause of an audit's checklist (Sprint 02 S2-4, `checklist` jsonb column). */
+export const AuditChecklistItem = z.object({
+  id: z.string().uuid(),
+  clause: z.string(),
+  section: z.string(),
+  text: z.string(),
+  status: AuditChecklistStatus,
+  notes: z.string().nullable(),
+  /** Set once scoring this item auto-created (or was linked to) a finding. */
+  findingId: z.string().uuid().nullable(),
+});
+export type AuditChecklistItem = z.infer<typeof AuditChecklistItem>;
+
+/** Score one checklist item; version-checked against the audit's `lockVersion`
+ *  (a checklist edit bumps it like any other audit mutation). */
+export const UpdateAuditChecklistItemBody = z.object({
+  status: AuditChecklistStatus,
+  notes: z.string().max(4000).nullable().optional(),
+  version: z.number().int().nonnegative(),
+});
+export type UpdateAuditChecklistItemBody = z.infer<typeof UpdateAuditChecklistItemBody>;
+
+/** Findings breakdown by kind — shared by the detail sidebar and the list KPI strip. */
+export const AuditFindingsSummary = z.object({
+  major: z.number().int().nonnegative(),
+  minor: z.number().int().nonnegative(),
+  opportunity: z.number().int().nonnegative(),
+});
+export type AuditFindingsSummary = z.infer<typeof AuditFindingsSummary>;
+
 export const AuditDto = z.object({
   id: z.string().uuid(),
   code: z.string(),
   title: z.string(),
+  description: z.string().nullable(),
   standard: z.string().nullable(),
   type: AuditType,
   status: AuditPhase,
   leadAuditorId: z.string().uuid().nullable(),
   team: z.array(z.string().uuid()),
+  /** The department/people being audited — distinct from `team` (the audit team). */
+  auditeeIds: z.array(z.string().uuid()),
   plantId: z.string().uuid().nullable(),
+  location: z.string().nullable(),
+  scope: z.array(z.string()),
   startAt: z.string().datetime().nullable(),
   endAt: z.string().datetime().nullable(),
+  /** Freeform, lead-auditor-set; "—" is rendered client-side for null. */
+  nextActivity: z.string().nullable(),
+  /** Computed from `checklist` (non-`pending` ÷ total, 0 if empty) — never
+   *  column-backed (the dead `audits.progress` column is dropped). */
   progress: z.number(),
+  checklist: z.array(AuditChecklistItem),
+  findingsSummary: AuditFindingsSummary,
+  capasOpen: z.number().int().nonnegative(),
+  capasTotal: z.number().int().nonnegative(),
+  closedAt: z.string().datetime().nullable(),
   lockVersion: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -785,11 +926,16 @@ export const CreateAuditBody = z.object({
   title: z.string().min(1).max(200),
   type: AuditType,
   standard: z.string().max(200).nullable().optional(),
+  description: z.string().max(4000).nullable().optional(),
+  location: z.string().max(200).nullable().optional(),
+  scope: z.array(z.string().min(1).max(200)).max(50).optional(),
   leadAuditorId: z.string().uuid().nullable().optional(),
   team: z.array(z.string().uuid()).max(50).optional(),
+  auditeeIds: z.array(z.string().uuid()).max(50).optional(),
   plantId: z.string().uuid().nullable().optional(),
   startAt: z.string().datetime().nullable().optional(),
   endAt: z.string().datetime().nullable().optional(),
+  nextActivity: z.string().max(500).nullable().optional(),
 });
 export type CreateAuditBody = z.infer<typeof CreateAuditBody>;
 
@@ -798,15 +944,39 @@ export const AdvanceAuditBody = z.object({
   to: AuditPhase,
   version: z.number().int().nonnegative(),
   reason: z.string().max(2000).optional(),
+  nextActivity: z.string().max(500).nullable().optional(),
 });
 export type AdvanceAuditBody = z.infer<typeof AdvanceAuditBody>;
+
+/** Last-6-months audit counts grouped by type (S2-1 frequency chart). */
+export const AuditFrequencyPointDto = z.object({
+  month: z.string(),
+  counts: z.record(AuditType, z.number().int().nonnegative()),
+});
+export type AuditFrequencyPointDto = z.infer<typeof AuditFrequencyPointDto>;
+
+export const AuditFrequencyResult = z.object({
+  points: z.array(AuditFrequencyPointDto),
+});
+export type AuditFrequencyResult = z.infer<typeof AuditFrequencyResult>;
+
+/** The `/audits` KPI strip — one aggregate query, not a client tally over a page. */
+export const AuditStatsDto = z.object({
+  active: z.number().int().nonnegative(),
+  plannedNext90d: z.number().int().nonnegative(),
+  completedYtd: z.number().int().nonnegative(),
+  openFindings: z.number().int().nonnegative(),
+});
+export type AuditStatsDto = z.infer<typeof AuditStatsDto>;
 
 export const AuditFindingDto = z.object({
   id: z.string().uuid(),
   auditId: z.string().uuid(),
   clause: z.string().nullable(),
   kind: AuditFindingKind,
+  title: z.string().nullable(),
   description: z.string(),
+  dueDate: z.string().datetime().nullable(),
   ncrId: z.string().uuid().nullable(),
   capaId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
@@ -818,6 +988,8 @@ export const CreateAuditFindingBody = z.object({
   kind: AuditFindingKind,
   description: z.string().min(1).max(4000),
   clause: z.string().max(200).nullable().optional(),
+  title: z.string().max(200).nullable().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
 });
 export type CreateAuditFindingBody = z.infer<typeof CreateAuditFindingBody>;
 
@@ -838,9 +1010,12 @@ export type RaiseCapaFromFindingBody = z.infer<typeof RaiseCapaFromFindingBody>;
 
 // --- Exports (03 §8) --------------------------------------------------------
 
-/** Optional filters narrowing the exported set; applied by the renderer. */
+/** Optional filters narrowing the exported set; applied by the renderer.
+ *  `auditId` is required for (and only meaningful for) an `audit_report`
+ *  export — the one audit whose PDF report is being rendered. */
 export const ExportFilters = z.object({
   status: z.string().max(60).optional(),
+  auditId: z.string().uuid().optional(),
 });
 export type ExportFilters = z.infer<typeof ExportFilters>;
 
@@ -865,12 +1040,43 @@ export const ExportDto = z.object({
 });
 export type ExportDto = z.infer<typeof ExportDto>;
 
-export const CreateExportBody = z.object({
-  resource: ExportResource,
-  /** Only `csv` is built today; the enum is where new renderers slot in. */
-  format: ExportFormat.default("csv"),
-  filters: ExportFilters.optional(),
+/**
+ * The AI reply a user asked to export ("Generate PDF", S1-4). Chat history is
+ * not persisted server-side, so the text + provenance is frozen on the export
+ * row at request time. The requester exports their own visible reply; it is
+ * never fed back to a model or written to an entity.
+ */
+export const AiReplyExportPayload = z.object({
+  text: z.string().min(1).max(20_000),
+  confidence: z.enum(["high", "medium", "low"]),
+  /** Provider label shown on the reply ("stub" until a real model is wired). */
+  provider: z.string().max(40).optional(),
+  invocationId: z.string().uuid().optional(),
+  sources: z.array(z.object({ kind: z.string().max(40), id: z.string().max(64) })).max(20).default([]),
+  generatedAt: z.string().datetime().optional(),
 });
+export type AiReplyExportPayload = z.infer<typeof AiReplyExportPayload>;
+
+export const CreateExportBody = z
+  .object({
+    resource: ExportResource,
+    /** csv / xlsx / pdf; the enum is where new renderers slot in. */
+    format: ExportFormat.default("csv"),
+    filters: ExportFilters.optional(),
+    /** Required for (and only for) `resource: "ai_reply"`. */
+    aiReply: AiReplyExportPayload.optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.resource === "ai_reply" && v.aiReply === undefined) {
+      ctx.addIssue({ code: "custom", path: ["aiReply"], message: "aiReply is required for an ai_reply export" });
+    }
+    if (v.resource !== "ai_reply" && v.aiReply !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["aiReply"], message: "aiReply is only valid for an ai_reply export" });
+    }
+    if (v.resource === "audit_report" && v.filters?.auditId === undefined) {
+      ctx.addIssue({ code: "custom", path: ["filters", "auditId"], message: "filters.auditId is required for an audit_report export" });
+    }
+  });
 export type CreateExportBody = z.infer<typeof CreateExportBody>;
 
 // --- Me (session identity) --------------------------------------------------
@@ -988,6 +1194,68 @@ export const AiSummaryDto = z.object({
 });
 export type AiSummaryDto = z.infer<typeof AiSummaryDto>;
 
+// --- AI assistant chat (S1-4) ------------------------------------------------
+
+/** Entity a chat turn is scoped to (resolved server-side under RLS). */
+export const AiChatEntityRef = z.object({
+  kind: EntityKind,
+  id: z.string().uuid(),
+});
+export type AiChatEntityRef = z.infer<typeof AiChatEntityRef>;
+
+export const AiChatTurn = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().min(1).max(4000),
+});
+export type AiChatTurn = z.infer<typeof AiChatTurn>;
+
+/**
+ * `POST /v1/ai/chat` body. The client sends the entity REFERENCE only; the
+ * server assembles the governed context under RLS, so no client-supplied text
+ * is trusted as context. Prior turns are the user's own conversation (nothing
+ * is persisted server-side). An `Idempotency-Key` header is accepted.
+ */
+export const AiChatRequest = z.object({
+  message: z.string().trim().min(1).max(4000),
+  entityRef: AiChatEntityRef.optional(),
+  history: z.array(AiChatTurn).max(20).optional(),
+});
+export type AiChatRequest = z.infer<typeof AiChatRequest>;
+
+/** Reasons an in-stream failure can carry (never a fake reply). */
+export const AiChatErrorCode = z.enum([
+  "AI_UNAVAILABLE",
+  "ENTITLEMENT_REQUIRED",
+  "BUDGET_EXCEEDED",
+  "AI_DISABLED",
+  "REGION_LOCKED",
+]);
+export type AiChatErrorCode = z.infer<typeof AiChatErrorCode>;
+
+/**
+ * One SSE `data:` frame of the chat stream: `delta`* then exactly one `done` or
+ * `error`. `done` carries provenance (confidence + sources + provider label).
+ */
+export const AiChatChunk = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("delta"), text: z.string() }),
+  z.object({
+    type: z.literal("done"),
+    invocationId: z.string().uuid(),
+    requestId: z.string(),
+    confidence: AiConfidence,
+    sources: z.array(AiSource),
+    /** "stub" = deterministic placeholder, not a real model. */
+    provider: z.string(),
+  }),
+  z.object({
+    type: z.literal("error"),
+    code: AiChatErrorCode,
+    message: z.string(),
+    requestId: z.string(),
+  }),
+]);
+export type AiChatChunk = z.infer<typeof AiChatChunk>;
+
 // --- Collaboration: comments, links, access log -----------------------------
 // FEATURES §9 (document detail = "related items · access log · comments") and
 // §329 (the cross-module linkage graph). These are generic over EntityKind so
@@ -1023,6 +1291,19 @@ export const CreateCommentBody = z.object({
   parentId: z.string().uuid().nullable().optional(),
 });
 export type CreateCommentBody = z.infer<typeof CreateCommentBody>;
+
+/**
+ * A member mention inside a comment body is the token `@[Display Name](user:<uuid>)`.
+ * The server extracts these ids (deduped) to raise `mention` notifications.
+ */
+export function extractMentionedUserIds(body: string): string[] {
+  const ids = new Set<string>();
+  for (const m of body.matchAll(/@\[[^\]\n]{1,120}\]\(user:([0-9a-fA-F-]{36})\)/g)) {
+    const id = m[1]?.toLowerCase();
+    if (id !== undefined && z.string().uuid().safeParse(id).success) ids.add(id);
+  }
+  return [...ids];
+}
 
 /**
  * One row of an entity's access log — a projection of `audit_events` that
@@ -1212,6 +1493,41 @@ export const UpdateSupplierBody = CreateSupplierBody.partial().extend({
   version: z.number().int().nonnegative(),
 });
 export type UpdateSupplierBody = z.infer<typeof UpdateSupplierBody>;
+
+/** Invite a supplier contact to the supplier portal (P11). The supplier comes from the URL. */
+export const PartnerInviteBody = z.object({
+  email: z.string().email().max(320),
+});
+export type PartnerInviteBody = z.infer<typeof PartnerInviteBody>;
+
+export const PartnerInviteResult = z.object({
+  email: z.string(),
+  expiresAt: z.string(),
+  /** Returned outside production only (no mail delivery there); never in production. */
+  token: z.string().optional(),
+});
+export type PartnerInviteResult = z.infer<typeof PartnerInviteResult>;
+
+/** A supplier-portal contact's lifecycle state (P11). */
+export const PortalContactStatus = z.enum(["invited", "enrolment_pending", "active", "revoked"]);
+export type PortalContactStatus = z.infer<typeof PortalContactStatus>;
+
+/**
+ * One external contact of a supplier: either a pending invitation (`invited`) or
+ * a `partner` membership scoped to that supplier. `id` is the invitation id for
+ * `invited` rows and the user id otherwise; the API resolves either.
+ */
+export const PortalContactDto = z.object({
+  id: z.string().uuid(),
+  email: z.string(),
+  name: z.string().nullable(),
+  status: PortalContactStatus,
+  mfaEnrolled: z.boolean(),
+  lastSignInAt: z.string().nullable(),
+  invitedAt: z.string(),
+  expiresAt: z.string().nullable(),
+});
+export type PortalContactDto = z.infer<typeof PortalContactDto>;
 
 /** Optional scorecard weights, as query params on the scorecard endpoint. */
 export const ScorecardWeightsQuery = z.object({

@@ -1,6 +1,7 @@
 import type pg from "pg";
 import type { Tx } from "@kaenal/db";
-import type { MemberDto, MemberWorkloadDto, Page, Role } from "@kaenal/types";
+import { isPlantScoped, type Membership } from "@kaenal/core";
+import type { MemberDto, MemberWorkloadDto, Page, PlantDto, Role } from "@kaenal/types";
 import { clampLimit, decodeCursor, keysetPredicate, toPage, type Cursor } from "../http/pagination.js";
 
 interface MembershipRow {
@@ -29,6 +30,17 @@ export interface MembersListOptions {
  */
 export class MembersService {
   constructor(private readonly control: pg.Pool) {}
+
+  async listPlants(tx: Tx, membership: Membership): Promise<PlantDto[]> {
+    const scoped = isPlantScoped(membership.role) && membership.plantIds.length > 0;
+    const { rows } = await tx.query<PlantDto>(
+      `SELECT id, name, code FROM plants
+        WHERE deleted_at IS NULL ${scoped ? "AND id = ANY($1::uuid[])" : ""}
+        ORDER BY name ASC, id ASC`,
+      scoped ? [membership.plantIds] : [],
+    );
+    return rows;
+  }
 
   async list(tx: Tx, opts: MembersListOptions): Promise<Page<MemberDto>> {
     const limit = clampLimit(opts.limit);

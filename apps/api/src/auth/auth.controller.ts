@@ -4,7 +4,7 @@ import { z } from "zod";
 import { InternalRole } from "@kaenal/types";
 import { WEB_SESSION_TTL_MS, PASSWORD_RESET_TTL_MS, INVITATION_TTL_MS } from "@kaenal/core";
 import { currentContext, currentTx } from "../context.js";
-import { AllowAnonymous, Public, RequireCapability } from "../decorators.js";
+import { AllowAnonymous, AllowEnrolment, Public, RequireCapability } from "../decorators.js";
 import { ApiError } from "../errors.js";
 import { AUTH_SERVICE, ENV, JOB_PRODUCER, RATE_LIMITER } from "../tokens.js";
 import type { JobProducer } from "../jobs/producer.js";
@@ -99,7 +99,14 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<
-    | { userId: string; role: string; expiresAt: string; sessionToken?: string }
+    | {
+        userId: string;
+        role: string;
+        expiresAt: string;
+        sessionToken?: string;
+        /** Present (true) when the session is enrolment-only: enrol TOTP before anything else. */
+        enrolmentRequired?: true;
+      }
     | { mfaRequired: true }
   > {
     const { email, password, code } = parse(SignInBody, body);
@@ -119,6 +126,8 @@ export class AuthController {
       userId: outcome.result.userId,
       role: outcome.result.role,
       expiresAt: outcome.result.expiresAt.toISOString(),
+      // Partner with no factor yet: the session below is enrolment-only (P11).
+      ...(outcome.kind === "enrolment_required" ? { enrolmentRequired: true as const } : {}),
     };
 
     // Bearer clients (the mobile app) have no cookie jar and hold the session in
@@ -134,6 +143,7 @@ export class AuthController {
     return base;
   }
 
+  @AllowEnrolment()
   @Post("sign-out")
   async signOut(
     @Req() req: Request,

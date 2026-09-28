@@ -250,7 +250,10 @@ async function main(): Promise<void> {
         teamLeadId: lead,
         championId: userId,
         memberIds: [marco, priya, tom],
-        targetAt: "2026-05-15T00:00:00.000Z",
+        // Relative to seed-run time, not a hardcoded date: a fixed calendar
+        // date eventually drifts into the past and trips the wizard's "due
+        // date can't be in the past" validation (rule 12 — must keep seeding).
+        targetAt: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString(),
       },
       ctx,
     );

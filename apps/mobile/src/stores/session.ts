@@ -76,6 +76,25 @@ async function establish(
   set({ me: res.body, status: "authenticated", mfaPending: null });
 }
 
+/**
+ * A supplier-portal partner's first sign-in returns an ENROLMENT-ONLY session
+ * (no second factor yet, P11). The mobile app has no enrolment flow for it — the
+ * QR/recovery-code setup lives on the web — so end that session and say so
+ * plainly rather than entering an app whose every call would be refused.
+ */
+async function rejectEnrolmentOnly(
+  res: { enrolmentRequired?: true; sessionToken: string },
+  tenant: string,
+): Promise<void> {
+  if (res.enrolmentRequired !== true) return;
+  await signOutRequest(tenant, res.sessionToken).catch(() => {});
+  throw {
+    status: 403,
+    code: "MFA_ENROLMENT_REQUIRED",
+    message: "Finish two-factor setup on the web app first, then sign in here.",
+  } as AuthError;
+}
+
 export const useSession = create<SessionState>((set, get) => ({
   status: "loading",
   token: null,
@@ -136,6 +155,7 @@ export const useSession = create<SessionState>((set, get) => ({
       set({ mfaPending: { tenant, email, password } });
       return "mfa";
     }
+    await rejectEnrolmentOnly(res, tenant);
     await establish(set, get, res.sessionToken, tenant);
     return "ok";
   },
@@ -148,6 +168,7 @@ export const useSession = create<SessionState>((set, get) => ({
       // Server still wants a code → the one supplied was wrong.
       throw { status: 401, code: "MFA_INVALID", message: "That code did not match." } as AuthError;
     }
+    await rejectEnrolmentOnly(res, pending.tenant);
     await establish(set, get, res.sessionToken, pending.tenant);
   },
 

@@ -19,10 +19,11 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@kaenal/api-client";
-import { signIn, forgotPassword, AuthError, isMfaRequired, isMfaBlocked } from "@/lib/auth";
+import { signIn, forgotPassword, AuthError, isMfaRequired, isMfaBlocked, isEnrolmentRequired, signOut } from "@/lib/auth";
 import { setActiveTenant } from "@/lib/tenant";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { CodeBoxes, MfaError } from "@/features/mfa/mfa-bits";
+import { MfaEnrollModal } from "@/features/mfa/mfa-enroll-modal";
 
 /**
  * Sign-in (04 §4), recreating the visual spec's `auth.jsx` flow: a workspace
@@ -35,7 +36,7 @@ import { CodeBoxes, MfaError } from "@/features/mfa/mfa-bits";
  * CSRF cookies; we persist the workspace slug and navigate in. Errors surface
  * inline and never reveal whether an email exists (07 §2).
  */
-type Stage = "workspace" | "login" | "verify" | "blocked" | "forgot";
+type Stage = "workspace" | "login" | "verify" | "blocked" | "forgot" | "enroll";
 
 function slugToName(slug: string): string {
   return slug
@@ -101,6 +102,13 @@ export function SignInForm(): React.ReactElement {
         return;
       }
       setActiveTenant(workspace);
+      if (isEnrolmentRequired(res)) {
+        // First login of a supplier-portal partner: the session is enrolment-only,
+        // so run the TOTP enrolment (QR → code → recovery codes) before the portal.
+        setBusy(false);
+        setStage("enroll");
+        return;
+      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.me() });
       router.replace("/dashboard");
     } catch (error) {
@@ -435,6 +443,39 @@ export function SignInForm(): React.ReactElement {
               <Info size={12} /> Lost access to your device and codes? Contact your workspace admin.
             </div>
           </form>
+        )}
+
+        {stage === "enroll" && (
+          <>
+            <WorkspaceCard workspace={workspace} email={email} />
+            <div
+              className="mb-[18px] inline-flex self-start"
+              style={{ padding: 14, borderRadius: "var(--r-md)", background: "var(--accent-soft)", color: "var(--accent)" }}
+            >
+              <Shield size={26} />
+            </div>
+            <h1 className="mb-2 text-[26px] font-bold" style={{ letterSpacing: "-0.01em" }}>
+              Set up two-factor to continue
+            </h1>
+            <p className="text-[13.5px] leading-[1.65] text-muted">
+              <strong className="text-text">{slugToName(workspace)}</strong> requires two-factor authentication for
+              supplier-portal accounts. Scan the QR code with an authenticator app, confirm a code, and save your
+              recovery codes to finish signing in.
+            </p>
+            <MfaEnrollModal
+              onClose={() => {
+                // Abandoning enrolment ends the enrolment-only session.
+                void signOut().catch(() => {});
+                setPassword("");
+                setStage("login");
+              }}
+              onDone={() => {
+                void queryClient.invalidateQueries({ queryKey: queryKeys.me() }).then(() => {
+                  router.replace("/dashboard");
+                });
+              }}
+            />
+          </>
         )}
 
         {stage === "blocked" && (

@@ -8,6 +8,7 @@ import type {
   UpdateNcrValidationRuleBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
 interface RuleRow {
@@ -107,10 +108,7 @@ export class NcrRulesService {
     const current = existing[0];
     if (current === undefined) throw notFound();
     if (current.lock_version !== body.version) {
-      throw new ApiError("STALE_WRITE", "This rule changed since you loaded it", {
-        expected: body.version,
-        actual: current.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "ncr_validation_rules", key: id, message: "This rule changed since you loaded it", expected: body.version, actual: current.lock_version });
     }
 
     return withAudit(
@@ -137,7 +135,7 @@ export class NcrRulesService {
           [id, body.version, body.name, body.field, body.operator, body.value, body.action, body.message, body.enabled, actorId],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "This rule changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "ncr_validation_rules", key: id, message: "This rule changed since you loaded it" });
         return toDto(row);
       },
     );

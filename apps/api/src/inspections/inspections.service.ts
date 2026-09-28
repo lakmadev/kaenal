@@ -25,7 +25,17 @@ import {
   type SetRecurrenceBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
+import {
+  assertNotPast,
+  assertPeopleAreMembers,
+  assertPlantExists,
+  dedupePeople,
+  firstWithRole,
+  insertEntityPeople,
+  notifyPeople,
+} from "../http/create-extras.js";
 import {
   clampLimit,
   decodeCursor,
@@ -173,6 +183,16 @@ export class InspectionsService {
     body: CreateInspectionBody,
     context: AuditContext,
   ): Promise<InspectionDto> {
+    // CreateWizard foreign ids: a plant / person from another tenant reads as 404.
+    await assertPlantExists(tx, body.plantId);
+    // A recurring series head's scheduledAt is the recurrence anchor, not a
+    // single due date — an anchor in the past is normal (a weekly walk that
+    // "started" last month) and materialisation catches occurrences up to now.
+    if (body.recurrence == null) assertNotPast("scheduledAt", body.scheduledAt);
+    const people = dedupePeople(body.people);
+    await assertPeopleAreMembers(tx, people);
+    const inspectorId = body.inspectorId ?? firstWithRole(people, "owner");
+
     // Only a published template can back a new inspection: a draft's schema can
     // still change, which would leave the pinned template_version pointing at a
     // shape that no longer exists.
@@ -202,7 +222,11 @@ export class InspectionsService {
         entityKind: "inspection",
         entityId: id,
         action: "created",
-        after: { title: body.title, templateId: body.templateId },
+        after: {
+          title: body.title,
+          templateId: body.templateId,
+          people: people.map((p) => `${p.userId}:${p.role}`),
+        },
         requestId: context.requestId,
         ip: context.ip,
         userAgent: context.userAgent,
@@ -226,8 +250,8 @@ export class InspectionsService {
           `INSERT INTO inspections
              (id, tenant_id, code, title, template_id, template_version,
               inspector_id, plant_id, area_id, status, scheduled_at, recurrence,
-              created_by, updated_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled', $10, $11, $12, $12)
+              created_by, updated_by, priority, description, area_label)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'scheduled', $10, $11, $12, $12, $13, $14, $15)
            RETURNING ${INSPECTION_COLUMNS}`,
           [
             id,
@@ -236,16 +260,21 @@ export class InspectionsService {
             body.title,
             body.templateId,
             template.version,
-            body.inspectorId ?? null,
+            inspectorId,
             body.plantId ?? null,
             body.areaId ?? null,
             body.scheduledAt ?? null,
             body.recurrence != null ? JSON.stringify(body.recurrence) : null,
             actorId,
+            body.priority ?? null,
+            body.description ?? null,
+            body.areaLabel ?? null,
           ],
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Inspection was not created");
+        await insertEntityPeople(t, tenantId, actorId, "inspection", id, people);
+        await notifyPeople(t, this.notifications, tenantId, actorId, "inspection", id, code, people);
         return toInspectionDto(row);
       },
     );
@@ -264,7 +293,7 @@ export class InspectionsService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row, expectedVersion);
+    await this.assertVersion(tx, row, expectedVersion);
 
     const transition = inspectionMachine.canTransition(row.status as InspectionStatus, "in_progress", {
       requiredItemIds: [],
@@ -305,7 +334,7 @@ export class InspectionsService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row, expectedVersion);
+    await this.assertVersion(tx, row, expectedVersion);
 
     const schema = await this.pinnedSchema(tx, row.template_id, row.template_version);
 
@@ -370,7 +399,7 @@ export class InspectionsService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
     if (row.series_id !== null) {
       throw new ApiError("CONFLICT", "A generated occurrence cannot carry its own recurrence");
     }
@@ -417,7 +446,7 @@ export class InspectionsService {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
     this.assertInScope(membership, row.plant_id);
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     if (body.inspectorId !== null) await this.assertMember(tx, body.inspectorId);
 
@@ -628,12 +657,9 @@ export class InspectionsService {
     if (rows.length === 0) throw new ApiError("VALIDATION_FAILED", "That user is not an active member");
   }
 
-  private assertVersion(row: InspectionRow, expected: number): void {
+  private async assertVersion(tx: Tx, row: InspectionRow, expected: number): Promise<void> {
     if (row.lock_version !== expected) {
-      throw new ApiError("STALE_WRITE", "The inspection changed since you loaded it", {
-        expected,
-        actual: row.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "inspections", key: row.id, message: "The inspection changed since you loaded it", expected, actual: row.lock_version });
     }
   }
 
@@ -657,7 +683,7 @@ export class InspectionsService {
       [id, expectedVersion, ...extraParams],
     );
     const row = rows[0];
-    if (row === undefined) throw new ApiError("STALE_WRITE", "The inspection changed since you loaded it");
+    if (row === undefined) throw await staleWriteError(tx, { table: "inspections", key: id, message: "The inspection changed since you loaded it" });
     return toInspectionDto(row);
   }
 }

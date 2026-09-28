@@ -11,7 +11,6 @@ import { useMemberLookup } from "@/hooks/use-members";
 import { PageHeader } from "@/components/page-header";
 import { MemberCell } from "@/components/member-cell";
 import { Button, Segmented, StatusBadge, RiskBadge, EmptyState, Skeleton } from "@/components/ui";
-import { InspectionCreateDialog } from "./inspection-create-dialog";
 
 type View = "list" | "grid";
 type StatusFilter = "all" | InspectionStatus;
@@ -43,7 +42,6 @@ export function InspectionList(): React.ReactElement {
   const [view, setView] = useState<View>("list");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [extra, setExtra] = useState<ExtraFilters>(EMPTY_FILTERS);
   const filterRef = useRef<HTMLDivElement>(null);
@@ -131,7 +129,7 @@ export function InspectionList(): React.ReactElement {
               <Download size={14} /> Export
             </Button>
             {canCreate && (
-              <Button variant="primary" onClick={() => setCreateOpen(true)}>
+              <Button variant="primary" onClick={() => router.push("/create/inspection")}>
                 <Plus size={14} /> New Inspection
               </Button>
             )}
@@ -175,7 +173,7 @@ export function InspectionList(): React.ReactElement {
             icon={ClipboardCheck}
             title={search !== "" || activeFilterCount > 0 || status !== "all" ? "No matching inspections" : "No inspections yet"}
             body="Schedule an inspection from a published template."
-            action={canCreate ? <Button variant="primary" onClick={() => setCreateOpen(true)}><Plus size={14} /> New Inspection</Button> : undefined}
+            action={canCreate ? <Button variant="primary" onClick={() => router.push("/create/inspection")}><Plus size={14} /> New Inspection</Button> : undefined}
           />
         </div>
       ) : view === "list" ? (
@@ -263,7 +261,6 @@ export function InspectionList(): React.ReactElement {
         <span>Showing {rows.length} of {items.length} inspections</span>
       </div>
 
-      <InspectionCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

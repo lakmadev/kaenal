@@ -18,7 +18,6 @@ import {
   UserCell,
   UserAvatar,
 } from "./document-bits";
-import { DocumentCreateDialog } from "./document-create-dialog";
 
 type CategoryFilter = "all" | DocumentCategory;
 type StatusFilter = "all" | DocumentStatus;
@@ -54,8 +53,6 @@ export function DocumentList(): React.ReactElement {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<View>("list");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createWithFile, setCreateWithFile] = useState(false);
 
   // The library spans every category/status, so we load one page and narrow it
   // client-side (mirrors the NCR/CAPA modules until virtualized paging).
@@ -126,8 +123,7 @@ export function DocumentList(): React.ReactElement {
   };
 
   const openCreate = (withFile: boolean): void => {
-    setCreateWithFile(withFile);
-    setCreateOpen(true);
+    router.push(withFile ? "/create/document?template=upload" : "/create/document");
   };
 
   return (
@@ -240,7 +236,6 @@ export function DocumentList(): React.ReactElement {
         </div>
       </div>
 
-      <DocumentCreateDialog open={createOpen} onOpenChange={setCreateOpen} fileFirst={createWithFile} />
     </div>
   );
 }

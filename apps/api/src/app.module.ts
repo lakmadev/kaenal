@@ -15,6 +15,8 @@ import { RequestLifecycleInterceptor } from "./lifecycle.interceptor.js";
 import { RequestIdMiddleware } from "./request-id.middleware.js";
 import { TenantRegistry } from "./tenant/registry.js";
 import { TenantPoolManager } from "./tenant/pool-manager.js";
+import { WebhookSecretBox, WebhookSecretResolver } from "./outbox/webhook-secret-box.js";
+import { FetchWebhookTransport } from "./outbox/webhook-transport.js";
 import { EnvSecretResolver, type SecretResolver } from "./tenant/secret-resolver.js";
 import { ShutdownService } from "./shutdown.service.js";
 import { AuthService } from "./auth/auth.service.js";
@@ -74,6 +76,8 @@ import type { Storage } from "./files/storage.js";
 import { SearchController } from "./search/search.controller.js";
 import { SearchService } from "./search/search.service.js";
 import { NotificationsController } from "./notifications/notifications.controller.js";
+import { PreferencesController } from "./preferences/preferences.controller.js";
+import { PreferencesService } from "./preferences/preferences.service.js";
 import { NotificationsService } from "./notifications/notifications.service.js";
 import { RealtimeController } from "./realtime/realtime.controller.js";
 import { RealtimeService } from "./realtime/realtime.service.js";
@@ -119,6 +123,7 @@ import {
   AUTHENTICATOR,
   CAPA_SERVICE,
   COMMENTS_SERVICE,
+  PREFERENCES_SERVICE,
   CONTROL_POOL,
   ENTITY_LINKS_SERVICE,
   DOCUMENTS_SERVICE,
@@ -193,6 +198,7 @@ import {
     AiController,
     SearchController,
     NotificationsController,
+    PreferencesController,
     RealtimeController,
     PresenceController,
     CollabController,
@@ -349,8 +355,8 @@ import {
     },
     {
       provide: AUDITS_SERVICE,
-      useFactory: (ncrs: NcrService, capas: CapaService) => new AuditsService(ncrs, capas),
-      inject: [NCR_SERVICE, CAPA_SERVICE],
+      useFactory: (ncrs: NcrService, capas: CapaService, n: NotificationsService) => new AuditsService(ncrs, capas, n),
+      inject: [NCR_SERVICE, CAPA_SERVICE, NOTIFICATIONS_SERVICE],
     },
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
     { provide: SUPPLIERS_SERVICE, useFactory: () => new SuppliersService() },
@@ -391,8 +397,8 @@ import {
     },
     {
       provide: EXPORTS_SERVICE,
-      useFactory: (storage: Storage, jobs: JobProducer) => new ExportsService(storage, jobs),
-      inject: [STORAGE, JOB_PRODUCER],
+      useFactory: (storage: Storage, jobs: JobProducer, audits: AuditsService) => new ExportsService(storage, jobs, audits),
+      inject: [STORAGE, JOB_PRODUCER, AUDITS_SERVICE],
     },
     // The AI gateway is the one model chokepoint (06 §3). The provider is chosen
     // by env: `stub` (default — deterministic, no model, keeps dev/test/CI free of
@@ -433,7 +439,12 @@ import {
       useFactory: (jobs: JobProducer) => new NotificationsService(jobs),
       inject: [JOB_PRODUCER],
     },
-    { provide: COMMENTS_SERVICE, useFactory: () => new CommentsService() },
+    {
+      provide: COMMENTS_SERVICE,
+      useFactory: (notifications: NotificationsService) => new CommentsService(notifications),
+      inject: [NOTIFICATIONS_SERVICE],
+    },
+    { provide: PREFERENCES_SERVICE, useFactory: () => new PreferencesService() },
     { provide: AUDIT_LOG_SERVICE, useFactory: () => new AuditLogService() },
     { provide: ENTITY_LINKS_SERVICE, useFactory: () => new EntityLinksService() },
     { provide: SETTINGS_SERVICE, useFactory: () => new SettingsService() },
@@ -448,7 +459,19 @@ import {
     { provide: FMEA_SERVICE, useFactory: () => new FmeaService() },
     { provide: QUERY_SERVICE, useFactory: () => new QueryService() },
     { provide: REPORTS_SERVICE, useFactory: () => new ReportsService() },
-    { provide: INTEGRATIONS_SERVICE, useFactory: () => new IntegrationsService() },
+    {
+      provide: INTEGRATIONS_SERVICE,
+      useFactory: (env: Env) => {
+        const box = new WebhookSecretBox({ authSecret: env.AUTH_SECRET, key: env.WEBHOOK_ENCRYPTION_KEY });
+        return new IntegrationsService(
+          new WebhookSecretResolver(box, new EnvSecretResolver()),
+          new FetchWebhookTransport({ policy: { allowPrivateTargets: env.WEBHOOK_ALLOW_PRIVATE } }),
+          () => new Date(),
+          { policy: { allowPrivateTargets: env.WEBHOOK_ALLOW_PRIVATE }, box },
+        );
+      },
+      inject: [ENV],
+    },
     { provide: IMPORT_SERVICE, useFactory: () => new ImportService() },
     { provide: SPC_SERVICE, useFactory: () => new SpcService() },
     {

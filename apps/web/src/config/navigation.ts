@@ -137,7 +137,6 @@ export const NAV: NavEntry[] = [
   { id: "documents", label: "Documents", href: "/documents", icon: FileText },
   { id: "graph", label: "Knowledge graph", href: "/graph", icon: Network },
   { id: "predictive", label: "Predictive risk", href: "/predictive", icon: TrendingUp },
-  { id: "pqe", label: "Quality Engine", href: "/pqe", icon: Sparkles },
 
   // ── Supply chain ────────────────────────────────────────────────────────
   { divider: true, label: "Supply chain" },

@@ -5,7 +5,6 @@ import {
   MessageSquare,
   GitBranch,
   Shield,
-  BarChart3,
   Target,
   Code,
   Building2,
@@ -28,8 +27,7 @@ export interface PlannedModule {
 }
 
 export const PLANNED_MODULES: Record<string, PlannedModule> = {
-  // Quick-Log and Mobile App are intentionally excluded — see config/excluded.md.
-  pqe: { title: "Quality Engine", icon: Sparkles, description: "The AI-driven quality engine is next on the build plan." },
+  // Quick-Log, Mobile App and Quality Engine (pqe) are intentionally excluded — see config/excluded.md.
   training: { title: "Training & competency", icon: Award },
   calibration: { title: "Calibration", icon: Wrench },
   complaints: { title: "Customer complaints", icon: MessageSquare },
@@ -37,7 +35,7 @@ export const PLANNED_MODULES: Record<string, PlannedModule> = {
   risk: { title: "Risk register", icon: Shield },
   // fmea is built — see app/(app)/fmea (Phase F). Left out of PLANNED_MODULES so
   // the real route serves instead of the "coming soon" placeholder.
-  spc: { title: "SPC charts", icon: BarChart3 },
+  // spc is built — see app/(app)/spc (features/spc). Not a placeholder.
   msa: { title: "MSA / Gauge R&R", icon: Target },
   "ai-governance": { title: "AI Governance", icon: Sparkles },
   developer: { title: "Developer Platform", icon: Code },

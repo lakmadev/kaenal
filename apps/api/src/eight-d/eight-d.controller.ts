@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
   AssignEightDBody,
@@ -14,7 +14,8 @@ import { currentContext, currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
-import { EIGHT_D_SERVICE } from "../tokens.js";
+import type { IdempotencyStore } from "../http/idempotency.js";
+import { EIGHT_D_SERVICE, IDEMPOTENCY } from "../tokens.js";
 import type { EightDService } from "./eight-d.service.js";
 
 const uuid = z.string().uuid();
@@ -31,7 +32,10 @@ const ListQuery = PageQuery.extend({
  */
 @Controller()
 export class EightDController {
-  constructor(@Inject(EIGHT_D_SERVICE) private readonly eightDs: EightDService) {}
+  constructor(
+    @Inject(EIGHT_D_SERVICE) private readonly eightDs: EightDService,
+    @Inject(IDEMPOTENCY) private readonly idempotency: IdempotencyStore,
+  ) {}
 
   @Get("v1/eight-ds")
   @RequireCapability("ncr:view")
@@ -47,9 +51,16 @@ export class EightDController {
 
   @Post("v1/eight-ds")
   @RequireCapability("ncr:manage")
-  async create(@Body() body: unknown): Promise<EightDDto> {
+  async create(
+    @Body() body: unknown,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+  ): Promise<EightDDto> {
     const input = parse(CreateEightDBody, body);
-    return this.eightDs.create(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+    const ctx = currentContext();
+    const { result } = await this.idempotency.run(`${ctx.tenantId}:create-eight-d`, idempotencyKey, () =>
+      this.eightDs.create(currentTx(), ctx.tenantId, actorIdOf(), input, auditCtxOf()),
+    );
+    return result;
   }
 
   @Get("v1/eight-ds/:id")

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { withAudit, type Tx } from "@kaenal/db";
-import type { CommentDto, CreateCommentBody, EntityKind, Page } from "@kaenal/types";
+import { extractMentionedUserIds, type CommentDto, type CreateCommentBody, type EntityKind, type Page } from "@kaenal/types";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import { ApiError, notFound } from "../errors.js";
 import {
   clampLimit,
@@ -64,6 +65,42 @@ async function resolveAuthorNames(tx: Tx, rows: readonly { author_id: string }[]
  */
 @Injectable()
 export class CommentsService {
+  constructor(private readonly notifications: NotificationsService = new NotificationsService()) {}
+
+  /**
+   * Raise a `mention` notification for each @-mentioned ACTIVE member of this
+   * tenant (self excluded), in the comment's own audited transaction. Unknown,
+   * foreign-tenant or inactive ids are silently ignored — a mention never
+   * confirms whether a user exists elsewhere (rule 8). Deduped per comment+user.
+   */
+  private async notifyMentions(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    row: CommentRow,
+    authorName: string,
+  ): Promise<void> {
+    const ids = extractMentionedUserIds(row.body).filter((id) => id !== actorId);
+    if (ids.length === 0) return;
+    // RLS scopes memberships to this tenant, so a foreign id simply finds no row.
+    const { rows } = await tx.query<{ user_id: string }>(
+      `SELECT user_id FROM memberships WHERE user_id = ANY($1::uuid[]) AND status = 'active'`,
+      [ids],
+    );
+    for (const m of rows) {
+      await this.notifications.notify(tx, tenantId, {
+        userId: m.user_id,
+        kind: "mention",
+        title: `${authorName} mentioned you in a comment`,
+        body: row.body.replace(/@\[([^\]]+)\]\(user:[^)]+\)/g, "@$1").slice(0, 280),
+        entityKind: row.entity_kind,
+        entityId: row.entity_id,
+        actorId,
+        dedupeKey: `mention:${row.id}:${m.user_id}`,
+      });
+    }
+  }
+
   async list(
     tx: Tx,
     kind: EntityKind,
@@ -133,7 +170,9 @@ export class CommentsService {
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Comment was not created");
-        return toDto(row, await resolveAuthorNames(t, [row]));
+        const names = await resolveAuthorNames(t, [row]);
+        await this.notifyMentions(t, tenantId, actorId, row, names.get(actorId) ?? "Someone");
+        return toDto(row, names);
       },
     );
   }

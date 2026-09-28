@@ -91,6 +91,11 @@ interface RecordOpts {
 export class AiGatewayService {
   constructor(private readonly provider: AiProvider) {}
 
+  /** Provider label for reply provenance ('stub' = not a real model). */
+  get providerName(): string {
+    return this.provider.name ?? 'provider';
+  }
+
   async run(params: AiRunParams): Promise<AiRunResult> {
     const route = routeFeature(params.feature);
     const maxTokens = params.maxTokens ?? route.defaultMaxTokens;
@@ -140,6 +145,7 @@ export class AiGatewayService {
         system: prompt.system,
         input: redaction.redacted,
         maxTokens,
+        feature: params.feature,
         ...(params.images !== undefined && params.images.length > 0 ? { images: params.images } : {}),
       });
     } catch (err) {

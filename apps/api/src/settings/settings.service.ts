@@ -14,7 +14,7 @@ import {
   type UpdateChargebackSettingsBody,
   type UpdateSessionPolicyBody,
 } from "@kaenal/types";
-import { ApiError } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 
 interface SettingsRow {
@@ -84,10 +84,7 @@ export class SettingsService {
     const current = await readRow(tx, namespace);
     const currentVersion = current?.lock_version ?? 0;
     if (currentVersion !== version) {
-      throw new ApiError("STALE_WRITE", "This setting changed since you loaded it", {
-        expected: version,
-        actual: currentVersion,
-      });
+      throw await staleWriteError(tx, { table: "tenant_settings", key: namespace, message: "This setting changed since you loaded it", expected: version, actual: currentVersion });
     }
 
     return withAudit(
@@ -116,7 +113,7 @@ export class SettingsService {
           [tenantId, namespace, JSON.stringify(settings), actorId, version],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "This setting changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "tenant_settings", key: namespace, message: "This setting changed since you loaded it" });
         return row;
       },
     );

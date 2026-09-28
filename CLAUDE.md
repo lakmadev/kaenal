@@ -10,6 +10,18 @@ All spec paths below are relative to `project_brain/project/`.
 - `project_brain/project/Kaenal.html` + `project_brain/project/src/*.jsx` + `project_brain/project/styles/tokens.css` are the VISUAL spec only. Never copy prototype code into the codebase; recreate screens per `implementation/04-WEB-APP.md`.
 - `project_brain/README.md` is a Claude Design handoff note describing the design-bundle workflow, not this build. Superseded by this file.
 
+## Team workflow (SCRUM) — applies to every session
+Any task that adds or changes behaviour, UI, schema or API runs as a sprint per `SCRUM.md`: spawn the
+`product-owner` agent FIRST (backlog, use cases, acceptance criteria, web/mobile/shared scope ->
+`docs/sprints/`), then `ui-lead-designer` (audit existing jsx + design gaps -> `docs/design/`). Implementation
+starts only after BOTH sign off, the user approves new designs, AND (for anything non-trivial) the `planner`
+agent has done an architecture-review pass on the sign-off'd sprint + design, naming the exact vertical-slice
+plan and flagging anything technically unsound before a line of code is written. Consider web AND mobile for
+every story; build common changes once in shared packages. The PO verifies every acceptance criterion before
+a sprint closes. Each role is held to its professional standard (Scrum/INVEST for PO, WCAG+heuristics for
+design, ADR-style trade-offs for architecture) per `SCRUM.md` — not just "meets the sprint doc's letter."
+No dead buttons, no placeholder pages.
+
 ## Session protocol
 - START: read `PROGRESS.md`, resume from "Current status". Never re-plan from scratch.
 - END: update `PROGRESS.md` (checklists, decisions log, known issues) in the same commit as the work.

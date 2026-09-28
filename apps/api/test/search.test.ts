@@ -130,6 +130,7 @@ beforeAll(async () => {
   await authed("post", "/v1/ncrs", adminTok).send({ title: `SRCH ncr ${TERM}`, priority: "minor", plantId: plantA });
   await authed("post", "/v1/capas", adminTok).send({ title: `SRCH capa ${TERM}`, type: "corrective", priority: "minor" });
   await authed("post", "/v1/documents", adminTok).send({ title: `SRCH document ${TERM}`, category: "sop" });
+  await authed("post", "/v1/audits", adminTok).send({ title: `SRCH audit ${TERM}`, type: "internal", plantId: plantA });
 
   // Seven NCRs with CAPTERM, to exercise the top-6-per-kind cap.
   for (let i = 0; i < 7; i++) {
@@ -152,6 +153,7 @@ afterAll(async () => {
   await control.query("DELETE FROM documents WHERE title LIKE 'SRCH %'");
   await control.query("DELETE FROM inspections WHERE title LIKE 'SRCH %'");
   await control.query("DELETE FROM inspection_templates WHERE name LIKE 'SRCH %'");
+  await control.query("DELETE FROM audits WHERE title LIKE 'SRCH %'");
   await control.query("DELETE FROM plants WHERE code LIKE 'SRCHP%'");
   if (ids.length > 0) {
     await control.query("DELETE FROM sessions WHERE user_id = ANY($1)", [ids]);
@@ -163,10 +165,10 @@ afterAll(async () => {
 });
 
 describe("federated search", () => {
-  it("returns hits across all four record kinds for one term", async () => {
+  it("returns hits across all five record kinds for one term", async () => {
     const hits = await search(TERM);
     const kinds = new Set(hits.map((h) => h.kind));
-    expect(kinds).toEqual(new Set(["inspection", "ncr", "capa", "document"]));
+    expect(kinds).toEqual(new Set(["inspection", "ncr", "capa", "document", "audit"]));
     for (const h of hits) expect(h.title).toContain(TERM);
   });
 
@@ -194,5 +196,30 @@ describe("plant scoping", () => {
 
     const asInspector = await search(PLANTTERM, inspectorTok);
     expect(asInspector.some((h) => h.kind === "ncr")).toBe(false);
+  });
+});
+
+describe("audit-kind role exclusion (Sprint 02 §8a item 1)", () => {
+  it("excludes audit hits for an inspector even though the audit is in their own plant", async () => {
+    // TERM's audit is plant-scoped to plantA — the SAME plant the inspector is
+    // bound to, so a bare plant-scope check alone would let it through. The
+    // exclusion must be a role check, not (only) plant scope.
+    const asAdmin = await search(TERM, adminTok);
+    expect(asAdmin.some((h) => h.kind === "audit")).toBe(true);
+
+    const asInspector = await search(TERM, inspectorTok);
+    expect(asInspector.some((h) => h.kind === "audit")).toBe(false);
+  });
+
+  it("mutation guard: the exclusion set is exactly {inspector, viewer} — a role removed from it would silently regress", async () => {
+    // Unit-level pin on the exported constant `SearchService` keys its
+    // exclusion off: if a future edit drops "inspector" or "viewer" (or adds a
+    // role that should NOT be excluded, e.g. "auditor"), this fails even
+    // before an integration test would catch it.
+    const { AUDIT_HIDDEN_ROLES } = await import("../src/search/search.service.js");
+    expect([...AUDIT_HIDDEN_ROLES].sort()).toEqual(["inspector", "viewer"]);
+    expect(AUDIT_HIDDEN_ROLES.has("admin")).toBe(false);
+    expect(AUDIT_HIDDEN_ROLES.has("auditor")).toBe(false);
+    expect(AUDIT_HIDDEN_ROLES.has("manager")).toBe(false);
   });
 });

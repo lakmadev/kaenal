@@ -12,6 +12,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 export type Theme = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "kaenal-theme";
+/** Last-known accent/density/hints, so the pre-paint script can apply them before the API answers. */
+export const PREFS_CACHE_KEY = "kaenal-prefs";
 
 interface ThemeContextValue {
   theme: Theme;
@@ -28,7 +30,10 @@ function readInitialTheme(): Theme {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-  const [theme, setThemeState] = useState<Theme>(readInitialTheme);
+  // Start from "light" so the first client render matches the server HTML (the
+  // server cannot know the stored theme); the mount effect below reconciles.
+  // The page itself never flashes: CSS keys off the pre-hydration `data-theme`.
+  const [theme, setThemeState] = useState<Theme>("light");
 
   const apply = useCallback((next: Theme) => {
     document.documentElement.setAttribute("data-theme", next);
@@ -67,4 +72,4 @@ export function useTheme(): ThemeContextValue {
  * Blocking script injected into <head> so `data-theme` is correct before first
  * paint (no flash of the wrong theme). Kept tiny and dependency-free.
  */
-export const themeInitScript = `(function(){try{var t=localStorage.getItem('${THEME_STORAGE_KEY}');if(t!=='dark'&&t!=='light'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`;
+export const themeInitScript = `(function(){try{var t=localStorage.getItem('${THEME_STORAGE_KEY}');if(t!=='dark'&&t!=='light'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){}try{var p=JSON.parse(localStorage.getItem('${PREFS_CACHE_KEY}')||'null');if(p){var d=document.documentElement;if(p.accent)d.setAttribute('data-accent',p.accent);if(p.density)d.setAttribute('data-density',p.density);d.setAttribute('data-hints',p.hints===false?'off':'on');}}catch(e){}})();`;

@@ -7,7 +7,11 @@ import type {
   AiSummaryDto,
 } from "@kaenal/types";
 import { ApiError } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import type { AuditContext } from "../ncr/audit-context.js";
+import type { Membership } from "@kaenal/core";
+import type { AiChatChunk, AiChatRequest } from "@kaenal/types";
+import { prepareChat, streamChat, type PreparedChat } from "./chat.js";
 import type { AiGatewayService } from "./gateway.service.js";
 
 /**
@@ -78,6 +82,23 @@ export class AiService {
     }
   }
 
+  /** Chat step 1 (request tx): resolve the entity under RLS + audit `ai_chat`. */
+  prepareChat(
+    tx: Tx,
+    tenantId: string,
+    membership: Membership,
+    userId: string,
+    body: AiChatRequest,
+    ctx: AuditContext,
+  ): Promise<PreparedChat> {
+    return prepareChat(tx, tenantId, membership, userId, body, ctx);
+  }
+
+  /** Chat step 2 (no tx held): governed gateway call, streamed as frames. */
+  chatStream(tenantId: string, userId: string, prepared: PreparedChat, pool?: pg.Pool): AsyncGenerator<AiChatChunk, void, undefined> {
+    return streamChat(this.gateway, tenantId, userId, prepared, pool);
+  }
+
   async acceptSummary(
     tx: Tx,
     tenantId: string,
@@ -125,7 +146,7 @@ export class AiService {
         // 0 rows = the version moved since the client read it. Throwing here
         // rolls back before the audit event is written (no phantom acceptance).
         if (r.rows[0] === undefined) {
-          throw new ApiError("STALE_WRITE", "The document changed since you loaded it — refetch and retry");
+          throw await staleWriteError(t, { table: "documents", key: body.documentId, message: "The document changed since you loaded it — refetch and retry" });
         }
         lockVersion = r.rows[0].lock_version;
       },

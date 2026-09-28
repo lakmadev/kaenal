@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./tokens.css";
+@import "./preferences.css";
 
 /**
  * Bind the token font families to the self-hosted `next/font` faces (root layout
@@ -130,6 +131,14 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
     border-radius: var(--r-sm);
+  }
+
+  /* D-F1: the keyboard-highlighted row of a Radix menu gets the hover fill plus
+     an inset 2px accent ring (inset so overflow-hidden menus do not clip it). */
+  [role="menuitem"][data-highlighted] {
+    outline: none;
+    background: var(--bg-subtle);
+    box-shadow: inset 0 0 0 2px var(--accent);
   }
 }
 
@@ -440,6 +449,19 @@
 }
 .fade-in {
   animation: fadeIn 200ms ease-out;
+}
+
+/* Right-side drawer entrance (AI assistant, tokens.css .drawer-in). */
+.drawer-in {
+  animation: drawerIn 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes drawerIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
 }
 
 @keyframes kSpin {

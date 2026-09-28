@@ -23,6 +23,20 @@ export const ErrorBody = z.object({
 });
 export type ErrorBody = z.infer<typeof ErrorBody>;
 
+/**
+ * `details` of a 409 `STALE_WRITE`. `expected`/`actual` are the versions the
+ * services emit; `updatedAt`/`updatedBy` are optional additive fields (who/when
+ * for the reconcile dialog). Parsed by `parseStaleWrite` in `@kaenal/core`.
+ */
+export const StaleWriteDetails = z.object({
+  expected: z.number().int().optional(),
+  actual: z.number().int().optional(),
+  updatedAt: z.string().nullable().optional(),
+  /** Last actor. API emits {id,name} (null when unknown / outside the tenant); legacy: bare id string. */
+  updatedBy: z.union([z.string(), z.object({ id: z.string(), name: z.string() })]).nullable().optional(),
+});
+export type StaleWriteDetails = z.infer<typeof StaleWriteDetails>;
+
 // --- Cursor pagination (03 §5) ----------------------------------------------
 
 /**

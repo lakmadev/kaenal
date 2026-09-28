@@ -12,7 +12,6 @@ import { Avatar } from "@/components/avatar";
 import { PageHeader } from "@/components/page-header";
 import { Button, EmptyState, Skeleton } from "@/components/ui";
 import { EightDStatusBadge, StepperMini } from "./eightd-bits";
-import { EightDCreateDialog } from "./eightd-create-dialog";
 
 export function EightDList(): React.ReactElement {
   const router = useRouter();
@@ -20,7 +19,6 @@ export function EightDList(): React.ReactElement {
   const canManage = hasCapability(me, "ncr:manage");
   const lookup = useMemberLookup();
 
-  const [createOpen, setCreateOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<{ status: EightDStatus | "any"; lead: string }>({ status: "any", lead: "any" });
   const filterRef = useRef<HTMLDivElement>(null);
@@ -90,7 +88,7 @@ export function EightDList(): React.ReactElement {
               )}
             </div>
             {canManage && (
-              <Button variant="primary" onClick={() => setCreateOpen(true)}>
+              <Button variant="primary" onClick={() => router.push("/create/8d")}>
                 <Plus size={14} />Start 8D
               </Button>
             )}
@@ -165,7 +163,6 @@ export function EightDList(): React.ReactElement {
         </div>
       )}
 
-      <EightDCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

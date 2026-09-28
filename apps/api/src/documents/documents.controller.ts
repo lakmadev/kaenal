@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
   CreateDocumentBody,
@@ -16,7 +16,8 @@ import { currentContext, currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
 import { actorIdOf, auditCtxOf, membershipOf } from "../ncr/handler-ctx.js";
-import { DOCUMENTS_SERVICE } from "../tokens.js";
+import type { IdempotencyStore } from "../http/idempotency.js";
+import { DOCUMENTS_SERVICE, IDEMPOTENCY } from "../tokens.js";
 import type { DocumentsService } from "./documents.service.js";
 
 const uuid = z.string().uuid();
@@ -34,7 +35,10 @@ const ListQuery = PageQuery.extend({
  */
 @Controller()
 export class DocumentsController {
-  constructor(@Inject(DOCUMENTS_SERVICE) private readonly documents: DocumentsService) {}
+  constructor(
+    @Inject(DOCUMENTS_SERVICE) private readonly documents: DocumentsService,
+    @Inject(IDEMPOTENCY) private readonly idempotency: IdempotencyStore,
+  ) {}
 
   @Get("v1/documents")
   @RequireCapability("document:view")
@@ -50,9 +54,16 @@ export class DocumentsController {
 
   @Post("v1/documents")
   @RequireCapability("document:manage")
-  async create(@Body() body: unknown): Promise<DocumentDto> {
+  async create(
+    @Body() body: unknown,
+    @Headers("idempotency-key") idempotencyKey: string | undefined,
+  ): Promise<DocumentDto> {
     const input = parse(CreateDocumentBody, body);
-    return this.documents.create(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+    const ctx = currentContext();
+    const { result } = await this.idempotency.run(`${ctx.tenantId}:create-document`, idempotencyKey, () =>
+      this.documents.create(currentTx(), ctx.tenantId, actorIdOf(), input, auditCtxOf()),
+    );
+    return result;
   }
 
   @Get("v1/documents/:id")

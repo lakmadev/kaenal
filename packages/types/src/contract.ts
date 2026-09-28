@@ -14,6 +14,9 @@ import {
   AssignScarBody,
   AuditDto,
   AuditFindingDto,
+  AuditFrequencyResult,
+  AuditStatsDto,
+  UpdateAuditChecklistItemBody,
   CapaActionDto,
   CapaDto,
   CreateAuditBody,
@@ -47,6 +50,7 @@ import {
   WorkspaceDto,
   SwitchWorkspaceBody,
   MemberDto,
+  PlantDto,
   MemberWorkloadList,
   NcrActionDto,
   NcrDto,
@@ -57,7 +61,10 @@ import {
   CountDto,
   NewDocumentVersionBody,
   NotificationDto,
+  NotificationPageDto,
   NotificationPrefsDto,
+  UpdateUserPreferencesBody,
+  UserPreferencesDto,
   StarNotificationBody,
   PresignFileBody,
   PresignFileResult,
@@ -173,6 +180,7 @@ import {
   ConnectIntegrationBody,
   WebhookTestResultDto,
 } from "./integration.js";
+import { ConfigureWebhookBody, ConfigureWebhookResult, WebhookPolicyDto } from "./webhook-config.js";
 import {
   ImportTargetsResult,
   ImportProfileDto,
@@ -243,6 +251,12 @@ export const contract = c.router(
       query: PageQuery,
       responses: { 200: page(MemberDto), ...commonErrors },
       summary: "List this tenant's members (id → name + role) so the UI can resolve people",
+    },
+    listPlants: {
+      method: "GET",
+      path: "/v1/plants",
+      responses: { 200: z.object({ items: z.array(PlantDto) }), ...commonErrors },
+      summary: "Sites the caller may raise records in (plant-scoped by role) — the CreateWizard Site select",
     },
     listMemberWorkload: {
       method: "GET",
@@ -552,12 +566,31 @@ export const contract = c.router(
       method: "GET",
       path: "/v1/audits",
       query: PageQuery.extend({
-        status: AuditPhase.optional(),
+        status: z.union([AuditPhase, z.enum(["active", "completed"])]).optional(),
         type: AuditType.optional(),
         plantId: z.string().uuid().optional(),
+        /** Free-text title/code filter — distinct from federated `/v1/search`. */
+        q: z.string().min(1).max(200).optional(),
+        /** Caller is lead auditor, in `team`, or in `auditeeIds`. */
+        mine: z.coerce.boolean().optional(),
+        /** Audits whose [startAt, endAt] overlaps this window (schedule view). */
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
       }),
       responses: { 200: page(AuditDto), ...commonErrors },
       summary: "List audits (cursor-paginated, plant-scoped by role)",
+    },
+    getAuditFrequency: {
+      method: "GET",
+      path: "/v1/audits/frequency",
+      responses: { 200: AuditFrequencyResult, ...commonErrors },
+      summary: "Last-6-months audit counts grouped by type",
+    },
+    getAuditStats: {
+      method: "GET",
+      path: "/v1/audits/stats",
+      responses: { 200: AuditStatsDto, ...commonErrors },
+      summary: "KPI strip: active / planned-next-90d / completed-YTD / open-findings",
     },
     createAudit: {
       method: "POST",
@@ -580,6 +613,14 @@ export const contract = c.router(
       body: AdvanceAuditBody,
       responses: { 200: AuditDto, ...commonErrors },
       summary: "Advance an audit one phase forward",
+    },
+    updateAuditChecklistItem: {
+      method: "PATCH",
+      path: "/v1/audits/:id/checklist/:itemId",
+      pathParams: z.object({ id: z.string().uuid(), itemId: z.string().uuid() }),
+      body: UpdateAuditChecklistItemBody,
+      responses: { 200: AuditDto, ...commonErrors },
+      summary: "Score one checklist clause; auto-links a finding on a first NC/opportunity",
     },
     listAuditFindings: {
       method: "GET",
@@ -1250,6 +1291,20 @@ export const contract = c.router(
       responses: { 200: IntegrationDto, ...commonErrors },
       summary: "Remove a connector — purges secrets (integration:manage)",
     },
+    getWebhookPolicy: {
+      method: "GET",
+      path: "/v1/integrations/webhook-policy",
+      responses: { 200: WebhookPolicyDto, ...commonErrors },
+      summary: "Webhook target policy for this deployment (integration:manage)",
+    },
+    configureWebhook: {
+      method: "PUT",
+      path: "/v1/integrations/:id/webhook",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: ConfigureWebhookBody,
+      responses: { 200: ConfigureWebhookResult, ...commonErrors },
+      summary: "Set a webhook's URL/events and (re)generate its signing secret (integration:manage; optimistic; secret shown once)",
+    },
     testIntegration: {
       method: "POST",
       path: "/v1/integrations/:id/test",
@@ -1587,8 +1642,10 @@ export const contract = c.router(
         unread: z.coerce.boolean().optional(),
         starred: z.coerce.boolean().optional(),
         entityKind: z.string().max(40).optional(),
+        /** Notification kind filter, e.g. `mention` for the Mentions tab. */
+        type: z.string().max(40).optional(),
       }),
-      responses: { 200: page(NotificationDto), ...commonErrors },
+      responses: { 200: NotificationPageDto, ...commonErrors },
       summary: "List the current user's notifications (cursor-paginated; unread/starred/type filters)",
     },
     unreadCount: {
@@ -1640,6 +1697,20 @@ export const contract = c.router(
       body: UpdateNotificationPrefsBody,
       responses: { 200: NotificationPrefsDto, ...commonErrors },
       summary: "Replace the current user's notification channel matrix",
+    },
+
+    getUserPreferences: {
+      method: "GET",
+      path: "/v1/me/preferences",
+      responses: { 200: UserPreferencesDto, ...commonErrors },
+      summary: "The current user's appearance/interaction preferences (defaults when never saved)",
+    },
+    updateUserPreferences: {
+      method: "PATCH",
+      path: "/v1/me/preferences",
+      body: UpdateUserPreferencesBody,
+      responses: { 200: UserPreferencesDto, ...commonErrors },
+      summary: "Partially update the current user's preferences (optimistic: version; audited)",
     },
 
     // --- Files -------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { usePathname, useSearchParams } from "next/navigation";
 import { X, ChevronDown } from "lucide-react";
 import type { MeDto } from "@kaenal/types";
@@ -54,6 +55,7 @@ function buildSections(me: MeDto | undefined): Section[] {
  * the user lacks the capability for are omitted, not disabled (04 §6.6).
  */
 export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
+  const t = useTranslations("sidebar");
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentUrl = searchParams.toString() === "" ? pathname : `${pathname}?${searchParams.toString()}`;
@@ -78,7 +80,7 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
       {mobileOpen && (
         <button
           type="button"
-          aria-label="Close navigation"
+          aria-label={t("closeNavigation")}
           onClick={() => setMobileOpen(false)}
           className="fixed inset-0 z-40 bg-black/40 lg:hidden"
         />
@@ -110,7 +112,7 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
-            aria-label="Close navigation"
+            aria-label={t("closeNavigation")}
             className="ml-auto rounded-md p-1.5 text-sidebar-fg hover:bg-white/10 lg:hidden"
           >
             <X size={16} />
@@ -152,7 +154,7 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
           <Link
             href={SETTINGS_ITEM.href}
             onClick={() => setMobileOpen(false)}
-            title={collapsed ? "Settings" : undefined}
+            title={collapsed ? t("settings") : undefined}
             aria-current={settingsActive ? "page" : undefined}
             className={cn(
               "flex items-center gap-2.5 rounded-md text-[13px] font-medium transition-colors",
@@ -163,12 +165,12 @@ export function Sidebar({ me }: { me: MeDto | undefined }): React.ReactElement {
             )}
           >
             <SETTINGS_ITEM.icon size={18} strokeWidth={1.75} className="shrink-0" />
-            {!collapsed && <span>Settings</span>}
+            {!collapsed && <span>{t("settings")}</span>}
           </Link>
           {!collapsed && (
             <div className="mt-3 flex items-center gap-2 rounded-md bg-white/[0.04] px-3 py-2.5 text-[11px] text-sidebar-fg/70">
               <span className="pulse-dot shrink-0" />
-              <span>All systems operational</span>
+              <span>{t("allOperational")}</span>
             </div>
           )}
         </div>
@@ -194,6 +196,7 @@ function NavRow({
   onToggle: () => void;
   onNavigate: () => void;
 }): React.ReactElement {
+  const t = useTranslations("sidebar");
   const Icon = item.icon;
   const hasChildren = item.children !== undefined && item.children.length > 0 && !collapsed;
   const showBadge = item.badge !== undefined && !collapsed;
@@ -225,7 +228,7 @@ function NavRow({
           <button
             type="button"
             onClick={onToggle}
-            aria-label={open ? `Collapse ${item.label}` : `Expand ${item.label}`}
+            aria-label={open ? t("collapseItem", { label: item.label }) : t("expandItem", { label: item.label })}
             aria-expanded={open}
             className="px-2 py-2 text-sidebar-fg/70 hover:text-sidebar-fg-active"
           >

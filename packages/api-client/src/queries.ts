@@ -13,6 +13,7 @@ import type {
   FmeaItemDto,
   IntegrationDto,
   IntegrationEventDto,
+  WebhookPolicyDto,
   ConnectorSchemaResult,
   ImportTargetsResult,
   ImportProfileDto,
@@ -25,6 +26,10 @@ import type {
   QueryRowsResult,
   QueryMetricResult,
   QuerySeriesResult,
+  AuditDto,
+  AuditFindingDto,
+  AuditFrequencyResult,
+  AuditStatsDto,
   CapaDto,
   CommentDto,
   DocumentDto,
@@ -37,7 +42,7 @@ import type {
   MemberDto,
   NcrActionDto,
   NcrDto,
-  NotificationDto,
+  NotificationPageDto,
   NotificationPrefsDto,
   Page,
   PpapSubmissionDto,
@@ -155,6 +160,29 @@ export const apiQueries = {
     detail: (client: ApiClient, id: string): QueryOption<CapaDto> => ({
       queryKey: queryKeys.capas.detail(id),
       queryFn: () => client.getCapa({ params: { id } }).then((r) => unwrap<CapaDto>(r)),
+    }),
+  },
+
+  audits: {
+    list: (client: ApiClient, args?: Arg<"listAudits">): QueryOption<Page<AuditDto>> => ({
+      queryKey: queryKeys.audits.list(args?.query),
+      queryFn: () => client.listAudits(args).then((r) => unwrap<Page<AuditDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<AuditDto> => ({
+      queryKey: queryKeys.audits.detail(id),
+      queryFn: () => client.getAudit({ params: { id } }).then((r) => unwrap<AuditDto>(r)),
+    }),
+    findings: (client: ApiClient, id: string): QueryOption<Page<AuditFindingDto>> => ({
+      queryKey: queryKeys.audits.findings(id),
+      queryFn: () => client.listAuditFindings({ params: { id } }).then((r) => unwrap<Page<AuditFindingDto>>(r)),
+    }),
+    frequency: (client: ApiClient): QueryOption<AuditFrequencyResult> => ({
+      queryKey: queryKeys.audits.frequency(),
+      queryFn: () => client.getAuditFrequency().then((r) => unwrap<AuditFrequencyResult>(r)),
+    }),
+    stats: (client: ApiClient): QueryOption<AuditStatsDto> => ({
+      queryKey: queryKeys.audits.stats(),
+      queryFn: () => client.getAuditStats().then((r) => unwrap<AuditStatsDto>(r)),
     }),
   },
 
@@ -276,9 +304,9 @@ export const apiQueries = {
   },
 
   notifications: {
-    list: (client: ApiClient, args?: Arg<"listNotifications">): QueryOption<Page<NotificationDto>> => ({
+    list: (client: ApiClient, args?: Arg<"listNotifications">): QueryOption<NotificationPageDto> => ({
       queryKey: queryKeys.notifications.list(args?.query),
-      queryFn: () => client.listNotifications(args).then((r) => unwrap<Page<NotificationDto>>(r)),
+      queryFn: () => client.listNotifications(args).then((r) => unwrap<NotificationPageDto>(r)),
     }),
     unreadCount: (client: ApiClient): QueryOption<UnreadCountDto> => ({
       queryKey: queryKeys.notifications.unreadCount(),
@@ -365,6 +393,10 @@ export const apiQueries = {
     schema: (client: ApiClient, id: string): QueryOption<ConnectorSchemaResult> => ({
       queryKey: queryKeys.integrations.schema(id),
       queryFn: () => client.getIntegrationSchema({ params: { id } }).then((r) => unwrap<ConnectorSchemaResult>(r)),
+    }),
+    webhookPolicy: (client: ApiClient): QueryOption<WebhookPolicyDto> => ({
+      queryKey: queryKeys.integrations.webhookPolicy(),
+      queryFn: () => client.getWebhookPolicy().then((r) => unwrap<WebhookPolicyDto>(r)),
     }),
     events: (client: ApiClient, id: string): QueryOption<Page<IntegrationEventDto>> => ({
       queryKey: queryKeys.integrations.events(id),

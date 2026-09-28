@@ -20,12 +20,11 @@ import { ActionBar, Body, Button, Card, Icon, Screen, SectionLabel, StatusPill, 
 const CONTAINMENTS = ["Cell stopped & quarantined", "Customer Quality notified", "WIP re-inspection started"];
 const CATEGORIES = ["Process", "Product", "Material", "Documentation", "Other"];
 
-type Method = "photo" | "voice" | "manual" | "scan";
-const METHODS: { key: Method; icon: IconName; label: string; ready: boolean }[] = [
-  { key: "photo", icon: "camera", label: "Photo", ready: true },
-  { key: "voice", icon: "mic", label: "Voice", ready: true },
-  { key: "manual", icon: "edit", label: "Manual", ready: true },
-  { key: "scan", icon: "qr", label: "Scan asset", ready: true },
+type Method = "photo" | "manual" | "scan";
+const METHODS: { key: Method; icon: IconName; label: string }[] = [
+  { key: "photo", icon: "camera", label: "Photo" },
+  { key: "manual", icon: "edit", label: "Manual" },
+  { key: "scan", icon: "qr", label: "Scan asset" },
 ];
 
 // m-ncr.jsx guided create (NcrCreateStep1/2/3) — a 3-step stepper, pixel-for-pixel:
@@ -193,7 +192,6 @@ export default function NcrNew() {
                         onPress={() => {
                           setMethod(m.key);
                           if (m.key === "scan") openScan();
-                          if (m.key === "voice") router.push("/voice");
                         }}
                         style={{ width: "48%" }}
                       >
@@ -205,22 +203,12 @@ export default function NcrNew() {
                             <Text size={13.5} weight="semibold">
                               {m.label}
                             </Text>
-                            {!m.ready && (
-                              <StatusPill tone="neutral" size="sm">
-                                Soon
-                              </StatusPill>
-                            )}
                           </View>
                         </Card>
                       </Pressable>
                     );
                   })}
                 </View>
-                {method === "voice" && (
-                  <Text size={11.5} tone="muted" style={{ marginTop: 8 }}>
-                    Voice capture (hold-to-talk + audio evidence) arrives next — for now, use Photo or Manual.
-                  </Text>
-                )}
               </View>
 
               <View>

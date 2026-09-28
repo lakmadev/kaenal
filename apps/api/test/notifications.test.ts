@@ -121,6 +121,18 @@ describe("listing + dedupe + isolation", () => {
     expect(items.length).toBe(3); // four notify() calls, one deduped away
     for (const n of items) expect(n.title).toContain("NOTIFTEST");
     expect(items.every((n) => n.readAt === null)).toBe(true);
+    expect(res.body.total).toBe(3);
+  });
+
+  it("returns a filter-scoped, cursor-independent total", async () => {
+    const first = await authed("get", "/v1/notifications?limit=1", aTok);
+    expect(first.body.items).toHaveLength(1);
+    expect(first.body.nextCursor).not.toBeNull();
+    expect(first.body.total).toBe(3); // whole match set, not the page
+    const filtered = await authed("get", "/v1/notifications?type=capa_due&limit=1", aTok);
+    expect(filtered.body.total).toBe(1);
+    const other = await authed("get", "/v1/notifications", bTok);
+    expect(other.body.total).toBe(1); // user/RLS scoped
   });
 
   it("counts unread for the bell badge", async () => {

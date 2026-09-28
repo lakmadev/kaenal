@@ -33,6 +33,7 @@ import {
 } from "@/hooks/use-integrations";
 import { EmptyState, Spinner, useToast } from "@/components/ui";
 import { SettingsPage } from "../settings-bits";
+import { WebhookConfigForm } from "./webhook-config-form";
 
 /**
  * Integrations settings (settings.jsx `Integrations`, design rule #9) wired to the
@@ -174,23 +175,40 @@ function ConnectorCard({
     else toast.error(fallback);
   };
 
+  /** A webhook needs a URL + signing secret first: the server refuses (422) and we open the form. */
+  const onConnectError = (err: unknown, id: string): void => {
+    if (meta.provider === "generic_webhook" && err instanceof ApiRequestError && err.status === 422) {
+      toast.error("Set the endpoint URL and save to generate a signing secret, then connect");
+      if (!open) onToggle(id);
+      return;
+    }
+    onError(err, "Couldn't connect");
+  };
+
   /** Register (if needed) then connect — one click from the card. */
   const doConnect = (): void => {
     if (integration !== undefined) {
       connect.mutate(
         { id: integration.id, body: {} },
-        { onSuccess: () => toast.success(`${meta.label} connected`), onError: (e) => onError(e, "Couldn't connect") },
+        { onSuccess: () => toast.success(`${meta.label} connected`), onError: (e) => onConnectError(e, integration.id) },
       );
       return;
     }
     create.mutate(
       { provider: meta.provider, name: meta.label },
       {
-        onSuccess: (created) =>
+        onSuccess: (created) => {
+          if (meta.provider === "generic_webhook") {
+            // Nothing to connect yet: open the config form (URL, events, secret).
+            toast.success("Webhook registered — configure its endpoint");
+            onToggle(created.id);
+            return;
+          }
           connect.mutate(
             { id: created.id, body: {} },
             { onSuccess: () => toast.success(`${meta.label} connected`), onError: (e) => onError(e, "Couldn't connect") },
-          ),
+          );
+        },
         onError: (e) => onError(e, "Couldn't register connector"),
       },
     );
@@ -300,7 +318,8 @@ function ConnectorDetail({ integration, isSource }: { integration: IntegrationDt
 
   // A webhook endpoint can be pinged once connected — a real signed delivery the
   // admin can verify without waiting for a live event.
-  const canTest = integration.provider === "generic_webhook" && integration.status === "connected";
+  const isWebhook = integration.provider === "generic_webhook";
+  const canTest = isWebhook && integration.hasCredentials && (integration.config["url"] ?? "") !== "";
   const sendTest = (): void => {
     test.mutate(integration.id, {
       onSuccess: (res) =>
@@ -314,6 +333,7 @@ function ConnectorDetail({ integration, isSource }: { integration: IntegrationDt
 
   return (
     <div className="border-t border-border p-3.5">
+      {isWebhook && <WebhookConfigForm key={integration.id} integration={integration} />}
       {isSource && (
         <div className="mb-3">
           <div className="k-overline mb-1.5">Declared fields</div>

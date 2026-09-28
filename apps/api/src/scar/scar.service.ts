@@ -24,6 +24,7 @@ import type {
   UpdateScarBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { clampLimit, decodeCursor, keysetPredicate, toPage, type Cursor } from "../http/pagination.js";
 import type { AuditContext } from "../ncr/audit-context.js";
@@ -289,7 +290,7 @@ export class ScarService {
   ): Promise<ScarDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     if (body.ncrId != null) {
       const { rows: ncr } = await tx.query<{ id: string }>(
@@ -349,7 +350,7 @@ export class ScarService {
   ): Promise<ScarDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     if (isFinalD(row.current_d)) {
       throw new ApiError("VALIDATION_FAILED", "The SCAR is at D8 and cannot advance further", {
@@ -394,7 +395,7 @@ export class ScarService {
   ): Promise<ScarDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     const sets = [
       "supplier_acknowledged = true",
@@ -437,7 +438,7 @@ export class ScarService {
   ): Promise<ScarDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     const from = row.chargeback_status as ChargebackStatus | null;
     if (!canTransitionChargeback(from, body.status)) {
@@ -496,7 +497,7 @@ export class ScarService {
   ): Promise<ScarDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row, body.version);
+    await this.assertVersion(tx, row, body.version);
 
     if (body.owner !== null) await this.assertMember(tx, body.owner);
 
@@ -543,12 +544,9 @@ export class ScarService {
     if (rows.length === 0) throw new ApiError("VALIDATION_FAILED", "That user is not an active member");
   }
 
-  private assertVersion(row: ScarRow, version: number): void {
+  private async assertVersion(tx: Tx, row: ScarRow, version: number): Promise<void> {
     if (row.lock_version !== version) {
-      throw new ApiError("STALE_WRITE", "The SCAR changed since you loaded it", {
-        expected: version,
-        actual: row.lock_version,
-      });
+      throw await staleWriteError(tx, { table: "scars", key: row.id, message: "The SCAR changed since you loaded it", expected: version, actual: row.lock_version });
     }
   }
 
@@ -562,7 +560,7 @@ export class ScarService {
       params,
     );
     const updated = rows[0];
-    if (updated === undefined) throw new ApiError("STALE_WRITE", "The SCAR changed since you loaded it");
+    if (updated === undefined) throw await staleWriteError(t, { table: "scars", key: String(params[0]), message: "The SCAR changed since you loaded it" });
     return toScarDto(updated);
   }
 

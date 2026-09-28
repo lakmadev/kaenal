@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
   Download,
@@ -58,7 +58,13 @@ export function CapaList(): React.ReactElement {
   const [tab, setTab] = useState<Tab>("all");
   const [type, setType] = useState<CapaType | "any">("any");
   const [search, setSearch] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
+  // `/capa?new=1` (command palette "New CAPA") opens the create dialog on arrival.
+  const searchParams = useSearchParams();
+  const [createOpen, setCreateOpen] = useState(searchParams.get("new") === "1");
+  const onCreateOpenChange = (open: boolean): void => {
+    setCreateOpen(open);
+    if (!open && searchParams.get("new") === "1") router.replace("/capa");
+  };
 
   // The list spans all seven phases and both source scopes, so we load one page
   // and narrow it client-side (mirrors the NCR module until virtualized paging).
@@ -249,7 +255,7 @@ export function CapaList(): React.ReactElement {
         </p>
       )}
 
-      <CapaCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <CapaCreateDialog open={createOpen} onOpenChange={onCreateOpenChange} />
     </div>
   );
 }

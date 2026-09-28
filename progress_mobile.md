@@ -162,6 +162,21 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
+Sprint 02 (Audits) — web-only sprint, mobile unaffected; no mobile screens or endpoints touched.
+
+**S1-11 mobile + manage-web wiring + theme fix (2026-09-26).** Per user decision Q9 voice transcription
+backend is out of scope, so mobile voice surface was REMOVED (not deferred): `app/voice.tsx` route,
+`features/capture/transcribe{,.web}.ts`, NCR-create "Voice" method tile (+ "arrives next" note + `ready`
+/"Soon" pill), Quick-Log "voice-to-text not available" card, `expo-audio` dependency + config plugin.
+Audio mime allow-list in `packages/core` left untouched (shared with API/web); orphan `features/shared/
+Placeholder.tsx` deleted. Safe-area/offline/PWA untouched. **Manage-web wiring:** `app/manage-web.tsx`
+list rows now navigate to real routes via `EXPO_PUBLIC_WEB_URL` (environment variable for the web origin;
+native builds statically link; PWA over HTTP LAN IP works). **Theme provider hydration:** fix race where
+theme context arrived after mount on SSR'd PWA. Mobile typecheck 7/7, lint 0 errors, vitest 73/73 pass,
+gate green (test api 529, core 721, db 355, mobile 73, web 51, types 74, api-client 11, test:rls 317,
+db:check 52). **Honest gap:** manage-web on native still renders (design shows it only for web/PWA) — the
+rows exist but don't navigate; marked as Known issue, no 1:1 closure.
+
 **Realtime R6.2 — mobile co-editing (Yjs CRDT) (2026-08-22, branch `feat/mobile-coediting`).** Closes the
 mobile-parity gap: real concurrent text co-editing on mobile, and — because it shares the deterministic seed
 and a STANDARD base64 alphabet with the web — a web user and a mobile user editing the SAME field converge
@@ -594,6 +609,19 @@ placeholders today).
   is a 409 the server rejects (found + fixed during verification).
 
 ## Known issues / open questions
+- **Supplier-portal partner MFA enrolment is web-only.** A partner's first sign-in returns an enrolment-only
+  session (`enrolmentRequired: true`, P11); the mobile app has no QR/recovery-code enrolment screen, so
+  `rejectEnrolmentOnly` (`stores/session.ts`) ends that session and shows "Finish two-factor setup on the web
+  app first, then sign in here." The endpoints (`/v1/auth/mfa/enroll|activate`) are callable from mobile, so
+  this is buildable and still owed if partners must use the mobile app — not disguised as working.
+- **(S1-11) EXCLUDED: voice quick-log (CapVoice) + voice-to-text.** Excluded by user decision Q9, not deferred.
+  Removed from the app; re-adding needs a transcription backend + restoring the route/`expo-audio`.
+- **(S1-11 audit) `app/manage-web.tsx` (m-oversight ManageInWeb) rows are dead controls**: `openWeb` only calls
+  `window.alert` on web and does nothing on native. Needs a real deep-link/handoff to the web app; not fixed here.
+- ~~**Manage-in-web rows were dead (alert-only).**~~ **RESOLVED.** Each row now opens its real web route
+  (`/reports`, `/settings/{integrations,bulk-import,members,sessions,white-label}`, `/spc`; all built) via
+  `Linking.openURL` (native) / `window.open` (web); base URL = `EXPO_PUBLIC_WEB_URL` or the dev API host on
+  :3000; unconfigured/failed open shows an inline error card. Tests: `test/web-links.test.ts`.
 - ~~**BACKEND GAP: no `/v1/sync/<table>?since=` delta endpoints exist.**~~ **RESOLVED (M26 close-out).**
   `GET /v1/sync/ncr` + `/v1/sync/inspections` now do an O(delta) `(updated_at,id)` keyset scan with
   tombstones (0039 index, `*:view`-gated, RLS-scoped, injection-safe); mobile `createDeltaReadSource`

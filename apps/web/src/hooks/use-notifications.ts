@@ -10,6 +10,8 @@ export interface NotificationListQuery {
   unread?: boolean;
   starred?: boolean;
   entityKind?: string;
+  /** Notification kind, e.g. `mention` (the Mentions tab). */
+  type?: string;
   cursor?: string;
   limit?: number;
 }
@@ -81,4 +83,14 @@ export function useDismissNotification() {
 /** Convenience: the flat items array from a (possibly paginated) list result. */
 export function notificationItems(page: Page<NotificationDto> | undefined): NotificationDto[] {
   return page?.items ?? [];
+}
+
+/**
+ * The server-reported total for the list, when the endpoint supplies one
+ * (`total` is being added to the response); null until then so callers fall
+ * back to "shown" rather than faking a number.
+ */
+export function notificationTotal(page: Page<NotificationDto> | undefined): number | null {
+  if (page === undefined || !("total" in page)) return null;
+  return typeof page.total === "number" ? page.total : null;
 }

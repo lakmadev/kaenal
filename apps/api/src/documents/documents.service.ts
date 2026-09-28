@@ -14,6 +14,16 @@ import type {
   TransitionDocumentBody,
 } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
+import { staleWriteError } from "../stale-write.js";
+import { NotificationsService } from "../notifications/notifications.service.js";
+import {
+  assertPeopleAreMembers,
+  assertPlantExists,
+  dedupePeople,
+  firstWithRole,
+  insertEntityPeople,
+  notifyPeople,
+} from "../http/create-extras.js";
 import {
   clampLimit,
   decodeCursor,
@@ -118,6 +128,8 @@ function toVersionDto(row: VersionRow): DocumentVersionDto {
  */
 @Injectable()
 export class DocumentsService {
+  constructor(private readonly notifications: NotificationsService = new NotificationsService()) {}
+
   async list(
     tx: Tx,
     opts: { status?: string; category?: string; cursor?: string; limit: number },
@@ -161,6 +173,13 @@ export class DocumentsService {
     body: CreateDocumentBody,
     context: AuditContext,
   ): Promise<DocumentDto> {
+    // CreateWizard foreign ids: a plant / person from another tenant reads as 404.
+    await assertPlantExists(tx, body.plantId);
+    const people = dedupePeople(body.people);
+    await assertPeopleAreMembers(tx, people);
+    const ownerId = firstWithRole(people, "owner") ?? actorId;
+    const approverId = firstWithRole(people, "approver");
+
     const now = new Date();
     const year = counterYear(now, "UTC"); // documents have no plant/timezone
     const id = randomUUID();
@@ -175,7 +194,13 @@ export class DocumentsService {
         entityKind: "document",
         entityId: id,
         action: "created",
-        after: { title: body.title, category: body.category, version },
+        after: {
+          title: body.title,
+          category: body.category,
+          version,
+          template: body.template ?? null,
+          people: people.map((p) => `${p.userId}:${p.role}`),
+        },
         requestId: context.requestId,
         ip: context.ip,
         userAgent: context.userAgent,
@@ -193,8 +218,9 @@ export class DocumentsService {
         const { rows } = await t.query<DocumentRow>(
           `INSERT INTO documents
              (id, tenant_id, code, title, category, status, version, file_id, owner_id,
-              expires_at, frameworks, created_by, updated_by)
-           VALUES ($1,$2,$3,$4,$5,'draft',$6,$7,$8,$9,$10,$8,$8)
+              expires_at, frameworks, created_by, updated_by,
+              approver_id, description, area_label, plant_id, template)
+           VALUES ($1,$2,$3,$4,$5,'draft',$6,$7,$8,$9,$10,$11,$11,$12,$13,$14,$15,$16)
            RETURNING ${DOCUMENT_COLUMNS}`,
           [
             id,
@@ -204,15 +230,23 @@ export class DocumentsService {
             body.category,
             version,
             body.fileId ?? null,
-            actorId,
+            ownerId,
             body.expiresAt ?? null,
             body.frameworks ?? [],
+            actorId,
+            approverId,
+            body.description ?? null,
+            body.areaLabel ?? null,
+            body.plantId ?? null,
+            body.template ?? null,
           ],
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Document was not created");
 
         await this.insertVersion(t, tenantId, id, version, body.fileId ?? null, body.changelog ?? null, actorId);
+        await insertEntityPeople(t, tenantId, actorId, "document", id, people);
+        await notifyPeople(t, this.notifications, tenantId, actorId, "document", id, row.code, people);
         return toDocumentDto(row);
       },
     );
@@ -230,7 +264,7 @@ export class DocumentsService {
   ): Promise<DocumentDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const decision = documentMachine.canTransition(row.status as DocumentStatus, body.to, {
       actorId,
@@ -257,7 +291,7 @@ export class DocumentsService {
     const to: DocumentStatus = body.decision === "approve" ? "approved" : "rejected";
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     const decision = documentMachine.canTransition(row.status as DocumentStatus, to, {
       actorId,
@@ -331,7 +365,7 @@ export class DocumentsService {
   ): Promise<DocumentDto> {
     const row = await this.fetch(tx, id);
     if (row === null) throw notFound();
-    this.assertVersion(row.lock_version, body.version);
+    await this.assertVersion(tx, id, row.lock_version, body.version);
 
     if (row.status !== "approved") {
       throw new ApiError("INVALID_TRANSITION", "A new version can only be opened from an approved document", {
@@ -368,7 +402,7 @@ export class DocumentsService {
           [id, body.version, body.nextVersion, body.fileId ?? null, actorId],
         );
         const updated = rows[0];
-        if (updated === undefined) throw new ApiError("STALE_WRITE", "The document changed since you loaded it");
+        if (updated === undefined) throw await staleWriteError(t, { table: "documents", key: id, message: "The document changed since you loaded it" });
         return toDocumentDto(updated);
       },
     );
@@ -413,7 +447,7 @@ export class DocumentsService {
           [id, actorId, ...extraParams, version],
         );
         const row = rows[0];
-        if (row === undefined) throw new ApiError("STALE_WRITE", "The document changed since you loaded it");
+        if (row === undefined) throw await staleWriteError(t, { table: "documents", key: id, message: "The document changed since you loaded it" });
         if (sideEffect !== undefined) await sideEffect(t);
         return toDocumentDto(row);
       },
@@ -461,9 +495,9 @@ export class DocumentsService {
     return rows[0] ?? null;
   }
 
-  private assertVersion(actual: number, expected: number): void {
+  private async assertVersion(tx: Tx, id: string, actual: number, expected: number): Promise<void> {
     if (actual !== expected) {
-      throw new ApiError("STALE_WRITE", "The record changed since you loaded it", { expected, actual });
+      throw await staleWriteError(tx, { table: "documents", key: id, message: "The record changed since you loaded it", expected, actual });
     }
   }
 }

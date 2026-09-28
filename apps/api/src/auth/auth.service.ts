@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type pg from "pg";
-import type { Role } from "@kaenal/types";
+import type { Page, PortalContactDto, Role } from "@kaenal/types";
 import { withAudit, withTenant, type Tx } from "@kaenal/db";
 import {
   canRedeemToken,
   checkPasswordPolicy,
+  ENROLMENT_SESSION_TTL_MS,
   INVITATION_TTL_MS,
   isLocked,
   mfaRequiredFor,
@@ -15,6 +16,7 @@ import {
   slideSessionExpiry,
 } from "@kaenal/core";
 import { ApiError } from "../errors.js";
+import { clampLimit, decodeCursor, encodeCursor } from "../http/pagination.js";
 import { loadSessionPolicy } from "../settings/settings.service.js";
 import { CONTROL_POOL } from "../tokens.js";
 import { generateToken, hashPassword, hashToken, verifyPassword, equalizeTiming } from "./passwords.js";
@@ -49,7 +51,12 @@ export interface SignInResult {
  */
 export type SignInOutcome =
   | { readonly kind: "session"; readonly result: SignInResult }
-  | { readonly kind: "mfa_required" };
+  | { readonly kind: "mfa_required" }
+  /**
+   * Password correct, but the role mandates MFA and none is enrolled: an
+   * enrolment-only session was issued (usable solely on the MFA enrol routes).
+   */
+  | { readonly kind: "enrolment_required"; readonly result: SignInResult };
 
 interface CredentialRow {
   id: string;
@@ -132,17 +139,12 @@ export class AuthService {
       throw invalid();
     }
 
-    // P11: external partners must have MFA configured (07 §4). The password has
-    // already verified here, so this is not a credential oracle — it is a hard
-    // stop on an under-secured external account, and it says so plainly rather
-    // than reusing the generic invalid-credentials envelope.
-    if (mfaRequiredFor(membership.role) && user.mfa_secret === null) {
-      await this.auditSignIn(tenantId, user.id, "sign_in_failed", { reason: "mfa_required" }, context);
-      throw new ApiError(
-        "FORBIDDEN",
-        "This account requires multi-factor authentication, which is not configured. Contact your administrator.",
-      );
-    }
+    // P11: external partners must have MFA (07 §4). With no factor yet they get
+    // an ENROLMENT-ONLY session (scope 'mfa_enrol', 15 min): the lifecycle
+    // refuses it on every route except the MFA enrol/activate/status + sign-out
+    // routes, and only a verified TOTP activation promotes it to a full session.
+    // The password has already verified here, so this is not a credential oracle.
+    const enrolmentOnly = mfaRequiredFor(membership.role) && user.mfa_secret === null;
 
     // Second factor: any account with an active TOTP secret must present a code —
     // a correct password alone is not enough (the "enrolled ⇒ enforced" policy).
@@ -177,8 +179,9 @@ export class AuthService {
     // Session-policy enforcement (Phase C): partners keep the short-lived P11
     // session; staff sessions live for the tenant's configured absolute timeout.
     const policy = await loadSessionPolicy(tx);
-    const expiresAt =
-      membership.role === "partner"
+    const expiresAt = enrolmentOnly
+      ? new Date(now.getTime() + ENROLMENT_SESSION_TTL_MS)
+      : membership.role === "partner"
         ? slideSessionExpiry(now, "partner")
         : new Date(now.getTime() + policy.webAbsoluteHours * 60 * 60 * 1000);
 
@@ -191,14 +194,15 @@ export class AuthService {
         entityKind: "session",
         entityId: user.id,
         action: "signed_in",
+        ...(enrolmentOnly ? { after: { scope: "mfa_enrol" } } : {}),
         requestId: context.requestId,
         ip: context.ip,
         userAgent: context.userAgent,
       },
       async (t) => {
         await t.query(
-          `INSERT INTO sessions (tenant_id, user_id, refresh_token_hash, expires_at, ip, user_agent)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
+          `INSERT INTO sessions (tenant_id, user_id, refresh_token_hash, expires_at, ip, user_agent, scope)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
             tenantId,
             user.id,
@@ -206,6 +210,7 @@ export class AuthService {
             expiresAt,
             context.ip,
             context.userAgent,
+            enrolmentOnly ? "mfa_enrol" : "full",
           ],
         );
       },
@@ -226,16 +231,32 @@ export class AuthService {
       );
     }
 
-    return {
-      kind: "session",
-      result: {
-        userId: user.id,
-        role: membership.role,
-        plantIds: membership.plantIds,
-        sessionToken,
-        expiresAt,
-      },
+    const result: SignInResult = {
+      userId: user.id,
+      role: membership.role,
+      plantIds: membership.plantIds,
+      sessionToken,
+      expiresAt,
     };
+    return enrolmentOnly ? { kind: "enrolment_required", result } : { kind: "session", result };
+  }
+
+  /**
+   * Promotes an enrolment-only session to a full one. Called by the MFA activate
+   * route AFTER a TOTP code has been verified against the pending secret — that
+   * verified code is what earns the full session. A no-op for ordinary sessions
+   * (the WHERE clause only matches an unrevoked, unexpired 'mfa_enrol' row owned
+   * by the caller). Returns whether a promotion happened.
+   */
+  async promoteEnrolmentSession(tx: Tx, userId: string, token: string): Promise<boolean> {
+    const expiresAt = slideSessionExpiry(new Date(), "partner");
+    const { rowCount } = await tx.query(
+      `UPDATE sessions SET scope = 'full', expires_at = $3
+        WHERE refresh_token_hash = $1 AND user_id = $2 AND scope = 'mfa_enrol'
+          AND revoked_at IS NULL AND expires_at > now()`,
+      [hashToken(token), userId, expiresAt],
+    );
+    return (rowCount ?? 0) > 0;
   }
 
   /**
@@ -351,14 +372,16 @@ export class AuthService {
     role: Role;
     plantIds: readonly string[];
     supplierScope: string | null;
+    enrolmentOnly: boolean;
   } | null> {
     const { rows } = await tx.query<{
       user_id: string;
       role: Role;
       plant_ids: string[];
       supplier_scope: string | null;
+      scope: string;
     }>(
-      `SELECT s.user_id, m.role, m.plant_ids, m.supplier_scope
+      `SELECT s.user_id, m.role, m.plant_ids, m.supplier_scope, s.scope
          FROM sessions s
          JOIN memberships m ON m.tenant_id = s.tenant_id AND m.user_id = s.user_id
         WHERE s.refresh_token_hash = $1
@@ -380,6 +403,7 @@ export class AuthService {
       role: row.role,
       plantIds: row.plant_ids,
       supplierScope: row.supplier_scope,
+      enrolmentOnly: row.scope === "mfa_enrol",
     };
   }
 
@@ -548,6 +572,7 @@ export class AuthService {
     email: string,
     role: Role,
     plantIds: readonly string[],
+    supplierScope: string | null = null,
   ): Promise<{ token: string; expiresAt: Date }> {
     const token = generateToken();
     const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
@@ -567,7 +592,7 @@ export class AuthService {
         action: "created",
         // Email is not credential-shaped, so it is safe in the trail — it is
         // the whole point of the event (who was invited).
-        after: { email, role },
+        after: supplierScope === null ? { email, role } : { email, role, supplierId: supplierScope },
       },
       async (t) => {
         // Revoke first: the partial unique index allows only one outstanding
@@ -580,14 +605,217 @@ export class AuthService {
         );
 
         await t.query(
-          `INSERT INTO invitations (id, tenant_id, email, role, plant_ids, token_hash, expires_at, invited_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [invitationId, tenantId, email, role, plantIds, hashToken(token), expiresAt, actorId],
+          `INSERT INTO invitations (id, tenant_id, email, role, plant_ids, token_hash, expires_at, invited_by, supplier_scope)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [invitationId, tenantId, email, role, plantIds, hashToken(token), expiresAt, actorId, supplierScope],
         );
       },
     );
 
     return { token, expiresAt };
+  }
+
+  /**
+   * Invites a supplier contact to the portal: a `partner` invitation bound to ONE
+   * supplier (the DB coupling CHECK makes partner ⇔ supplier_scope). The supplier
+   * is read under RLS, so an unknown OR foreign-tenant id is a 404 (rule 8). An
+   * address that already belongs to an internal member here is refused — accepting
+   * would silently convert a staff account into an external one.
+   */
+  async invitePartner(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    supplierId: string,
+    email: string,
+  ): Promise<{ token: string; expiresAt: Date }> {
+    const { rows: supplier } = await tx.query<{ id: string }>(
+      "SELECT id FROM suppliers WHERE id = $1 AND deleted_at IS NULL",
+      [supplierId],
+    );
+    if (supplier[0] === undefined) throw new ApiError("NOT_FOUND", "Supplier not found");
+
+    const { rows: person } = await this.control.query<{ id: string }>(
+      "SELECT id FROM control.users WHERE email = $1",
+      [email],
+    );
+    const personId = person[0]?.id;
+    const { rows: existing } =
+      personId === undefined
+        ? { rows: [] as { role: Role }[] }
+        : await tx.query<{ role: Role }>(
+            "SELECT role FROM memberships WHERE user_id = $1 AND deleted_at IS NULL",
+            [personId],
+          );
+    if (existing.some((r) => r.role !== "partner")) {
+      throw new ApiError("CONFLICT", "That address already belongs to an internal member of this workspace");
+    }
+
+    return this.invite(tx, tenantId, actorId, email, "partner", [], supplierId);
+  }
+
+  // --- Supplier-portal contacts (P11) ---------------------------------------
+  // Only ever `partner` memberships / partner invitations scoped to the given
+  // supplier — internal members are never listed or touched here.
+
+  private async requireSupplier(tx: Tx, supplierId: string): Promise<void> {
+    const { rows } = await tx.query("SELECT 1 FROM suppliers WHERE id = $1 AND deleted_at IS NULL", [supplierId]);
+    if (rows.length === 0) throw new ApiError("NOT_FOUND", "Supplier not found");
+  }
+
+  /** All contacts of a supplier, newest first, keyset-paged on (invitedAt, id). */
+  async listPortalContacts(
+    tx: Tx,
+    supplierId: string,
+    opts: { cursor?: string; limit: number },
+  ): Promise<Page<PortalContactDto>> {
+    await this.requireSupplier(tx, supplierId);
+    const all = await this.loadContacts(tx, supplierId);
+    all.sort((a, b) => (a.invitedAt === b.invitedAt ? (a.id < b.id ? 1 : -1) : a.invitedAt < b.invitedAt ? 1 : -1));
+    const limit = clampLimit(opts.limit);
+    let start = 0;
+    if (opts.cursor !== undefined) {
+      const c = decodeCursor(opts.cursor);
+      const at = new Date(c.createdAt).toISOString();
+      start = all.findIndex((r) => r.invitedAt < at || (r.invitedAt === at && r.id < c.id));
+      if (start === -1) start = all.length;
+    }
+    const slice = all.slice(start, start + limit);
+    const last = slice[slice.length - 1];
+    const nextCursor =
+      start + limit < all.length && last !== undefined ? encodeCursor({ createdAt: last.invitedAt, id: last.id }) : null;
+    return { items: slice, nextCursor };
+  }
+
+  private async loadContacts(tx: Tx, supplierId: string): Promise<PortalContactDto[]> {
+    interface UserRow {
+      id: string;
+      email: string;
+      name: string;
+      mfa: boolean;
+      last_login_at: Date | null;
+    }
+    const { rows: members } = await tx.query<{ user_id: string; status: string; created_at: Date }>(
+      `SELECT user_id, status, created_at FROM memberships
+        WHERE role = 'partner' AND supplier_scope = $1 AND deleted_at IS NULL`,
+      [supplierId],
+    );
+    const { rows: invites } = await tx.query<{ id: string; email: string; created_at: Date; expires_at: Date }>(
+      `SELECT id, email::text AS email, created_at, expires_at FROM invitations
+        WHERE role = 'partner' AND supplier_scope = $1 AND accepted_at IS NULL AND revoked_at IS NULL`,
+      [supplierId],
+    );
+    const ids = members.map((m) => m.user_id);
+    const users: UserRow[] =
+      ids.length === 0
+        ? []
+        : (
+            await this.control.query<UserRow>(
+              "SELECT id, email::text AS email, name, mfa_secret IS NOT NULL AS mfa, last_login_at FROM control.users WHERE id = ANY($1)",
+              [ids],
+            )
+          ).rows;
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const out: PortalContactDto[] = [];
+    const memberEmails = new Set<string>();
+    for (const m of members) {
+      const u = byId.get(m.user_id);
+      if (u === undefined) continue;
+      memberEmails.add(u.email.toLowerCase());
+      out.push({
+        id: m.user_id,
+        email: u.email,
+        name: u.name,
+        status: m.status !== "active" ? "revoked" : u.mfa ? "active" : "enrolment_pending",
+        mfaEnrolled: u.mfa,
+        lastSignInAt: u.last_login_at === null ? null : u.last_login_at.toISOString(),
+        invitedAt: m.created_at.toISOString(),
+        expiresAt: null,
+      });
+    }
+    for (const i of invites) {
+      if (memberEmails.has(i.email.toLowerCase())) continue; // a re-issued link for an existing contact
+      out.push({
+        id: i.id,
+        email: i.email,
+        name: null,
+        status: "invited",
+        mfaEnrolled: false,
+        lastSignInAt: null,
+        invitedAt: i.created_at.toISOString(),
+        expiresAt: i.expires_at.toISOString(),
+      });
+    }
+    return out;
+  }
+
+  private async findContact(tx: Tx, supplierId: string, contactId: string): Promise<PortalContactDto> {
+    await this.requireSupplier(tx, supplierId);
+    const found = (await this.loadContacts(tx, supplierId)).find((c) => c.id === contactId);
+    if (found === undefined) throw new ApiError("NOT_FOUND", "Contact not found");
+    return found;
+  }
+
+  /** Re-issues the invite (old link revoked, new one returned to be emailed). */
+  async resendPortalContact(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    supplierId: string,
+    contactId: string,
+  ): Promise<{ email: string; token: string; expiresAt: Date }> {
+    const contact = await this.findContact(tx, supplierId, contactId);
+    if (contact.status !== "invited" && contact.status !== "enrolment_pending") {
+      throw new ApiError("CONFLICT", "Only pending contacts can be re-invited");
+    }
+    const { token, expiresAt } = await this.invitePartner(tx, tenantId, actorId, supplierId, contact.email);
+    return { email: contact.email, token, expiresAt };
+  }
+
+  /**
+   * Revokes a contact: membership deactivated, every session revoked NOW, any
+   * pending invitation revoked. Idempotent — revoking a revoked contact is a no-op.
+   */
+  async revokePortalContact(
+    tx: Tx,
+    tenantId: string,
+    actorId: string,
+    supplierId: string,
+    contactId: string,
+  ): Promise<PortalContactDto> {
+    const contact = await this.findContact(tx, supplierId, contactId);
+    if (contact.status === "revoked") return contact;
+    const isInvite = contact.status === "invited";
+
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: isInvite ? "invitation" : "membership",
+        entityId: contactId,
+        action: "updated",
+        after: { revoked: true, email: contact.email, supplierId },
+      },
+      async (t) => {
+        await t.query(
+          `UPDATE invitations SET revoked_at = now()
+            WHERE email = $1 AND role = 'partner' AND supplier_scope = $2
+              AND accepted_at IS NULL AND revoked_at IS NULL`,
+          [contact.email, supplierId],
+        );
+        if (!isInvite) {
+          await t.query(
+            `UPDATE memberships SET status = 'deactivated'
+              WHERE user_id = $1 AND role = 'partner' AND supplier_scope = $2`,
+            [contactId, supplierId],
+          );
+          await t.query("UPDATE sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL", [contactId]);
+        }
+      },
+    );
+    return { ...contact, status: "revoked" };
   }
 
   /**
@@ -610,11 +838,12 @@ export class AuthService {
       email: string;
       role: Role;
       plant_ids: string[];
+      supplier_scope: string | null;
       expires_at: Date;
       accepted_at: Date | null;
       revoked_at: Date | null;
     }>(
-      `SELECT id, email, role, plant_ids, expires_at, accepted_at, revoked_at
+      `SELECT id, email, role, plant_ids, supplier_scope, expires_at, accepted_at, revoked_at
          FROM invitations WHERE token_hash = $1`,
       [hashToken(token)],
     );
@@ -671,18 +900,22 @@ export class AuthService {
           entityKind: "membership",
           entityId: userId,
           action: "created",
-          after: { role: invitation.role },
+          after:
+            invitation.supplier_scope === null
+              ? { role: invitation.role }
+              : { role: invitation.role, supplierId: invitation.supplier_scope },
         },
       ],
       async (t) => {
         await t.query("UPDATE invitations SET accepted_at = now() WHERE id = $1", [invitation.id]);
 
         await t.query(
-          `INSERT INTO memberships (tenant_id, user_id, role, plant_ids, status)
-           VALUES ($1, $2, $3, $4, 'active')
+          `INSERT INTO memberships (tenant_id, user_id, role, plant_ids, status, supplier_scope)
+           VALUES ($1, $2, $3, $4, 'active', $5)
            ON CONFLICT (tenant_id, user_id)
-             DO UPDATE SET role = EXCLUDED.role, status = 'active', plant_ids = EXCLUDED.plant_ids`,
-          [tenantId, userId, invitation.role, invitation.plant_ids],
+             DO UPDATE SET role = EXCLUDED.role, status = 'active', plant_ids = EXCLUDED.plant_ids,
+                           supplier_scope = EXCLUDED.supplier_scope`,
+          [tenantId, userId, invitation.role, invitation.plant_ids, invitation.supplier_scope],
         );
       },
     );

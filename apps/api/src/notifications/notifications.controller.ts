@@ -6,8 +6,8 @@ import {
   UpdateNotificationPrefsBody,
   type CountDto,
   type NotificationDto,
+  type NotificationPageDto,
   type NotificationPrefsDto,
-  type Page,
   type UnreadCountDto,
 } from "@kaenal/types";
 import { currentContext, currentTx } from "../context.js";
@@ -21,6 +21,7 @@ const ListQuery = PageQuery.extend({
   unread: z.coerce.boolean().optional(),
   starred: z.coerce.boolean().optional(),
   entityKind: z.string().max(40).optional(),
+  type: z.string().max(40).optional(),
 });
 
 /**
@@ -33,12 +34,13 @@ export class NotificationsController {
   constructor(@Inject(NOTIFICATIONS_SERVICE) private readonly notifications: NotificationsService) {}
 
   @Get("v1/notifications")
-  async list(@Query() query: unknown): Promise<Page<NotificationDto>> {
+  async list(@Query() query: unknown): Promise<NotificationPageDto> {
     const q = parse(ListQuery, query);
     return this.notifications.list(currentTx(), actorIdOf(), {
       ...(q.unread !== undefined ? { unread: q.unread } : {}),
       ...(q.starred !== undefined ? { starred: q.starred } : {}),
       ...(q.entityKind !== undefined ? { entityKind: q.entityKind } : {}),
+      ...(q.type !== undefined ? { type: q.type } : {}),
       ...(q.cursor !== undefined ? { cursor: q.cursor } : {}),
       limit: q.limit,
     });

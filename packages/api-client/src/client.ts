@@ -55,9 +55,24 @@ export interface ApiClientOptions {
    * `kaenal_csrf` cookie, which is exactly the double-submit contract.
    */
   csrfToken?: Resolvable<string>;
+  /**
+   * Connectivity probe. When it returns false, unsafe (write) requests are
+   * rejected with `OfflineWriteError` instead of being sent or silently paused,
+   * so no write control fails silently offline. Web passes TanStack's
+   * `onlineManager`; mobile omits it (its sync queue owns offline writes).
+   */
+  isOnline?: () => boolean;
 }
 
-function buildHeaders(
+/** Thrown for a write attempted while `isOnline()` is false. */
+export class OfflineWriteError extends Error {
+  constructor() {
+    super("You're offline. Changes can't be saved.");
+    this.name = "OfflineWriteError";
+  }
+}
+
+export function buildHeaders(
   base: Record<string, string>,
   method: string,
   opts: ApiClientOptions,
@@ -93,8 +108,12 @@ function buildHeaders(
  * can follow the active workspace and session over time.
  */
 export function createApiClient(opts: ApiClientOptions) {
-  const api: ApiFetcher = (args) =>
-    tsRestFetchApi({ ...args, headers: buildHeaders(args.headers, args.method, opts) });
+  const api: ApiFetcher = (args) => {
+    if (opts.isOnline !== undefined && !SAFE_METHODS.has(args.method.toUpperCase()) && !opts.isOnline()) {
+      return Promise.reject(new OfflineWriteError());
+    }
+    return tsRestFetchApi({ ...args, headers: buildHeaders(args.headers, args.method, opts) });
+  };
 
   return initClient(contract, {
     baseUrl: opts.baseUrl,

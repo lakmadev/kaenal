@@ -18,8 +18,7 @@ import { Body, Button, Card, Icon, Screen, SectionLabel, StatusPill, Text } from
 
 // m-capture.jsx CapQuickLog — real photo evidence (offline pipeline) + GPS stamp +
 // AI structuring (quicklog_structuring) + "Log it" → a real NCR. Camera capture on
-// device; on web the file dialog. Voice-to-text needs a transcription backend that
-// doesn't exist yet, so that path is an honest note, not a fake transcript.
+// device; on web the file dialog. Voice quick-log is excluded (no transcription backend).
 export default function Capture() {
   const router = useRouter();
   const goBack = useSafeBack("/(app)/home");
@@ -260,13 +259,6 @@ export default function Capture() {
             </Card>
           )}
 
-          <Card style={{ padding: 12, backgroundColor: palette.bgSubtle, borderWidth: 0, flexDirection: "row", gap: 10, alignItems: "center" }}>
-            <Icon name="mic" size={16} color={palette.muted} />
-            <Text size={12} tone="muted" style={{ flex: 1, lineHeight: 17 }}>
-              Voice-to-text needs a transcription service (not yet available) — type your note and AI will
-              structure it. On device you can still attach photos from the camera.
-            </Text>
-          </Card>
         </View>
       </Body>
 
