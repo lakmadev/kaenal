@@ -161,12 +161,7 @@ export function AuditList({
             body={isFiltered ? t("emptyFilteredBody") : t("emptyBody")}
             action={
               !isFiltered && canManage ? (
-                <Button
-                  variant="primary"
-                  loading={false}
-                  disabled
-                  disabledReason="Create Audit dialog lands in a later Sprint 02 slice (S2-3)."
-                >
+                <Button variant="primary" onClick={onNewAudit}>
                   <Plus size={14} /> {t("newAudit")}
                 </Button>
               ) : undefined
