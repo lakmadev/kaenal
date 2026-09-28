@@ -353,6 +353,7 @@
     "descriptionMine": "Audits where you're lead auditor, on the team, or an auditee",
     "descriptionSchedule": "Planned and in-progress audits by date",
     "newAudit": "New audit",
+    "scheduleView": "Schedule view",
     "kpiActive": "Active",
     "kpiPlannedNext90d": "Planned (90d)",
     "kpiCompletedYtd": "Completed YTD",
@@ -402,6 +403,8 @@
     "phaseClosed": "Closed"
   },
   "auditSchedule": {
+    "title": "Schedule",
+    "description": "Planned, preparation and fieldwork windows for upcoming audits.",
     "today": "Today",
     "legendInternal": "Internal",
     "legendSupplier": "Supplier",
