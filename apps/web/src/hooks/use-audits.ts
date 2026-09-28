@@ -9,6 +9,7 @@ import type {
   CapaDto,
   CreateAuditBody,
   CreateAuditFindingBody,
+  ExportDto,
   NcrDto,
   RaiseCapaFromFindingBody,
   RaiseNcrFromFindingBody,
@@ -143,4 +144,40 @@ export function useRaiseCapaFromAuditFinding(auditId: string) {
       void qc.invalidateQueries({ queryKey: queryKeys.capas.list() });
     },
   });
+}
+
+/**
+ * One audit's PDF report (S2-2 AC5/6): the `audit_report` export resource,
+ * distinct from the `audits` table-dump export — same async create → poll →
+ * download pipeline as `AiPdfAction` (`createExport`/`getExport`, no new
+ * backend route needed here, the resource already exists per the Sprint 02
+ * backend slice). Shared by the header "Export" button and the Report tab's
+ * "Export PDF" button so both hit the SAME artifact, not two code paths.
+ */
+export function useAuditReportExport(auditId: string) {
+  const client = getApiClient();
+  const create = useMutation({
+    mutationFn: () =>
+      client
+        .createExport({ body: { resource: "audit_report", format: "pdf", filters: { auditId } } })
+        .then((r) => unwrap<ExportDto>(r)),
+  });
+  const exportId = create.data?.id;
+  const poll = useQuery({
+    queryKey: ["exports", "audit-report", exportId],
+    enabled: exportId !== undefined,
+    queryFn: () => client.getExport({ params: { id: exportId ?? "" } }).then((r) => unwrap<ExportDto>(r)),
+    refetchInterval: (q) => {
+      const status = q.state.data?.status;
+      return status === "completed" || status === "failed" ? false : 1500;
+    },
+  });
+  const status = poll.data?.status ?? create.data?.status;
+  return {
+    trigger: () => create.mutate(),
+    status,
+    downloadUrl: poll.data?.downloadUrl ?? null,
+    isPreparing: create.isPending || status === "queued" || status === "processing",
+    isFailed: create.isError || status === "failed" || poll.isError,
+  };
 }

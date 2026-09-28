@@ -28,6 +28,12 @@ const STATUS_STYLES: Record<string, Style> = {
   cancelled: { label: "Cancelled", bg: "rgba(100,116,139,0.16)", fg: "#475569", dot: "#64748b" },
   active: { label: "Active", bg: "rgba(245,158,11,0.14)", fg: "#b45309", dot: "#f59e0b" },
   pending: { label: "Pending", bg: "rgba(100,116,139,0.16)", fg: "#475569", dot: "#94a3b8" },
+  // Audit phases (Sprint 02) — planned/closed share styling with the generic
+  // scheduled/closed above via the fallback map below where they overlap.
+  planned: { label: "Planned", bg: "rgba(59,130,246,0.12)", fg: "#1d4ed8", dot: "#3b82f6" },
+  preparation: { label: "Preparation", bg: "rgba(147,51,234,0.12)", fg: "#7e22ce", dot: "#9333ea" },
+  fieldwork: { label: "Fieldwork", bg: "rgba(245,158,11,0.14)", fg: "#b45309", dot: "#f59e0b" },
+  reporting: { label: "Reporting", bg: "rgba(8,145,178,0.12)", fg: "#0e7490", dot: "#0891b2" },
 };
 
 const PRIORITY_STYLES: Record<string, Style> = {
