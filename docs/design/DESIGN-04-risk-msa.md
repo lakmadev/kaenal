@@ -63,6 +63,24 @@ touch or depend on for sign-off.
 Canvas (9 boards after the Ceremony 4 amendment, §0 above — same URL, updated in place):
 https://claude.ai/artifact/2npVH8fau7S6NETqyL5s75
 
+### 0b. Round 3 touch-up pass (2026-09-28, same session) — five copy/token/one-card edits, no new boards
+
+Planner Round 3 left four small, non-blocking precision gaps in the M2 bound-hint text and the N5 wizard-card
+follow-through; this pass closes them, plus the N6(c) verdict-vocabulary re-check and the N6(b) Date-column
+confirmation, all as edits to boards already drawn — the 9-board count above is unchanged (same URL, republished
+in place, version 6).
+
+| # | Item | Board touched | What changed |
+|---|---|---|---|
+| 1 | MSA bound-hint text, exact | `MsaWizardSteps.dc.html` | Step 1's bounds box now states all three rules precisely: `average_range` trials 2–3/appraisers 2–3/parts 2–10; `crossed_anova` minimum 2 appraisers/2 parts/2 trials (ANOVA floor); both methods share an upper cap of 10 appraisers/50 parts/10 trials. Added the round-3 immutability note ("locked once created"). Step 2's per-field captions (appraisers/parts/trials) updated to state both methods' min and shared max, not just Average & Range's range. |
+| 2 | 5th CreateWizard type card ("risk") | `RiskWizardDetails.dc.html` | No board in this canvas drew the Type-step's 4-card grid at all (confirmed by re-grepping every `.dc.html` for the ENTITY_TYPES/TypeStep pattern — zero hits before this pass), so per "new design must follow existing designs," the 5-card reference strip (exact `type-step.tsx` recipe: tinted icon box, 2px border + tint fill when selected) was added inline on the risk wizard board rather than left undrawn. Icon `Shield` (established by `navigation.ts`). Color: `--risk-critical` (`#dc2626`, tokens.css) — the one risk-severity token not already spent by an existing card (`ncr` already uses `--risk-high` #ea580c, `"8d"` already uses `--risk-info` #6366f1), so no color outside the system is introduced. One new card only; the grid itself is not redrawn. |
+| 3 | KPI tile label/threshold | `Main.dc.html` | The board never actually drew the jsx's 5-tile KPI strip (only referenced it in a caption); added it, directly with the corrected label "High residual (≥ 10)" (was jsx's "(≥ 12)"). The jsx's 4th tile color (`#7c3aed`) isn't a tokens.css value, so it's substituted with `--slate-600` (#475569) — required by "no color outside the system," not a content deviation. |
+| 4 | Verdict vocabulary (`excellent`/`acceptable`/`reject` only) | `MsaWizardSteps.dc.html`, `MsaMeasurementGrid.dc.html`, `MsaIncompleteState.dc.html` | Re-checked all three MSA boards for "Marginal"/"pass"/"fail" wording (banner, chips, recent-studies column) — zero matches; already compliant since the original B5(e) pass. No edit needed; confirmed, not assumed. |
+| 5 | Date column, every row | `MsaIncompleteState.dc.html` (recent-studies table) | The table had **no** Date column at all (dropped or never added). Restored it between Method and GR&R%, applying the stated rule per row: `completed_at` when non-null (draft row shows `created_at` since never completed; completed row shows `completed_at`), with a small caption under each value naming which field it is. |
+
+No sprint file or product code touched. Sign-off (§7) is unaffected by this pass — still conditional only on
+the pre-existing `LinkPicker.dc.html` chip-row flag, unrelated to these five items.
+
 ---
 
 ## 1. Audit — `RiskRegister` jsx vs. stories (qms-risk-spc.jsx:1-224)
