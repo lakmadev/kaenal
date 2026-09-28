@@ -3,6 +3,56 @@
 Author: UI Lead Designer. Date: 2026-09-28. Sprint: `docs/sprints/SPRINT-04-risk-msa.md` §2 (R1-R5, M1-M5, X1),
 §5 (Design needs), §6 (Dead-end audit). Ceremony 2 (Design audit) of `SCRUM.md`.
 
+## 0. Ceremony 4 amendment pass (2026-09-28, this session)
+
+The `planner` agent's Ceremony 4 SEND BACK named five gaps (B1-B5); the PO resolved all of them in place in
+`SPRINT-04-risk-msa.md` (§0 summary table, inline `[AMENDED]` markers). This is the matching design-side
+amendment: three new boards + two small edits to the same canvas (same URL, republished in place, no new
+canvas created), covering exactly what the sprint file's §0/§5 named as needing a designer pass. Nothing
+already approved (Main.dc.html's matrix/register, RiskControlsEditor, MsaMeasurementGrid) was redrawn.
+
+| # | Item | Sprint reference | What changed |
+|---|---|---|---|
+| 1 | **NEW BOARD** `RiskWizardDetails.dc.html` | B1 (R4 AC1) | The 3-step (Type→Details→Review) risk branch's Details step: category/title/likelihood/impact/treatment/plan fields plus the single-select owner field that replaces the shared Assignees step for this type only, in `createwizard.jsx`'s own header/StepIndicator/Field/footer chrome. Also shows the create-time defaults (residual=inherent, status=active, trend=flat, review_due=null) as an info note, matching the wizard's existing bottom-banner convention (the "AI will pre-fill…" box in `renderStep3`). |
+| 2 | **NEW BOARD** `RiskLinkedRecords.dc.html` | B3 (R1, §5 item 6) | Risk detail-card linked-records panel, shown composed with the rest of the detail card (field grid, header). Populated + empty states. |
+| 3 | **NEW BOARD** `FmeaLinkedRisks.dc.html` | B3 (R3 AC7, §5 item 7) | FMEA's new "Linked risks" reverse pane — read-only, minimal, in FMEA's own visual language, not a workbench redesign. Populated + empty states. |
+| 4 | **SMALL EDIT** `MsaWizardSteps.dc.html` | B5(a) (M1 AC4 / M2 AC4, §5 item 2) | Added an explicit Average-Range a/p/n bounds note to Step 1 (method picker) and Step 2 (appraiser/part/trial fields), plus one worked disabled-field example (Trials=4 shown disabled/invalid for Average & Range) so the client-side guard is visible, not just implied. |
+| 5 | **SMALL EDIT** `MsaIncompleteState.dc.html` | B5(e) (M3 AC3, §5 item 9) | Added an explicit verdict-color-token reference (excellent=green / acceptable=amber / reject=red) with the amber-not-green rationale spelled out inline, since this is the one deliberate exception to rule 9's jsx-pixel-fidelity requirement anywhere in this sprint. See §8 below for what this board already had right and what was missing. |
+
+### Linked-records precedent used for #2 and #3
+
+Per this task's instruction, I independently re-verified which of `supplier-detail.tsx`, `document-detail.tsx`,
+`capa-detail.tsx` has the cleanest linked-records treatment (grepped `EntityLink|useEntityLinks|LinkList|
+LinkTable` in all three): **`supplier-detail.tsx`** owns the fullest, most reusable version — a local
+`LinkList`/`LinkTable` pair (`supplier-detail.tsx:700-768`) with its own load/error/empty states and a shared
+`Type | Record | Relation | ›` row shape, grouped per-tab (`audits`, `docs`) by the opposite end's kind.
+`capa-detail.tsx` defines its own equivalent `LinkTable` locally for one bucket ("Linked NCRs & 8Ds",
+`capa-detail.tsx:691`) — same visual shape, narrower scope. `document-detail.tsx`'s version
+(`document-detail.tsx:416-433`) is the plainest, a single ungrouped list with no table chrome. **Boards #2 and
+#3 both follow the supplier/capa `Type | Record | Relation | ›` table shape** (card-wrapped, hover row,
+chevron, `EmptyState` for zero rows) as the cleanest, most established precedent — not a new visual language.
+
+### FMEA zero-existing-related-items confirmation
+
+Independently re-verified this session, not taken on the sprint file's word: `apps/web/src/features/fmea/`
+contains exactly one file, `fmea-workbench.tsx`; grepping it for `entity-link|EntityLink|useEntityLinks|
+LinkList|LinkTable|related|Related|linked|Linked` returns **zero matches**. The sprint file's claim (§0 B3 row,
+§1a, R3's UC) that FMEA has no related-items/linked-records display of any kind today is **confirmed correct**,
+not merely trusted. `FmeaLinkedRisks.dc.html` is a genuinely new, small addition, not an extension of an
+existing panel.
+
+### Flagged, not fixed (found during this pass, outside the five items asked)
+
+`LinkPicker.dc.html` (drawn in the original pass, already approved) still shows all five kind-filter chips
+(FMEA/NCR/8D/Audit/Supplier, FMEA pre-selected) in its result panel. The amended R3 AC6 now reads: "no
+kind-filter chips shown, since there is only one kind this sprint" when the picker is opened from risk's "Link
+to FMEA." This board was not in this amendment's five-item scope and existing-approved boards are not redrawn
+without being asked, so **it is flagged here, not edited**: the PO/planner should confirm whether
+`LinkPicker.dc.html` needs its own follow-up edit (hide the chip row for this sprint's one call site) before
+Gate 1 closes, or whether showing all five (inert) chips is acceptable since the component is intentionally
+generic (Q26) and no click handler exists for the other four yet. Not a blocking finding — logged the same way
+the sprint file logs Q22/Q24/Q25/Q26.
+
 **Scope note:** `RiskRegister` and `MSAStudy` (`project_brain/project/src/qms-risk-spc.jsx` lines 1-224 and
 549-671) are audited here, not redrawn — they are binding jsx per `apps/web/docs/design-rules.md`.
 `FMEAWorkbench` and `SPCCharts` (same file) are prior-phase, already-built modules and are out of scope except
@@ -10,7 +60,8 @@ for the two small additive changes R3 names (`fmea` becoming an `EntityKind`, `/
 math/schema (§3 of the sprint file) is a separate, still-pending user-approval gate this design work does not
 touch or depend on for sign-off.
 
-Canvas (6 boards): https://claude.ai/artifact/2npVH8fau7S6NETqyL5s75
+Canvas (9 boards after the Ceremony 4 amendment, §0 above — same URL, updated in place):
+https://claude.ai/artifact/2npVH8fau7S6NETqyL5s75
 
 ---
 
@@ -95,6 +146,10 @@ prototype with no accessibility semantics — `apps/web/docs/design-rules.md` bi
 All boards use only tokens already in `tokens.css` (ink accent `#18181b`, Archivo + JetBrains Mono, 3-9px
 radii, flat hairline shadows) — no new colour, radius, font or component style anywhere. Each board places
 its nearest existing pattern inline for comparison per the "new design must follow existing designs" check.
+
+**Ceremony 4 amendment note:** three further boards (§4.7-4.9 below) and two small edits (folded into §4.2 and
+§4.5's own descriptions above) were added in the amendment pass, §0. §4.1-4.6 below are unchanged from the
+original pass and remain as originally approved.
 
 ### 4.1 Risk controls editor (R2) — Board `RiskControlsEditor.dc.html`
 
@@ -208,6 +263,55 @@ creep into this sprint (only the FMEA-scoped call site is R3's job).
   a small addition (one generic dialog + `useCreateEntityLink` hook) alongside R3's other work, not treat it
   as "already exists, just wire the click."
 
+### 4.7 [AMENDED — B1] Risk-create wizard Details step — Board `RiskWizardDetails.dc.html`
+
+No jsx reference anywhere (confirmed by reading `createwizard.jsx` in full again this session: 4 entity types,
+none named `risk`, no field in any of them matches risk's schema). Nearest existing pattern: the wizard's own
+shell — `StepIndicator` dots, the `Field`/`k-input` layout from `renderStep1`'s "Details" column, and the
+bottom info-banner convention from `renderStep2`'s Assignees notification box and `renderStep3`'s "AI will
+pre-fill…" box. Drawn: the full wizard chrome (header bar with Cancel/step dots/Back-Next, footer hint) with a
+**3-dot** indicator (Type→Details→Review, not the shared 4-dot Type→Details→Assignees→Review), and the Details
+form itself: category select (9 values), title, likelihood 1-5 and impact 1-5 pickers (a 5-box segmented
+control, following the same selectable-chip precedent §4.1's control-type/strength pickers already established
+in this canvas), treatment select, a single-select owner field (search-and-replace, not add-many — visually a
+`PeoplePicker`-style row but swapping the selected person instead of appending one), and an optional plan
+textarea. A bottom info box states the create-time defaults R4 AC1 fixes (residual = inherent, status =
+active, trend = flat, review_due = unset) as read-only context, not editable fields.
+- *Heuristic — visibility of system status:* the defaults note is placed where the wizard already puts
+  "what happens next" framing (matching `renderStep3`'s AI-prefill box), so the user isn't surprised by the
+  created record's starting state.
+- *WCAG:* the likelihood/impact 5-box pickers and the owner field need real radio-group / combobox semantics
+  respectively (not `<div onClick>`), matching the note already given for §4.1/§4.2's chip pickers in this
+  canvas — flagged for `react-coder`, not a new WCAG concern this pass invented.
+
+### 4.8 [AMENDED — B3] Risk detail-card linked-records panel — Board `RiskLinkedRecords.dc.html`
+
+No jsx reference (jsx's detail card has no linked-records section at all). Re-verified this session which of
+`supplier-detail.tsx`/`document-detail.tsx`/`capa-detail.tsx` has the cleanest treatment (see §0 above) —
+**`supplier-detail.tsx`'s `LinkTable`/`LinkList` pair** is the one reused: a card-wrapped `Type | Record |
+Relation | ›` table, hover rows, `EmptyState` for zero links. Drawn composed with the rest of R1's detail card
+(header, field grid) so it reads in context, not as an isolated panel: **State A** populated (three linked
+rows: FMEA/Supplier/NCR, "+ Link to FMEA" affordance top-right of the panel) and **State B** empty ("No linked
+records" + the same "+ Link to FMEA" CTA).
+- *Heuristic — consistency:* identical row shape to supplier/capa's existing linked-records tables — a user who
+  has seen either already knows how to read this one.
+- *WCAG:* rows are real clickable table rows with visible hover/focus state, matching the existing pattern's
+  own accessibility posture (no new concern introduced).
+
+### 4.9 [AMENDED — B3] FMEA "Linked risks" reverse pane — Board `FmeaLinkedRisks.dc.html`
+
+No jsx reference; FMEA has zero related-items display today (§0's confirmation above). Same visual pattern as
+§4.8 (the `Type | Record | Relation`-family table, here narrowed to just Code/Risk/Residual since every row is
+already known to be a risk), placed under a **minimal** FMEA context header (record name, rev, failure-mode
+count — not a redesign of the full workbench) per the instruction to keep this a narrow addition. **State A**
+populated (two linked risks, residual-score chips reusing the register's own band coloring) and **State B**
+empty ("No linked risks").
+- *Heuristic — minimal footprint:* the board deliberately does not reproduce the FMEA worksheet/RPN panels
+  above the new pane (shown only as a one-line "… existing panels above (unchanged) …" marker) — this is a
+  narrow addition to an existing screen, not a new FMEA screen design.
+- *WCAG:* same clickable-row treatment as §4.8; clicking a row target is `/risk?id=<uuid>` per R1's new
+  deep-link support.
+
 ## 5. Component/state inventory (existing patterns only)
 
 - `PageHeader`, `k-surface`, `k-chip`, `k-overline`, `k-btn`/`-primary`/`-ghost`/`-plain`/`-icon`, `k-input`,
@@ -239,22 +343,31 @@ route, no nav entry, no board, matching the sprint file's own §1a/§7 confirmat
 ## 7. Sign-off
 
 Every screen/state of `RiskRegister` (§1) and `MSAStudy` (§2) is mapped to a story with no uncovered jsx
-element and 0 divergence (neither module is built yet — confirmed by route-glob, not assumed). Five new
-designs plus one audit-found sixth (the link picker, §4.6 — a real gap in the sprint file's own design-needs
-section, corrected here rather than silently built around) are drawn in the existing visual language across
-6 boards, each carrying its nearest existing-pattern citation and WCAG/heuristic notes. Every control across
-both modules has a target behaviour already named by the PO in `SPRINT-04-risk-msa.md` §2's ACs — this design
-pass adds no new behaviour, only the visual surface for behaviour the PO already specified. WCAG 2.1 AA and
-Nielsen heuristics are checked for both the jsx-derived screens (§3) and the six new boards (§4, inline).
+element and 0 divergence (neither module is built yet — confirmed by route-glob, not assumed). Across the
+original pass and this Ceremony 4 amendment, **eight new designs** (six original + three amended: §4.1-§4.9,
+counting §4.2/§4.5's small edits as edits to existing boards rather than new ones) are drawn in the existing
+visual language, each carrying its nearest existing-pattern citation and WCAG/heuristic notes. Every control
+across both modules has a target behaviour already named by the PO in `SPRINT-04-risk-msa.md` §2's ACs
+(including the `[AMENDED]` ones) — this design pass adds no new behaviour, only the visual surface for
+behaviour the PO already specified. WCAG 2.1 AA and Nielsen heuristics are checked for the jsx-derived screens
+(§3), the original six boards (§4.1-4.6), and the three amendment boards (§4.7-4.9).
 
-One item is flagged, not blocking: **§4.6's link-picker gap should be named explicitly in the architecture
-review's vertical-slice plan** (a small generic component + hook, not "wire an existing control") so it isn't
-under-scoped at build time.
+Two items are flagged, not blocking:
+- **§4.6's link-picker gap** should be named explicitly in the architecture review's vertical-slice plan (a
+  small generic component + hook, not "wire an existing control") so it isn't under-scoped at build time.
+- **§0's `LinkPicker.dc.html` chip-row finding** (this amendment pass): the board still shows all five
+  kind-filter chips where the amended R3 AC6 now specifies none should show for this sprint's one call site.
+  Not redrawn (outside this amendment's five-item scope) — flagged for the PO/planner to decide before Gate 1
+  closes on the updated scope.
 
-**Designer sign-off: APPROVED.**
+**Designer sign-off: APPROVED**, conditional only on the PO/planner's disposition of the `LinkPicker.dc.html`
+flag above (a pre-existing, already-approved board's minor inconsistency with the amended AC6, not a defect in
+this amendment's own five deliverables, all of which are complete and match the amended sprint file).
 
-Gate 1 (user approves new visual design before implementation) is now open for the user's review of the 6
-boards on the canvas above. Backend sign-off (sprint file §3 — schema, residual-scoring decision, and the
-full AIAG Gauge R&R math) remains a **separate, still-PENDING** gate this design work does not affect either
-way; build does not start until both this design's Gate 1 and §3's backend gate have user approval, per
-SCRUM.md and the sprint file's own DoD §8.
+Gate 1 (user approves new visual design before implementation) is open for the user's re-review of the
+9-board canvas above, including the three new boards and two edited boards from this amendment. Backend
+sign-off (sprint file §3 — unchanged and already approved) and the §3-Addendum delta-approval
+(`msa_studies.completed_at`) remain **separate, still-PENDING** gates this design work does not affect either
+way; build does not start until this design's Gate 1, §3's backend gate, and the §3-Addendum delta-approval
+all have user approval, and the planner has lifted Ceremony 4's SEND BACK, per SCRUM.md and the sprint file's
+own DoD §8 and closing status line.
