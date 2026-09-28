@@ -3,6 +3,7 @@ import {
   AiConfidence,
   AiFeature,
   AuditAction,
+  AuditChecklistStatus,
   AuditFindingKind,
   AuditPhase,
   AuditType,
@@ -657,7 +658,7 @@ export type DownloadFileResult = z.infer<typeof DownloadFileResult>;
 // --- Search -----------------------------------------------------------------
 
 /** The entity kinds the command palette federates over (03 §1, 04). */
-export const SearchEntityKind = z.enum(["inspection", "ncr", "capa", "document"]);
+export const SearchEntityKind = z.enum(["inspection", "ncr", "capa", "document", "audit"]);
 export type SearchEntityKind = z.infer<typeof SearchEntityKind>;
 
 export const SearchResultDto = z.object({
@@ -858,19 +859,63 @@ export type AssignEightDBody = z.infer<typeof AssignEightDBody>;
 
 // --- Audits ------------------------------------------------------------------
 
+/** One clause of an audit's checklist (Sprint 02 S2-4, `checklist` jsonb column). */
+export const AuditChecklistItem = z.object({
+  id: z.string().uuid(),
+  clause: z.string(),
+  section: z.string(),
+  text: z.string(),
+  status: AuditChecklistStatus,
+  notes: z.string().nullable(),
+  /** Set once scoring this item auto-created (or was linked to) a finding. */
+  findingId: z.string().uuid().nullable(),
+});
+export type AuditChecklistItem = z.infer<typeof AuditChecklistItem>;
+
+/** Score one checklist item; version-checked against the audit's `lockVersion`
+ *  (a checklist edit bumps it like any other audit mutation). */
+export const UpdateAuditChecklistItemBody = z.object({
+  status: AuditChecklistStatus,
+  notes: z.string().max(4000).nullable().optional(),
+  version: z.number().int().nonnegative(),
+});
+export type UpdateAuditChecklistItemBody = z.infer<typeof UpdateAuditChecklistItemBody>;
+
+/** Findings breakdown by kind — shared by the detail sidebar and the list KPI strip. */
+export const AuditFindingsSummary = z.object({
+  major: z.number().int().nonnegative(),
+  minor: z.number().int().nonnegative(),
+  opportunity: z.number().int().nonnegative(),
+});
+export type AuditFindingsSummary = z.infer<typeof AuditFindingsSummary>;
+
 export const AuditDto = z.object({
   id: z.string().uuid(),
   code: z.string(),
   title: z.string(),
+  description: z.string().nullable(),
   standard: z.string().nullable(),
   type: AuditType,
   status: AuditPhase,
   leadAuditorId: z.string().uuid().nullable(),
   team: z.array(z.string().uuid()),
+  /** The department/people being audited — distinct from `team` (the audit team). */
+  auditeeIds: z.array(z.string().uuid()),
   plantId: z.string().uuid().nullable(),
+  location: z.string().nullable(),
+  scope: z.array(z.string()),
   startAt: z.string().datetime().nullable(),
   endAt: z.string().datetime().nullable(),
+  /** Freeform, lead-auditor-set; "—" is rendered client-side for null. */
+  nextActivity: z.string().nullable(),
+  /** Computed from `checklist` (non-`pending` ÷ total, 0 if empty) — never
+   *  column-backed (the dead `audits.progress` column is dropped). */
   progress: z.number(),
+  checklist: z.array(AuditChecklistItem),
+  findingsSummary: AuditFindingsSummary,
+  capasOpen: z.number().int().nonnegative(),
+  capasTotal: z.number().int().nonnegative(),
+  closedAt: z.string().datetime().nullable(),
   lockVersion: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -881,11 +926,16 @@ export const CreateAuditBody = z.object({
   title: z.string().min(1).max(200),
   type: AuditType,
   standard: z.string().max(200).nullable().optional(),
+  description: z.string().max(4000).nullable().optional(),
+  location: z.string().max(200).nullable().optional(),
+  scope: z.array(z.string().min(1).max(200)).max(50).optional(),
   leadAuditorId: z.string().uuid().nullable().optional(),
   team: z.array(z.string().uuid()).max(50).optional(),
+  auditeeIds: z.array(z.string().uuid()).max(50).optional(),
   plantId: z.string().uuid().nullable().optional(),
   startAt: z.string().datetime().nullable().optional(),
   endAt: z.string().datetime().nullable().optional(),
+  nextActivity: z.string().max(500).nullable().optional(),
 });
 export type CreateAuditBody = z.infer<typeof CreateAuditBody>;
 
@@ -894,15 +944,39 @@ export const AdvanceAuditBody = z.object({
   to: AuditPhase,
   version: z.number().int().nonnegative(),
   reason: z.string().max(2000).optional(),
+  nextActivity: z.string().max(500).nullable().optional(),
 });
 export type AdvanceAuditBody = z.infer<typeof AdvanceAuditBody>;
+
+/** Last-6-months audit counts grouped by type (S2-1 frequency chart). */
+export const AuditFrequencyPointDto = z.object({
+  month: z.string(),
+  counts: z.record(AuditType, z.number().int().nonnegative()),
+});
+export type AuditFrequencyPointDto = z.infer<typeof AuditFrequencyPointDto>;
+
+export const AuditFrequencyResult = z.object({
+  points: z.array(AuditFrequencyPointDto),
+});
+export type AuditFrequencyResult = z.infer<typeof AuditFrequencyResult>;
+
+/** The `/audits` KPI strip — one aggregate query, not a client tally over a page. */
+export const AuditStatsDto = z.object({
+  active: z.number().int().nonnegative(),
+  plannedNext90d: z.number().int().nonnegative(),
+  completedYtd: z.number().int().nonnegative(),
+  openFindings: z.number().int().nonnegative(),
+});
+export type AuditStatsDto = z.infer<typeof AuditStatsDto>;
 
 export const AuditFindingDto = z.object({
   id: z.string().uuid(),
   auditId: z.string().uuid(),
   clause: z.string().nullable(),
   kind: AuditFindingKind,
+  title: z.string().nullable(),
   description: z.string(),
+  dueDate: z.string().datetime().nullable(),
   ncrId: z.string().uuid().nullable(),
   capaId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
@@ -914,6 +988,8 @@ export const CreateAuditFindingBody = z.object({
   kind: AuditFindingKind,
   description: z.string().min(1).max(4000),
   clause: z.string().max(200).nullable().optional(),
+  title: z.string().max(200).nullable().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
 });
 export type CreateAuditFindingBody = z.infer<typeof CreateAuditFindingBody>;
 
@@ -934,9 +1010,12 @@ export type RaiseCapaFromFindingBody = z.infer<typeof RaiseCapaFromFindingBody>;
 
 // --- Exports (03 §8) --------------------------------------------------------
 
-/** Optional filters narrowing the exported set; applied by the renderer. */
+/** Optional filters narrowing the exported set; applied by the renderer.
+ *  `auditId` is required for (and only meaningful for) an `audit_report`
+ *  export — the one audit whose PDF report is being rendered. */
 export const ExportFilters = z.object({
   status: z.string().max(60).optional(),
+  auditId: z.string().uuid().optional(),
 });
 export type ExportFilters = z.infer<typeof ExportFilters>;
 
@@ -993,6 +1072,9 @@ export const CreateExportBody = z
     }
     if (v.resource !== "ai_reply" && v.aiReply !== undefined) {
       ctx.addIssue({ code: "custom", path: ["aiReply"], message: "aiReply is only valid for an ai_reply export" });
+    }
+    if (v.resource === "audit_report" && v.filters?.auditId === undefined) {
+      ctx.addIssue({ code: "custom", path: ["filters", "auditId"], message: "filters.auditId is required for an audit_report export" });
     }
   });
 export type CreateExportBody = z.infer<typeof CreateExportBody>;

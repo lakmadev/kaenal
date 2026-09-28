@@ -5,6 +5,20 @@
 
 ## Current status
 
+**Sprint 02 — Audits module (2026-09-28), Gate 2 accepted, sprint closeable.** Backend: migration 0061
+(`audits`/`audit_findings`, `next_activity`/`closed_at` columns, `progress` column dropped in favour of
+computed value), contract routes, `audits.controller.ts`/`audits.service.ts`, `audit_report` export
+resource, 35 API tests green (`audits.test.ts` 18, `exports.test.ts` audit_report block 10,
+`search.test.ts` audit-exclusion block 7). Web: list/cards/KPI chart/schedule view, detail
+(header/tracker/sidebar/Team/Evidence/Report tabs), checklist tab (IATF bank seed + scoring + auto-link
+finding), findings tab (manual add + raise NCR/CAPA), Create Audit dialog — 33 web tests +
+8 `packages/core` audit-checklist tests green. Full gate green: typecheck/lint clean, 556 API tests,
+323 RLS tests, `db:check` 53 tables, demo login re-seeded and confirmed 201. Architecture-review gaps
+(role routing, `audit_report` export, data sources for `nextActivity`/`progress`/evidence count/
+Completed YTD, contract gaps, legacy-checklist handling, closed-audit scoring 422) resolved per
+`docs/sprints/SPRINT-02-audits.md` §8/§8a. Design Gate 2 confirmed per `docs/design/DESIGN-02-audits.md`
+§6a; the one flagged divergence (add-finding toggle not flipping to "Cancel"/X) is fixed (`f8501fe`).
+
 **Sprint 01 Phase B — Full-page CreateWizard + palette enhancements + Live mode + AI drawer (2026-09-27).** Merged three feature branches: S1-1 (quick-create "New" menu + full-page CreateWizard: 4 steps Type/Details/Assignees/Review at /create/[type], replacing per-entity dialogs; CAPA keeps its dialog per Q1), S1-2 + S1-9 (command palette parity: real keyboard shortcuts ⌘K/⌘I/⌘D/? with live-bound-keys-only chips, shortcuts dialog, Tweaks panel "Appearance" with Theme/Density/Accent/AI-prominence controls in reusable appearance-controls.tsx, user_preferences persisted via API), S1-3 + S1-4 (Live mode toggle + live event toasts, AI chat drawer with streamed reply, confidence chips, model label, pin-to-record, Generate PDF using existing export pipeline). **Backend:** migration 0060 (`priority`, `description`, `area_label` fields on entity bodies, `entity_people` junction table, idempotency-key support, assignee notifications). `POST /v1/ai/chat` SSE (from Phase A) now exposed via drawer. Realtime structures for Live mode (Phase A). **Web:** CreateWizard form (4-step, /create/[type], NCR/Inspection/8D/Document via real entity-people picker + template picker; CAPA dialog unchanged), New menu in topbar (⌘N), palette quick-actions real (⌘K/⌘I/⌘D → real endpoints, chips only if key is bound), shortcuts dialog (?), Tweaks panel (Theme/Density/Accent/AI-prominence live-apply + persist), Live toggle in topbar, AI drawer (chat → confidence chips + model label, Generate PDF). **Fixes:** (1) past-due-date validation on `scheduledAt` scoped to `body.recurrence == null` — recurring series anchors in past are normal; (2) seed `targetAt` made relative (`Date.now() + 45 days`) so test fixtures stay valid as wall-clock time advances. **Verified end-to-end:** CreateWizard 4-step (created real NCR-2026-0002), palette ⌘K/⌘I/⌘D, shortcuts dialog, Tweaks panel (after menu-fix), Live toggle, AI drawer (chat + model label + confidence, PDF download). **Test suite:** api 541 (wizard 4, ai 8, preferences 11, etc.), core 736, db 361, web 100, mobile 73, types 74, api-client 11; `test:rls` 323/323; `db:check` 53 tables ✓; demo sign-in 201 ✓. **Honest gap:** CreateWizard dirty-leave-confirm (Cancel, Esc) does NOT intercept browser back-button or sidebar clicks — App Router hook limitation, flagged as Phase C follow-up.
 
 **Sprint 01 Phase A — Shell foundations (2026-09-26).** Eight stories closing the app shell so every
@@ -2045,6 +2059,22 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Decisions log
 
+- **Sprint 02 Audits — architecture-review gaps resolved (2026-09-27/28, full detail:
+  `docs/sprints/SPRINT-02-audits.md` §8/§8a).** Role routing: `/audits` stays hidden from
+  inspector/viewer per `rbac.ts`/`rbac.jsx` — filter search/AI-chat hits for those roles rather than
+  opening the route; creation notifications are NOT role-filtered (an auditee may be an inspector and
+  must still be told). New `audit_report` export resource (distinct from the existing `audits`
+  table-dump). Data sources: `nextActivity` is a new nullable column set optionally at create/advance
+  (never auto-derived); `progress` computed from the checklist in `packages/core`, the dead stored
+  column dropped rather than kept as a second stale source of truth; checklist `evidence` count
+  dropped this sprint (no attach-to-checklist-item mechanism exists — Known issue, not a fake zero);
+  `closed_at` added and set on advance-to-closed for "Completed YTD". Legacy `checklist = []` audits:
+  no SQL backfill, generic EmptyState renders instead. Checklist scoring on a closed audit: `422
+  VALIDATION_FAILED` (phase-driven refusal, not a capability 403).
+- **Sprint 02 Audits — smallest-reasonable-choice defaults.** One fixed IATF clause checklist bank
+  seeded at audit creation (no configurable-template settings screen this sprint — Q11). Finding
+  severity maps to raise-NCR/CAPA priority at creation time as the simplest direct mapping, no separate
+  severity-to-priority config surface.
 - **Never hardcode absolute calendar dates in test fixtures or seed data when validation checks wall-clock time (2026-09-27).** CreateWizard's past-due-date validation (`assertNotPast`) applied to `scheduledAt` broke once test anchor dates drifted into the past. Root causes: (1) recurring-series anchors legitimately live in the past (e.g. weekly walk "started" last month, materialization catches occurrences up to now) — the check must exclude `body.recurrence != null`; (2) seed data's hardcoded absolute dates (demo 8D targetAt = 2026-05-15) became stale as wall-clock time progressed. Solution: use relative dates in both fixtures and seed (e.g. `Date.now() + 45 days`) so they stay valid indefinitely, ensuring the test suite and dev login remain re-seedable across calendar boundaries.
 
 - **S1 user decisions Q1–Q9 (2026-09-26, ROADMAP.md section 0):** Q1 wizard replaces per-entity dialogs
@@ -2759,6 +2789,17 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 ---
 
 ## Known issues / TODO
+
+- **Sprint 02 Audits — carried-forward known issues (2026-09-28, `docs/sprints/SPRINT-02-audits.md`
+  §7/§9, Q10-Q14).** Q10: "Send to auditee" (Report tab) has no design or recipient model — who "the
+  auditee" is for a send action is undefined, correctly deferred. Q11: configurable audit-checklist
+  templates (settings screen to edit/version the clause bank) deferred — one fixed IATF bank this
+  sprint. Q12: `lead_auditor_id` is a plain FK to `users(id)`, not this sprint's composite-FK-to-
+  memberships pattern — pre-existing inconsistency, not side-effect-fixed here. Q13: graph-explorer
+  node kinds/seeds for audits deferred to Sprint 03. Q14 (security-reviewer finding): the Files
+  module's Upload/Evidence-tab access has no entity-aware capability check — cross-cutting, not fixed
+  inline. Also: checklist-item "evidence" count dropped this sprint, no attach-file-to-checklist-item
+  mechanism exists yet.
 
 - **S1 Phase B ✅ complete: CreateWizard + palette + Live mode + AI drawer (2026-09-27).** All UI built + verified end-to-end. Honest remaining gap: CreateWizard's dirty-leave-confirm guard (triggered by Cancel button, Esc key) does NOT intercept browser back-button or sidebar navigation clicks — a Next.js App Router limitation (no stable `beforeunload`-equivalent hook). This is flagged as a Phase C follow-up.
 

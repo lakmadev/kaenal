@@ -162,6 +162,8 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
+Sprint 02 (Audits) — web-only sprint, mobile unaffected; no mobile screens or endpoints touched.
+
 **S1-11 mobile + manage-web wiring + theme fix (2026-09-26).** Per user decision Q9 voice transcription
 backend is out of scope, so mobile voice surface was REMOVED (not deferred): `app/voice.tsx` route,
 `features/capture/transcribe{,.web}.ts`, NCR-create "Voice" method tile (+ "arrives next" note + `ready`

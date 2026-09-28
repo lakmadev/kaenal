@@ -35,6 +35,15 @@ export const queryKeys = {
     actions: (id: string) => ["capas", id, "actions"] as const,
   },
 
+  audits: {
+    all: ["audits"] as const,
+    list: (params?: unknown) => ["audits", "list", params ?? null] as const,
+    detail: (id: string) => ["audits", "detail", id] as const,
+    findings: (id: string) => ["audits", id, "findings"] as const,
+    frequency: () => ["audits", "frequency"] as const,
+    stats: () => ["audits", "stats"] as const,
+  },
+
   documents: {
     all: ["documents"] as const,
     list: (params?: unknown) => ["documents", "list", params ?? null] as const,

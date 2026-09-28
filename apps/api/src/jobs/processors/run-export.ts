@@ -77,6 +77,76 @@ const AI_REPLY_SPEC: Exportable = {
   headers: ["AI reply"],
 };
 
+/** Not a table export either: one audit's report, rendered as label/value rows
+ *  (title/standard/code/findings-summary) followed by its detailed findings. */
+const AUDIT_REPORT_SPEC: Exportable = {
+  table: "",
+  plantScoped: false,
+  columns: [],
+  headers: ["Field", "Value"],
+};
+
+/**
+ * Render ONE audit's report (S2-2 AC5/6) — re-derived from the DB at render
+ * time, never from the stored `filters` payload alone: the requester's plant
+ * scope is re-checked here exactly as `fetchRows` does for table exports, so a
+ * scope that narrowed between `create` and render still fails closed.
+ */
+async function auditReportRows(
+  tx: Parameters<Parameters<typeof withTenant>[2]>[0],
+  filters: { auditId?: string },
+  membership: Membership,
+): Promise<unknown[][]> {
+  const auditId = filters.auditId;
+  if (typeof auditId !== "string") throw new Error("audit_report export is missing filters.auditId");
+
+  const { rows } = await tx.query<{
+    code: string;
+    title: string;
+    standard: string | null;
+    type: string;
+    status: string;
+    plant_id: string | null;
+  }>("SELECT code, title, standard, type, status, plant_id FROM audits WHERE id = $1 AND deleted_at IS NULL", [
+    auditId,
+  ]);
+  const audit = rows[0];
+  if (audit === undefined) throw new Error("Audit not found");
+  if (isPlantScoped(membership.role) && membership.plantIds.length > 0) {
+    if (audit.plant_id === null || !membership.plantIds.includes(audit.plant_id)) {
+      throw new Error("Audit is out of scope");
+    }
+  }
+
+  const { rows: findings } = await tx.query<{
+    clause: string | null;
+    kind: string;
+    title: string | null;
+    description: string;
+  }>(
+    "SELECT clause, kind, title, description FROM audit_findings WHERE audit_id = $1 AND deleted_at IS NULL ORDER BY created_at ASC",
+    [auditId],
+  );
+  const summary: Record<string, number> = { major_nc: 0, minor_nc: 0, opportunity: 0 };
+  for (const f of findings) summary[f.kind] = (summary[f.kind] ?? 0) + 1;
+
+  const out: unknown[][] = [
+    ["Title", audit.title],
+    ["Code", audit.code],
+    ["Standard", audit.standard ?? ""],
+    ["Type", audit.type],
+    ["Status", audit.status],
+    ["Major NCs", summary["major_nc"] ?? 0],
+    ["Minor NCs", summary["minor_nc"] ?? 0],
+    ["Opportunities", summary["opportunity"] ?? 0],
+    ["Findings", findings.length],
+  ];
+  for (const f of findings) {
+    out.push([f.clause ?? "—", `${f.kind}: ${f.title ?? f.description.slice(0, 80)}`]);
+  }
+  return out;
+}
+
 /** Wrap the reply text to the PDF column width and append provenance lines. */
 function aiReplyRows(p: AiReplyExportPayload): unknown[][] {
   const wrap = (text: string): string[] => {
@@ -108,7 +178,7 @@ function aiReplyRows(p: AiReplyExportPayload): unknown[][] {
 interface ExportRow {
   resource: string;
   format: string;
-  filters: { status?: string };
+  filters: { status?: string; auditId?: string };
   payload: unknown;
   requested_by: string | null;
 }
@@ -161,13 +231,18 @@ export async function runExport(
 
     try {
       const aiReply = job.resource === "ai_reply" ? AiReplyExportPayload.parse(job.payload) : null;
-      const spec = aiReply !== null ? AI_REPLY_SPEC : EXPORTABLES[job.resource];
+      const isAuditReport = job.resource === "audit_report";
+      const spec = isAuditReport ? AUDIT_REPORT_SPEC : aiReply !== null ? AI_REPLY_SPEC : EXPORTABLES[job.resource];
       if (spec === undefined) throw new Error(`Unknown export resource: ${job.resource}`);
 
       const membership = job.requested_by === null ? null : await loadMembership(tx, job.requested_by);
       if (membership === null) throw new Error("Requester is no longer an active member");
 
-      const rows = aiReply !== null ? aiReplyRows(aiReply) : await fetchRows(tx, spec, job.filters, membership);
+      const rows = isAuditReport
+        ? await auditReportRows(tx, job.filters, membership)
+        : aiReply !== null
+          ? aiReplyRows(aiReply)
+          : await fetchRows(tx, spec, job.filters, membership);
       const stringRows = rows.map((r) => r.map(cell));
 
       // Serialise per format. XLSX/PDF are single documents (they page/scroll

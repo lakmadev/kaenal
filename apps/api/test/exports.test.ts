@@ -289,3 +289,44 @@ describe("authorization + scoping", () => {
     }
   });
 });
+
+describe("audit_report export (Sprint 02 S2-2)", () => {
+  it("renders one audit's report as a PDF, and 404s on a foreign auditId before enqueueing", async () => {
+    const audit = await authed("post", "/v1/audits", mgrTok).send({ title: "EXPTEST audit report", type: "internal" });
+    expect(audit.status).toBe(201);
+    await authed("post", `/v1/audits/${audit.body.id}/findings`, mgrTok).send({
+      kind: "major_nc",
+      description: "EXPTEST finding for the report",
+    });
+
+    // A foreign/unknown auditId is a 404 immediately — never a queued job.
+    const badId = await authed("post", "/v1/exports", mgrTok).send({
+      resource: "audit_report",
+      format: "pdf",
+      filters: { auditId: "00000000-0000-0000-0000-000000000000" },
+    });
+    expect(badId.status).toBe(404);
+
+    const create = await authed("post", "/v1/exports", mgrTok).send({
+      resource: "audit_report",
+      format: "pdf",
+      filters: { auditId: audit.body.id },
+    });
+    expect(create.status).toBe(202);
+    await render(create.body.id);
+
+    const done = (await authed("get", `/v1/exports/${create.body.id}`, mgrTok)).body as Export;
+    expect(done.status).toBe("completed");
+    const pdf = storage.read(`${acmeId}/exports/${create.body.id}.pdf`)!.toString("latin1");
+    expect(pdf).toContain("EXPTEST audit report");
+    expect(pdf).toContain("Major NCs");
+
+    await control.query("DELETE FROM audit_findings WHERE description LIKE 'EXPTEST%'");
+    await control.query("DELETE FROM audits WHERE title = 'EXPTEST audit report'");
+  });
+
+  it("requires filters.auditId for an audit_report export", async () => {
+    const res = await authed("post", "/v1/exports", mgrTok).send({ resource: "audit_report", format: "pdf" });
+    expect(res.status).toBe(422);
+  });
+});

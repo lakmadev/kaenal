@@ -52,8 +52,9 @@ function keysForTopic(topic: RealtimeEvent["topic"]): readonly unknown[] | null 
       return queryKeys.documents.all;
     case "fmea":
       return queryKeys.fmea.all;
-    case "finding":
     case "audit":
+      return queryKeys.audits.all;
+    case "finding":
       return null; // no dedicated web list key yet; emitted server-side already
     default:
       return null;

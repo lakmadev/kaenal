@@ -28,6 +28,8 @@ let plantB = "";
 let auditorTok = "";
 let inspectorTok = ""; // scoped to plantA
 let viewerTok = "";
+let auditorId = "";
+let inspectorId = "";
 
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
@@ -74,8 +76,16 @@ async function token(email: string): Promise<string> {
   return decodeURIComponent(session?.split("=")[1]?.split(";")[0] ?? "");
 }
 
-function authed(method: "get" | "post", path: string, bearer: string) {
+function authed(method: "get" | "post" | "patch", path: string, bearer: string) {
   return request(server())[method](path).set("X-Tenant-Id", ACME).set("Authorization", `Bearer ${bearer}`);
+}
+
+interface ChecklistItem {
+  id: string;
+  clause: string;
+  section: string;
+  status: string;
+  findingId: string | null;
 }
 
 interface Audit {
@@ -83,14 +93,19 @@ interface Audit {
   code: string;
   status: string;
   lockVersion: number;
+  checklist: ChecklistItem[];
+  progress: number;
+  closedAt: string | null;
+  findingsSummary: { major: number; minor: number; opportunity: number };
 }
 
-async function createAudit(plantId?: string): Promise<Audit> {
+async function createAudit(plantId?: string, extra: Record<string, unknown> = {}): Promise<Audit> {
   const res = await authed("post", "/v1/audits", auditorTok).send({
     title: "AUDITTEST IATF surveillance",
     type: "certification",
     standard: "IATF 16949:2016",
     ...(plantId ? { plantId } : {}),
+    ...extra,
   });
   expect(res.status).toBe(201);
   return res.body as Audit;
@@ -111,8 +126,8 @@ beforeAll(async () => {
   acmeId = await tid(ACME);
   plantA = await seedPlant("AUDTESTPA");
   plantB = await seedPlant("AUDTESTPB");
-  await seedMember("aud-auditor@acme.test", "auditor", []);
-  await seedMember("aud-inspector@acme.test", "inspector", [plantA]);
+  auditorId = await seedMember("aud-auditor@acme.test", "auditor", []);
+  inspectorId = await seedMember("aud-inspector@acme.test", "inspector", [plantA]);
   await seedMember("aud-viewer@acme.test", "viewer", []);
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -127,11 +142,18 @@ afterAll(async () => {
   const ids = (
     await control.query<{ id: string }>("SELECT id FROM control.users WHERE email LIKE 'aud-%@acme.test'")
   ).rows.map((r) => r.id);
-  await control.query("UPDATE audit_findings SET ncr_id = NULL, capa_id = NULL WHERE description LIKE 'AUDITTEST%'");
-  await control.query("DELETE FROM audit_findings WHERE description LIKE 'AUDITTEST%'");
+  await control.query(
+    "UPDATE audit_findings SET ncr_id = NULL, capa_id = NULL WHERE audit_id IN (SELECT id FROM audits WHERE title LIKE 'AUDITTEST%')",
+  );
+  await control.query("DELETE FROM audit_findings WHERE audit_id IN (SELECT id FROM audits WHERE title LIKE 'AUDITTEST%')");
+  await control.query("DELETE FROM notifications WHERE kind = 'audit_assigned'");
   await control.query("DELETE FROM audits WHERE title LIKE 'AUDITTEST%'");
-  await control.query("DELETE FROM capas WHERE title LIKE '%audit finding%'");
-  await control.query("DELETE FROM ncrs WHERE title LIKE '%audit finding%'");
+  // Narrowed to AUDITTEST-derived rows only — the broader '%audit finding%'
+  // pattern also matched the demo seed's own audit-finding CAPA once
+  // `seed-demo.ts` has run against this DB, and deleting a still-referenced
+  // seeded row violated its FK.
+  await control.query("DELETE FROM capas WHERE title LIKE '%AUDITTEST%'");
+  await control.query("DELETE FROM ncrs WHERE title LIKE '%AUDITTEST%'");
   await control.query("DELETE FROM plants WHERE code LIKE 'AUDTESTP%'");
   if (ids.length > 0) {
     await control.query("DELETE FROM sessions WHERE user_id = ANY($1)", [ids]);
@@ -226,5 +248,176 @@ describe("RBAC + scoping", () => {
     const audit = await createAudit(plantB);
     const get = await authed("get", `/v1/audits/${audit.id}`, inspectorTok);
     expect(get.status).toBe(404);
+  });
+});
+
+describe("AuditType enum (S2-3 AC3)", () => {
+  it("accepts the corrected 5 values and rejects the removed 'process' value", async () => {
+    for (const type of ["internal", "supplier", "customer", "gap", "certification"]) {
+      const res = await authed("post", "/v1/audits", auditorTok).send({ title: `AUDITTEST type ${type}`, type });
+      expect(res.status).toBe(201);
+      expect(res.body.type).toBe(type);
+    }
+    const removed = await authed("post", "/v1/audits", auditorTok).send({ title: "AUDITTEST removed type", type: "process" });
+    expect(removed.status).toBe(422);
+  });
+});
+
+describe("foreign / invalid ids → 404 (S2-3 UC, rule 8)", () => {
+  it("404s on a foreign plantId, leadAuditorId, team member, or auditee", async () => {
+    const bogus = randomUUID();
+    const badPlant = await authed("post", "/v1/audits", auditorTok).send({ title: "AUDITTEST bad plant", type: "internal", plantId: bogus });
+    expect(badPlant.status).toBe(404);
+
+    const badLead = await authed("post", "/v1/audits", auditorTok).send({ title: "AUDITTEST bad lead", type: "internal", leadAuditorId: bogus });
+    expect(badLead.status).toBe(404);
+
+    const badTeam = await authed("post", "/v1/audits", auditorTok).send({ title: "AUDITTEST bad team", type: "internal", team: [bogus] });
+    expect(badTeam.status).toBe(404);
+
+    const badAuditee = await authed("post", "/v1/audits", auditorTok).send({ title: "AUDITTEST bad auditee", type: "internal", auditeeIds: [bogus] });
+    expect(badAuditee.status).toBe(404);
+  });
+});
+
+describe("create: idempotency + notifications (S2-3 AC4/AC5)", () => {
+  it("double-submit with the same Idempotency-Key creates exactly one audit", async () => {
+    const key = `aud-idem-${randomUUID()}`;
+    const first = await authed("post", "/v1/audits", auditorTok)
+      .set("Idempotency-Key", key)
+      .send({ title: "AUDITTEST idempotent", type: "internal" });
+    expect(first.status).toBe(201);
+
+    const second = await authed("post", "/v1/audits", auditorTok)
+      .set("Idempotency-Key", key)
+      .send({ title: "AUDITTEST idempotent", type: "internal" });
+    expect(second.status).toBe(201);
+    expect(second.body.id).toBe(first.body.id);
+
+    const { rows } = await control.query<{ count: string }>(
+      "SELECT count(*) FROM audits WHERE title = 'AUDITTEST idempotent'",
+    );
+    expect(Number(rows[0]?.count)).toBe(1);
+  });
+
+  it("notifies the lead auditor and every team/auditee member regardless of role", async () => {
+    // The inspector is BOTH an auditee and (separately) a team member here —
+    // notifications must reach them either way, never suppressed by role
+    // (architecture review §8 item 1 / PO resolution §8a item 1).
+    const audit = await createAudit(undefined, {
+      leadAuditorId: auditorId,
+      team: [inspectorId],
+      auditeeIds: [inspectorId],
+    });
+    expect(audit).toBeTruthy();
+
+    const { rows } = await control.query<{ title: string }>(
+      "SELECT title FROM notifications WHERE kind = 'audit_assigned' AND user_id = $1",
+      [inspectorId],
+    );
+    expect(rows.length).toBeGreaterThan(0);
+  });
+});
+
+describe("audit checklist (S2-4)", () => {
+  it("seeds the IATF bank on create, all pending", async () => {
+    const audit = await createAudit();
+    expect(audit.checklist.length).toBe(12);
+    expect(audit.checklist.every((i) => i.status === "pending")).toBe(true);
+    expect(audit.progress).toBe(0);
+  });
+
+  it("scores an item, auto-links a finding on the same transaction, and keeps the finding on re-score", async () => {
+    const audit = await createAudit();
+    const item = audit.checklist[0]!;
+
+    const scored = await authed("patch", `/v1/audits/${audit.id}/checklist/${item.id}`, auditorTok)
+      .send({ status: "major_nc", version: audit.lockVersion });
+    expect(scored.status).toBe(200);
+    const scoredAudit = scored.body as Audit;
+    const scoredItem = scoredAudit.checklist.find((i) => i.id === item.id)!;
+    expect(scoredItem.status).toBe("major_nc");
+    expect(scoredItem.findingId).not.toBeNull();
+    expect(scoredAudit.progress).toBeCloseTo(1 / 12, 5);
+    expect(scoredAudit.findingsSummary.major).toBe(1);
+
+    const findings = await authed("get", `/v1/audits/${audit.id}/findings`, auditorTok);
+    const linked = (findings.body.items as { id: string; kind: string }[]).find((f) => f.id === scoredItem.findingId);
+    expect(linked?.kind).toBe("major_nc");
+
+    // Re-scoring back to conformant does NOT delete the finding it already spawned.
+    const rescored = await authed("patch", `/v1/audits/${audit.id}/checklist/${item.id}`, auditorTok)
+      .send({ status: "conformant", version: scoredAudit.lockVersion });
+    expect(rescored.status).toBe(200);
+    const rescoredItem = (rescored.body as Audit).checklist.find((i) => i.id === item.id)!;
+    expect(rescoredItem.status).toBe("conformant");
+    expect(rescoredItem.findingId).toBe(scoredItem.findingId);
+
+    const findingsAfter = await authed("get", `/v1/audits/${audit.id}/findings`, auditorTok);
+    expect((findingsAfter.body.items as unknown[]).some((f) => (f as { id: string }).id === scoredItem.findingId)).toBe(true);
+  });
+
+  it("rejects a stale checklist score with 409", async () => {
+    const audit = await createAudit();
+    const item = audit.checklist[0]!;
+    const res = await authed("patch", `/v1/audits/${audit.id}/checklist/${item.id}`, auditorTok)
+      .send({ status: "conformant", version: audit.lockVersion + 3 });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("STALE_WRITE");
+  });
+
+  it("refuses to score a checklist item on a closed audit with 422", async () => {
+    let audit = await createAudit();
+    for (const to of ["preparation", "fieldwork", "reporting", "closed"]) {
+      const res = await authed("post", `/v1/audits/${audit.id}/advance`, auditorTok).send({ to, version: audit.lockVersion });
+      expect(res.status).toBe(200);
+      audit = res.body as Audit;
+    }
+    expect(audit.closedAt).not.toBeNull();
+
+    const item = audit.checklist[0]!;
+    const res = await authed("patch", `/v1/audits/${audit.id}/checklist/${item.id}`, auditorTok)
+      .send({ status: "conformant", version: audit.lockVersion });
+    expect(res.status).toBe(422);
+  });
+
+  it("a view-only role cannot score (403), and a foreign audit id 404s", async () => {
+    const audit = await createAudit();
+    const item = audit.checklist[0]!;
+    const forbidden = await authed("patch", `/v1/audits/${audit.id}/checklist/${item.id}`, viewerTok)
+      .send({ status: "conformant", version: audit.lockVersion });
+    expect(forbidden.status).toBe(403);
+
+    const foreign = await authed("patch", `/v1/audits/${randomUUID()}/checklist/${item.id}`, auditorTok)
+      .send({ status: "conformant", version: 0 });
+    expect(foreign.status).toBe(404);
+  });
+});
+
+describe("frequency + stats (S2-1)", () => {
+  it("GET /v1/audits/frequency returns 6 months of per-type counts", async () => {
+    await createAudit();
+    const res = await authed("get", "/v1/audits/frequency", auditorTok);
+    expect(res.status).toBe(200);
+    expect(res.body.points).toHaveLength(6);
+    for (const point of res.body.points) {
+      expect(typeof point.month).toBe("string");
+      expect(typeof point.counts.internal).toBe("number");
+    }
+    const thisMonth = res.body.points[5];
+    expect(thisMonth.counts.certification).toBeGreaterThanOrEqual(1);
+  });
+
+  it("GET /v1/audits/stats returns the KPI strip shape", async () => {
+    await createAudit();
+    const res = await authed("get", "/v1/audits/stats", auditorTok);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      active: expect.any(Number),
+      plannedNext90d: expect.any(Number),
+      completedYtd: expect.any(Number),
+      openFindings: expect.any(Number),
+    });
+    expect(res.body.active).toBeGreaterThanOrEqual(1);
   });
 });

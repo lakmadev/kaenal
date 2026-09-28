@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
-import { ShieldCheck } from "lucide-react";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { Suspense } from "react";
+import { AuditsPageShell } from "@/features/audits/audits-page-shell";
 
 export const metadata: Metadata = { title: "Audits" };
 
-export default function Page(): React.ReactElement {
-  return <ModulePlaceholder title="Audits" icon={ShieldCheck} />;
+export default function AuditsPage(): React.ReactElement {
+  return (
+    <Suspense>
+      <AuditsPageShell />
+    </Suspense>
+  );
 }
