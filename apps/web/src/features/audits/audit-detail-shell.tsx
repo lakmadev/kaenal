@@ -6,6 +6,7 @@ import { ArrowLeft, ClipboardList, FileText, ListChecks, TriangleAlert, Users } 
 import { useAudit } from "@/hooks/use-audits";
 import { titleCase } from "@/lib/format";
 import { Skeleton, EmptyState, StatusBadge } from "@/components/ui";
+import { AuditFindingsTab } from "./audit-findings-tab";
 
 type Tab = "team" | "evidence" | "report" | "checklist" | "findings";
 
@@ -74,12 +75,16 @@ export function AuditDetailShell({ id }: { id: string }): React.ReactElement {
         ))}
       </div>
 
-      {/* TODO(next slices, per tab): checklist scoring (S2-4), findings +
-          raise-NCR/CAPA (S2-5), team/plan (S2-2), evidence upload/list — reuse
-          of the generic files pipeline (S2-2), report + export (S2-2). */}
-      <div className="k-surface p-8 text-sm text-muted">
-        {TABS.find((t) => t.id === tab)?.label} — coming in a later Sprint 02 slice.
-      </div>
+      {/* TODO(next slices, per tab): checklist scoring (S2-4), team/plan
+          (S2-2), evidence upload/list — reuse of the generic files pipeline
+          (S2-2), report + export (S2-2). Findings (S2-5) is built below. */}
+      {tab === "findings" ? (
+        <AuditFindingsTab auditId={audit.id} />
+      ) : (
+        <div className="k-surface p-8 text-sm text-muted">
+          {TABS.find((t) => t.id === tab)?.label} — coming in a later Sprint 02 slice.
+        </div>
+      )}
     </div>
   );
 }
