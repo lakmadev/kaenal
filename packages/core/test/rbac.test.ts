@@ -62,6 +62,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "portal:view",
     "portal:respond",
     "ai:use",
+    "graph:view",
   ],
   manager: [
     "inspection:view",
@@ -92,6 +93,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "import:run",
     "settings:manage",
     "ai:use",
+    "graph:view",
   ],
   auditor: [
     "inspection:view",
@@ -113,6 +115,7 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "spc:view",
     "report:view",
     "ai:use",
+    "graph:view",
   ],
   inspector: [
     "inspection:view",

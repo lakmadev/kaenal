@@ -57,6 +57,7 @@ const ENTITY_ROUTE: Record<EntityKind, string | null> = {
   audit: "audits",
   eight_d: null, // 8D detail route not built yet
   scar: null, // SCAR detail route not built yet
+  finding: null, // routes to its inspection, highlighted (Sprint 03 G2) — not wired here yet
 };
 
 /** Human label for an entity kind in the linked-records list. */
@@ -69,6 +70,7 @@ const ENTITY_LABEL: Record<EntityKind, string> = {
   audit: "Audit",
   eight_d: "8D",
   scar: "SCAR",
+  finding: "Finding",
 };
 
 type Tab = "plan" | "rca" | "effectiveness" | "history";

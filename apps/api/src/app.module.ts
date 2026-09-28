@@ -111,6 +111,8 @@ import { ImportController } from "./import/import.controller.js";
 import { ImportService } from "./import/import.service.js";
 import { SpcController } from "./spc/spc.controller.js";
 import { SpcService } from "./spc/spc.service.js";
+import { GraphController } from "./graph/graph.controller.js";
+import { GraphService } from "./graph/graph.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -159,6 +161,7 @@ import {
   INTEGRATIONS_SERVICE,
   IMPORT_SERVICE,
   SPC_SERVICE,
+  GRAPH_SERVICE,
   REALTIME,
   PRESENCE_SERVICE,
   COLLAB_SERVICE,
@@ -212,6 +215,7 @@ import {
     IntegrationsController,
     ImportController,
     SpcController,
+    GraphController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -474,6 +478,7 @@ import {
     },
     { provide: IMPORT_SERVICE, useFactory: () => new ImportService() },
     { provide: SPC_SERVICE, useFactory: () => new SpcService() },
+    { provide: GRAPH_SERVICE, useFactory: () => new GraphService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

@@ -387,3 +387,58 @@ describe("template immutability (02 §7)", () => {
     ).rejects.toThrow(/published template/i);
   });
 });
+
+/**
+ * Sprint 03 G1 AC4 — `entity_links` gained the `finding` kind (migration
+ * 0063). The generic `entity_links` probes above already cover the table
+ * (RLS scopes rows, not the text `from_kind`/`to_kind` values they carry), but
+ * they only ever probe whichever ONE row `beforeAll` happened to capture per
+ * table — not necessarily a finding-kind one. These probes target a
+ * finding-kind row by name, so a regression narrowly scoped to that kind
+ * (e.g. a future finding-specific view or partial index) would still be
+ * caught, not just the generic document->ncr edge.
+ */
+describe("RLS: entity_links 'finding' kind isolation (Sprint 03 G1)", () => {
+  async function findingEdgeId(tenant: string): Promise<string> {
+    const { rows } = await withTenant(tenant, null, (tx) =>
+      tx.query<{ id: string }>(
+        `SELECT id FROM entity_links WHERE from_kind = 'finding' AND deleted_at IS NULL LIMIT 1`,
+      ),
+    );
+    const id = rows[0]?.id;
+    if (id === undefined) throw new Error(`no finding-kind entity_links row seeded for ${tenant}`);
+    return id;
+  }
+
+  it("tenant A cannot read tenant B's finding->ncr edge by id", async () => {
+    const bId = await findingEdgeId(TENANT_B);
+    const found = await withTenant(TENANT_A, null, async (tx) => {
+      const { rows } = await tx.query(`SELECT 1 FROM entity_links WHERE id = $1`, [bId]);
+      return rows.length;
+    });
+    expect(found, "B's finding-kind entity_links row was readable by A").toBe(0);
+  });
+
+  it("tenant A's UPDATE of tenant B's finding->ncr edge affects 0 rows", async () => {
+    const bId = await findingEdgeId(TENANT_B);
+    const affected = await withTenant(TENANT_A, null, async (tx) => {
+      const res = await tx.query(`UPDATE entity_links SET relation = relation WHERE id = $1`, [bId]);
+      return res.rowCount ?? 0;
+    });
+    expect(affected, "A was able to update B's finding-kind entity_links row").toBe(0);
+  });
+
+  it("tenant A's DELETE (soft) of tenant B's finding->ncr edge affects 0 rows", async () => {
+    const bId = await findingEdgeId(TENANT_B);
+    const affected = await withTenant(TENANT_A, null, async (tx) => {
+      const res = await tx.query(`UPDATE entity_links SET deleted_at = now() WHERE id = $1`, [bId]);
+      return res.rowCount ?? 0;
+    });
+    expect(affected, "A was able to soft-delete B's finding-kind entity_links row").toBe(0);
+  });
+
+  it("a finding-kind row exists and is visible for both tenants (fixture sanity)", async () => {
+    await expect(findingEdgeId(TENANT_A)).resolves.toBeTypeOf("string");
+    await expect(findingEdgeId(TENANT_B)).resolves.toBeTypeOf("string");
+  });
+});
