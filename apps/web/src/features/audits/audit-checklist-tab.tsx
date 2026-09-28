@@ -8,6 +8,7 @@ import { Button, Chip, EmptyState, useToast } from "@/components/ui";
 import { useCan } from "@/hooks/use-me";
 import { useUpdateAuditChecklistItem } from "@/hooks/use-audits";
 import { errorMessage } from "@/lib/api-error";
+import { checklistCounts } from "./audit-checklist-logic";
 
 /** Scoring buttons, left → right, matching `CHECKLIST_STATUS`/`audits.jsx:434`. */
 const SCORE_OPTIONS: AuditChecklistStatus[] = ["conformant", "minor_nc", "major_nc", "opportunity", "na"];
@@ -69,11 +70,7 @@ export function AuditChecklistTab({ audit, onViewFindings }: AuditChecklistTabPr
     );
   }
 
-  const counts = {
-    conformant: items.filter((i) => i.status === "conformant").length,
-    ncs: items.filter((i) => i.status === "minor_nc" || i.status === "major_nc").length,
-    pending: items.filter((i) => i.status === "pending").length,
-  };
+  const counts = checklistCounts(items);
 
   function score(itemId: string, status: AuditChecklistStatus): void {
     setScoringItemId(itemId);
