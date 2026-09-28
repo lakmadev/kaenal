@@ -1,5 +1,5 @@
 import { CSRF_COOKIE, CSRF_HEADER, TENANT_HEADER } from "@kaenal/api-client";
-import type { Page, PartnerInviteResult, PortalContactDto } from "@kaenal/types";
+import type { FileDto, Page, PartnerInviteResult, PortalContactDto } from "@kaenal/types";
 import { env } from "@/lib/env";
 import { getActiveTenant } from "@/lib/tenant";
 
@@ -276,6 +276,21 @@ export function revokePortalContact(supplierId: string, contactId: string): Prom
   return authPost<PortalContactDto>(
     `/v1/suppliers/${encodeURIComponent(supplierId)}/portal-contacts/${encodeURIComponent(contactId)}/revoke`,
     {},
+    { tenant: getActiveTenant() },
+  );
+}
+
+/**
+ * `GET /v1/files?entityKind=&entityId=` (03 §7) — generic entity-scoped file
+ * listing. Authenticated, tenant-scoped, but was never added to the ts-rest
+ * contract (only presign/complete/get/download are), so it is a plain fetch
+ * here like every other authenticated-but-uncontracted route in this file
+ * (sessions, MFA, portal invites). Used by the Audits Evidence tab (S2-2 AC4)
+ * — reuses the existing files pipeline, no new backend route.
+ */
+export function listFilesByEntity(entityKind: string, entityId: string): Promise<{ items: FileDto[] }> {
+  return authGet<{ items: FileDto[] }>(
+    `/v1/files?entityKind=${encodeURIComponent(entityKind)}&entityId=${encodeURIComponent(entityId)}`,
     { tenant: getActiveTenant() },
   );
 }

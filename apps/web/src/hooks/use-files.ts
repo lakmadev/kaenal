@@ -1,9 +1,10 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiQueries, unwrap } from "@kaenal/api-client";
 import type { DownloadFileResult, FileDto, PresignFileResult } from "@kaenal/types";
 import { getApiClient } from "@/lib/api";
+import { listFilesByEntity } from "@/lib/auth";
 
 /**
  * Files (03 §7). The three-step upload — presign → PUT straight to storage →
@@ -30,15 +31,43 @@ function putWithProgress(url: string, file: File, mime: string, onProgress?: (pc
   });
 }
 
-/** Presign → upload → complete. Returns the completed (scan-pending) file row. */
-export async function uploadFile(file: File, onProgress?: (pct: number) => void): Promise<FileDto> {
+/** Presign → upload → complete. Returns the completed (scan-pending) file row.
+ *  `entity` links the file to a record (`entityKind`/`entityId`) as it uploads —
+ *  used by any tab that attaches evidence directly to an entity (e.g. the
+ *  Audits Evidence tab, S2-2 AC4). */
+export async function uploadFile(
+  file: File,
+  onProgress?: (pct: number) => void,
+  entity?: { entityKind: string; entityId: string },
+): Promise<FileDto> {
   const client = getApiClient();
   const mime = file.type !== "" ? file.type : "application/octet-stream";
   const presign = await client
-    .presignFile({ body: { filename: file.name, mime, sizeBytes: file.size } })
+    .presignFile({ body: { filename: file.name, mime, sizeBytes: file.size, ...entity } })
     .then((r) => unwrap<PresignFileResult>(r));
   await putWithProgress(presign.uploadUrl, file, mime, onProgress);
   return client.completeFile({ params: { id: presign.fileId }, body: {} }).then((r) => unwrap<FileDto>(r));
+}
+
+/** Files already attached to an entity (Evidence tabs) — `GET /v1/files`
+ *  (plain fetch, see `listFilesByEntity` in `@/lib/auth`). */
+export function useEntityFiles(entityKind: string, entityId: string) {
+  return useQuery({
+    queryKey: ["files", "byEntity", entityKind, entityId],
+    queryFn: () => listFilesByEntity(entityKind, entityId),
+  });
+}
+
+/** Upload one or more files, linked to an entity, then refresh its file list. */
+export function useUploadEntityFiles(entityKind: string, entityId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (files: File[]) =>
+      Promise.all(files.map((f) => uploadFile(f, undefined, { entityKind, entityId }))),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["files", "byEntity", entityKind, entityId] });
+    },
+  });
 }
 
 /** File metadata (mime, size, scan status) for icons/sizes and the preview gate. */

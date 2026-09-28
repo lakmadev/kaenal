@@ -35,6 +35,18 @@ export function titleCase(s: string): string {
     .join(" ");
 }
 
+/** Whole days between two ISO instants (inclusive), for the audits "Duration"
+ *  row — the schema stores start/end, not a duration, so this is display-only
+ *  arithmetic, not business logic. Null when either end is missing. */
+export function durationDays(startAt: string | null, endAt: string | null): number | null {
+  if (startAt === null || endAt === null) return null;
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const ms = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) - Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  return Math.max(1, Math.round(ms / 86_400_000) + 1);
+}
+
 /** "Manjunath Kumar" -> "Manjunath K." (top-bar profile button, shell.jsx). */
 export function shortName(name: string): string {
   const parts = name.trim().split(/\s+/);
