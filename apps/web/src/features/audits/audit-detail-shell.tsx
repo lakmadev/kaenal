@@ -26,6 +26,7 @@ import { errorMessage } from "@/lib/api-error";
 import { Skeleton, EmptyState, StatusBadge, Button, useToast } from "@/components/ui";
 import { Avatar } from "@/components/avatar";
 import { AUDIT_TYPES } from "./audit-types";
+import { AuditChecklistTab } from "./audit-checklist-tab";
 
 type Tab = "team" | "evidence" | "report" | "checklist" | "findings";
 
@@ -95,9 +96,12 @@ export function AuditDetailShell({ id }: { id: string }): React.ReactElement {
           </div>
 
           <div className="pt-3.5">
-            {/* Checklist (S2-4) and Findings (S2-5) tab bodies are W3/W4's job —
-                left exactly as the W0 scaffold rendered them. */}
-            {(tab === "checklist" || tab === "findings") && (
+            {/* Findings (S2-5) tab body is W4's job — left exactly as the
+                W0 scaffold rendered it. Checklist (S2-4) is real below. */}
+            {tab === "checklist" && (
+              <AuditChecklistTab audit={audit} onViewFindings={() => setTab("findings")} />
+            )}
+            {tab === "findings" && (
               <div className="k-surface p-8 text-sm text-muted">
                 {TABS.find((t) => t.id === tab)?.label} — coming in a later Sprint 02 slice.
               </div>
