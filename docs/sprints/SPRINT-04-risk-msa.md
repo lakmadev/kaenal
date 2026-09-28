@@ -568,9 +568,9 @@ selectable-but-broken — CLAUDE.md rule 10 is "never stub," not "never say no."
 
 ## 8. Definition of Done
 
-- [ ] **User has explicitly approved §3** (risk residual-scoring decision; MSA schema incl. `gauge_label`
+- [x] **User has explicitly approved §3** (risk residual-scoring decision; MSA schema incl. `gauge_label`
       text-not-FK; ANOVA method incl. interaction-pooling rule; Average-Range method; k=5.15; ndc formula;
-      excellent/acceptable/reject thresholds) — build does not start before this.
+      excellent/acceptable/reject thresholds) — **approved 2026-09-28, as proposed, no changes.**
 - [ ] Migrations `0064_risk_register.sql` (`risks`, `risk_controls`, `entity_links`/`EntityKind` widening)
       and `0065_msa.sql` (`msa_studies`, `msa_measurements`) applied; `pnpm db:check` green; `pnpm test:rls`
       green including the two new tables and the widened `entity_links` kinds.
@@ -618,5 +618,6 @@ and given a real backend rather than being silently reproduced as fabricated sta
 sprint's entire backend (P12 risk register, P15 MSA/Gauge R&R) additionally requires the **user's** explicit
 approval of §3 (schema, residual-scoring decision, the full AIAG Gauge R&R math, and the `gauge_label`
 text-not-FK decision) before a single line of migration, contract, or service code is written. That approval
-is tracked in §8's first checkbox and is **PENDING** as of this writing — **no build may start until it
-lands.**
+is tracked in §8's first checkbox and was **APPROVED by the user on 2026-09-28, as proposed** — §3 is no
+longer a blocker for this sprint's backend build. The design canvas (DESIGN-04-risk-msa.md) remains its own
+separate Gate 1 approval, still open as of this writing.
