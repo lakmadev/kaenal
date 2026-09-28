@@ -12,6 +12,25 @@ Sprint 03 gated its predictive-risk design (§3B) before that sprint's Part B wa
 
 ## 0. Amendment (Ceremony 4 SEND BACK response, 2026-09-28)
 
+**Round 4 (Ceremony 4, fourth pass, SEND BACK AGAIN, 2026-09-28, same day):** the planner's fourth re-review
+confirmed AC2's guards, AC3/AC5's concurrency wording, the immutability rule, and both doc-only fixes all
+hold — but found two remaining issues, one required-but-cosmetic and one a real correctness gap. Resolved,
+marked `[AMENDED-4]`: (1) §4's M1 row still listed the completion `PATCH` under generic `created`/`updated`;
+corrected to name `status_changed` for the completion transition specifically (matching M2 AC3's own text,
+which was already correct — only the summary table was stale). (2) **The measurement-batch route
+(`POST .../measurements`) had no `lockVersion`**, unlike every other mutation in this sprint — this meant a
+batch that read a study as `draft` could still commit after a concurrent completion finished first, writing
+into an already-`completed` study between the batch's read and write, undetected by AC2(a)'s completed-study
+guard alone (that guard checks the state at request time, not at commit time). Fixed: the batch body is now
+`{ lockVersion, cells: [...] }`, checked and bumped in the same transaction as the completed-study and
+index-range guards, closing the race with a 409 rather than a silent corruption (rule 6). Also split AC2's
+guards by layer per the review's finding that Zod cannot see database state (the integer-range/cap check
+stays in the shared Zod schema; the per-study range check and the completed-study check move to
+`MsaService`, still server-side and still 422, just correctly attributed), and added a 422 on completing an
+already-`completed` study plus a `.strict()` body on the completion PATCH (AC3), mirroring reopen's own
+already-in-the-target-state guard. No schema change — `lock_version` already exists on every RLS table per
+CLAUDE.md rule 2; the `completed_at`/reopen delta-approval ask is unaffected.
+
 **Round 3 (Ceremony 4, third pass, SEND BACK AGAIN — very narrow, 2026-09-28, same day):** the planner's
 third re-review found N2-N6 and the doc-accuracy items fully resolved, leaving four small gaps in the M2
 (MSA study lifecycle) stories plus two doc-only wording fixes. Resolved in place, marked `[AMENDED-3]`:
@@ -453,17 +472,29 @@ UC
 
 AC
 1. `POST /v1/msa-studies` (`msa:manage`) creates the study shell (`draft`).
-2. `POST /v1/msa-studies/:id/measurements` (`msa:manage`) bulk-upserts grid cells (body: array of
-   `{appraiser, part, trial, value}`), one audited `updated` event per submission batch (not per-cell —
-   mirrors the FMEA/audits precedent of batching a multi-field edit into one audit row).
-   **[AMENDED-3 — planner round 3]** Two guards, both 422, both checked server-side (rule 4, shared Zod
-   schema): (a) **posting to a `status: completed` study is rejected** — "a completed study's measurements
-   are read-only" (this AC's own UC line, previously stated only in prose, not enforced) now has a real
-   check: a measurement batch against a `completed` study 422s with a "reopen the study first" message,
-   never silently edits it; (b) **any cell whose `appraiser`/`part`/`trial` index falls outside
-   `1..n_appraisers`/`1..n_parts`/`1..n_trials`** (the study's own declared dimensions, AC1) 422s — this
-   closes the gap where AC3's "every cell is filled" completeness count could otherwise be satisfied by a
-   grid with out-of-range indices standing in for missing in-range ones.
+2. `POST /v1/msa-studies/:id/measurements` (`msa:manage`) bulk-upserts grid cells — body:
+   **[AMENDED-4]** `{ lockVersion, cells: [{appraiser, part, trial, value}] }` (not a bare array — the batch
+   now carries the study's `lockVersion` like every other mutation in this sprint, bumping `lock_version` on
+   success and returning **409** on a stale value). One audited `updated` event per submission batch (not
+   per-cell — mirrors the FMEA/audits precedent of batching a multi-field edit into one audit row).
+   **[AMENDED-3 — planner round 3; AMENDED-4 — split by layer]** Guards, checked server-side: (a) an
+   **integer-range check** (each index is a positive integer no greater than the shared upper cap, 10/50/10)
+   lives in the `packages/types` Zod schema, shared by web/mobile (rule 4); (b) two further checks need the
+   study's own row, not just the request body, so they live in `MsaService.recordMeasurements`, inside the
+   same transaction as the `lockVersion` check above, not the Zod schema (Zod cannot see database state):
+   **posting to a `status: completed` study is rejected** — "a completed study's measurements are read-only"
+   (this AC's own UC line, previously stated only in prose, not enforced) now has a real check: a measurement
+   batch against a `completed` study 422s with a "reopen the study first" message, never silently edits it;
+   and **any cell whose `appraiser`/`part`/`trial` index falls outside the study's own declared
+   `1..n_appraisers`/`1..n_parts`/`1..n_trials`** (AC1, checked against the row, not the global cap) 422s —
+   this closes the gap where AC3's "every cell is filled" completeness count could otherwise be satisfied by
+   a grid with out-of-range indices standing in for missing in-range ones. **The `lockVersion` check on this
+   route is what actually closes the race the completed-study guard alone cannot:** without it, a batch that
+   read the study as `draft` could still commit after a concurrent completion elsewhere finished first,
+   writing into an already-`completed` study between this route's read and write — the same lockVersion the
+   "Save & re-complete" flow uses (its own second call, completing, passes the `lockVersion` this save
+   returns) makes that interleaving a 409, not a silent corruption, matching rule 6's optimistic-concurrency
+   requirement for every mutation in this sprint, this route included.
 3. A `PATCH /v1/msa-studies/:id` moves `draft → completed` once every cell is filled (validated server-side:
    `n_appraisers × n_parts × n_trials` measurements must exist); attempting to complete an incomplete grid
    is a 422, not a silently wrong analysis. This transition sets `completed_at = now()` — **[AMENDED-2 — N1]**
@@ -479,7 +510,11 @@ AC
    AC5 below; CAPA/NCR/SCAR/8D status transitions), this transition is audited as **`status_changed`**, not
    generic `updated`, and requires the request's `lockVersion` to match the study's current `lock_version`,
    returning **409** on a stale value (rule 6's optimistic-concurrency requirement, same as every other
-   mutation in this sprint).
+   mutation in this sprint). **[AMENDED-4]** The request body is `.strict()` — `{ status: "completed",
+   lockVersion }` and nothing else (no dimension fields, per the immutability rule above; an extra field is a
+   422, not silently dropped). Completing an already-`completed` study is also a 422 (mirrors reopen's own
+   "already-`draft` is a no-op 422," AC5 below) — completion, like reopen, is a one-way transition from a
+   specific source state, never a no-op success.
 4. **[AMENDED — B5(a); AMENDED-2 — N2/N3] Method bounds enforcement, both methods, both layers, exact and
    consistent everywhere (design board, M1 AC4/AC5, M2 AC4):** server-side is authoritative —
    - `POST /v1/msa-studies` with `method: "average_range"` and any of `n_trials ∉ {2,3}` /
@@ -841,7 +876,7 @@ explicit delta sign-off before `0065_msa.sql` and the `reopen` route are written
 | R3 | `0064` also (`entity_links` CHECK widened; `EntityKind` gains `risk`,`fmea`) | reuses existing `GET/POST /v1/entity-links` (**[AMENDED-2 — doc-accuracy] response gains an optional, server-resolved, capability-checked `label` per link — see below, not "unchanged"**), `GET /v1/fmeas` (existing, client-filtered) | **[AMENDED-2 — doc-accuracy corrects the round-1 claim below]** `EntityLinksService` gains real, additive work, not "unchanged": (1) `entity-ref.ts`'s `ENTITY_TABLES` (a `Record<EntityKind, string>`) gets real `risk`/`fmea` entries — TS-forced by widening `EntityKind`, not optional; (2) `chat.ts`'s `ENTITY_SPECS` (a `Record<EntityKind, EntitySpec>`) gets real `risk`/`fmea` entries wired to `risk:view`/`fmea:view`, so the AI assistant's entity-context lookup doesn't break on the widened enum; (3) `apps/web/src/features/graph/graph-kinds.ts`'s `GRAPH_KINDS` (also a `Record<EntityKind, …>`) needs real `risk`/`fmea` entries too (TS-forced completeness) **but risk/fmea will NOT actually render in the graph explorer** — `apps/api/src/graph/graph.service.ts` keeps its own separate, literal `GRAPH_KINDS: readonly EntityKind[]` array that this sprint does not add them to — logged as **Q27 (new)** in §7, not silently fixed; (4) CAPA/document/supplier detail pages (`capa-detail.tsx`/`document-detail.tsx`/`supplier-detail.tsx`), which today each just truncate a raw link id (`id.slice(0,8)`, confirmed by grep), gain the resolved `label` field's real display **only** — a read-side change to their existing `LinkTable`/`LinkList`, no new write UI on any of the three. **[AMENDED-3 — doc fix]** The new `LinkPicker` component + `useCreateEntityLink` hook (design audit found no existing write-side UI anywhere) is wired to **risk's own detail page only** (R3 AC6, Q26, DoD) — CAPA/document/supplier gain the label fix but not a picker; this sentence previously read as if all three also gained the picker, which contradicted R3 AC6/Q26/the DoD's single-call-site statement | `linked`/`unlinked` (existing actions) | none (link visibility = each side's own capability); label resolution is capability-checked per target record | unchanged (existing `assertEntityVisible`); label omitted (never a raw/guessed value) when the caller can't view the target |
 | R4 | none | CreateWizard's existing create route, `"risk"` type added (**[AMENDED-2 — N5]** also a real 5th entry in `WIZARD_TYPE_ORDER`/`WIZARD_TYPES`, feeding both the quick-create menu and the Type-step grid) | `RiskService.create` (shared with R1) | `created` | `risk:manage` | forced RLS |
 | R5 | none | `ExportResource` gains `"risk_board_pack"` | `run-export.ts` new branch | existing export-created event | `risk:view` | scoped to caller's visible risks before enqueue |
-| M1 | `0065_msa.sql` (`msa_studies` incl. **[AMENDED — B5(c), pending delta-approval] `completed_at`**, `msa_measurements`) | `GET/POST /v1/msa-studies`, `GET/PATCH /v1/msa-studies/:id`, `GET /v1/msa-studies/:id/analysis` | `MsaService` + `packages/core/gauge-rr.ts` (pure) | `created`/`updated`, in-tx | `msa:view` / `msa:manage` | forced RLS; cross-tenant id → 404 |
+| M1 | `0065_msa.sql` (`msa_studies` incl. **[AMENDED — B5(c), pending delta-approval] `completed_at`**, `msa_measurements`) | `GET/POST /v1/msa-studies`, `GET/PATCH /v1/msa-studies/:id`, `GET /v1/msa-studies/:id/analysis` | `MsaService` (`.create`/`.complete`/`.reopen`/`.recordMeasurements`) + `packages/core/gauge-rr.ts` (pure) | **[AMENDED-4]** `created` (POST); `status_changed` (PATCH `:id`, the completion transition — not generic `updated`, matching reopen) | `msa:view` / `msa:manage` | forced RLS; cross-tenant id → 404 |
 | M2 | none | `POST /v1/msa-studies/:id/measurements`, **[AMENDED-2 — N1, BLOCKING, new] `PATCH /v1/msa-studies/:id/reopen`** (`completed → draft`) | `MsaService.recordMeasurements`, `MsaService.reopen` | `updated` (measurement batch, in-tx); **`status_changed`** (reopen, in-tx — a new, distinct action from generic `updated`, matching the CAPA/NCR/SCAR/8D/audits/inspections precedent) | `msa:manage` | forced RLS |
 | M3/M4 | none | `GET /v1/msa-studies` (list) | `MsaService.list` | read-only | `msa:view` | RLS-scoped |
 | M5 | none | `ExportResource` gains `"gauge_rr_aiag_report"` | `run-export.ts` new branch | existing export-created event | `msa:view` | scoped to one `studyId`, pre-enqueue 404 check |
@@ -1003,11 +1038,19 @@ selectable-but-broken — CLAUDE.md rule 10 is "never stub," not "never say no."
       `average_range` a/p/n bounds rejection (M1 AC4 / M2 AC4), **and [AMENDED-2 — N2/N3]** the
       `crossed_anova` minimum-bounds rejection (2/2/2) and the shared upper-cap rejection (10/50/10) for
       **both** methods.
-- [ ] **[AMENDED-2 — N1, BLOCKING]** `PATCH /v1/msa-studies/:id/reopen` built and tested: `completed → draft`
-      only, 422 on an already-`draft` study, audited `status_changed` (not `updated`), `completed_at`
-      unchanged by the reopen itself, and a subsequent re-completion overwriting `completed_at` with the new
-      timestamp — browser-verified end to end (complete a study → reopen → edit a measurement → re-complete →
-      confirm `completed_at` updated and the analysis reflects the edit).
+- [ ] **[AMENDED-2 — N1, BLOCKING; AMENDED-4]** `PATCH /v1/msa-studies/:id/reopen` built and tested:
+      `completed → draft` only, 422 on an already-`draft` study, audited `status_changed` (not `updated`),
+      `completed_at` unchanged by the reopen itself, **409 on a stale `lockVersion`**, and a subsequent
+      re-completion overwriting `completed_at` with the new timestamp — browser-verified end to end (complete
+      a study → reopen → edit a measurement → re-complete → confirm `completed_at` updated and the analysis
+      reflects the edit).
+- [ ] **[AMENDED-4, new]** Completion (`PATCH /v1/msa-studies/:id`) tested for: 422 on an incomplete grid, 422
+      on an already-`completed` study, `.strict()` body (extra fields 422, not dropped), audited
+      `status_changed` (not `updated`), 409 on a stale `lockVersion`. Measurement batch
+      (`POST .../measurements`) tested for: 422 on a `completed` study, 422 on any cell index outside the
+      study's own `n_appraisers`/`n_parts`/`n_trials`, 409 on a stale `lockVersion` — including the race the
+      lockVersion check closes (a batch and a concurrent completion cannot both succeed against the same
+      version).
 - [ ] `packages/core/src/codes.ts` gains `"risk"`→`RISK` and `"msa"`→`MSA` `CodeKind` entries, unit-tested;
       created risks/studies get real `RISK-YYYY-NNNN`/`MSA-YYYY-NNNN` codes via the `counters` table.
 - [ ] R1's four non-quarter KPI formulas (High residual ≥10, Treatments overdue, Accepted) and the
@@ -1068,7 +1111,11 @@ FMEA call site only, on risk's own detail page (Q26).
 
 ---
 
-**PO use-case sign-off: PENDING — Ceremony 4 Round 2 (narrow) amendment issued, awaiting planner re-review.**
+**PO use-case sign-off: PENDING — Ceremony 4 Round 4 (mechanical) amendment issued, awaiting planner
+re-confirmation.** Rounds 2 and 3's items are all resolved and re-verified; Round 4 closed the last two items
+(a mislabeled audit action for completion, and a real concurrency race on the measurement-batch route with no
+`lockVersion`, which the planner's fourth review caught and which is now closed the same way every other
+mutation in this sprint is).
 
 Every use case (happy/error/empty/permission/offline/cross-tenant) across R1-R5, M1-M5, and X1 maps to a
 story with testable acceptance criteria and an explicit Web/Mobile/Shared split; the dead-end audit (§6)
