@@ -1,10 +1,13 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { CalendarRange, ClipboardList, ShieldCheck, User } from "lucide-react";
 import { useMe, hasCapability } from "@/hooks/use-me";
 import { PageHeader } from "@/components/page-header";
-import { EmptyState } from "@/components/ui";
+import { Button, EmptyState } from "@/components/ui";
+import { AuditCreateDialog } from "./audit-create-dialog";
 
 export type AuditsView = "all" | "mine" | "schedule";
 
@@ -49,15 +52,36 @@ const VIEW_COPY: Record<AuditsView, { description: string; icon: typeof ShieldCh
  * + a labelled TODO slot per view, so nav never points at a dead placeholder.
  */
 export function AuditsPageShell(): React.ReactElement {
+  const t = useTranslations("audits");
+  const router = useRouter();
   const searchParams = useSearchParams();
   const view = parseView(searchParams.get("view"));
   const { data: me } = useMe();
   const canManage = hasCapability(me, "audit:manage");
   const copy = VIEW_COPY[view];
 
+  // `/audits?new=1` (command-palette "Schedule audit" quick action, and the
+  // eventual list-header "New audit" button, S2-1) opens the create dialog on
+  // arrival — same `?new=1` convention as `/capa?new=1` (capa-list.tsx).
+  const [createOpen, setCreateOpen] = useState(searchParams.get("new") === "1");
+  const onCreateOpenChange = (open: boolean): void => {
+    setCreateOpen(open);
+    if (!open && searchParams.get("new") === "1") router.replace("/audits");
+  };
+
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 p-6">
-      <PageHeader title="Audits" description={copy.description} />
+      <PageHeader
+        title="Audits"
+        description={copy.description}
+        actions={
+          canManage ? (
+            <Button variant="primary" onClick={() => setCreateOpen(true)}>
+              {t("newAudit")}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* View switch itself already lives in the sidebar (navigation.ts: All
           Audits / My Audits / Schedule → ?view=…); no in-page duplicate control
@@ -68,14 +92,16 @@ export function AuditsPageShell(): React.ReactElement {
           audit schedule calendar grid (view=schedule). See
           docs/sprints/SPRINT-02-audits.md and
           apps/web/src/features/inspections/schedule-view.tsx for the schedule
-          visual precedent this view restyles. `canManage` (audit:manage) gates
-          the "New audit" entry point once the create dialog (S2-3) exists —
-          not rendered yet, so this slice introduces no dead button. */}
+          visual precedent this view restyles. The "New audit" entry point
+          (S2-3, capability-gated above) is real; only the list/chart/schedule
+          content itself remains scaffolded. */}
       <EmptyState
         icon={canManage ? copy.icon : ClipboardList}
         title={copy.title}
         body={copy.body}
       />
+
+      <AuditCreateDialog open={createOpen} onOpenChange={onCreateOpenChange} />
     </div>
   );
 }

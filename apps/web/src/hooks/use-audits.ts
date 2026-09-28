@@ -54,11 +54,15 @@ export function useAuditStats() {
   return useQuery(apiQueries.audits.stats(getApiClient()));
 }
 
+/** Schedule a new audit. Idempotency-safe: pass the SAME `idempotencyKey` on a
+ *  retry (e.g. after a network error) and the server returns the original
+ *  audit instead of creating a second one (mirrors `useWizardCreate`). */
 export function useCreateAudit() {
   const client = getApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateAuditBody) => client.createAudit({ body }).then((r) => unwrap<AuditDto>(r)),
+    mutationFn: ({ body, idempotencyKey }: { body: CreateAuditBody; idempotencyKey: string }) =>
+      client.createAudit({ body, extraHeaders: { "idempotency-key": idempotencyKey } }).then((r) => unwrap<AuditDto>(r)),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.audits.list() });
       void qc.invalidateQueries({ queryKey: queryKeys.audits.stats() });
