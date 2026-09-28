@@ -12,6 +12,22 @@ Sprint 03 gated its predictive-risk design (§3B) before that sprint's Part B wa
 
 ## 0. Amendment (Ceremony 4 SEND BACK response, 2026-09-28)
 
+**Round 3 (Ceremony 4, third pass, SEND BACK AGAIN — very narrow, 2026-09-28, same day):** the planner's
+third re-review found N2-N6 and the doc-accuracy items fully resolved, leaving four small gaps in the M2
+(MSA study lifecycle) stories plus two doc-only wording fixes. Resolved in place, marked `[AMENDED-3]`:
+(1) `POST /v1/msa-studies/:id/measurements` now explicitly 422s against a `completed` study (previously
+only stated in prose, not enforced) and against any cell index outside the study's own declared dimensions
+(M2 AC2); (2) the `draft → completed` transition (M2 AC3) and the `reopen` route (M2 AC5) both now require
+`lockVersion` and 409 on a stale value, matching every other mutation in this sprint; (3) completion is now
+explicitly audited `status_changed` (not generic `updated`), consistent with reopen; `method`/`n_appraisers`/
+`n_parts`/`n_trials`/`gauge_label`/`tolerance`/`characteristic` are stated as immutable after creation — a
+study's `PATCH` performs status transitions only, no field edits, closing the gap where changing dimensions
+after measurements exist could invalidate the bounds/index checks against stale values; (4) two doc-only
+wording fixes: §4's R3 row no longer reads as if `LinkPicker` ships on CAPA/document/supplier (it doesn't —
+they get the resolved-label display only; `LinkPicker` is risk's detail page only), and §9 no longer lists
+supplier among pages "fully untouched" (it gains the label display). No schema or scope change; nothing here
+touches the pending `completed_at` delta-approval ask, which is otherwise unchanged.
+
 **Round 2 (Ceremony 4, SEND BACK AGAIN — narrow, 2026-09-28, same day, second pass):** the planner's second
 re-review found six precision items (N1-N6) plus four documentation-accuracy corrections to §4's own table.
 Resolved in place below (marked `[AMENDED-2]` at each touched AC/UC); no story is added or removed, and no
@@ -440,12 +456,30 @@ AC
 2. `POST /v1/msa-studies/:id/measurements` (`msa:manage`) bulk-upserts grid cells (body: array of
    `{appraiser, part, trial, value}`), one audited `updated` event per submission batch (not per-cell —
    mirrors the FMEA/audits precedent of batching a multi-field edit into one audit row).
+   **[AMENDED-3 — planner round 3]** Two guards, both 422, both checked server-side (rule 4, shared Zod
+   schema): (a) **posting to a `status: completed` study is rejected** — "a completed study's measurements
+   are read-only" (this AC's own UC line, previously stated only in prose, not enforced) now has a real
+   check: a measurement batch against a `completed` study 422s with a "reopen the study first" message,
+   never silently edits it; (b) **any cell whose `appraiser`/`part`/`trial` index falls outside
+   `1..n_appraisers`/`1..n_parts`/`1..n_trials`** (the study's own declared dimensions, AC1) 422s — this
+   closes the gap where AC3's "every cell is filled" completeness count could otherwise be satisfied by a
+   grid with out-of-range indices standing in for missing in-range ones.
 3. A `PATCH /v1/msa-studies/:id` moves `draft → completed` once every cell is filled (validated server-side:
    `n_appraisers × n_parts × n_trials` measurements must exist); attempting to complete an incomplete grid
    is a 422, not a silently wrong analysis. This transition sets `completed_at = now()` — **[AMENDED-2 — N1]**
    on a **first** completion this is a fresh value; on a **re-completion after a reopen** (AC5 below) it
    **overwrites** the previous `completed_at` with the new timestamp, since the column's purpose (§3-Addendum,
    corrected) is "when was this study most recently completed," not "when was it first completed."
+   **[AMENDED-3]** This is the ONLY transition a study's `PATCH /v1/msa-studies/:id` performs — `method`,
+   `n_appraisers`, `n_parts`, `n_trials`, `gauge_label`, `tolerance`, and `characteristic` are all set once at
+   `POST /v1/msa-studies` and are **immutable** for the life of the study (a study with different dimensions
+   is a new study, not an edit to this one — this also closes the gap where changing counts after measurements
+   exist could silently invalidate AC4's bounds checks or AC2(b)'s index checks against stale dimensions); the
+   route accepts no other body fields. Like every other status-transition route in this codebase (reopen,
+   AC5 below; CAPA/NCR/SCAR/8D status transitions), this transition is audited as **`status_changed`**, not
+   generic `updated`, and requires the request's `lockVersion` to match the study's current `lock_version`,
+   returning **409** on a stale value (rule 6's optimistic-concurrency requirement, same as every other
+   mutation in this sprint).
 4. **[AMENDED — B5(a); AMENDED-2 — N2/N3] Method bounds enforcement, both methods, both layers, exact and
    consistent everywhere (design board, M1 AC4/AC5, M2 AC4):** server-side is authoritative —
    - `POST /v1/msa-studies` with `method: "average_range"` and any of `n_trials ∉ {2,3}` /
@@ -475,6 +509,11 @@ AC
    cleared**, while the study sits in the reopened `draft` state (§3-Addendum correction, AC3 above) — so the
    study page and M4's list can still show "last completed on 2026-05-12" alongside the "Reopened for
    correction" banner during the correction window, matching the design board's own literal text.
+   **[AMENDED-3]** Like AC3's completion transition, reopen requires the request's `lockVersion` to match the
+   study's current `lock_version`, returning **409** on a stale value — no status-transition route in this
+   sprint is exempt from the optimistic-concurrency rule every other mutation follows. Reopening changes only
+   `status` (and bumps `lock_version`); no other field is reset by a reopen, and a study may be reopened more
+   than once (each reopen/re-complete cycle is its own audited pair, with no cap on how many times).
 
 **Design decision (logged, not gated — see rationale):** this sprint builds MSA study creation as its **own**
 wizard, not the shared 4-step CreateWizard, because the entry shape (appraiser/part/trial dimensions, then a
@@ -799,7 +838,7 @@ explicit delta sign-off before `0065_msa.sql` and the `reopen` route are written
 |---|---|---|---|---|---|---|
 | R1 | `0064_risk_register.sql` (`risks`) | `GET/POST /v1/risks` (**[AMENDED-2 — N4/doc-accuracy] gains an `ids` filter param**, for batch-resolving risk labels from FMEA's reverse pane), `GET/PATCH /v1/risks/:id` | `RiskService` + `packages/core/risk-matrix.ts` (pure) | `created`/`updated`, in-tx | `risk:view` / `risk:manage` | forced RLS; cross-tenant id → 404 |
 | R2 | `0064` also (`risk_controls`) | folded into `PATCH /v1/risks/:id` (`controls[]`) | `RiskService` | `updated` (parent risk), in-tx | `risk:manage` | forced RLS, cascades with parent |
-| R3 | `0064` also (`entity_links` CHECK widened; `EntityKind` gains `risk`,`fmea`) | reuses existing `GET/POST /v1/entity-links` (**[AMENDED-2 — doc-accuracy] response gains an optional, server-resolved, capability-checked `label` per link — see below, not "unchanged"**), `GET /v1/fmeas` (existing, client-filtered) | **[AMENDED-2 — doc-accuracy corrects the round-1 claim below]** `EntityLinksService` gains real, additive work, not "unchanged": (1) `entity-ref.ts`'s `ENTITY_TABLES` (a `Record<EntityKind, string>`) gets real `risk`/`fmea` entries — TS-forced by widening `EntityKind`, not optional; (2) `chat.ts`'s `ENTITY_SPECS` (a `Record<EntityKind, EntitySpec>`) gets real `risk`/`fmea` entries wired to `risk:view`/`fmea:view`, so the AI assistant's entity-context lookup doesn't break on the widened enum; (3) `apps/web/src/features/graph/graph-kinds.ts`'s `GRAPH_KINDS` (also a `Record<EntityKind, …>`) needs real `risk`/`fmea` entries too (TS-forced completeness) **but risk/fmea will NOT actually render in the graph explorer** — `apps/api/src/graph/graph.service.ts` keeps its own separate, literal `GRAPH_KINDS: readonly EntityKind[]` array that this sprint does not add them to — logged as **Q27 (new)** in §7, not silently fixed; (4) CAPA/document/supplier detail pages (`capa-detail.tsx`/`document-detail.tsx`/`supplier-detail.tsx`), which today each just truncate a raw link id (`id.slice(0,8)`, confirmed by grep), gain the resolved `label` field's real display + a `LinkPicker` component + `useCreateEntityLink` hook (design audit found no existing write-side UI; named explicitly here per its own flag) | `linked`/`unlinked` (existing actions) | none (link visibility = each side's own capability); label resolution is capability-checked per target record | unchanged (existing `assertEntityVisible`); label omitted (never a raw/guessed value) when the caller can't view the target |
+| R3 | `0064` also (`entity_links` CHECK widened; `EntityKind` gains `risk`,`fmea`) | reuses existing `GET/POST /v1/entity-links` (**[AMENDED-2 — doc-accuracy] response gains an optional, server-resolved, capability-checked `label` per link — see below, not "unchanged"**), `GET /v1/fmeas` (existing, client-filtered) | **[AMENDED-2 — doc-accuracy corrects the round-1 claim below]** `EntityLinksService` gains real, additive work, not "unchanged": (1) `entity-ref.ts`'s `ENTITY_TABLES` (a `Record<EntityKind, string>`) gets real `risk`/`fmea` entries — TS-forced by widening `EntityKind`, not optional; (2) `chat.ts`'s `ENTITY_SPECS` (a `Record<EntityKind, EntitySpec>`) gets real `risk`/`fmea` entries wired to `risk:view`/`fmea:view`, so the AI assistant's entity-context lookup doesn't break on the widened enum; (3) `apps/web/src/features/graph/graph-kinds.ts`'s `GRAPH_KINDS` (also a `Record<EntityKind, …>`) needs real `risk`/`fmea` entries too (TS-forced completeness) **but risk/fmea will NOT actually render in the graph explorer** — `apps/api/src/graph/graph.service.ts` keeps its own separate, literal `GRAPH_KINDS: readonly EntityKind[]` array that this sprint does not add them to — logged as **Q27 (new)** in §7, not silently fixed; (4) CAPA/document/supplier detail pages (`capa-detail.tsx`/`document-detail.tsx`/`supplier-detail.tsx`), which today each just truncate a raw link id (`id.slice(0,8)`, confirmed by grep), gain the resolved `label` field's real display **only** — a read-side change to their existing `LinkTable`/`LinkList`, no new write UI on any of the three. **[AMENDED-3 — doc fix]** The new `LinkPicker` component + `useCreateEntityLink` hook (design audit found no existing write-side UI anywhere) is wired to **risk's own detail page only** (R3 AC6, Q26, DoD) — CAPA/document/supplier gain the label fix but not a picker; this sentence previously read as if all three also gained the picker, which contradicted R3 AC6/Q26/the DoD's single-call-site statement | `linked`/`unlinked` (existing actions) | none (link visibility = each side's own capability); label resolution is capability-checked per target record | unchanged (existing `assertEntityVisible`); label omitted (never a raw/guessed value) when the caller can't view the target |
 | R4 | none | CreateWizard's existing create route, `"risk"` type added (**[AMENDED-2 — N5]** also a real 5th entry in `WIZARD_TYPE_ORDER`/`WIZARD_TYPES`, feeding both the quick-create menu and the Type-step grid) | `RiskService.create` (shared with R1) | `created` | `risk:manage` | forced RLS |
 | R5 | none | `ExportResource` gains `"risk_board_pack"` | `run-export.ts` new branch | existing export-created event | `risk:view` | scoped to caller's visible risks before enqueue |
 | M1 | `0065_msa.sql` (`msa_studies` incl. **[AMENDED — B5(c), pending delta-approval] `completed_at`**, `msa_measurements`) | `GET/POST /v1/msa-studies`, `GET/PATCH /v1/msa-studies/:id`, `GET /v1/msa-studies/:id/analysis` | `MsaService` + `packages/core/gauge-rr.ts` (pure) | `created`/`updated`, in-tx | `msa:view` / `msa:manage` | forced RLS; cross-tenant id → 404 |
@@ -1021,8 +1060,11 @@ No scope beyond P12/P15 + FEATURES §12 + `qms-risk-spc.jsx`'s `RiskRegister`/`M
 introduced. `FMEAWorkbench` and `SPCCharts` (the other two components in the same jsx file) are already
 built (Phase F, SPC B5) and are not touched here except for the three small additive changes named above
 (`fmea` becoming an `EntityKind`, `/fmea` gaining a `?id=` deep-link param, `/fmea` gaining one new read-only
-"Linked risks" reverse pane per the Ceremony 4 amendment, B3). NCR/8D/audit/supplier remain fully untouched
-(Q25); the new `LinkPicker` component is scoped to its one FMEA call site only (Q26).
+"Linked risks" reverse pane per the Ceremony 4 amendment, B3). NCR/8D/audit gain no new panel and no other
+change (Q25) and are fully untouched; **[AMENDED-3 — doc fix]** CAPA/document/supplier are *not* fully
+untouched — per §4's R3 row, all three gain the resolved-`label` read-side display on their existing
+`LinkTable`/`LinkList` (no new panel, no picker) — the new `LinkPicker` component itself is scoped to its one
+FMEA call site only, on risk's own detail page (Q26).
 
 ---
 
