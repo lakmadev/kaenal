@@ -139,3 +139,28 @@ affect *how* S2-3 is built, not what it looks like:
    since the sprint doc's AC1 says "list header AND command-palette quick actions" but doesn't mention this
    specific shell menu by name. Small, but worth the architect naming explicitly rather than an engineer
    guessing mid-build.
+
+## 7. Addendum (architecture-review gap) — frequency chart's 5th series (`gap`)
+
+Flagged by the `planner`: `audits.jsx`'s `AuditFrequencyChart` (179-208) only stacks 4 series —
+`internal`/`supplier`/`customer`/`certification` (`colors` map, line 183) — but the sprint's corrected
+`AuditType` enum (S2-3 AC3) is 5 values: it drops `process` and adds both `customer` *and* `gap`. `customer`
+was already accounted for in the jsx's `colors` map; `gap` genuinely has no series anywhere in the existing
+chart design.
+
+**Decision: add a 5th stacked series for `gap`, not exclude it.**
+
+Rationale: excluding a real, storable audit type from the one chart whose whole job is showing audit-frequency
+completeness would misrepresent the programme's actual audit load — the opposite of what an IATF/ISO
+frequency report is for. Every other audits.jsx surface (cards, phase-progress bars, list-filter dropdown)
+already treats all 5 types uniformly; carving `gap` out of just the chart would be a new, undocumented
+inconsistency, not a simplification. "Gap audits are rare/informal" is not a defensible reason to omit them —
+rare series are exactly what a stacked bar handles fine (a thin or absent segment some months), and if gap
+audits are genuinely too infrequent to plot, that shows up correctly in the data, not by hiding the category.
+
+**Token used — no new colour introduced:** `AUDIT_TYPES.gap.color` in `audits.jsx:9` is already `#475569`,
+which is exactly tokens.css's `--slate-600` (`project_brain/project/styles/tokens.css:47`). This is the same
+value I already used for the "Gap Analysis" legend swatch on the new Schedule-view board (§1), so the 5th
+series is consistent both with the existing jsx's own colour choice and with this sprint's one new board that
+already renders a 5-type legend. Engineer adds `gap: '#475569'` to the chart's `colors` map and includes it in
+the `items` stack alongside the other 4 — no new board, no new token, no visual redesign needed.
