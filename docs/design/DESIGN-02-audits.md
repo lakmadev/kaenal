@@ -121,6 +121,29 @@ build-sequencing question, not a visual one.
 **Designer sign-off: APPROVED** (pending the user's visual sign-off on the 4 new boards before Gate 1, per
 SCRUM.md — the boards are ready for that review now).
 
+**Gate 2 confirmation (2026-09-28): APPROVED — built screens match the approved boards.** One minor,
+non-blocking divergence found and logged in §6a (Add-finding toggle button doesn't flip its label/icon
+to "Cancel" when expanded, unlike the board and its cited precedent). Everything else — Create Audit
+dialog, Schedule view (incl. the 5-series legend), and all 3 Raise-NCR/CAPA states — reproduces the
+approved boards exactly, with no new colours, radii, fonts or component patterns introduced.
+
+## 6a. Gate 2 — built-vs-approved-boards confirmation (2026-09-28)
+
+Re-read all 4 approved boards from the canvas (`CreateAuditDialog.dc.html`, `AuditSchedule.dc.html`,
+`RaiseFromFinding.dc.html`, `AddFinding.dc.html`) and diffed each against its built component. A
+web-fidelity-reviewer already ran the pixel/WCAG pass against `audits.jsx` itself (one dead-button
+bug, now fixed) — not re-derived here; this pass is scoped to my own 4 boards only.
+
+| Board | Built component | Result |
+|---|---|---|
+| Create Audit dialog | `apps/web/src/features/audits/audit-create-dialog.tsx` | Matches: dialog (not wizard), Title/Type/Standard/Plant/Location/Description, repeatable Scope chips, Start/End date, Lead auditor, Team + Auditees chip-multiselects, Cancel/Create audit footer. No new pattern introduced. |
+| Schedule view | `apps/web/src/features/audits/audit-schedule-view.tsx` | Matches: Prev/Today/Next, Month/Week/List segmented control, 5-type legend (incl. `gap`, per §7 addendum), month grid with type-coloured pills, no recurring-series affordances (per §2.2). Loading/empty/error reuse `Skeleton`/`EmptyState` as specified. |
+| Raise NCR/CAPA from finding | `apps/web/src/features/audits/finding-raise-ncr-dialog.tsx`, `finding-raise-capa-dialog.tsx`, wired in `audit-findings-tab.tsx` | Matches all 3 board states: raisable (buttons), mid-raise (inline mini-form, Type only for CAPA, Priority pre-filled from finding kind, optional title override, Cancel/Submit), already-linked (`LinkChip` reference, no buttons — the 409 guard is server-side as specified). |
+| Manual Add finding form | `AddFindingForm` in `audit-findings-tab.tsx` | Fields match (Clause, Kind, Due date, Description, Cancel/Record finding). **One minor divergence found:** the board's header toggle button reads "Cancel" with an X icon when the form is expanded, mirroring the cited precedent (`inspection-detail.tsx:290`, `{adding ? "Cancel" : "Record finding"}`). The built toggle (`audit-findings-tab.tsx:54-55`) stays a static "Add finding" + `Plus` icon in both collapsed and expanded states — it does not flip to "Cancel". Functionally harmless (the inline form has its own Cancel button and the same header button still collapses it on a second click), but it is a real, avoidable inconsistency with both the approved board and the precedent pattern the board explicitly cites. **Flagged, not blocking**: small enough to fix inline in the next audits touch, not worth reopening Gate 2 for. |
+
+**Counts (Gate 2 scope, my 4 boards only): 4 boards reviewed · 4 built · 3 exact-match · 1 with one
+minor, non-blocking label/icon divergence** (Add finding toggle button text/icon).
+
 ## 6. Flag for the architect (`planner`) — S2-3 wizard-vs-dialog hook-in
 
 Technically sound as scoped, but two things the architecture review should weigh in on explicitly, since they

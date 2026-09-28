@@ -573,3 +573,95 @@ for the Decisions log at close:
    (S2-4 UC/AC4).
 7. **Checklist scoring on a closed audit**: `422 VALIDATION_FAILED`, not a bare 403 or silent no-op — the
    audit's phase, not the caller's capability, is why it's refused (S2-4 UC/AC2, §3 backend row).
+
+## 9. PO Gate 2 acceptance (2026-09-28)
+
+Verified each story's acceptance criteria against the actual code, tests and a live run (not the doc's
+letter alone): read `apps/api/src/audits/{audits.controller,audits.service}.ts`, migration
+`0061_audits_module.sql`, `packages/types/src/contract.ts` audit routes, `apps/web/src/features/audits/*`,
+`apps/web/src/app/(app)/audits/**`, `packages/core/src/audit-checklist.ts`; ran the real test files
+(not trusted blind): `apps/api/test/audits.test.ts` (18), `exports.test.ts` audit_report block (10),
+`search.test.ts` audit-exclusion block (7) — 35/35 green. `apps/web/test/audit-{findings,checklist,create}.test.ts`
+— 33/33 green. `packages/core/test/audit-checklist.test.ts` — 8/8 green. `pnpm db:check` — 53 tenant
+tables, clean. `pnpm test:rls` — 323/323 green (generic table-driven suite, `audits`/`audit_findings`
+included automatically). `pnpm typecheck && pnpm lint` — clean (one transient tsc incremental-cache
+false-positive on `audit-findings-tab.tsx` self-resolved on re-run; confirmed the file's `X` import is in
+fact used, and two subsequent full runs were clean — not a real gate failure). Re-seeded the demo login
+and proved a real sign-in **201**, then exercised the live API as the seeded admin: `GET /v1/audits/stats`
+and `GET /v1/audits` both returned real data, including a freshly-seeded 12-item IATF checklist on the
+demo certification audit — the module works end to end, not just in tests.
+
+**S2-1 (list/mine/schedule): ACCEPTED.** `q`/`mine`/`status=active|completed`/`from`/`to` all present on
+the controller's `ListQuery` and exercised; `/v1/audits/stats` and `/v1/audits/frequency` exist and return
+the documented shapes; `?view=schedule`/`?view=mine` are real query-param branches on one route
+(`audits-page-shell.tsx`), not dead links; the empty-state "New audit" dead-button bug the reviewer found
+is fixed (`fa72d31`) and verified in the diff.
+
+**S2-2 (detail — header/tracker/sidebar/tabs): ACCEPTED.** `progress` is computed (dropped column
+confirmed gone from the migration), `closedAt` set on advance-to-closed and asserted in a test, Evidence
+tab reuses the generic files pipeline (no new backend, as specified), `audit_report` export resource is
+real and asserted end-to-end (create → render → PDF content contains the audit's title and findings
+breakdown; foreign auditId 404s before enqueue).
+
+**S2-3 (Create Audit): ACCEPTED.** `AuditType` corrected to the 5 values, `process` rejected 422; foreign
+plantId/leadAuditorId/team/auditeeIds all 404 (rule 8, tested); idempotency-key double-submit creates
+exactly one row (tested); creation notifies lead+team+auditees regardless of role, explicitly tested with
+an inspector as both auditee and team member.
+
+**S2-4 (checklist): ACCEPTED.** 12-item IATF bank seeded at creation and confirmed live against the demo
+audit; scoring auto-links a finding in the same transaction and stamps `findingId` back; re-scoring to
+conformant does NOT delete the spawned finding (tested); stale score → 409; scoring on a closed audit →
+422 (tested, matches the PO resolution exactly); view-only role → 403; foreign audit → 404.
+
+**S2-5 (findings + raise NCR/CAPA): ACCEPTED**, with one logged, non-blocking note: the designer's own
+Gate 2 confirmation pass (`DESIGN-02-audits.md` §6a, uncommitted at review time) found the manual
+"Add finding" toggle button doesn't flip its label/icon to "Cancel"/X when expanded, diverging from its
+approved board and the cited precedent (`inspection-detail.tsx`). Functionally harmless (the inline form
+has its own Cancel button) and explicitly flagged by the designer as fixable in the next audits touch, not
+worth reopening Gate 2 for — I accept that judgment rather than re-litigate a call already made by the
+role whose standard governs it (WCAG/heuristics), but it must not quietly disappear: tracked below as a
+Known issue, not silently dropped.
+
+**S2-6 (search/palette/nav/dead-end retirement): ACCEPTED.** `entityHref("audit", id)` returns
+`/audits/:id`; `SearchEntityKind`/`KINDS` include `audit`; the role-exclusion for inspector/viewer is
+real, role-checked (not just plant-scoped — proven by a same-plant-but-still-excluded test) and pinned by
+a mutation-guard test on `AUDIT_HIDDEN_ROLES`; the same exclusion is wired into `AiChatService` (the
+architect's confirm-pass addition); command-palette "Schedule audit" quick-create entry exists
+(`quick-create.ts:28`); placeholder ledger has no `page:audits*` entry — the `/audits` module is fully
+retired from the ledger; realtime `"audit"` topic is wired on web (`use-realtime.ts:55-56`).
+
+**Definition of Done — two items NOT yet met, flagging rather than accepting on the builder's word:**
+- `PROGRESS.md` "Current status" + Decisions log has **no Sprint 02 Audits entry yet** (grepped — zero
+  hits for "Sprint 02"/"Audits module"/"SPRINT-02"). CLAUDE.md's session protocol and this sprint's own
+  §6 DoD both require this in the same commit as the work. Not a story-acceptance defect (the module
+  itself works), but the sprint is not closeable until this lands — including the checklist-auto-link
+  decision, the `AuditType` enum correction, and the `process`-value removal, as the DoD explicitly names.
+- `progress_mobile.md` has no explicit "Sprint 02 — mobile unaffected" line yet, though it's genuinely
+  unaffected (confirmed: no `m-*.jsx` touches this module, no mobile files changed). The DoD asks this be
+  *stated*, not silently skipped — a one-line confirmation is still owed.
+
+**Known issues to carry forward (not fixed, not hidden):**
+- Q10 "Send to auditee" — no design/recipient model, correctly deferred.
+- Q11 configurable checklist templates — correctly deferred, one fixed IATF bank this sprint.
+- Q12 `lead_auditor_id` predates this sprint's composite-FK pattern — pre-existing, correctly not
+  side-effect-fixed here.
+- Q13 graph-explorer integration — correctly deferred to Sprint 03.
+- Q14 Files module has no entity-aware capability check (security-reviewer finding) — correctly not
+  fixed inline as cross-cutting; verified still true (`files.controller.ts` carries no
+  `@RequireCapability` on any route).
+- **New, minor:** Add-finding toggle button doesn't flip label/icon to "Cancel" when expanded
+  (`audit-findings-tab.tsx`) — cosmetic, non-blocking, flagged by the designer for the next audits touch.
+- Checklist `evidence` per-item attachment — dropped this sprint by design, logged as Known issue per §3.
+
+**One forward-looking backlog candidate (continuous-improvement rule, not built now):** the "Completed
+YTD" stat and `closed_at`/calendar-year math were done correctly for this sprint's single-tenant demo
+data, but no story tests a tenant's fiscal year or timezone boundary crossing on `closed_at` — worth a
+dedicated backlog item next sprint if any tenant needs a non-calendar reporting year, rather than assumed
+now.
+
+**PO acceptance: ACCEPTED — all 6 stories (S2-1 through S2-6) meet their acceptance criteria against
+real code, real tests (35 API + 33 web + 8 core, all green), a green full gate (typecheck/lint/556-ish API
+suite context confirmed via targeted runs/323 RLS/db:check), and a live, browser-independent API
+verification of a re-seeded demo login and a real seeded audit with its checklist. Gate 2 is CONDITIONALLY
+closed: the two PROGRESS.md/progress_mobile.md DoD items above must land before the sprint is fully done —
+these are documentation-completeness gaps, not functional or use-case gaps, and do not reopen any story.**
