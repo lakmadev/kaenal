@@ -27,16 +27,16 @@ import { Skeleton, EmptyState, StatusBadge, Button, useToast } from "@/component
 import { Avatar } from "@/components/avatar";
 import { AUDIT_TYPES } from "./audit-types";
 import { AuditChecklistTab } from "./audit-checklist-tab";
+import { AuditFindingsTab } from "./audit-findings-tab";
 
 type Tab = "team" | "evidence" | "report" | "checklist" | "findings";
 
 /**
- * `/audits/[id]` (Sprint 02 S2-2). Header, phase tracker, and sidebar reproduce
- * `audits.jsx` `AuditDetail` (213-374); the Team & Plan / Evidence / Report tabs
- * reproduce `AuditTeamTab`/`AuditEvidenceTab`/`AuditReportTab` (529-646) — real
- * data only, no mock rows. Checklist (S2-4) and Findings (S2-5) tab BODIES are
- * intentionally left exactly as the W0 scaffold built them; only the shared tab
- * strip (now with live counts) is touched.
+ * `/audits/[id]` (Sprint 02 S2-2/S2-4/S2-5). Header, phase tracker, and sidebar
+ * reproduce `audits.jsx` `AuditDetail` (213-374); the Team & Plan / Evidence /
+ * Report tabs reproduce `AuditTeamTab`/`AuditEvidenceTab`/`AuditReportTab`
+ * (529-646); Checklist and Findings tabs are `AuditChecklistTab`/
+ * `AuditFindingsTab` — all real data only, no mock rows.
  */
 export function AuditDetailShell({ id }: { id: string }): React.ReactElement {
   const router = useRouter();
@@ -96,16 +96,10 @@ export function AuditDetailShell({ id }: { id: string }): React.ReactElement {
           </div>
 
           <div className="pt-3.5">
-            {/* Findings (S2-5) tab body is W4's job — left exactly as the
-                W0 scaffold rendered it. Checklist (S2-4) is real below. */}
             {tab === "checklist" && (
               <AuditChecklistTab audit={audit} onViewFindings={() => setTab("findings")} />
             )}
-            {tab === "findings" && (
-              <div className="k-surface p-8 text-sm text-muted">
-                {TABS.find((t) => t.id === tab)?.label} — coming in a later Sprint 02 slice.
-              </div>
-            )}
+            {tab === "findings" && <AuditFindingsTab auditId={audit.id} />}
             {tab === "team" && <TeamPlanTab audit={audit} />}
             {tab === "evidence" && <EvidenceTab auditId={audit.id} />}
             {tab === "report" && <ReportTab audit={audit} />}
