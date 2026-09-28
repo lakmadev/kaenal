@@ -22,10 +22,6 @@ export const PLACEHOLDER_LEDGER: Readonly<Record<string, number>> = {
   "planned:pricing": 10,
   "planned:pdf-templates": 10,
 
-  // Static pages that render <ModulePlaceholder> (app/(app)/*/page.tsx)
-  "page:graph": 3,
-  "page:predictive": 3,
-
   // Settings entries visible in the rail but not built (settings-nav.ts, no `built`)
   "settings:organization": 7,
   "settings:roles": 7,

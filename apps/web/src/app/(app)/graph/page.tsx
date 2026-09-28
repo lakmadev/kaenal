@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
-import { Network } from "lucide-react";
-import { ModulePlaceholder } from "@/components/module-placeholder";
+import { Suspense } from "react";
+import { GraphExplorer } from "@/features/graph/graph-explorer";
 
 export const metadata: Metadata = { title: "Knowledge Graph" };
 
-export default function Page(): React.ReactElement {
-  return <ModulePlaceholder title="Knowledge Graph" icon={Network} />;
+export default function GraphPage(): React.ReactElement {
+  return (
+    <Suspense>
+      <GraphExplorer />
+    </Suspense>
+  );
 }

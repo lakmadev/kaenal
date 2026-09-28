@@ -26,6 +26,10 @@ export const CAPABILITIES = [
   "capa:manage",
   "audit:view",
   "audit:manage",
+  // Predictive risk (Sprint 03 Part B). Read-only: the nightly job owns the
+  // data, no capability gates writing it. admin/manager/auditor only —
+  // matches ROLE_NAV's existing web curation of `/predictive`.
+  "prediction:view",
   "document:view",
   "document:manage",
   "document:approve",
@@ -79,6 +83,11 @@ export const CAPABILITIES = [
   // (the reply is a draft; "Pin to entity" is a separate comment:* mutation).
   // Held by every internal role including viewer; never by partner.
   "ai:use",
+  // Knowledge graph explorer (Sprint 03 G1-G4). Read-only bounded traversal
+  // over `entity_links`; held by admin/manager/auditor only, matching
+  // `ROLE_NAV`'s existing web curation of `/graph` — inspector/viewer never
+  // see the nav entry and the server must never allow a deep-link past it.
+  "graph:view",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -103,6 +112,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "capa:manage",
     "audit:view",
     "audit:manage",
+    "prediction:view",
     "document:view",
     "document:manage",
     "document:approve",
@@ -121,6 +131,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "import:run",
     "settings:manage",
     "ai:use",
+    "graph:view",
   ],
 
   auditor: [
@@ -132,6 +143,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "capa:view",
     "audit:view",
     "audit:manage",
+    "prediction:view",
     "document:view",
     "supplier:view",
     "ppap:view",
@@ -143,6 +155,7 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "spc:view",
     "report:view",
     "ai:use",
+    "graph:view",
   ],
 
   inspector: [

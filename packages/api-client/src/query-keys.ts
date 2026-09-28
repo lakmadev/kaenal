@@ -158,11 +158,24 @@ export const queryKeys = {
     chart: (part: string, characteristic: string) => ["spc", "chart", part, characteristic] as const,
   },
 
+  graph: {
+    all: ["graph"] as const,
+    seeds: () => ["graph", "seeds"] as const,
+    expand: (seed: string, type?: string, after?: string) => ["graph", "expand", seed, type ?? null, after ?? null] as const,
+    query: (queryId: string, focus?: string) => ["graph", "query", queryId, focus ?? null] as const,
+  },
+
   query: {
     all: ["query"] as const,
     sources: () => ["query", "sources"] as const,
     rows: (key: string) => ["query", "rows", key] as const,
     metric: (key: string) => ["query", "metric", key] as const,
     series: (key: string) => ["query", "series", key] as const,
+  },
+
+  predictions: {
+    all: ["predictions"] as const,
+    list: (params?: unknown) => ["predictions", "list", params ?? null] as const,
+    detail: (subjectKind: string, id: string) => ["predictions", "detail", subjectKind, id] as const,
   },
 } as const;

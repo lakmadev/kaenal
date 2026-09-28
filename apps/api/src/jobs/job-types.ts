@@ -14,6 +14,7 @@ export const QUEUES = {
   reports: "reports",
   schedule: "schedule",
   docs: "docs",
+  predict: "predict",
   housekeeping: "housekeeping",
   ai: "ai",
   outbox: "outbox",
@@ -45,6 +46,10 @@ export const JOBS = {
   docsSweep: "docs.sweep",
   /** Per-tenant: remind owners of documents nearing their expiry. */
   documentExpiryCheck: "docs.expiry",
+  /** Repeatable fan-out trigger: enqueues one predictive-risk scoring job per active tenant. */
+  predictRiskSweep: "predict-risk.sweep",
+  /** Per-tenant: score `risk_predictions` (lines/suppliers) + `ppap_submissions.ai_prediction` (Sprint 03 Part B). */
+  predictRiskCompute: "predict-risk.compute",
   /** Repeatable fan-out trigger: enqueues one purge job per active tenant. */
   housekeepingSweep: "housekeeping.sweep",
   /** Per-tenant: permanently purge rows soft-deleted past the retention window. */
@@ -94,6 +99,9 @@ export interface MaterializeScheduleJob {
 export interface DocumentExpiryJob {
   readonly tenantId: string;
 }
+export interface PredictRiskComputeJob {
+  readonly tenantId: string;
+}
 export interface PurgeSoftDeletedJob {
   readonly tenantId: string;
 }
@@ -126,6 +134,14 @@ export const SCHEDULE_SWEEP_CRON = "0 * * * *";
 
 /** How often the document-expiry sweep runs (06 §1: daily, early morning). */
 export const DOCS_SWEEP_CRON = "0 6 * * *";
+
+/**
+ * How often the predictive-risk sweep runs — nightly. The sprint doc (06 §1)
+ * only says "nightly"; 02:00 is the smallest reasonable choice, sitting
+ * between the files sweep (02:30) and housekeeping (03:00) so it never
+ * contends with either (Decision logged in PROGRESS.md, Sprint 03 Part B).
+ */
+export const PREDICT_RISK_SWEEP_CRON = "0 2 * * *";
 
 /** How often the housekeeping (purge) sweep runs (06 §1: nightly). */
 export const HOUSEKEEPING_SWEEP_CRON = "0 3 * * *";

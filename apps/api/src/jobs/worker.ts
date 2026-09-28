@@ -17,6 +17,7 @@ import {
   HOUSEKEEPING_SWEEP_CRON,
   JOBS,
   OUTBOX_SWEEP_CRON,
+  PREDICT_RISK_SWEEP_CRON,
   QUEUES,
   SCHEDULE_SWEEP_CRON,
   SLA_SWEEP_CRON,
@@ -25,6 +26,7 @@ import {
   type GenerateSummaryJob,
   type MaterializeScheduleJob,
   type OutboxDrainJob,
+  type PredictRiskComputeJob,
   type PurgeSoftDeletedJob,
   type RecomputeSlaJob,
   type RunExportJob,
@@ -46,6 +48,7 @@ import { deliverNotification } from "./processors/deliver-notification.js";
 import { runExport } from "./processors/run-export.js";
 import { materializeScheduleForTenant } from "./processors/materialize-schedule.js";
 import { documentExpiryCheckForTenant } from "./processors/document-expiry.js";
+import { computePredictionsForTenant } from "./processors/predict-risk.js";
 import { purgeSoftDeletedForTenant } from "./processors/purge-soft-deleted.js";
 import { fanOutAuditPartitionRoll, rollAuditPartitions } from "./processors/audit-partition-roll.js";
 import { offboardTenants } from "./processors/offboard-tenant.js";
@@ -239,6 +242,33 @@ async function main(): Promise<void> {
     { connection, concurrency: 4 },
   );
 
+  const predictQueue = new Queue(QUEUES.predict, { connection });
+
+  const predictWorker = new Worker(
+    QUEUES.predict,
+    async (job: Job) => {
+      if (job.name === JOBS.predictRiskSweep) {
+        // Same fan-out shape as the other sweeps: one compute job per active
+        // tenant, so one huge tenant's scoring run cannot starve the rest.
+        const { rows } = await control.query<{ id: string }>(
+          "SELECT id FROM control.tenants WHERE status = 'active'",
+        );
+        for (const t of rows) {
+          await predictQueue.add(JOBS.predictRiskCompute, { tenantId: t.id } satisfies PredictRiskComputeJob, {
+            ...DEFAULT_JOB_OPTS,
+            jobId: `predict-risk:${t.id}:${predictBucket()}`,
+          });
+        }
+        return;
+      }
+      if (job.name === JOBS.predictRiskCompute) {
+        const data = job.data as PredictRiskComputeJob;
+        await computePredictionsForTenant(data.tenantId, new Date(), { pool: await poolFor(data.tenantId) });
+      }
+    },
+    { connection, concurrency: 4 },
+  );
+
   const housekeepingQueue = new Queue(QUEUES.housekeeping, { connection });
 
   const housekeepingWorker = new Worker(
@@ -353,6 +383,7 @@ async function main(): Promise<void> {
   await filesQueue.add(JOBS.filesSweep, {}, { repeat: { pattern: FILES_SWEEP_CRON }, jobId: "files-sweep" });
   await scheduleQueue.add(JOBS.scheduleSweep, {}, { repeat: { pattern: SCHEDULE_SWEEP_CRON }, jobId: "schedule-sweep" });
   await docsQueue.add(JOBS.docsSweep, {}, { repeat: { pattern: DOCS_SWEEP_CRON }, jobId: "docs-sweep" });
+  await predictQueue.add(JOBS.predictRiskSweep, {}, { repeat: { pattern: PREDICT_RISK_SWEEP_CRON }, jobId: "predict-risk-sweep" });
   await housekeepingQueue.add(JOBS.housekeepingSweep, {}, { repeat: { pattern: HOUSEKEEPING_SWEEP_CRON }, jobId: "housekeeping-sweep" });
   await outboxQueue.add(JOBS.outboxSweep, {}, { repeat: { pattern: OUTBOX_SWEEP_CRON }, jobId: "outbox-sweep" });
 
@@ -364,6 +395,7 @@ async function main(): Promise<void> {
       reportsWorker.close(),
       scheduleWorker.close(),
       docsWorker.close(),
+      predictWorker.close(),
       housekeepingWorker.close(),
       aiWorker.close(),
       outboxWorker.close(),
@@ -372,6 +404,7 @@ async function main(): Promise<void> {
     await filesQueue.close();
     await scheduleQueue.close();
     await docsQueue.close();
+    await predictQueue.close();
     await housekeepingQueue.close();
     await outboxQueue.close();
     await connection.quit();
@@ -382,7 +415,9 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGINT", () => void shutdown());
 
-  console.log("kaenal worker up — queues: sla, files, notify, reports, schedule, docs, housekeeping, ai, outbox");
+  console.log(
+    "kaenal worker up — queues: sla, files, notify, reports, schedule, docs, predict, housekeeping, ai, outbox",
+  );
 }
 
 /** 5-minute bucket so a retriggered sweep within one window dedupes per tenant. */
@@ -407,6 +442,11 @@ function docsBucket(): number {
 
 /** 1-day bucket so a retriggered housekeeping sweep within the day dedupes per tenant. */
 function housekeepingBucket(): number {
+  return Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+}
+
+/** 1-day bucket so a retriggered predictive-risk sweep within the day dedupes per tenant. */
+function predictBucket(): number {
   return Math.floor(Date.now() / (24 * 60 * 60 * 1000));
 }
 

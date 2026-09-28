@@ -330,3 +330,43 @@ describe("audit_report export (Sprint 02 S2-2)", () => {
     expect(res.status).toBe(422);
   });
 });
+
+describe("predictive_forecast_pack export (Sprint 03 Part B, P4)", () => {
+  it("renders the current ranked lines+suppliers forecast as a PDF", async () => {
+    const area = await withTenant(acmeId, null, (tx) =>
+      tx.query<{ id: string }>(
+        `INSERT INTO areas (tenant_id, plant_id, name) VALUES ($1, $2, 'EXPTEST Forecast Line') RETURNING id`,
+        [acmeId, plantA],
+      ),
+    );
+    const areaId = area.rows[0]!.id;
+    await withTenant(acmeId, null, (tx) =>
+      tx.query(
+        `INSERT INTO risk_predictions
+           (tenant_id, subject_kind, subject_id, horizon, predicted_value, confidence,
+            band_low, band_high, history, reasoning, model_version, generated_at)
+         VALUES ($1, 'line', $2, '2026-Q4', 9, 80, 6, 12, ARRAY[1,2,2,3,4,4]::numeric[],
+                 'EXPTEST rising driver', 'nc-forecast-v1-baseline', now())`,
+        [acmeId, areaId],
+      ),
+    );
+
+    const create = await authed("post", "/v1/exports", mgrTok).send({ resource: "predictive_forecast_pack", format: "pdf" });
+    expect(create.status).toBe(202);
+    await render(create.body.id);
+
+    const done = (await authed("get", `/v1/exports/${create.body.id}`, mgrTok)).body as Export;
+    expect(done.status).toBe("completed");
+    const pdf = storage.read(`${acmeId}/exports/${create.body.id}.pdf`)!.toString("latin1");
+    expect(pdf).toContain("EXPTEST Forecast Line");
+    expect(pdf).toContain("EXPTEST rising driver");
+
+    await control.query("DELETE FROM risk_predictions WHERE subject_id = $1", [areaId]);
+    await control.query("DELETE FROM areas WHERE id = $1", [areaId]);
+  });
+
+  it("requires prediction:view — a role without it 403s before enqueueing", async () => {
+    const res = await authed("post", "/v1/exports", inspectorTok).send({ resource: "predictive_forecast_pack", format: "pdf" });
+    expect(res.status).toBe(403);
+  });
+});

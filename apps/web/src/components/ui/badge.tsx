@@ -56,6 +56,11 @@ function titleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ");
 }
 
+/** The bare dot colour for a status, no label — the graph explorer's node-card corner dot (graph-explorer.jsx:484) reuses this same vocabulary instead of inventing its own. */
+export function statusDotColor(status: string): string {
+  return STATUS_STYLES[status]?.dot ?? "var(--text-subtle)";
+}
+
 export function StatusBadge({ status }: { status: string }): React.ReactElement {
   const s = STATUS_STYLES[status] ?? { label: titleCase(status), bg: "var(--bg-subtle)", fg: "var(--text-muted)" };
   return (

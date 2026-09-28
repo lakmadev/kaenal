@@ -40,6 +40,8 @@ const VIEW_CAPABILITY: Readonly<Record<ExportResource, Capability>> = {
   ai_reply: "ai:use",
   // A single audit's PDF report — reading a report you can view (S2-2).
   audit_report: "audit:view",
+  // Sprint 03 Part B — the ranked lines+suppliers forecast pack.
+  predictive_forecast_pack: "prediction:view",
 };
 
 /**

@@ -5,6 +5,48 @@
 
 ## Current status
 
+**Sprint 03 — Graph + Predictive (2026-09-28), Gate 2 accepted, sprint closeable.** Both parts merged
+to `integration/sprint-03-graph-predictive`. Part A (graph explorer): migration 0063 adds `entity_links`
+finding kind, `GET /v1/graph/expand` + `GET /v1/graph/query/:queryId`, `packages/core/graph-layout.ts` +
+`graph-queries.ts` (pure), full `/graph` web UI. Part B (predictive risk): migration 0062
+`risk_predictions`, `packages/core/forecast.ts` (v1 statistical baseline), `predict-risk` nightly job,
+`GET /v1/predictions` + `GET /v1/predictions/:subjectKind/:id`, `predictive_forecast_pack` export, full
+`/predictive` web UI. Full gate green per `docs/sprints/SPRINT-03-graph-predictive.md` §8/§9: typecheck/
+lint clean, 591 API tests, 134 web tests, 333 RLS tests, `db:check` 54 tables, demo login re-seeded and
+confirmed 201. Designer Gate 2 confirmation in `docs/design/DESIGN-03-graph.md` and
+`DESIGN-03B-predictive.md` §6; PO Gate 2 verdict ACCEPTED in the sprint doc §9. See those docs for detail
+rather than restating here.
+
+**Sprint 03 Part B — Predictive risk BACKEND (2026-09-28), on branch `feat/s3-predictive-backend`
+(base `integration/sprint-03-graph-predictive`; web/mobile UI intentionally NOT touched — blocked on a
+parallel design pass).** Full vertical slice per `docs/sprints/SPRINT-03-graph-predictive.md` §2B P1-P6/
+§3B (user-approved 2026-09-28) + its architecture review. Migration `0062_risk_predictions.sql`
+(`subject_kind` line|supplier, polymorphic `subject_id`, forced RLS, `UNIQUE(tenant_id, subject_kind,
+subject_id, horizon)`, `exports_resource_check` gains `predictive_forecast_pack`; no `lock_version` —
+job-only writes). `packages/types`: `RiskPredictionDto`/`PredictionListQuery`/`PredictionDetailResponse`,
+`PredictionSubjectKind`/`PredictionRiskLevel` enums, `ExportResource` gains `predictive_forecast_pack`.
+`packages/core/forecast.ts` (pure v1 OLS trend + seasonal-naive baseline, confidence-from-R², minimum-
+history gate, §3B risk-bucket thresholds, `ppapRiskScore` for P6) — 22 unit tests pinned against a hand-
+computed linear reference series. `prediction:view` capability added to `rbac.ts` (admin/manager/auditor,
+mirrors `audit:view`). Job: `predict-risk.sweep`/`predict-risk.compute` registered in `job-types.ts`/
+`worker.ts` (nightly `0 2 * * *`, ONE tx per tenant per `sla.ts`'s precedent), `predict-risk.ts` processor
+scores lines (via `ncrs.area_id`) and suppliers (via `scars.supplier_id` — see Decisions log, `ncrs` has
+no `supplier_id` column) + writes `ppap_submissions.ai_prediction` for in-flight submissions, all audited.
+Read API: `GET /v1/predictions` (cursor-paginated, subjectKind/horizon/order filters) + `GET /v1/predictions/
+:subjectKind/:id` (returns empty `predictions[]` for an unscored-but-real subject, 404 only for a subject
+that doesn't exist at all or belongs to another tenant — rule 8), `PredictionsService` in
+`apps/api/src/predictions/`. Export: `run-export.ts` gains a `predictive_forecast_pack` branch (mirrors
+`audit_report`'s plant-scoped, pre-enqueue-checked precedent). **Tests:** 22 core (`forecast.test.ts`),
+5 job-processor (`predict-risk.test.ts` — scoring, minimum-history gate, upsert idempotency, PPAP write),
+7 API (`predictions.test.ts` — capability gating, list, detail incl. cross-tenant 404), 2 export
+(`exports.test.ts` predictive_forecast_pack block). RLS mutation-tested (policy dropped → 6 isolation
+tests fail as expected, restored, suite green again). Full gate green: `pnpm db:migrate && pnpm db:check`
+(54 tables) `&& pnpm test:rls` (329), `pnpm --filter @kaenal/core test` (772), `pnpm --filter @kaenal/api
+test` (68 files / 570 tests), `pnpm typecheck && pnpm lint` (all 8 packages incl. web/mobile — unaffected,
+confirms no cross-surface breakage), demo login re-seeded and confirmed sign-in 201. **Not built this
+session (out of scope per the task):** web `/predictive` UI (P3-P5) — the design pass for it runs
+separately; the read API + export are ready for it to consume once unblocked.
+
 **Sprint 02 — Audits module (2026-09-28), Gate 2 accepted, sprint closeable.** Backend: migration 0061
 (`audits`/`audit_findings`, `next_activity`/`closed_at` columns, `progress` column dropped in favour of
 computed value), contract routes, `audits.controller.ts`/`audits.service.ts`, `audit_report` export
@@ -2059,6 +2101,38 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Decisions log
 
+- **Sprint 03 — Gate 2 close-out decisions (2026-09-28, see `SPRINT-03-graph-predictive.md` §9 and
+  design docs §6).** v1 statistical baseline (`forecast.ts`) replaces the jsx's fabricated "v3
+  gradient-boosted / 91% backtested" claims — user-approved per ROADMAP Q2, honest until a real model
+  exists. `areas` table reused as "production line" — closes P21's own open question rather than adding
+  a new table. `subject_kind` scoped to line/supplier only, not NCR — follows the jsx, not FEATURES
+  prose. `NeighborGroupDto` shape fixed from `{id}` to `{node, relation}` to carry real relation-label
+  text instead of a placeholder id.
+
+- **Sprint 03 Part B — nightly `predict-risk` cron schedule (2026-09-28).** §3B/06 §1 only say
+  "nightly," no specific time. Chose `0 2 * * *` (02:00) — the smallest reasonable choice, sitting
+  between the files sweep (02:30) and housekeeping (03:00) so predictive scoring never contends with
+  either. See `apps/api/src/jobs/job-types.ts` `PREDICT_RISK_SWEEP_CRON`.
+- **Sprint 03 Part B — `ncrs.supplier_id` does not exist; supplier NC volume is read via `scars`
+  (2026-09-28).** §3B's proposed method said "ncrs.supplier_id for suppliers" — verified false against
+  the real schema (`ncrs` has `area_id` but no `supplier_id`; grepped `packages/db/migrations/0001_core.sql`).
+  The only real link from an NCR to a supplier is through the SCARs raised against it
+  (`scars.supplier_id`, `scars.ncr_id`). `predict-risk.ts`'s `loadSupplierHistories` groups trailing NC
+  counts via `scars JOIN ncrs`, `count(DISTINCT n.id)` guarding against double-count if more than one
+  SCAR ever references the same NCR/supplier pair. Smallest reasonable correction, not a re-derivation
+  of the already-approved §3B method (only its supplier-linkage SQL detail was wrong).
+- **Sprint 03 Part B — horizon label format (2026-09-28).** §3B names the shape ("e.g. `2026-Q4`") but
+  not a full scheme for all 3 horizons. Picked deterministic calendar labels in
+  `packages/core/forecast.ts` `horizonLabel`: month → `YYYY-MM`, quarter → `YYYY-Qn` (the calendar
+  quarter containing the target month), half → `YYYY-Hn` (H1 Jan–Jun / H2 Jul–Dec) for the jsx's "2Q"
+  selector. Logged as the smallest reasonable reading rather than re-litigating the (already user-
+  approved) §3B schema.
+- **Sprint 03 Part B — predictions detail route: unscored-but-real subject is 200 with `predictions: []`,
+  not 404 (2026-09-28).** P1's "not enough history" gate means a real line/supplier can legitimately
+  have zero `risk_predictions` rows. `PredictionsService.detail` checks the subject's own existence
+  (`areas`/`suppliers`, RLS-scoped) separately from whether it has been scored, so only a subject that
+  truly does not exist in this tenant (or belongs to another one) 404s — never a 403 that would confirm
+  cross-tenant existence (rule 8).
 - **Sprint 02 Audits — architecture-review gaps resolved (2026-09-27/28, full detail:
   `docs/sprints/SPRINT-02-audits.md` §8/§8a).** Role routing: `/audits` stays hidden from
   inspector/viewer per `rbac.ts`/`rbac.jsx` — filter search/AI-chat hits for those roles rather than
@@ -2789,6 +2863,16 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 ---
 
 ## Known issues / TODO
+
+- **Sprint 03 Graph + Predictive — carried-forward known issues (2026-09-28, sprint doc §9 / design
+  docs §6).** Q17: cross-tenant failure-modes panel needs its own privacy design + approval before it
+  can be built. Q18: a real "Tune model" admin surface belongs to Sprint 10, not this sprint. Q19:
+  NCR-level forecasting follows the jsx, not FEATURES prose — flagged, not built. Q20: a real backtest
+  accuracy figure needs the model to actually run in production first. Q21: risk-bucket thresholds are a
+  first cut, not tuned against real history. The design board's unreachable "insufficient history"
+  row-level state stems from an approved backend decision (minimum-history gate), not a bug. `seed-
+  demo.ts` gap: no PPAP submissions / deep NCR history, blocks P6 browser-verification of the predictive
+  UI — already logged as a backlog candidate by the PO.
 
 - **Sprint 02 Audits — carried-forward known issues (2026-09-28, `docs/sprints/SPRINT-02-audits.md`
   §7/§9, Q10-Q14).** Q10: "Send to auditee" (Report tab) has no design or recipient model — who "the

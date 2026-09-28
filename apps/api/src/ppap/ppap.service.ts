@@ -61,8 +61,10 @@ const PPAP_COLUMNS = `p.id, p.code, p.supplier_id,
 
 const FROM = `ppap_submissions p`;
 
-/** Parse the inline elements jsonb into typed DTOs (tolerant of the legacy `{}`). */
-function parseElements(raw: unknown): PpapElementDto[] {
+/** Parse the inline elements jsonb into typed DTOs (tolerant of the legacy `{}`).
+ *  Exported for reuse by the predictive-risk job (Sprint 03 Part B P6), which
+ *  needs the same completeness ratio this service computes on every read. */
+export function parseElements(raw: unknown): PpapElementDto[] {
   if (!Array.isArray(raw)) return [];
   const out: PpapElementDto[] = [];
   for (const e of raw) {

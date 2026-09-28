@@ -31,6 +31,13 @@ const ENTITY_SPECS: Readonly<Record<EntityKind, EntitySpec>> = {
   document: { table: "documents", label: "title", plantScoped: false, view: "document:view" },
   supplier: { table: "suppliers", label: "name", plantScoped: false, view: "supplier:view" },
   scar: { table: "scars", label: "code", plantScoped: false, view: "scar:view" },
+  // Sprint 03 G1 — `finding` joined the shared EntityKind enum for the graph
+  // explorer. `findings` has no `plant_id` column of its own (scoped through
+  // its parent inspection, like the graph service joins it), so this stays
+  // unscoped here rather than querying a column that doesn't exist; a real
+  // plant-scoped chat context for findings is a follow-up if/when the AI
+  // assistant needs to reference one directly.
+  finding: { table: "findings", label: "item_ref", plantScoped: false, view: "inspection:view" },
 };
 
 export interface PreparedChat {

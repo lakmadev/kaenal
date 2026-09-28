@@ -93,6 +93,8 @@ import {
   PpapSubmissionDto,
   CreatePpapBody,
   UpdatePpapBody,
+  RiskPredictionDto,
+  PredictionDetailResponse,
   UpdatePpapElementBody,
   PpapDecisionBody,
   ScarDto,
@@ -151,6 +153,7 @@ import {
   DocumentCategory,
   DocumentStatus,
   EightDStatus,
+  EntityKind,
   ExportResource,
   ExportStatus,
   InspectionStatus,
@@ -162,6 +165,7 @@ import {
   RiskLevel,
   SupplierStatus,
   TemplateStatus,
+  PredictionSubjectKind,
 } from "./enums.js";
 import {
   Query,
@@ -194,6 +198,7 @@ import {
   SpcChartDto,
   IngestMeasurementsBody,
 } from "./spc.js";
+import { GraphExpandResult, GraphQueryId, GraphQueryResult, GraphSeedsResult } from "./graph.js";
 
 /**
  * The API contract (03 §1) — contract-first, in `packages/types` so it is the
@@ -680,6 +685,27 @@ export const contract = c.router(
       pathParams: z.object({ id: z.string().uuid() }),
       responses: { 200: ExportDto, ...commonErrors },
       summary: "Fetch an export's status (with a presigned URL once completed)",
+    },
+
+    // --- Predictive risk (Sprint 03 Part B) --- read-only; the nightly
+    // `predict-risk` job owns the data, no mutation route exists (P21/P2).
+    listPredictions: {
+      method: "GET",
+      path: "/v1/predictions",
+      query: PageQuery.extend({
+        subjectKind: PredictionSubjectKind.optional(),
+        horizon: z.string().min(1).max(32).optional(),
+        order: z.enum(["predicted_value", "created_at"]).optional(),
+      }),
+      responses: { 200: page(RiskPredictionDto), ...commonErrors },
+      summary: "List predictions (cursor-paginated; rank by predicted_value or recency)",
+    },
+    getPrediction: {
+      method: "GET",
+      path: "/v1/predictions/:subjectKind/:id",
+      pathParams: z.object({ subjectKind: PredictionSubjectKind, id: z.string().uuid() }),
+      responses: { 200: PredictionDetailResponse, ...commonErrors },
+      summary: "Fetch one subject's full history + forecast across all horizons",
     },
 
     // --- AI gateway (06 §3) ------------------------------------------------
@@ -1391,6 +1417,35 @@ export const contract = c.router(
       body: IngestMeasurementsBody,
       responses: { 201: z.object({ inserted: z.number() }), ...commonErrors },
       summary: "Ingest measurements for a characteristic (measurement:manage)",
+    },
+
+    // --- Knowledge graph explorer (Sprint 03 G1-G4; graph-explorer.jsx) ----
+    listGraphSeeds: {
+      method: "GET",
+      path: "/v1/graph/seeds",
+      responses: { 200: GraphSeedsResult, ...commonErrors },
+      summary: "Up to 4 'start from a record' seed chips — most recent real record per seed kind (graph:view)",
+    },
+    expandGraph: {
+      method: "GET",
+      path: "/v1/graph/expand",
+      query: z.object({
+        seed: z.string().min(1),
+        type: EntityKind.optional(),
+        after: z.string().optional(),
+      }),
+      responses: { 200: GraphExpandResult, ...commonErrors },
+      summary:
+        "Click-to-expand neighbour reveal (graph:view). No `type`: every neighbour type " +
+        "capped at 6. With `type` (+ optional `after`): that one type's next 12-item batch.",
+    },
+    runGraphQuery: {
+      method: "GET",
+      path: "/v1/graph/query/:queryId",
+      pathParams: z.object({ queryId: GraphQueryId }),
+      query: z.object({ focus: z.string().optional() }),
+      responses: { 200: GraphQueryResult, ...commonErrors },
+      summary: "One of the 4 fixed named analytical queries, capped at 60 nodes (graph:view)",
     },
 
     // --- Suppliers (FEATURES §11.1) ----------------------------------------

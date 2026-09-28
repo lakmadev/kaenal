@@ -87,17 +87,35 @@ export class FindingsService {
     return withAudit(
       tx,
       tenantId,
-      {
-        actorId,
-        actorKind: "user",
-        entityKind: "finding",
-        entityId: id,
-        action: "created",
-        after: { inspectionId, severity: body.severity, itemRef: body.itemRef },
-        requestId: context.requestId,
-        ip: context.ip,
-        userAgent: context.userAgent,
-      },
+      [
+        {
+          actorId,
+          actorKind: "user",
+          entityKind: "finding",
+          entityId: id,
+          action: "created",
+          after: { inspectionId, severity: body.severity, itemRef: body.itemRef },
+          requestId: context.requestId,
+          ip: context.ip,
+          userAgent: context.userAgent,
+        },
+        // Sprint 03 G1 AC4 — a finding's inspection is known at creation, so
+        // the inspection->finding graph edge is written here, in the same
+        // transaction. (The finding->ncr edge, when one gets raised from this
+        // finding, is written separately at ncr.service.ts's raise-from-
+        // finding transaction, per the architecture review's correction #1.)
+        {
+          actorId,
+          actorKind: "user",
+          entityKind: "inspection",
+          entityId: inspectionId,
+          action: "linked",
+          after: { toKind: "finding", toId: id, relation: "linked" },
+          requestId: context.requestId,
+          ip: context.ip,
+          userAgent: context.userAgent,
+        },
+      ],
       async (t) => {
         const { rows } = await t.query<FindingRow>(
           `INSERT INTO findings (id, tenant_id, inspection_id, item_ref, severity, description, created_by, updated_by)
@@ -107,6 +125,16 @@ export class FindingsService {
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Finding was not created");
+
+        await t.query(
+          `INSERT INTO entity_links
+             (id, tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by, updated_by)
+           VALUES ($1,$2,'inspection',$3,'finding',$4,'linked',$5,$5)
+           ON CONFLICT (tenant_id, from_kind, from_id, to_kind, to_id, relation)
+             WHERE deleted_at IS NULL DO NOTHING`,
+          [randomUUID(), tenantId, inspectionId, id, actorId],
+        );
+
         return toDto(row);
       },
     );

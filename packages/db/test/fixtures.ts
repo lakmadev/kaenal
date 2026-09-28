@@ -88,7 +88,7 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
     [t, `NCR-${tag}-0001`, userId, plantId],
   );
 
-  await q(
+  const findingId = await q(
     `INSERT INTO findings (tenant_id, inspection_id, item_ref, severity, description, ncr_id)
      VALUES ($1, $2, 'i1', 'major', 'Porosity on bead', $3) RETURNING id`,
     [t, inspectionId, ncrId],
@@ -204,6 +204,19 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
     `INSERT INTO entity_links (tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by)
      VALUES ($1, 'document', $2, 'ncr', $3, 'reference', $4) RETURNING id`,
     [t, documentId, ncrId, userId],
+  );
+
+  // Sprint 03 G1 — `finding` on both sides of an edge (RLS suite must cover
+  // this new kind specifically, not just the pre-existing document->ncr row).
+  await q(
+    `INSERT INTO entity_links (tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by)
+     VALUES ($1, 'inspection', $2, 'finding', $3, 'linked', $4) RETURNING id`,
+    [t, inspectionId, findingId, userId],
+  );
+  await q(
+    `INSERT INTO entity_links (tenant_id, from_kind, from_id, to_kind, to_id, relation, created_by)
+     VALUES ($1, 'finding', $2, 'ncr', $3, 'linked', $4) RETURNING id`,
+    [t, findingId, ncrId, userId],
   );
 
   await q(
@@ -378,6 +391,19 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
              jsonb_build_object('entityId', $2, 'at', now()))
      RETURNING id`,
     [t, ncrId, userId],
+  );
+
+  // Sprint 03 Part B — predictive risk (0062). One nightly-job-shaped row for
+  // the seeded area ("line"), scoped to the seeded admin member as the actor.
+  await q(
+    `INSERT INTO risk_predictions
+       (tenant_id, subject_kind, subject_id, horizon, predicted_value, confidence,
+        band_low, band_high, history, reasoning, model_version, generated_at, created_by)
+     VALUES ($1, 'line', $2, '2026-Q4', 5, 62, 2, 8,
+             ARRAY[1,2,2,3,4,4]::numeric[], 'NC count rose 1→4 over 6 periods',
+             'nc-forecast-v1-baseline', now(), $3)
+     RETURNING id`,
+    [t, areaId, userId],
   );
 }
 

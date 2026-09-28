@@ -58,6 +58,8 @@ import { SuppliersController } from "./suppliers/suppliers.controller.js";
 import { SuppliersService } from "./suppliers/suppliers.service.js";
 import { PpapController } from "./ppap/ppap.controller.js";
 import { PpapService } from "./ppap/ppap.service.js";
+import { PredictionsController } from "./predictions/predictions.controller.js";
+import { PredictionsService } from "./predictions/predictions.service.js";
 import { ScarController } from "./scar/scar.controller.js";
 import { ScarService } from "./scar/scar.service.js";
 import { PortalController } from "./portal/portal.controller.js";
@@ -111,6 +113,8 @@ import { ImportController } from "./import/import.controller.js";
 import { ImportService } from "./import/import.service.js";
 import { SpcController } from "./spc/spc.controller.js";
 import { SpcService } from "./spc/spc.service.js";
+import { GraphController } from "./graph/graph.controller.js";
+import { GraphService } from "./graph/graph.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -129,6 +133,7 @@ import {
   DOCUMENTS_SERVICE,
   SUPPLIERS_SERVICE,
   PPAP_SERVICE,
+  PREDICTIONS_SERVICE,
   SCAR_SERVICE,
   PORTAL_SERVICE,
   EIGHT_D_SERVICE,
@@ -159,6 +164,7 @@ import {
   INTEGRATIONS_SERVICE,
   IMPORT_SERVICE,
   SPC_SERVICE,
+  GRAPH_SERVICE,
   REALTIME,
   PRESENCE_SERVICE,
   COLLAB_SERVICE,
@@ -191,6 +197,7 @@ import {
     DocumentsController,
     SuppliersController,
     PpapController,
+    PredictionsController,
     ScarController,
     PortalController,
     FilesController,
@@ -212,6 +219,7 @@ import {
     IntegrationsController,
     ImportController,
     SpcController,
+    GraphController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -361,6 +369,7 @@ import {
     { provide: DOCUMENTS_SERVICE, useFactory: () => new DocumentsService() },
     { provide: SUPPLIERS_SERVICE, useFactory: () => new SuppliersService() },
     { provide: PPAP_SERVICE, useFactory: () => new PpapService() },
+    { provide: PREDICTIONS_SERVICE, useFactory: () => new PredictionsService() },
     {
       provide: SCAR_SERVICE,
       useFactory: (n: NotificationsService) => new ScarService(n),
@@ -474,6 +483,7 @@ import {
     },
     { provide: IMPORT_SERVICE, useFactory: () => new ImportService() },
     { provide: SPC_SERVICE, useFactory: () => new SpcService() },
+    { provide: GRAPH_SERVICE, useFactory: () => new GraphService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

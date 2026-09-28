@@ -32,6 +32,8 @@ import {
   PpapElementStatus,
   PpapStatus,
   ChargebackStatus,
+  PredictionSubjectKind,
+  PredictionRiskLevel,
   Role,
   ScarSeverity,
   ScarStatus,
@@ -2486,3 +2488,49 @@ export const SyncHealthBody = z.object({
   lastSyncedAt: z.string().datetime().nullable().optional(),
 });
 export type SyncHealthBody = z.infer<typeof SyncHealthBody>;
+
+// --- Predictive risk (Sprint 03 Part B, §3B) --------------------------------
+
+/**
+ * One (subject, horizon) forecast row — the shape `LeadRow`/`ForecastSpark`
+ * render. `level` and `subjectName` are computed at read time (not stored):
+ * `level` from `packages/core`'s `riskLevel(predictedValue, history, ...)`,
+ * `subjectName` joined from `areas.name`/`suppliers.name`. `modelVersion` and
+ * `generatedAt` are always present — predictions are advisory, never shown as
+ * unattributed fact (P2 AC2).
+ */
+export const RiskPredictionDto = z.object({
+  id: z.string().uuid(),
+  subjectKind: PredictionSubjectKind,
+  subjectId: z.string().uuid(),
+  subjectName: z.string().nullable(),
+  horizon: z.string(),
+  predictedValue: z.number(),
+  confidence: z.number().int().min(0).max(100),
+  bandLow: z.number(),
+  bandHigh: z.number(),
+  history: z.array(z.number()),
+  level: PredictionRiskLevel,
+  reasoning: z.string(),
+  modelVersion: z.string(),
+  generatedAt: z.string().datetime(),
+  createdAt: z.string().datetime(),
+});
+export type RiskPredictionDto = z.infer<typeof RiskPredictionDto>;
+
+export const PredictionListQuery = PageQuery.extend({
+  subjectKind: PredictionSubjectKind.optional(),
+  horizon: z.string().min(1).max(32).optional(),
+  /** Ranked list (predicted_value desc) vs. the default recency order. */
+  order: z.enum(["predicted_value", "created_at"]).optional(),
+});
+export type PredictionListQuery = z.infer<typeof PredictionListQuery>;
+
+/** One subject's full set of horizon rows — feeds the detail spark. */
+export const PredictionDetailResponse = z.object({
+  subjectKind: PredictionSubjectKind,
+  subjectId: z.string().uuid(),
+  subjectName: z.string().nullable(),
+  predictions: z.array(RiskPredictionDto),
+});
+export type PredictionDetailResponse = z.infer<typeof PredictionDetailResponse>;

@@ -193,6 +193,7 @@ afterAll(async () => {
     // composite (tenant_id, user_id) member FK, so clear them before memberships.
     await control.query("DELETE FROM notifications WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM sessions WHERE user_id = ANY($1)", [ids]);
+    await control.query("DELETE FROM entity_links WHERE created_by = ANY($1)", [ids]);
     await control.query("DELETE FROM memberships WHERE user_id = ANY($1)", [ids]);
     await control.query("DELETE FROM control.users WHERE id = ANY($1)", [ids]);
   }
