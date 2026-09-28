@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTranslations } from "next-intl";
-import { CircleCheck, Plus, TriangleAlert } from "lucide-react";
+import { CircleCheck, Plus, TriangleAlert, X } from "lucide-react";
 import { CreateAuditFindingBody, type AuditFindingDto, type AuditFindingKind, type NcrPriority } from "@kaenal/types";
 import { Button, Chip, Field, Input, Skeleton, EmptyState, useToast } from "@/components/ui";
 import { shortDate } from "@/lib/format";
@@ -52,7 +52,15 @@ export function AuditFindingsTab({ auditId }: { auditId: string }): React.ReactE
       {canManage && (
         <div className="flex justify-end">
           <Button size="sm" onClick={() => setAdding((v) => !v)}>
-            <Plus size={12} /> {t("addFinding")}
+            {adding ? (
+              <>
+                <X size={12} /> {t("raiseCancel")}
+              </>
+            ) : (
+              <>
+                <Plus size={12} /> {t("addFinding")}
+              </>
+            )}
           </Button>
         </div>
       )}
