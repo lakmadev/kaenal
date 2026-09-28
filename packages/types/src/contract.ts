@@ -93,6 +93,8 @@ import {
   PpapSubmissionDto,
   CreatePpapBody,
   UpdatePpapBody,
+  RiskPredictionDto,
+  PredictionDetailResponse,
   UpdatePpapElementBody,
   PpapDecisionBody,
   ScarDto,
@@ -162,6 +164,7 @@ import {
   RiskLevel,
   SupplierStatus,
   TemplateStatus,
+  PredictionSubjectKind,
 } from "./enums.js";
 import {
   Query,
@@ -680,6 +683,27 @@ export const contract = c.router(
       pathParams: z.object({ id: z.string().uuid() }),
       responses: { 200: ExportDto, ...commonErrors },
       summary: "Fetch an export's status (with a presigned URL once completed)",
+    },
+
+    // --- Predictive risk (Sprint 03 Part B) --- read-only; the nightly
+    // `predict-risk` job owns the data, no mutation route exists (P21/P2).
+    listPredictions: {
+      method: "GET",
+      path: "/v1/predictions",
+      query: PageQuery.extend({
+        subjectKind: PredictionSubjectKind.optional(),
+        horizon: z.string().min(1).max(32).optional(),
+        order: z.enum(["predicted_value", "created_at"]).optional(),
+      }),
+      responses: { 200: page(RiskPredictionDto), ...commonErrors },
+      summary: "List predictions (cursor-paginated; rank by predicted_value or recency)",
+    },
+    getPrediction: {
+      method: "GET",
+      path: "/v1/predictions/:subjectKind/:id",
+      pathParams: z.object({ subjectKind: PredictionSubjectKind, id: z.string().uuid() }),
+      responses: { 200: PredictionDetailResponse, ...commonErrors },
+      summary: "Fetch one subject's full history + forecast across all horizons",
     },
 
     // --- AI gateway (06 §3) ------------------------------------------------

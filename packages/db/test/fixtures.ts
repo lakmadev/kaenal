@@ -379,6 +379,19 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
      RETURNING id`,
     [t, ncrId, userId],
   );
+
+  // Sprint 03 Part B — predictive risk (0062). One nightly-job-shaped row for
+  // the seeded area ("line"), scoped to the seeded admin member as the actor.
+  await q(
+    `INSERT INTO risk_predictions
+       (tenant_id, subject_kind, subject_id, horizon, predicted_value, confidence,
+        band_low, band_high, history, reasoning, model_version, generated_at, created_by)
+     VALUES ($1, 'line', $2, '2026-Q4', 5, 62, 2, 8,
+             ARRAY[1,2,2,3,4,4]::numeric[], 'NC count rose 1→4 over 6 periods',
+             'nc-forecast-v1-baseline', now(), $3)
+     RETURNING id`,
+    [t, areaId, userId],
+  );
 }
 
 /**

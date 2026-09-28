@@ -26,6 +26,7 @@ export const AUDITS_SERVICE = Symbol("AUDITS_SERVICE");
 export const DOCUMENTS_SERVICE = Symbol("DOCUMENTS_SERVICE");
 export const SUPPLIERS_SERVICE = Symbol("SUPPLIERS_SERVICE");
 export const PPAP_SERVICE = Symbol("PPAP_SERVICE");
+export const PREDICTIONS_SERVICE = Symbol("PREDICTIONS_SERVICE");
 export const SCAR_SERVICE = Symbol("SCAR_SERVICE");
 export const PORTAL_SERVICE = Symbol("PORTAL_SERVICE");
 export const FILES_SERVICE = Symbol("FILES_SERVICE");
