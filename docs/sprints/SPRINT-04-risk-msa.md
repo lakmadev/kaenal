@@ -12,6 +12,26 @@ Sprint 03 gated its predictive-risk design (§3B) before that sprint's Part B wa
 
 ## 0. Amendment (Ceremony 4 SEND BACK response, 2026-09-28)
 
+**Round 2 (Ceremony 4, SEND BACK AGAIN — narrow, 2026-09-28, same day, second pass):** the planner's second
+re-review found six precision items (N1-N6) plus four documentation-accuracy corrections to §4's own table.
+Resolved in place below (marked `[AMENDED-2]` at each touched AC/UC); no story is added or removed, and no
+further schema changes beyond what N1 requires (a new PATCH route on the already-approved `msa_studies`
+table, not a new column). Summary:
+
+| # | Gap | Resolution |
+|---|---|---|
+| N1 (BLOCKING) | `completed_at` "set once" contradicted the reopen flow the design board and M2's own UC show | New `PATCH /v1/msa-studies/:id/reopen` (§2 M2 AC5, §4); reopening audits `status_changed` (distinct from generic `updated`, matching CAPA/NCR/SCAR/8D/audit/inspection precedent — confirmed by grep); re-completing **overwrites** `completed_at` with the new timestamp; `completed_at` is **kept** (not cleared) while reopened, so the UI can show "last completed on X" during correction |
+| N2 | M1 AC4 typo: `n_appraisers ∈ {2,3}` should read the same inclusive-bound form as `n_trials ∈ {2,3}` | Fixed; M1 AC4, M2 AC4, and the design-board bound-hint text now all state the identical bounds: trials 2-3, appraisers 2-3, parts 2-10 |
+| N3 | `crossed_anova` had no stated bounds (divide-by-zero risk below minimum; no cap on query cost) | Minimum 2/2/2 (appraisers/parts/trials) added for `crossed_anova`; upper cap of 10 appraisers / 50 parts / 10 trials added for **both** methods (§2 M1 AC4/AC5) |
+| N4 (BLOCKING) | Auditor holds `risk:manage` but `fmea` isn't in auditor's `ROLE_NAV`, so a risk→FMEA link an auditor creates can't be clicked through | Resolved (a): `fmea` added to auditor's `ROLE_NAV` `Set` (X1 AC2 rewritten); `spc` left alone (out of scope, keeps the fix minimal); this supersedes half of Q24 — noted in §7, not claimed as more than it fixes |
+| N5 | Should `risk` appear in the global "New" quick-create menu and CreateWizard's Type-step card grid? | Yes (R4 AC3, new) — consistency with every other real module type; flagged for designer: 5th `WIZARD_TYPES`/`WIZARD_ICON`/`WIZARD_COLOR` entry (icon `Shield`, reusing R3's established risk icon; color from the existing wizard palette) |
+| N6 | (a) MSA list "Date" column ambiguity for draft rows; (b) confirm Date column applies to all rows; (c) verdict-wording vocabulary consistency | (a) `created_at`, stated unambiguously (M4 AC3 rewritten); (b) confirmed, both draft and completed rows show the Date column; (c) M3 AC3 (new): `excellent`/`acceptable`/`reject` is the **only** verdict vocabulary anywhere in the UI (banner and any chip/badge) — flagged as a design-board wording fix if any board still shows "pass/marginal/fail" |
+| Doc accuracy | §4's R3 row wrongly said "`EntityLinksService` (unchanged)" | Corrected — real touch-points named: `entity-ref.ts`, `chat.ts`'s `ENTITY_SPECS`, `graph-kinds.ts` (new Q27 — risk/fmea won't render in the graph explorer's own separate kind list), CAPA/document/supplier detail pages |
+| Doc accuracy | B3's linked-records panels claimed "no new backend" | Corrected — additive server-resolved `label` field on `entity_links` rows (capability-checked, tenant/plant-scoped) + `ids` filter on `GET /v1/risks`, named explicitly, still no new routes |
+| Doc accuracy | X1's wording implied inspector/viewer get an API 403 on `/risk`/`/msa` deep links | Corrected — they hold `risk:view`/`msa:view`, so nothing 403s server-side; the block is the client-side web route guard, and X1's UC/AC now say so |
+| Doc accuracy | KPI "Reviewed this quarter %" audit-action ambiguity | Stated explicitly: risk `PATCH` stays generic `updated` (not split, unlike CAPA/MSA's new `reopen`) — the KPI counts any `updated`/`created` audit event this quarter; zero-risks empty case reads "—", never "0%" or NaN |
+| Copy | KPI tile label | "(≥ 12)" → "(≥ 10)" to match the corrected threshold (design-board one-line text edit) |
+
 The `planner` agent reviewed this sprint file + `DESIGN-04-risk-msa.md` at Ceremony 4 and returned **SEND
 BACK** on five gaps (B1-B5) plus two smaller items. This amendment resolves all seven **in place** in the
 stories below (marked `[AMENDED]` at each touched AC/UC) and adds **§3-Addendum** for the one genuinely new
@@ -138,7 +158,13 @@ AC
      in the same transaction (rule 3), and `audit_events` already carries `entity_kind`/`entity_id`/
      `created_at` (`packages/db/migrations/0015_audit_partitioning.sql`, confirmed by reading it this
      session) — a risk edited (or created) at all this quarter counts as "reviewed" for this KPI, which is a
-     read-only query over existing audit history, not a new write path or column. This is the one formula the
+     read-only query over existing audit history, not a new write path or column. **[AMENDED-2 — doc-accuracy]
+     Explicit, so the formula is unambiguous:** a risk's `PATCH` is **always** audited as generic `updated`,
+     never split into a `status_changed` action the way M2's `reopen` route (N1) or CAPA's own status
+     transitions are — so this KPI's "reviewed" signal is any `updated`/`created` audit event on the risk this
+     quarter, full stop, not a narrower action-type filter. **Zero-risks empty case:** the KPI tile reads
+     `"—"`, never `"0%"` or `NaN` (division by zero on `total risks = 0` is guarded, not silently rendered).
+     This is the one formula the
      gap asked to check for a hidden schema need; checked, and none is needed.
 7. Deep-link support uses the risk's opaque **uuid** `id`, never its human-readable `code` (**[AMENDED]** —
    corrects R1's own earlier text and mirrors how `entity_links`, which stores uuids not codes, already works
@@ -147,11 +173,19 @@ AC
 
 **Web/Mobile/Shared**
 - **Web:** `apps/web/src/features/risk/` — `RiskRegisterPage` (KPI strip, heat map w/ click-to-filter,
-  category bar, register table, detail card, **[AMENDED — B3] a linked-records panel on the detail card**
-  reading `entity_links` for the selected risk — reuses the exact read-side pattern `supplier-detail.tsx`/
-  `document-detail.tsx`/`capa-detail.tsx` already ship via `useEntityLinks`, no new backend route),
-  empty/loading/error/permission states. Deep-link support: `/risk?id=<uuid>` (**[AMENDED]** — uuid, not
-  `code`) pre-selects a risk (needed for R3's "open full record" click-through).
+  category bar, register table, detail card, **[AMENDED — B3; corrected — N4/doc-accuracy] a linked-records
+  panel on the detail card** reading `entity_links` for the selected risk — reuses the exact read-side pattern
+  `supplier-detail.tsx`/`document-detail.tsx`/`capa-detail.tsx` already ship via `useEntityLinks`. **This is
+  additive backend, not "no new backend route" as round-1 said:** today's only consumers render each link by
+  truncating the raw id (`id.slice(0,8)`, confirmed in all three files this session) — a real panel needs a
+  human-readable label (an FMEA's name, "NCR-2026-0118", a risk's code+title+residual score). So `entity_links`
+  read responses gain a server-resolved, optional `label` field per link — tenant/plant-scoped and
+  capability-checked (resolved only when the caller can view that specific target record; omitted, never a
+  raw/guessed value, when they can't — never leaking a label the caller shouldn't see), and `GET /v1/risks`
+  gains an `ids` filter parameter (batch-resolves risk labels for the reverse FMEA pane, R3 AC7) — additive
+  changes to the existing `GET /v1/entity-links`/`GET /v1/risks` routes, no new route), empty/loading/error/
+  permission states. Deep-link support: `/risk?id=<uuid>` (**[AMENDED]** — uuid, not `code`) pre-selects a risk
+  (needed for R3's "open full record" click-through).
 - **Mobile:** not built — no `m-*.jsx` design (confirmed §1a); no route, no nav entry;
   `pnpm --filter @kaenal/mobile typecheck` must stay green on the additive shared-type changes only.
 - **Shared:** migration `0064` (risks table); `RiskDto`/`RiskListQuery`/`CreateRiskBody`/`UpdateRiskBody` +
@@ -280,9 +314,25 @@ AC
      fields, in the existing wizard visual language) — no jsx anywhere shows it.
 2. Created risk gets a real code in the corrected `RISK-YYYY-NNNN` format (**[AMENDED]**, R1 AC1), sequence-
    generated via `packages/core/src/codes.ts` + the `counters` table, never client-supplied.
+3. **[AMENDED-2 — N5, new]** `risk` is a real entry in `packages/core/src/create-wizard.ts`'s `WizardType`
+   union, `WIZARD_TYPE_ORDER`, and the `WIZARD_TYPES` map (capability `risk:manage`, `hasPriorityAndDue:
+   false` — risk has no priority/due-date field in its Details step, AC1 above; `templates: []` — risk has no
+   sub-template choice). Confirmed this session by reading `create-wizard.ts`: `WIZARD_TYPE_ORDER` is the one
+   array that feeds **both** the global "New" quick-create menu (`apps/web/src/components/shell/quick-create.tsx`)
+   and the CreateWizard's Type-step card grid (`apps/web/src/features/create-wizard/type-step.tsx`) — adding
+   `risk` there makes it a real 5th option in both places in one change, consistent with every other real
+   module type already appearing in both (a risk should not be creatable only from a hidden entry point).
+   `apps/web/src/features/create-wizard/wizard-meta.ts`'s `WIZARD_ICON`/`WIZARD_COLOR` maps (also
+   `Record<WizardType, …>`, confirmed this session) gain a 5th entry — icon `Shield` (the same icon
+   `navigation.ts`/R3 AC3 already establish for risk, kept consistent across nav, entity-links, and the
+   wizard) and a color from the existing wizard palette, chosen by the designer (§5, flagged below) to be
+   visually distinct from the other four type cards.
 
-**Web/Mobile/Shared:** Web only (wizard extension: Details-step fields + the three-step branch for `risk`).
-Mobile: unaffected. Shared: none beyond R1's types.
+**Web/Mobile/Shared:** Web only (wizard extension: `WizardType`/`WIZARD_TYPE_ORDER`/`WIZARD_TYPES`/
+`WIZARD_ICON`/`WIZARD_COLOR` additions in `packages/core`/`apps/web`, Details-step fields, and the three-step
+branch for `risk`). Mobile: unaffected (CreateWizard has no mobile counterpart in this sprint's scope). Shared:
+none beyond R1's types (the `WizardType` union lives in `packages/core`, already a shared package, but no
+mobile consumer reads it this sprint).
 
 ### R5 — Risk board-pack export
 
@@ -334,11 +384,25 @@ AC
 3. `GET /v1/msa-studies/:id/analysis` computes variance components + `%StudyVar` + `%Tolerance` + `ndc` +
    verdict on read from the study's real measurements (never stored pre-computed, so edits to measurements
    are always reflected).
-4. **[AMENDED — B5(a)] `average_range` method bounds, explicit:** the published AIAG Average-Range K-tables
-   (K1/K2/K3, §3.2) only cover **trials 2-3, appraisers 2-3, parts 2-10**. Values outside this range are only
-   mathematically valid for `crossed_anova` (which needs no K-table lookup). `average_range` with any of
-   `n_trials ∉ {2,3}`, `n_appraisers ∈ {2,3}`, or `n_parts ∉ [2,10]` is invalid and must never be computed —
-   see M2 AC4 for where this is enforced.
+4. **[AMENDED — B5(a)] `average_range` method bounds, explicit (`[AMENDED-2 — N2]` typo fixed: both bounds
+   below now read the same inclusive-set form):** the published AIAG Average-Range K-tables (K1/K2/K3, §3.2)
+   only cover **trials 2-3, appraisers 2-3, parts 2-10**. Values outside this range are only mathematically
+   valid for `crossed_anova` (which needs no K-table lookup). `average_range` with any of `n_trials ∉ {2,3}`,
+   `n_appraisers ∉ {2,3}`, or `n_parts ∉ [2,10]` is invalid and must never be computed — see M2 AC4 for where
+   this is enforced.
+5. **[AMENDED-2 — N3] `crossed_anova` bounds and a shared upper cap for both methods, previously unstated:**
+   `crossed_anova` has no K-table, but its ANOVA math divides by degrees of freedom that reach zero below a
+   minimum design — **minimum 2 appraisers, 2 parts, 2 trials** for `crossed_anova` (`(a−1)(p−1)` and
+   `a·p·(n−1)` degrees of freedom must both be ≥1, so 2/2/2 is the hard floor below which the math cannot
+   run); below this, `POST /v1/msa-studies` with `method: "crossed_anova"` returns 422, mirroring AC4's
+   enforcement for `average_range`. **Upper cap, both methods: 10 appraisers / 50 parts / 10 trials** —
+   reasoning: 10×50×10 = 5,000 measurement rows is already far beyond any realistic Gauge R&R study (AIAG's
+   own long-form default is 3×10×3 = 90), large enough that no legitimate study is ever blocked, while bounding
+   the per-row live-computed `GET /v1/msa-studies` list query (M4) to a fixed worst case instead of an
+   unbounded one; enforced in the same `packages/types` Zod schema as the lower bound (rule 4), 422 on
+   violation for either method. **Designer needs:** the MSA wizard's Step 1/2 bound-hint text (already flagged
+   in §5 item 2 for the Average-Range bounds) must also name this upper cap, so the caps are visible, not just
+   enforced silently server-side.
 
 **Web/Mobile/Shared**
 - **Web:** none directly here (M3 consumes the analysis read).
@@ -361,6 +425,13 @@ UC
 - Grid edit: an existing draft study's grid can be revisited and completed/corrected before `status` moves to
   `completed`; a `completed` study's measurements are read-only (re-opening for correction requires an
   explicit "reopen" action, audited).
+- **[AMENDED-2 — N1, BLOCKING] Reopen for correction:** a `completed` study can be moved back to `draft` via
+  an explicit, audited reopen action — this is the "Reopened for correction" / "completed on 2026-05-12" /
+  "Save & re-complete" flow the MSA measurement-grid design board shows, and which this UC already named
+  ("re-opening for correction requires an explicit reopen action, audited") before Ceremony 4's second pass
+  caught that §3-Addendum's "`completed_at` set once, never updated again" text contradicted it. Once
+  reopened, measurements become editable again exactly like a fresh draft; re-completing recomputes the
+  analysis from whatever the grid now holds.
 - Permission: `msa:manage` for all of the above; `msa:view` sees the read-only variance/verdict output once a
   study is `completed`.
 
@@ -371,15 +442,39 @@ AC
    mirrors the FMEA/audits precedent of batching a multi-field edit into one audit row).
 3. A `PATCH /v1/msa-studies/:id` moves `draft → completed` once every cell is filled (validated server-side:
    `n_appraisers × n_parts × n_trials` measurements must exist); attempting to complete an incomplete grid
-   is a 422, not a silently wrong analysis. This transition sets **`completed_at = now()`** (§3-Addendum).
-4. **[AMENDED — B5(a)] `average_range` bounds enforcement, both layers:** server-side is authoritative —
-   `POST /v1/msa-studies` with `method: "average_range"` and any of `n_trials ∉ {2,3}` /
-   `n_appraisers ∉ {2,3}` / `n_parts ∉ [2,10]` returns **422** (enforced in the `packages/types` Zod schema so
-   web/mobile share the same rule, rule 4). Client-side, the wizard's Step 1 method picker (M2 design, below)
-   **disables** the `average_range` option whenever Step 2's currently-entered counts already fall outside
-   the bounds (or, in step order 1-then-2, disables/greys the out-of-range values in Step 2 once
-   `average_range` is chosen) — a pre-emptive UX guard, not the enforcement of record; the 422 is what a test
-   asserts against.
+   is a 422, not a silently wrong analysis. This transition sets `completed_at = now()` — **[AMENDED-2 — N1]**
+   on a **first** completion this is a fresh value; on a **re-completion after a reopen** (AC5 below) it
+   **overwrites** the previous `completed_at` with the new timestamp, since the column's purpose (§3-Addendum,
+   corrected) is "when was this study most recently completed," not "when was it first completed."
+4. **[AMENDED — B5(a); AMENDED-2 — N2/N3] Method bounds enforcement, both methods, both layers, exact and
+   consistent everywhere (design board, M1 AC4/AC5, M2 AC4):** server-side is authoritative —
+   - `POST /v1/msa-studies` with `method: "average_range"` and any of `n_trials ∉ {2,3}` /
+     `n_appraisers ∉ {2,3}` / `n_parts ∉ [2,10]` returns **422**.
+   - `POST /v1/msa-studies` with `method: "crossed_anova"` and any of `n_appraisers < 2` / `n_parts < 2` /
+     `n_trials < 2` returns **422** (N3 — the ANOVA degrees-of-freedom floor, M1 AC5).
+   - `POST /v1/msa-studies` with **either** method and any of `n_appraisers > 10` / `n_parts > 50` /
+     `n_trials > 10` returns **422** (N3 — the shared upper cap, M1 AC5).
+   - All three checks are enforced in the same `packages/types` Zod schema so web/mobile share the same rule
+     (rule 4). Client-side, the wizard's Step 1 method picker (M2 design, below) **disables** the
+     `average_range` option whenever Step 2's currently-entered counts already fall outside its bounds (or,
+     in step order 1-then-2, disables/greys the out-of-range values in Step 2 once `average_range` is chosen),
+     and Step 2's count inputs are hard-clamped to the shared upper cap regardless of method — a pre-emptive
+     UX guard, not the enforcement of record; the 422s above are what tests assert against.
+5. **[AMENDED-2 — N1, BLOCKING] Reopen route:** `PATCH /v1/msa-studies/:id/reopen` (`msa:manage`) — a
+   dedicated sub-route rather than folding into the general `PATCH /v1/msa-studies/:id`, because a reopen is a
+   one-way, single-purpose state transition (like `completed → draft` here, mirroring how other modules give
+   their own status-transition actions dedicated routes rather than overloading the general PATCH with a
+   status-transition side-channel) — only valid from `status: completed`, moving it to `status: draft`;
+   attempting to reopen an already-`draft` study is a 422 (no-op transition, not silently ignored). This is
+   audited as **`status_changed`**, not generic `updated` — a new, distinct audit action for this route, not a
+   generic mutation, following the precedent already established elsewhere in this codebase for status
+   transitions (CAPA `capa.service.ts:430,472`, NCR `ncr.service.ts:467,512,688`, SCAR, 8D, audits,
+   inspections, PPAP, documents, portal — all write `status_changed` for their own status-affecting
+   transitions, confirmed by grep this session; `status_changed` is an existing `AuditAction` enum member,
+   `packages/types/src/enums.ts:389`, so this needs no new enum value). **`completed_at` is kept, not
+   cleared**, while the study sits in the reopened `draft` state (§3-Addendum correction, AC3 above) — so the
+   study page and M4's list can still show "last completed on 2026-05-12" alongside the "Reopened for
+   correction" banner during the correction window, matching the design board's own literal text.
 
 **Design decision (logged, not gated — see rationale):** this sprint builds MSA study creation as its **own**
 wizard, not the shared 4-step CreateWizard, because the entry shape (appraiser/part/trial dimensions, then a
@@ -398,8 +493,9 @@ verdict banner).
 UC
 - Happy: `/msa` shows the 4 KPI tiles (Total GR&R %, EV %, AV %, ndc) and the active/selected study's full
   variance-components table + chart + verdict banner, all real (§ M1).
-- Marginal/reject verdict: verdict banner text and color follow the real thresholds (§3), not always the
-  jsx's green "Acceptable" copy.
+- Acceptable/reject verdict: **[AMENDED-2 — N6(c), wording fix]** verdict banner text and color follow the
+  real thresholds (§3) and use exactly one verdict vocabulary — `excellent`/`acceptable`/`reject` — never the
+  jsx's always-green "Acceptable" copy, and never a second vocabulary like "pass"/"marginal"/"fail".
 - Empty (no completed study yet): KPI tiles read "—"/0, no fabricated 14.2%-style placeholder.
 - Permission: `msa:view`; role without it → hidden nav + 403 deep-link.
 
@@ -419,7 +515,15 @@ AC
    ```
    This is a restatement of the same rule already in §3.2 (no new threshold, no schema change) — it removes
    the ambiguity the planner flagged in the original prose ordering.
-3. **[AMENDED — B5(e)] Verdict banner colors, resolved (a jsx color correction, logged in PROGRESS.md
+3. **[AMENDED-2 — N6(c)] Verdict vocabulary, restated explicitly: exactly one, everywhere.** The UI wording is
+   `excellent`/`acceptable`/`reject` in **every** place a verdict is shown — the M3 banner text, and any
+   verdict chip/badge elsewhere (e.g. M4's recent-studies list). This matches §3.2's own enum values and the
+   jsx's own banner text (`qms-risk-spc.jsx`'s literal copy), not the jsx's separate mock chip wording
+   elsewhere in the same file that uses "pass"/"marginal"/"fail" — that second vocabulary is **not** built;
+   there is exactly one verdict vocabulary in the product. If any design board currently shows
+   "pass"/"marginal"/"fail" for a verdict chip, that is a design-board wording defect to fix before Gate 1
+   (§5 item 12), not a second valid wording.
+4. **[AMENDED — B5(e)] Verdict banner colors, resolved (a jsx color correction, logged in PROGRESS.md
    Decisions-log style at build time, not a silent override):** `excellent` = green, `acceptable` = **amber**
    (kept, not changed to the jsx mock's green), `reject` = red. The jsx mock renders its "Acceptable" banner
    in green, which contradicts the jsx's **own header text** on the same screen ("10-30% acceptable" is
@@ -440,10 +544,10 @@ UC
 - Happy: **[AMENDED — B5(d)]** lists real studies in **both** `draft` and `completed` status (corrected from
   the original "completed-only" text — the design boards (`MsaIncompleteState.dc.html`) already show a draft
   row, and M4 as originally written contradicted that), gauge label, method, date, GR&R %, ndc, verdict —
-  cursor-paginated. A `draft` row shows **"—"** for GR&R%/ndc/verdict (not yet computable — a draft study may
-  not have every cell filled, so no analysis is run for it) and a neutral "draft" status chip instead of a
-  verdict badge. `completed_at` (§3-Addendum) backs the "Date" column for completed rows; `draft` rows show
-  their `created_at` or `updated_at` instead (no completion date exists yet).
+  cursor-paginated, **[AMENDED-2 — N6(b), confirmed]** the Date column applies to every row regardless of
+  status, not completed rows only. A `draft` row shows **"—"** for GR&R%/ndc/verdict (not yet computable — a
+  draft study may not have every cell filled, so no analysis is run for it) and a neutral "draft" status chip
+  instead of a verdict badge.
 - Scope: only `crossed_anova`/`average_range` studies exist for real; the jsx's mock "Nested" and "Attribute
   (kappa)" rows are **not reproduced** — this sprint does not build those two methods (§7 Q23), so the New
   Study wizard's method picker only offers the two real options, honestly, rather than offering a method
@@ -455,7 +559,15 @@ AC
    `status` filter if they want completed-only.
 2. No UI control offers "Nested" or "Attribute (kappa)" as a selectable method (rule 10 — never a dead
    selectable option).
-3. **[AMENDED — B5(d)]** `draft` rows render GR&R%/ndc/verdict as `"—"`, matching the M1/M3 "incomplete
+3. **[AMENDED-2 — N6(a), unambiguous, single field per row]** the "Date" column reads, exactly, in this
+   precedence (no "or" left ambiguous):
+   - `completed_at` when it is non-null — this covers every `completed` row, **and** a `draft` row that was
+     previously completed and then reopened (M2 AC5): the reopen keeps `completed_at`, so its Date column
+     still reads "last completed on X" until it is re-completed, matching the design board's own literal text.
+   - `created_at` otherwise — a `draft` row that has never been completed (a genuinely new study) has no
+     `completed_at` yet, so its Date column is the moment it was created. `updated_at` is never used for this
+     column (the earlier "created_at or updated_at" wording is removed as ambiguous).
+4. **[AMENDED — B5(d)]** `draft` rows render GR&R%/ndc/verdict as `"—"`, matching the M1/M3 "incomplete
    study" honest-empty-state convention — never a fabricated or zero value.
 
 **Web/Mobile/Shared:** Web + Shared (list route, part of M1's contract surface).
@@ -479,8 +591,16 @@ AC
 ### X1 — Cross-cutting: nav retirement, capability wiring, placeholder ledger
 
 UC
-- `/risk` and `/msa` resolve to the real modules for `admin`/`manager`/`auditor`; a direct deep-link from
-  `inspector`/`viewer`/`partner` 403s server-side and the nav entries stay hidden client-side.
+- `/risk` and `/msa` resolve to the real modules for `admin`/`manager`/`auditor`. **[AMENDED-2 — N4, doc
+  accuracy]** `inspector` and `viewer` hold `risk:view`/`msa:view` (AC1's grant matrix below) — a direct
+  deep-link from either role does **not** 403 at the API; the API happily serves the page's data. What blocks
+  them is the **client-side web route guard** (`roleSeesNavRoot`/the route-level nav check in
+  `apps/web/src/config/rbac.ts`), which keeps `risk`/`msa` out of their `ROLE_NAV` set, so the shell hides the
+  nav entry and the route guard redirects a direct deep-link away — this is a UI-curation gate, not a security
+  boundary (the file's own doc comment says so explicitly: "It is NOT the security boundary"). `partner` has
+  neither capability, so a partner deep-link **does** 403 server-side (partner is routed to `/portal` and
+  never reaches this shell at all). Testing this UC means testing the web guard for inspector/viewer, and the
+  real 403 only for partner.
 
 AC
 1. `packages/core/src/rbac.ts` gains `risk:view`, `risk:manage`, `msa:view`, `msa:manage`. Grant matrix
@@ -490,12 +610,17 @@ AC
    elevated quality-system role, not merely a read-only reviewer, per the existing 03 §3 table); **inspector**
    `risk:view`, `msa:view` only (mirrors `fmea:view`/`spc:view`); **viewer** `risk:view`, `msa:view` only
    (mirrors `fmea:view`/`spc:view`); **partner** neither (external portal, mirrors every other internal QMS
-   capability).
-2. `apps/web/src/config/rbac.ts` `ROLE_NAV`: `risk`/`msa` added to auditor's explicit `Set` (admin/manager
-   already cover them structurally). **Note:** `fmea`/`spc` have the same capability-vs-nav gap for auditor
-   today (auditor holds `fmea:manage`/`spc:view` but `fmea`/`spc` aren't in auditor's nav `Set`) — this is a
-   pre-existing inconsistency this sprint does **not** fix (out of scope; flagged in §7, not silently carried
-   forward as a new instance of the same mistake for risk/msa).
+   capability — this is the one role for which a deep-link genuinely 403s at the API).
+2. **[AMENDED-2 — N4, BLOCKING]** `apps/web/src/config/rbac.ts` `ROLE_NAV`: `risk`, `msa`, **and `fmea`** are
+   added to auditor's explicit `Set` (admin/manager already cover all three structurally). The `fmea` addition
+   is a deliberate, in-scope fix, not an oversight: R3 grants auditor `risk:manage` and lets them create a
+   risk→FMEA link (R3 AC6), but without this fix `fmea` stays outside auditor's nav set, so `entityHref("fmea",
+   id)` would resolve to a route auditor's own nav guard blocks — a dead-end click for a role this very sprint
+   grants the capability to (rule 10). Fixing it is a one-line `Set` addition, smaller than the cost of leaving
+   a real dead-end for a role this sprint's own R3 story creates the click for. **This decision supersedes half
+   of Q24** ("auditor's nav gap for `fmea`/`spc` is out of scope") **for `fmea` only** — noted here and in §7,
+   not silently taken as credit for fixing `spc` too, which is left alone (`spc` stays out of scope; no story
+   this sprint gives auditor a reason to click into it, so the same dead-end risk doesn't arise for it).
 3. `RiskController`/`MsaController` routes carry `@RequireCapability` per §4's table.
 4. Placeholder ledger entries `"planned:risk"`/`"planned:msa"` removed from `PLACEHOLDER_LEDGER`, and `risk`/
    `msa` removed from `PLANNED_MODULES` (mirrors how `fmea`/`spc` were removed from that map when they shipped
@@ -641,10 +766,30 @@ infrastructure (`audit_events`), and needed no schema change — checked explici
 | **B5(c) `completed_at`** | **YES** | M4's "Date" column needs the moment a study was completed. Checked against the originally-approved M1 AC1 schema recap (§2, before this amendment): it listed `tenant_id, id, code, title/characteristic, gauge_label, method, n_appraisers, n_parts, n_trials, tolerance, status, owner, lock_version, standard audit columns` — no `completed_at`, and "standard audit columns" (`created_at`/`updated_at`/`created_by`/`updated_by`/`deleted_at`) do not carry a domain-specific completion timestamp (`updated_at` changes on every edit, not just the draft→completed transition, so it cannot stand in for it). This is genuinely new. |
 
 **What is asked of the user for delta-approval:** add **one column**, `msa_studies.completed_at timestamptz
-NULL`, set once, at the moment `PATCH /v1/msa-studies/:id` transitions `draft → completed` (M2 AC3), never
-updated again. This is a strict, additive amendment to §3.2's `msa_studies` schema — nothing else in §3
-changes. **The already-approved §3 does not need to be re-approved in full; only this one column needs the
-user's explicit delta sign-off before `0065_msa.sql` is written.**
+NULL`. This is a strict, additive amendment to §3.2's `msa_studies` schema — nothing else in §3 changes.
+
+**[AMENDED-2 — N1, BLOCKING — this replaces the round-1 text below, which contradicted the reopen flow the
+MSA measurement-grid design board and M2's own UC already describe ("re-opening for correction requires an
+explicit reopen action, audited"). The round-1 text said `completed_at` is "set once, never updated again";
+that is corrected here to the following three explicit rules, which is what the user is now asked to approve:**
+
+1. `completed_at` is set to `now()` the first time `PATCH /v1/msa-studies/:id` transitions the study
+   `draft → completed` (M2 AC3).
+2. A completed study can be moved back to `draft` via the new, dedicated `PATCH /v1/msa-studies/:id/reopen`
+   route (M2 AC5) — a real, additive route this sprint adds, not a schema change (the column itself needs no
+   further alteration for this). Reopening is audited as `status_changed` (a distinct action from the
+   generic `updated` risk/MSA mutations otherwise use, following the same precedent CAPA/NCR/SCAR/8D/audits/
+   inspections already use for their own status transitions).
+3. **Re-completing after a reopen overwrites `completed_at` with the new completion timestamp** (it reflects
+   the latest completion, not the first) — **while `completed_at` is kept, not cleared, during the reopened
+   `draft` state**, so the study page and M4's recent-studies list can still show "last completed on
+   2026-05-12" alongside a "Reopened for correction" indicator until the study is re-completed.
+
+This is now internally consistent with M2's UC and the design board: "set once" described only the column's
+*first* write, not a lifetime constraint — the corrected text above states plainly that a later reopen +
+re-complete cycle updates it again. **The already-approved §3 does not need to be re-approved in full; only
+this one column, together with the three rules above governing when it is (re)written, needs the user's
+explicit delta sign-off before `0065_msa.sql` and the `reopen` route are written.**
 
 ---
 
@@ -652,16 +797,16 @@ user's explicit delta sign-off before `0065_msa.sql` is written.**
 
 | Story | Migration | Contract / REST route | Service | Audit events | RBAC | Tenant isolation |
 |---|---|---|---|---|---|---|
-| R1 | `0064_risk_register.sql` (`risks`) | `GET/POST /v1/risks`, `GET/PATCH /v1/risks/:id` | `RiskService` + `packages/core/risk-matrix.ts` (pure) | `created`/`updated`, in-tx | `risk:view` / `risk:manage` | forced RLS; cross-tenant id → 404 |
+| R1 | `0064_risk_register.sql` (`risks`) | `GET/POST /v1/risks` (**[AMENDED-2 — N4/doc-accuracy] gains an `ids` filter param**, for batch-resolving risk labels from FMEA's reverse pane), `GET/PATCH /v1/risks/:id` | `RiskService` + `packages/core/risk-matrix.ts` (pure) | `created`/`updated`, in-tx | `risk:view` / `risk:manage` | forced RLS; cross-tenant id → 404 |
 | R2 | `0064` also (`risk_controls`) | folded into `PATCH /v1/risks/:id` (`controls[]`) | `RiskService` | `updated` (parent risk), in-tx | `risk:manage` | forced RLS, cascades with parent |
-| R3 | `0064` also (`entity_links` CHECK widened; `EntityKind` gains `risk`,`fmea`) | reuses existing `GET/POST /v1/entity-links`, `GET /v1/fmeas` (existing, client-filtered) | `EntityLinksService` (unchanged) + **[AMENDED — B4] new web `LinkPicker` component + `useCreateEntityLink` hook** (design audit found no existing write-side UI; named explicitly here per its own flag) | `linked`/`unlinked` (existing actions) | none (link visibility = each side's own capability) | unchanged (existing `assertEntityVisible`) |
-| R4 | none | CreateWizard's existing create route, `"risk"` type added | `RiskService.create` (shared with R1) | `created` | `risk:manage` | forced RLS |
+| R3 | `0064` also (`entity_links` CHECK widened; `EntityKind` gains `risk`,`fmea`) | reuses existing `GET/POST /v1/entity-links` (**[AMENDED-2 — doc-accuracy] response gains an optional, server-resolved, capability-checked `label` per link — see below, not "unchanged"**), `GET /v1/fmeas` (existing, client-filtered) | **[AMENDED-2 — doc-accuracy corrects the round-1 claim below]** `EntityLinksService` gains real, additive work, not "unchanged": (1) `entity-ref.ts`'s `ENTITY_TABLES` (a `Record<EntityKind, string>`) gets real `risk`/`fmea` entries — TS-forced by widening `EntityKind`, not optional; (2) `chat.ts`'s `ENTITY_SPECS` (a `Record<EntityKind, EntitySpec>`) gets real `risk`/`fmea` entries wired to `risk:view`/`fmea:view`, so the AI assistant's entity-context lookup doesn't break on the widened enum; (3) `apps/web/src/features/graph/graph-kinds.ts`'s `GRAPH_KINDS` (also a `Record<EntityKind, …>`) needs real `risk`/`fmea` entries too (TS-forced completeness) **but risk/fmea will NOT actually render in the graph explorer** — `apps/api/src/graph/graph.service.ts` keeps its own separate, literal `GRAPH_KINDS: readonly EntityKind[]` array that this sprint does not add them to — logged as **Q27 (new)** in §7, not silently fixed; (4) CAPA/document/supplier detail pages (`capa-detail.tsx`/`document-detail.tsx`/`supplier-detail.tsx`), which today each just truncate a raw link id (`id.slice(0,8)`, confirmed by grep), gain the resolved `label` field's real display + a `LinkPicker` component + `useCreateEntityLink` hook (design audit found no existing write-side UI; named explicitly here per its own flag) | `linked`/`unlinked` (existing actions) | none (link visibility = each side's own capability); label resolution is capability-checked per target record | unchanged (existing `assertEntityVisible`); label omitted (never a raw/guessed value) when the caller can't view the target |
+| R4 | none | CreateWizard's existing create route, `"risk"` type added (**[AMENDED-2 — N5]** also a real 5th entry in `WIZARD_TYPE_ORDER`/`WIZARD_TYPES`, feeding both the quick-create menu and the Type-step grid) | `RiskService.create` (shared with R1) | `created` | `risk:manage` | forced RLS |
 | R5 | none | `ExportResource` gains `"risk_board_pack"` | `run-export.ts` new branch | existing export-created event | `risk:view` | scoped to caller's visible risks before enqueue |
 | M1 | `0065_msa.sql` (`msa_studies` incl. **[AMENDED — B5(c), pending delta-approval] `completed_at`**, `msa_measurements`) | `GET/POST /v1/msa-studies`, `GET/PATCH /v1/msa-studies/:id`, `GET /v1/msa-studies/:id/analysis` | `MsaService` + `packages/core/gauge-rr.ts` (pure) | `created`/`updated`, in-tx | `msa:view` / `msa:manage` | forced RLS; cross-tenant id → 404 |
-| M2 | none | `POST /v1/msa-studies/:id/measurements` | `MsaService.recordMeasurements` | `updated` (one event per batch), in-tx | `msa:manage` | forced RLS |
+| M2 | none | `POST /v1/msa-studies/:id/measurements`, **[AMENDED-2 — N1, BLOCKING, new] `PATCH /v1/msa-studies/:id/reopen`** (`completed → draft`) | `MsaService.recordMeasurements`, `MsaService.reopen` | `updated` (measurement batch, in-tx); **`status_changed`** (reopen, in-tx — a new, distinct action from generic `updated`, matching the CAPA/NCR/SCAR/8D/audits/inspections precedent) | `msa:manage` | forced RLS |
 | M3/M4 | none | `GET /v1/msa-studies` (list) | `MsaService.list` | read-only | `msa:view` | RLS-scoped |
 | M5 | none | `ExportResource` gains `"gauge_rr_aiag_report"` | `run-export.ts` new branch | existing export-created event | `msa:view` | scoped to one `studyId`, pre-enqueue 404 check |
-| X1 | none | `@RequireCapability` on both controllers | none | none | `risk:view`/`risk:manage`/`msa:view`/`msa:manage` added to `packages/core/src/rbac.ts` per §2 X1 AC1 | n/a |
+| X1 | none | `@RequireCapability` on both controllers | none | none | `risk:view`/`risk:manage`/`msa:view`/`msa:manage` added to `packages/core/src/rbac.ts` per §2 X1 AC1; **[AMENDED-2 — N4, BLOCKING]** `fmea` added to auditor's web `ROLE_NAV` `Set` (`apps/web/src/config/rbac.ts`), a UI-curation config change, not a capability | n/a |
 
 Every mutation runs inside `withAudit` in the same transaction (rule 3); both list endpoints are
 cursor-paginated (rule 6); all new Zod schemas live in `packages/types` (rule 4); risk-matrix and Gauge R&R
@@ -707,9 +852,30 @@ widening, 0065 MSA tables, 0066 held as buffer for a build-time correction — S
    picker, since none existed. No further design work needed beyond what `DESIGN-04-risk-msa.md` §4.6 already
    drew; listed here only to correct the sprint file's own earlier inaccurate description of it as a pure
    reuse.
-9. **[AMENDED — B5(e)] Verdict banner color token** — already resolved above (M3 AC3): the designer's
+9. **[AMENDED — B5(e)] Verdict banner color token** — already resolved above (M3 AC4): the designer's
    existing `MSAStudy`-derived board needs its "Acceptable" banner swatch changed from the jsx mock's green to
    the amber `.k-*` token; no new board, a one-token edit to an existing one.
+10. **[AMENDED-2 — N3, new]** The `MsaWizardSteps.dc.html` board (already touched per item 2 above for the
+    Average-Range a/p/n bounds) also needs hint text for the **upper cap** this round adds: 10 appraisers / 50
+    parts / 10 trials, applying to both methods — a short caption or disabled-state tooltip near the count
+    inputs, e.g. "max 10 appraisers, 50 parts, 10 trials," so the server-enforced ceiling (M1 AC5/M2 AC4) is
+    visible in the UI, not just silently rejected on submit.
+11. **[AMENDED-2 — N5, new]** If a 5th wizard-type card ships (R4 AC3, recommended), the existing
+    `createwizard.jsx`-derived Type-step board needs a 5th card added: icon `Shield` (reuse — already
+    established for risk by `navigation.ts` and R3 AC3, no new icon to design) and a color from the existing
+    wizard palette, visually distinct from the other four type cards. One new card, not a redesign of the
+    grid.
+12. **[AMENDED-2 — N6(c), copy fix if present]** Any design board that currently shows a second verdict
+    vocabulary ("pass"/"marginal"/"fail") for the MSA verdict chip/badge (distinct from the banner's own
+    `excellent`/`acceptable`/`reject` copy) needs that wording corrected to the same three values used
+    everywhere else (M3 AC3) — one vocabulary, not two, anywhere in the product.
+13. **[AMENDED-2 — N6(b), confirm]** Confirm the amended `MsaIncompleteState.dc.html`/recent-studies board
+    still shows the "Date" column for **both** draft and completed rows (M4 AC1/AC3) — flagged here in case
+    the amendment pass that added the draft row accidentally dropped the column for it.
+
+**Copy fix (one line, not a new board):** the KPI tile label for "High residual" changes from the jsx's
+"(≥ 12)" to "**(≥ 10)**" to match the corrected threshold (R1 AC6) — a single-character text edit on the
+existing `RiskRegister`-derived KPI-strip board.
 
 ## 6. Dead-end audit
 
@@ -741,10 +907,14 @@ selectable-but-broken — CLAUDE.md rule 10 is "never stub," not "never say no."
   but have no spec (P15 names only `crossed_anova|average_range`) and materially different math (kappa needs
   no variance components at all). Not built this sprint; a future story can add them if wanted, each needing
   its own sign-off on its own math the same way §3.2 does for the two methods built now.
-- **Q24 (new).** Auditor's `ROLE_NAV` set already omits `fmea`/`spc` despite holding their `:manage`/`:view`
-  capabilities (a pre-existing inconsistency, not introduced by this sprint). This sprint adds `risk`/`msa`
-  to auditor's set correctly and does **not** retroactively fix `fmea`/`spc` — flagged here so it isn't
-  mistaken for something this sprint should have caught and silently didn't; a future small fix can add both.
+- **Q24 (new, half-closed by Round 2 / N4).** Auditor's `ROLE_NAV` set already omitted `fmea`/`spc` despite
+  holding their `:manage`/`:view` capabilities (a pre-existing inconsistency, not introduced by this sprint).
+  Round 1 added `risk`/`msa` to auditor's set and left `fmea`/`spc` alone. **Round 2 (N4, X1 AC2) adds `fmea`
+  too** — not as a retroactive general fix, but because this sprint's own R3 story hands auditor a `risk→fmea`
+  link they could not click through without it (a genuine dead-end this sprint would otherwise introduce,
+  rule 10). **`spc` remains open** — nothing in this sprint gives auditor a reason to navigate to `/spc`, so
+  the same forcing function doesn't apply; a future small fix can still add it as originally logged. This
+  sprint closes half of Q24 as a side effect of fixing its own dead-end, not as extra unrequested scope.
 - **Risk review-cadence reminder job** (P12's own open question: "review cadence reminder job wanted?") —
   not built this sprint; no spec names a cadence or an owner-notification rule. If wanted, it's a small
   follow-up reusing the existing notification substrate (mirrors calibration's due-soon job precedent, which
@@ -758,6 +928,14 @@ selectable-but-broken — CLAUDE.md rule 10 is "never stub," not "never say no."
   accept `kind` as a prop (so it isn't hard-coded to FMEA), but only the FMEA-scoped call site ships this
   sprint. Wiring it up for NCR/8D/audit/supplier link-creation is left to whichever future sprint owns that
   need — the component's existence doesn't imply those call sites are silently in scope now.
+- **Q27 (new, Round 2 / doc-accuracy).** Widening `EntityKind` to include `risk`/`fmea` forces
+  `apps/web/src/features/graph/graph-kinds.ts`'s `GRAPH_KINDS` map (a `Record<EntityKind, GraphKindMeta>`) to
+  gain real entries for both, purely to satisfy TypeScript's exhaustiveness check — but `risk`/`fmea` nodes
+  will **not** actually appear in the knowledge-graph explorer this sprint, because
+  `apps/api/src/graph/graph.service.ts` keeps its own separate, literal `GRAPH_KINDS: readonly EntityKind[]`
+  array (confirmed by reading it this session) that this sprint does not add them to. Wiring risk/FMEA into
+  the graph explorer for real (seed kinds, plant-scoping, neighbor queries) is left as a named future story,
+  not silently started or silently claimed as done here.
 - Mobile: confirmed no `m-*.jsx` designs either module; both stay fully unaffected this sprint (no route, no
   nav, `pnpm --filter @kaenal/mobile typecheck` must stay green on the additive shared-type changes only).
 - **Merge-conflict hot spots (ROADMAP §4):** this sprint touches `packages/types/src/contract.ts`,
@@ -772,15 +950,25 @@ selectable-but-broken — CLAUDE.md rule 10 is "never stub," not "never say no."
 - [x] **User has explicitly approved §3** (risk residual-scoring decision; MSA schema incl. `gauge_label`
       text-not-FK; ANOVA method incl. interaction-pooling rule; Average-Range method; k=5.15; ndc formula;
       excellent/acceptable/reject thresholds) — **approved 2026-09-28, as proposed, no changes.**
-- [ ] **[NEW] User has explicitly approved §3-Addendum** (`msa_studies.completed_at timestamptz NULL`) —
-      delta-approval, separate from the checkbox above; blocks `0065_msa.sql` until granted.
+- [ ] **[AMENDED-2 — N1] User has explicitly approved §3-Addendum** (`msa_studies.completed_at timestamptz
+      NULL`, set on first `draft → completed`; a new `PATCH /v1/msa-studies/:id/reopen` route moves
+      `completed → draft`, audited `status_changed`; re-completing after a reopen **overwrites**
+      `completed_at`; `completed_at` is **kept**, not cleared, while reopened) — delta-approval, separate from
+      the checkbox above; blocks `0065_msa.sql` and the `reopen` route until granted.
 - [ ] Migrations `0064_risk_register.sql` (`risks`, `risk_controls`, `entity_links`/`EntityKind` widening)
       and `0065_msa.sql` (`msa_studies` incl. `completed_at`, `msa_measurements`) applied; `pnpm db:check`
       green; `pnpm test:rls` green including the two new tables and the widened `entity_links` kinds.
 - [ ] `packages/core/risk-matrix.ts` unit-tested (score bands, matrix cell counts).
 - [ ] `packages/core/gauge-rr.ts` unit-tested against a published AIAG worked example for **both** methods,
-      including ndc and verdict banding, **and** the verdict if/elif/else precedence (M3 AC2) and the
-      `average_range` a/p/n bounds rejection (M1 AC4 / M2 AC4).
+      including ndc and verdict banding, **and** the verdict if/elif/else precedence (M3 AC2), the
+      `average_range` a/p/n bounds rejection (M1 AC4 / M2 AC4), **and [AMENDED-2 — N2/N3]** the
+      `crossed_anova` minimum-bounds rejection (2/2/2) and the shared upper-cap rejection (10/50/10) for
+      **both** methods.
+- [ ] **[AMENDED-2 — N1, BLOCKING]** `PATCH /v1/msa-studies/:id/reopen` built and tested: `completed → draft`
+      only, 422 on an already-`draft` study, audited `status_changed` (not `updated`), `completed_at`
+      unchanged by the reopen itself, and a subsequent re-completion overwriting `completed_at` with the new
+      timestamp — browser-verified end to end (complete a study → reopen → edit a measurement → re-complete →
+      confirm `completed_at` updated and the analysis reflects the edit).
 - [ ] `packages/core/src/codes.ts` gains `"risk"`→`RISK` and `"msa"`→`MSA` `CodeKind` entries, unit-tested;
       created risks/studies get real `RISK-YYYY-NNNN`/`MSA-YYYY-NNNN` codes via the `counters` table.
 - [ ] R1's four non-quarter KPI formulas (High residual ≥10, Treatments overdue, Accepted) and the
@@ -803,6 +991,17 @@ selectable-but-broken — CLAUDE.md rule 10 is "never stub," not "never say no."
       record shows the risk back-reference.
 - [ ] New `LinkPicker` component + `useCreateEntityLink` hook (B4) built and wired to risk's "Link to FMEA"
       only; no other call site added this sprint.
+- [ ] **[AMENDED-2 — doc-accuracy]** `entity_links` read responses carry the server-resolved, capability-
+      checked, tenant/plant-scoped `label` field; `capa-detail.tsx`/`document-detail.tsx`/`supplier-detail.tsx`
+      render it instead of `id.slice(0,8)`; `GET /v1/risks?ids=` batch-resolves labels for FMEA's reverse pane;
+      a link to a record the caller cannot view shows no label (never a raw id leak), browser-verified with a
+      restricted-role account.
+- [ ] **[AMENDED-2 — N5]** `risk` appears as a real 5th card in both the global "New" quick-create menu and the
+      CreateWizard's Type-step grid (icon `Shield`, a distinct palette color) — browser-verified for a role
+      holding `risk:manage`, and confirmed hidden for a role that lacks it (existing `creatableTypes` gating).
+- [ ] **[AMENDED-2 — N4, BLOCKING]** Auditor's web nav includes `fmea` (alongside `risk`/`msa`); browser-
+      verified end to end: an auditor creates a risk→FMEA link (R3) and clicks through to the real `/fmea?id=`
+      record without hitting the client-side nav guard.
 - [ ] Placeholder ledger entries `"planned:risk"`/`"planned:msa"` removed; `risk`/`msa` removed from
       `PLANNED_MODULES`.
 - [ ] Full gate green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
@@ -810,9 +1009,11 @@ selectable-but-broken — CLAUDE.md rule 10 is "never stub," not "never say no."
 - [ ] `PROGRESS.md` updated (Current status + Decisions log: residual-scoring choice, `gauge_label`
       text-not-FK, k=5.15, interaction-pooling rule, Nested/Attribute-kappa exclusion, **the Ceremony 4
       amendment's `completed_at` delta-approval, the amber-not-green verdict-color correction with its
-      reasoning, the `RISK`/`MSA` code-format fix, and the audit_events-derived "reviewed this quarter"
-      formula**) and `progress_mobile.md` gets an explicit "Sprint 04 — mobile unaffected" line (not silently
-      skipped, per Sprint 02/03's own DoD lesson).
+      reasoning, the `RISK`/`MSA` code-format fix, the audit_events-derived "reviewed this quarter" formula,
+      the Round-2 `completed_at`/reopen semantics correction (N1), the `crossed_anova`/shared upper a/p/n
+      bounds (N2/N3), the auditor `fmea`-nav fix and its partial closure of Q24 (N4), and the 5th CreateWizard
+      type card for `risk` (N5)**) and `progress_mobile.md` gets an explicit "Sprint 04 — mobile unaffected"
+      line (not silently skipped, per Sprint 02/03's own DoD lesson).
 
 ## 9. Out-of-scope confirmation
 
@@ -825,7 +1026,7 @@ built (Phase F, SPC B5) and are not touched here except for the three small addi
 
 ---
 
-**PO use-case sign-off: PENDING — Ceremony 4 amendment issued, awaiting planner re-review.**
+**PO use-case sign-off: PENDING — Ceremony 4 Round 2 (narrow) amendment issued, awaiting planner re-review.**
 
 Every use case (happy/error/empty/permission/offline/cross-tenant) across R1-R5, M1-M5, and X1 maps to a
 story with testable acceptance criteria and an explicit Web/Mobile/Shared split; the dead-end audit (§6)
@@ -846,5 +1047,24 @@ Per ROADMAP §0 Q2, this sprint's backend build remains blocked until: (1) the p
 amendment and lifts the SEND BACK, and (2) the user grants delta-approval on §3-Addendum's `completed_at`
 column. The design canvas (`DESIGN-04-risk-msa.md`) also needs its own amendment pass for the newly-named
 boards (§5 items 5-7: risk-create wizard Details step, risk detail-card linked-records panel, FMEA reverse-
-reference pane) and the two board updates (§5 items 2, 9: Average-Range bounds note, verdict-color token
-fix) before Gate 1 can close on the updated scope.
+reference pane) and the board updates (§5 items 2, 9-13: Average-Range bounds note, verdict-color token fix,
+the N3 upper-cap hint text, the possible 5th wizard-type card, the verdict-wording consistency check, and the
+Date-column confirmation) before Gate 1 can close on the updated scope.
+
+**Round 2 status (2026-09-28, same session, second SEND BACK — narrow):** the planner's second pass named six
+precision items (N1-N6) plus four documentation-accuracy corrections to this file's own §4 table. All ten are
+now resolved in this file with specific, testable language (§0's Round 2 summary table; inline `[AMENDED-2]`
+markers at each touched AC/UC). Of these, **N1 and N4 were BLOCKING**:
+- **N1** is resolved without reopening §3 itself — the contradiction was in the round-1 §3-Addendum's own
+  prose ("set once, never updated again" vs. the reopen flow M2's UC already named), not in the approved
+  schema. The addendum text is corrected in place (§3-Addendum) to three explicit rules (first-set, reopen via
+  a new audited route, overwrite-on-re-complete, kept-while-reopened) — this is the exact text now being asked
+  for delta sign-off, alongside the one new column, before `0065_msa.sql` **and** the new
+  `PATCH /v1/msa-studies/:id/reopen` route are written.
+- **N4** is resolved as a one-line `ROLE_NAV` config fix (X1 AC2), not a schema or capability change, closing
+  half of Q24 as a named side effect.
+
+No further schema change beyond N1's new route (no new column). Per ROADMAP §0 Q2, backend build remains
+blocked until: (1) the planner re-reviews this Round 2 amendment and lifts the SEND BACK, and (2) the user
+grants delta-approval on the corrected §3-Addendum text (the column **and** its reopen/overwrite/retention
+rules together, as one package — not the round-1 text in isolation).
