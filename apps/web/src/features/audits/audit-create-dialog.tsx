@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { Plus, X } from "lucide-react";
 import { AuditType } from "@kaenal/types";
 import { Button, Dialog, DialogContent, Field, Input, Skeleton, useToast } from "@/components/ui";
@@ -14,6 +13,7 @@ import { useCreateAudit } from "@/hooks/use-audits";
 import { usePlants } from "@/hooks/use-create-wizard";
 import { useMembers } from "@/hooks/use-members";
 import { errorMessage } from "@/lib/api-error";
+import { FormSchema, toIso, type FormValues } from "./audit-create-logic";
 
 /** `AUDIT_TYPES` labels (`audits.jsx:5-10`) — no shared constant exists yet
  *  (this is the first Audits web slice to need one); kept local rather than
@@ -25,38 +25,6 @@ const AUDIT_TYPE_LABELS: Record<AuditType, string> = {
   certification: "Certification",
   gap: "Gap Analysis",
 };
-
-const DateOnly = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
-  .optional()
-  .or(z.literal(""));
-
-const FormSchema = z
-  .object({
-    title: z.string().min(1, "errorTitleRequired").max(200),
-    type: AuditType,
-    standard: z.string().max(200).optional().or(z.literal("")),
-    plantId: z.string().uuid().optional().or(z.literal("")),
-    location: z.string().max(200).optional().or(z.literal("")),
-    description: z.string().max(4000).optional().or(z.literal("")),
-    scope: z.array(z.string().min(1).max(200)).max(50),
-    startAt: DateOnly,
-    endAt: DateOnly,
-    leadAuditorId: z.string().uuid().optional().or(z.literal("")),
-    team: z.array(z.string().uuid()),
-    auditeeIds: z.array(z.string().uuid()),
-  })
-  .refine((v) => v.startAt === "" || v.endAt === "" || v.startAt === undefined || v.endAt === undefined || v.endAt >= v.startAt, {
-    message: "errorEndBeforeStart",
-    path: ["endAt"],
-  });
-type FormValues = z.infer<typeof FormSchema>;
-
-function toIso(dateOnly: string | undefined): string | null {
-  if (dateOnly === undefined || dateOnly === "") return null;
-  return new Date(`${dateOnly}T00:00:00.000Z`).toISOString();
-}
 
 /** A small "chips + add dropdown" multi-select over the members directory.
  *  Shared shape for `team` and `auditeeIds` — two independent selections over

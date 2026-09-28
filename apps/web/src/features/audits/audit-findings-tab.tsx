@@ -20,6 +20,7 @@ import {
 } from "@/hooks/use-audits";
 import { FindingRaiseNcrForm } from "./finding-raise-ncr-dialog";
 import { FindingRaiseCapaForm } from "./finding-raise-capa-dialog";
+import { DEFAULT_PRIORITY } from "./audit-priority-logic";
 
 const KIND_LABEL: Record<AuditFindingKind, string> = {
   major_nc: "Major NC",
@@ -31,14 +32,6 @@ const KIND_COLOR: Record<AuditFindingKind, { bg: string; fg: string; bar: string
   major_nc: { bg: "rgba(220,38,38,0.12)", fg: "#b91c1c", bar: "var(--danger-600)" },
   minor_nc: { bg: "rgba(234,88,12,0.14)", fg: "#c2410c", bar: "var(--risk-high)" },
   opportunity: { bg: "rgba(99,102,241,0.12)", fg: "#4338ca", bar: "var(--risk-info)" },
-};
-
-/** A major/minor finding maps to the higher NCR/CAPA priority tier; an
- *  opportunity finding (never a nonconformance) defaults to the lowest. */
-const DEFAULT_PRIORITY: Record<AuditFindingKind, NcrPriority> = {
-  major_nc: "critical",
-  minor_nc: "major",
-  opportunity: "minor",
 };
 
 /**
