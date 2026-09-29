@@ -58,6 +58,36 @@ additionally check the target `area_id` actually belongs to the target `plant_id
 reorder route must be a single atomic statement — one `UPDATE … FROM (VALUES …)` or an explicit transaction,
 never N sequential per-row updates that could interleave (T5 AC3).
 
+### Round 3 (Ceremony 4.2 SEND BACK AGAIN response, 2026-09-29)
+
+A second architecture-review pass on Round 2's amendment returned **SEND BACK AGAIN** — narrower than Round 2
+(3 blocking defects, down from nine, plus 10 should-fix items, down from eight). This round resolves all
+thirteen **in place** in the stories/sections below (marked `[AMENDED-3]` at each touched AC/UC). Summary:
+
+| # | Gap | Resolution |
+|---|---|---|
+| BLOCKING 1 | B3's fix (Round 2) left a same-day tie-break hole in C2 AC2: "newest by `performed_at`" is ambiguous on a `date` column — a same-day `fail` recorded *after* a same-day `pass` never became "newest" under a naive `performed_at >` comparison, so `last_result` stayed `pass` and the instrument kept reading "ok" (the exact bug B3 was meant to close); the reverse (fail-then-corrective-pass, same day) had the symmetric problem | "Newest event" is now defined explicitly and identically everywhere it matters: ordered by `(performed_at DESC, created_at DESC)`. A just-recorded event becomes the new "newest" — and drives `last_result` — when its `performed_at` is `>=` the current newest's, with ties broken by `created_at` (a later insert wins). Stated exactly in C2 AC2 (the only place a write actually determines "newest"), cross-referenced from C1 AC1 |
+| BLOCKING 2 | B7's `training_batch_id` mechanism (Round 2) could not be built as written: the id was supposedly generated *inside* the same `POST /v1/training/records` call whose own request body must already contain a fully-uploaded `evidenceFileId` — circular/impossible sequencing — and the id itself was "not stored anywhere," so it did nothing | `training_batch_id` dropped entirely. Corrected flow (T2 AC2): client presigns with `entityKind: "training_batch"` and `entityId` **omitted** (no batch entity exists yet) → uploads → marks complete (`sha256` set) → **then** calls `POST /v1/training/records` with that file's real id as `evidenceFileId` in the body; the service writes this same file id to every row created in that call. **Also closes a real bypass**, present in both C2's certificate check and T2's evidence check as originally written: a client could presign with `entityKind` omitted (skipping the `:manage` gate on that specific `entityKind`) and then simply pass an arbitrary existing tenant file's id at link time. Both link-verification paths now additionally require the file's `entity_kind` to exactly match what's expected (`calibration_event`/`training_batch`) **and** `deleted_at IS NULL` (C2 AC4/AC5, T2 AC2) |
+| BLOCKING 3 | Real rule-3 (audit) gaps: §4's C2 row meant a `fail` calibration event wrote **no audit at all**; C2 AC5 (certificate-attach) wrote no audit and named nothing to replace it | Three-way split, stated explicitly in C2 AC2/AC5 and §4's table: (a) **every** calibration-event creation, any result, writes a `created` audit on the `calibration_event` row itself; (b) the certificate-attach `PUT` route writes an `updated` audit on the `calibration_event` row; (c) the parent `instrument` row gets its own `updated` audit only when the event actually advances `last_calibrated`/`next_due` (`pass`/`adjusted` only, per B3) — a `fail`'s `last_result` write to the parent is a pure denormalized mirror of the event's own already-audited `result` and is not separately audited, so no result type is ever silently unaudited |
+| SF1 | C5's `calibration-due` job only checked due-date, not a `fail` result | Explicit new trigger condition, C5 AC1: an active instrument whose newest event is `fail` notifies its `owner` immediately, regardless of `next_due` |
+| SF2 | B4's timezone rule (Round 2) was stated for the notification jobs and future-date validation only, not for reads | Extended explicitly to every READ path: calibration's `dueStatus` filter, summary, detail, and export (plant timezone); training's matrix, summary, gaps, and export (tenant timezone) — same rule everywhere, stated in C1 AC3/AC6, C5 AC2, T1 AC4/AC8, T3 AC1/AC2, and centrally in §3.1 item 15 |
+| SF3 | B9's nav fix (Round 2) left a residual dead link: a plant-scoped instrument owner whose own instrument is outside their `plantIds` still gets a notification linking to a page that 404s for them | Resolved as option (a): visibility rule gains "OR the caller IS the instrument's designated owner" (C1 UC "Plant scope", AC4). No existing precedent for an owner/assignee plant-scope bypass was found in this codebase (`ncr.service.ts`'s and `inspections.service.ts`'s own `assertInScope` were read in full — both strictly plant-scope with no such exception), so this is justified on its own terms: notifying someone about their own compliance state only to 404 them is strictly worse than a narrow, single-record exception scoped to exactly the instrument they own |
+| SF4 | `activeCalibrationThreshold`'s value for a day-count between named thresholds (e.g. 1-6 days overdue) was undefined; its stated return type (`30 \| 7 \| 0 \| -7 \| ...`) cannot express an unbounded arithmetic sequence in TypeScript | Defined exactly, C5 AC1: for `daysOverdue >= 0`, returns `-7 * floor(daysOverdue / 7)` (the smallest/most-recent crossed 7-day mark; `0`-`6` days overdue all resolve to the already-notified `0` threshold, `7`-`13` to `-7`, and so on, uncapped). Return type corrected to plain `number \| null` |
+| SF5 | C1's `q` search covers only name/code; the binding jsx's own placeholder says "Search by ID, name, area..." | `q` extended to also match the instrument's area name (`areas.name` — confirmed `areas` has no `code` column, only `name`), C1 AC3 |
+| SF6 | `certificate_file_id`/`evidence_file_id` were specified as plain FKs to `files(id)`, inconsistent with every other tenant-scoped reference, and leaving migration `0067`'s own `files` `UNIQUE (tenant_id, id)` unused | Corrected to composite FKs `→ files(tenant_id, id)` (C2 AC1, T1 AC1) |
+| SF7 | T5 (competency catalog) had four small gaps: no 409 on a stale reorder id-set, no stated `seq` for a new/unarchived row, ambiguous 409/422 for a code clash on unarchive, and its UC named only admin/manager for `training:manage` | All four stated explicitly: reorder route 409s if the body's id list doesn't exactly match the current non-archived set (T5 AC3); a new or just-unarchived competency gets `seq = current_max_seq + 1` (T1 AC3, T5 AC1); the code-clash case is 409 Conflict, consistently (T5 AC1); auditor added alongside admin/manager (T5 UC) |
+| SF8 | T2's UC language ("members it already succeeded for") implied partial-batch success, contradicting atomicity | Corrected: a training-record batch is one all-or-nothing transaction — all rows commit together or none do, no partial-batch state ever visible (T2 AC1) |
+| SF9 | Training coverage KPI's zero-mandatory-competency case was undefined | Reads `"—"`, consistent with this sprint's own empty-case convention for percentage KPIs (T1 AC7) |
+| SF10 | Two stale cross-references: a line still said `NcrSource`/`ncrs.source` widening was "folded into `0067`" (post-renumbering it's `0068`); Round 1's amendment (B4) claimed a document-expiry-related Known issue was logged in §7, but it was never actually added | Both corrected: C3's Web/Mobile/Shared line now says `0068`; the missing Known issue (`document-expiry.ts`'s `Date`-based signature, §1a/B4) is now added to §7 |
+
+**Effect on §3 (the user's approval ask):** BLOCKING 1-3 change backend behaviour that is part of what §3 asks the
+user to approve — the exact "newest event" tie-break rule (new, previously implicit), the corrected
+evidence/certificate file-linking sequencing and its `entity_kind`/`deleted_at` double-check (replacing the
+unbuildable `training_batch_id` mechanism), and the three-way audit-event split for calibration events. §3.1
+items 14 and 16 and §3.2's "what the user is being asked to approve" paragraph are updated accordingly
+(marked `[AMENDED-3]`) — these are not cosmetic, they are testable behavioural corrections to the same 17
+decisions already on the table, not new scope.
+
 ---
 
 ## 1. Goal and roles served
@@ -120,8 +150,9 @@ UC
   All/Due soon/Overdue), clicking a row selects it and populates the detail card (fields, last-5 history).
 - Overdue: an overdue instrument's detail card shows the warning banner with days-overdue and last-calibrated
   date — text corrected per §1a/Q-C1 (no false "blocked at inspection sign-off" claim).
-- **[AMENDED — B3, new] Failed calibration:** an instrument whose newest event is `fail` shows as `overdue`
-  (AC2's override) regardless of its computed `next_due` — the detail card's banner must not show the same
+- **[AMENDED — B3, new; AMENDED-3] Failed calibration:** an instrument whose newest event is `fail` (per C2
+  AC2's exact tie-break rule, BLOCKING 1) shows as `overdue` (AC2's override) regardless of its computed
+  `next_due` — the detail card's banner must not show the same
   "overdue N days, last calibrated on X" copy for this case (a `fail` instrument may not be date-overdue at
   all yet, so "N days overdue" would be false or nonsensical); a distinct **"failed calibration" banner
   state** is flagged for the designer (§5, small follow-up to Board 1, not a new board), reading something
@@ -138,8 +169,19 @@ UC
   list), confirmed by reading it in full; `MembersService.list` (the real roster) filters by plant not at all.
   The real, confirmed primitive this reuses is `authorizePlant`'s own semantics (`rbac.ts:238-285`): an empty
   `membership.plantIds` means "unrestricted," and a non-plant-scoped role (`admin`/`manager`/`auditor`) is never
-  filtered regardless of what `plantIds` holds. A direct-id fetch of an out-of-scope-plant instrument 404s
-  (never 403 — rule 8).
+  filtered regardless of what `plantIds` holds. **[AMENDED-3 — SHOULD-FIX 3]** A direct-id fetch of an
+  out-of-scope-plant instrument 404s (never 403 — rule 8) **unless the caller is that instrument's own
+  designated `owner`** — resolved as option (a) of the two named in Round 3's review: the visibility rule is
+  "in scope OR the caller is the instrument's own owner," never a bare plant-overlap check alone. No existing
+  precedent for an owner/assignee plant-scope bypass exists in this codebase (`ncr.service.ts`'s and
+  `inspections.service.ts`'s own `assertInScope` were read in full for this amendment — both strictly
+  plant-scope with no such exception), so this is justified on its own terms, not a cited precedent: C5's
+  `calibration-due` job (and T4's `training-expiry` job) notify an instrument's `owner`/a record's subject
+  regardless of that person's own plant scope (B9, X1), so without this carve-out the exact person a
+  notification is *about* would get a link that 404s for them — a dead control (rule 10), strictly worse than
+  a narrow, single-record exception scoped to exactly the one instrument they own. This does not widen the
+  register **list** — an out-of-scope owner still cannot browse other out-of-scope instruments, only fetch
+  their own by id (and, correspondingly, see their own row surfaced from a notification's deep link).
 - Error/offline: list fetch fails → retry affordance; offline banner disables Add/Record/Retire/Transfer
   mutations (reuse S1-5 infrastructure).
 
@@ -171,10 +213,13 @@ AC
    (this is DB-generated-column arithmetic, not a `packages/core` pure function, so it cannot be unit-tested in
    isolation from Postgres). `owner` (composite member FK), `status` enum (`active|retired`) DEFAULT `active`
    (the register's own lifecycle status — distinct from the *due-status* `ok|warn|overdue|unscheduled`, which
-   is never stored, see AC2), **[AMENDED — B3, new] `last_result` enum NULL (`pass|adjusted|fail`) — always
-   the instrument's newest calibration event's result by `performed_at`, written in the same transaction as
-   every C2 event-recording call regardless of outcome (unlike `last_calibrated`, which only advances on
-   `pass`/`adjusted` — see C2 AC2); this is what lets AC2's due-status function detect "newest event is a
+   is never stored, see AC2), **[AMENDED — B3, new; AMENDED-3 — BLOCKING 1] `last_result` enum NULL
+   (`pass|adjusted|fail`) — always the result of the instrument's newest calibration event, written in the
+   same transaction as every C2 event-recording call regardless of outcome (unlike `last_calibrated`, which
+   only advances on `pass`/`adjusted` — see C2 AC2). "Newest event" is defined exactly, with a same-day
+   tie-break, in C2 AC2 — ordered by `(performed_at DESC, created_at DESC)`, never a bare `performed_at >`
+   comparison (which silently fails to detect a same-day `fail` recorded after a same-day `pass`, the exact
+   bug this column exists to close) — this is what lets AC2's due-status function detect "newest event is a
    fail" without a live subquery on every read**, `lock_version`, standard audit columns. Forced RLS, leading
    `tenant_id` index, unique `(tenant_id, code)`, **[AMENDED — B2] `UNIQUE (tenant_id, id)`** (self-consistency
    — `instruments` is itself a composite-FK target for `calibration_events`, C2 AC1).
@@ -191,18 +236,29 @@ AC
    due-day itself reads `warn`, not `overdue` — B4(b); "overdue" means strictly past due); else `ok`.
    Unit-tested including the boundary days and the `last_result = 'fail'` override with a `nextDue` far in the
    future (proving the override truly ignores the date).
-3. **[AMENDED — B6]** `GET /v1/instruments` (cursor, rule 6; filters `type`/`status`/`dueStatus`(`due_soon`|
-   `overdue`)/`plantId`/**`q` (new — free-text search over `name`/`code`, `ILIKE`-matched, B6)**; plant-scoped
-   for a plant-scoped role per T1's corrected §0/B5 rule — see AC6's cross-reference below), `POST
-   /v1/instruments` (`calibration:manage`), `GET /v1/instruments/:id` (`calibration:view`), `PATCH
-   /v1/instruments/:id` (`lockVersion`, `calibration:manage` — edits name/type/plant/area/method/tolerance/
-   interval/owner; never `last_calibrated`/`next_due`/`last_result` directly, those only change via C2's
-   calibration-event route; **[AMENDED — C4, new] 422 if the instrument's `status = 'retired'`** — see C4
-   AC4). All mutations `withAudit` in the same transaction (rule 3). **[AMENDED — smaller correction]**
-   `POST /v1/instruments` takes an `Idempotency-Key` header, mirroring `risk.controller.ts`'s pattern exactly
-   (same as every other `POST` create route in this sprint, §0).
-4. Cross-tenant instrument id → 404, not 403 (rule 8); cross-plant (for a plant-scoped role) → 404, not 403
-   (mirrors the `assertEntityVisible` plant-scope pattern, §1a), both mutation-tested against RLS.
+3. **[AMENDED — B6; AMENDED-3 — SHOULD-FIX 2, 5]** `GET /v1/instruments` (cursor, rule 6; filters
+   `type`/`status`/`dueStatus`(`due_soon`|`overdue`)/`plantId`/**`q` (new — free-text search over
+   `instruments.name`/`instruments.code` **and, `[AMENDED-3]` extended per the jsx's own "Search by ID, name,
+   area..." placeholder, the instrument's `areas.name`** — `areas` has no `code` column (confirmed by reading
+   `0001_core.sql`, only `name`), so the area side of `q` matches on `name` alone; `ILIKE`-matched, joined, B6
+   / SF5)**; plant-scoped for a plant-scoped role per T1's corrected §0/B5 rule (with C1 UC's owner exception,
+   SF3) — see AC6's cross-reference below), `POST /v1/instruments` (`calibration:manage`), `GET
+   /v1/instruments/:id` (`calibration:view`), `PATCH /v1/instruments/:id` (`lockVersion`, `calibration:manage`
+   — edits name/type/plant/area/method/tolerance/interval/owner; never `last_calibrated`/`next_due`/
+   `last_result` directly, those only change via C2's calibration-event route; **[AMENDED — C4, new] 422 if the
+   instrument's `status = 'retired'`** — see C4 AC4). All mutations `withAudit` in the same transaction
+   (rule 3). **[AMENDED — smaller correction]** `POST /v1/instruments` takes an `Idempotency-Key` header,
+   mirroring `risk.controller.ts`'s pattern exactly (same as every other `POST` create route in this sprint,
+   §0). **[AMENDED-3 — SHOULD-FIX 2]** `dueStatus`'s `warn`/`overdue` classification, and every other read in
+   this route, computes "today" in the **instrument's own plant's timezone** (`plants.timezone`) — the same
+   rule C5 AC1's job uses (B4(c)) — never the server's or the tenant's, applied consistently so the SQL-side
+   filter and the `packages/core` pure function never disagree at a boundary.
+4. **[AMENDED-3 — SHOULD-FIX 3]** Cross-tenant instrument id → 404, not 403 (rule 8); cross-plant (for a
+   plant-scoped role) → 404, not 403 **unless the caller is that instrument's own `owner`, in which case the
+   detail fetch succeeds** (mirrors the `assertEntityVisible` plant-scope pattern, §1a, with the owner
+   exception named in C1's UC "Plant scope" above and justified there — SF3), both mutation-tested against RLS,
+   including a case proving an out-of-scope owner can fetch their own instrument by id but still cannot list
+   other out-of-scope instruments.
 5. **[AMENDED — B3]** KPI strip, exact formulas (mirrors Sprint 04 R1 AC6's precedent of stating every
    formula, not eyeballing):
    - **Instruments tracked** = `count(*) where status='active'`.
@@ -216,10 +272,14 @@ AC
      corrected, `fail` means it remains out of tolerance; `pass` never counts). Sub-stat "N led to NCR" =
      `count(*) from calibration_events where result in ('adjusted','fail') and ncr_id is not null and
      performed_at in the current calendar year` (C3).
-6. **[AMENDED — B6, new]** `GET /v1/instruments/summary` (`calibration:view`) — returns the four KPI numbers
-   above precomputed server-side in one round trip, plant-scoped identically to the list route, mirroring
+6. **[AMENDED — B6, new; AMENDED-3 — SHOULD-FIX 2]** `GET /v1/instruments/summary` (`calibration:view`) —
+   returns the four KPI numbers above precomputed server-side in one round trip, plant-scoped identically to
+   the list route (including AC4's owner exception for a direct-id detail view, SF3), mirroring
    `GET /v1/risks/summary` (Sprint 04) exactly; this is what the web KPI strip actually reads from, since the
-   list route alone (cursor-paginated) cannot compute a tenant-wide total client-side.
+   list route alone (cursor-paginated) cannot compute a tenant-wide total client-side. Uses the **same
+   instrument-plant-timezone "today" rule as AC3's `dueStatus` filter and C5 AC1's job** (SF2) — the summary's
+   `overdue`/`warn` counts and the list's filter can never disagree at a day boundary because both derive
+   "today" the same way, per tenant plant.
 
 **Web/Mobile/Shared**
 - **Web:** `apps/web/src/features/calibration/` — `CalibrationPage` (KPI strip **[AMENDED — B6, now reads
@@ -246,12 +306,14 @@ UC
   certificate upload) → creates a real `calibration_events` row; **[AMENDED — B3]** a `pass`/`adjusted` result
   advances `last_calibrated`/`next_due` on the instrument, a `fail` result never does (it only updates
   `last_result`); the detail card's history table shows the new row immediately.
-- Certificate: **[AMENDED — B7]** "Upload cert" uploads via the existing Files presign→PUT→complete pipeline,
-  then links the resulting file as the event's `certificate_file_id` — either inline (the `certificateFileId`
-  field in the same create-calibration-event call) or, for an already-recorded event, via the new dedicated
-  attach route (AC5). `certificate_file_id` is the **only** thing a UI or API consumer reads to find "the
-  certificate" — never a `files.entity_kind='calibration_event'` lookup. AV-scan-gated for download exactly
-  like every other evidence upload in this codebase.
+- Certificate: **[AMENDED — B7; AMENDED-3 — BLOCKING 2]** "Upload cert" uploads via the existing Files
+  presign→PUT→complete pipeline, then links the resulting file as the event's `certificate_file_id` — either
+  inline (the `certificateFileId` field in the same create-calibration-event call) or, for an already-recorded
+  event, via the new dedicated attach route (AC5). `certificate_file_id` is the **only** thing a UI or API
+  consumer reads to find "the certificate" — never a `files.entity_kind='calibration_event'` lookup, though the
+  server *does* verify that value matches at link time (plus `deleted_at IS NULL`) before accepting the link —
+  see AC4/AC5's exact double-check. AV-scan-gated for download exactly like every other evidence upload in this
+  codebase.
 - Permission: `calibration:manage` to record and to attach/replace a certificate; `calibration:view` to read
   history + download a clean certificate.
 - Offline: recording/upload disabled by the offline banner (S1-5).
@@ -264,44 +326,82 @@ AC
    NOT NULL, `result` enum (`pass|adjusted|fail`), `performed_by` text NOT NULL (free text — the jsx shows
    external lab names like "A2LA Cal Labs", not always an internal member; an internal calibration can still
    name the technician as free text, consistent with "method" being free text on the parent), `notes` text NOT
-   NULL DEFAULT '', `certificate_file_id` (nullable FK → `files(id)` — **[AMENDED — B7] this is the sole,
+   NULL DEFAULT '', `certificate_file_id` (nullable **[AMENDED-3 — SHOULD-FIX 6] composite FK → `files(tenant_id,
+   id)`** — corrected from a plain FK to `files(id)`, consistent with every other tenant-scoped reference in
+   this codebase and with the fact migration `0067` already adds `UNIQUE (tenant_id, id)` to `files` for
+   exactly this purpose (otherwise that constraint is added and never used) — **[AMENDED — B7] this is the sole,
    authoritative link to a certificate; `files.entity_kind`/`entity_id` may still be set on the underlying
    `files` row for the generic files browser's own display, but nothing in this sprint reads it to resolve an
    event's certificate**), `ncr_id` (nullable FK → `ncrs(tenant_id, id)`, set by C3 only), standard audit
    columns. Forced RLS, leading `tenant_id` index (mirrors `msa_measurements`'/`risk_controls`' child-table
    precedent).
-2. **[AMENDED — B3]** `POST /v1/instruments/:id/calibration-events` (`calibration:manage`, `lockVersion` on
-   the parent instrument, 409 on stale — same optimistic-concurrency rule every mutation in this programme
-   follows, rule 6) creates the event and, in the same transaction: **always** sets the parent instrument's
-   `last_result` to this event's `result` (when this event is the instrument's newest by `performed_at`); and
-   **only when `result` is `pass` or `adjusted`** — never `fail` — sets `last_calibrated = performed_at` (again,
-   only when `performed_at` is the instrument's newest event; an out-of-order backfill entry does not regress
-   the due date) and lets `next_due` recompute (the generated column follows automatically). A `fail` result
-   therefore never advances the due date, closing the IATF 7.1.5 correctness bug (B3) — the instrument reads
-   `overdue` via AC2's `last_result` override instead. Audited `updated` on the instrument (parent), in-tx.
-   **[AMENDED — C4, new]** `422` if the instrument's `status = 'retired'` — no new calibration event may be
-   recorded against a retired instrument (C4 AC4).
+2. **[AMENDED — B3; AMENDED-3 — BLOCKING 1 & 3, full rewrite]** `POST /v1/instruments/:id/calibration-events`
+   (`calibration:manage`, `lockVersion` on the parent instrument, 409 on stale — same optimistic-concurrency
+   rule every mutation in this programme follows, rule 6) creates the event row and, in the same transaction:
+   - **Always writes a `created` audit event on the `calibration_event` row itself** — for every result
+     (`pass`, `adjusted`, **and `fail`**), unconditionally. This closes a real rule-3 gap (BLOCKING 3(a)):
+     previously a `fail` result wrote no audit at all.
+   - **Exact "newest event" tie-break (BLOCKING 1)** — closes a same-day ordering hole in the original B3 fix:
+     "newest event" for an instrument is ordered by `(performed_at DESC, created_at DESC)`. The just-created
+     event E becomes the new "newest" — and therefore drives `last_result` — when `E.performed_at >
+     current_newest.performed_at`, OR `E.performed_at = current_newest.performed_at AND E.created_at >
+     current_newest.created_at` (always true for a brand-new insert, since nothing else can share both its
+     `performed_at` and a later `created_at`). Concretely: a same-day `fail` recorded *after* a same-day `pass`
+     correctly becomes newest and flips `last_result` to `fail` (a bare `performed_at >` comparison would
+     instead leave the stale `pass` "newest," reopening the exact bug B3 was meant to close — the instrument
+     would keep reading "ok"); a same-day corrective `pass`/`adjusted` recorded after a same-day `fail`
+     likewise becomes newest and correctly clears the fail override. **`last_result` is always written to this
+     newest event's `result`** when E is newest, regardless of outcome — but this write is **not itself
+     separately audited on the instrument row**: `last_result` is a pure denormalized mirror of the newest
+     event's own `result`, and that fact is already fully captured by the event's own `created` audit above;
+     a second, redundant `updated` audit on the instrument for a value that only ever mirrors an
+     already-audited event would record no new information.
+   - **Only when `result` is `pass` or `adjusted`** — never `fail` — additionally sets `last_calibrated =
+     performed_at` (again, only when E is the newest event by the tie-break rule above; an out-of-order
+     backfill entry does not regress the due date) and lets `next_due` recompute (the generated column follows
+     automatically). **This is the one case that writes a separate `updated` audit event on the parent
+     `instrument` row** (BLOCKING 3(c)) — `last_calibrated`/`next_due` are genuinely new, forward-looking
+     scheduling facts, not a mirror of something the event's own audit already states. A `fail` result
+     therefore never advances the due date (closing B3's original IATF 7.1.5 correctness bug) and writes no
+     parent audit at all — its own event-level `created` audit is the complete record.
+   - **Summary (three-way split, so no result type is ever silently unaudited):** (a) every event, any result,
+     gets its own `created` audit on the `calibration_event` row; (b) `pass`/`adjusted` additionally gets an
+     `updated` audit on the parent `instrument` row (due-date advance); (c) `fail` gets no parent audit — its
+     `created` event audit is sufficient, and its `last_result` write to the parent is a non-audited
+     denormalized mirror.
+   - **[AMENDED — C4, new]** `422` if the instrument's `status = 'retired'` — no new calibration event may be
+     recorded against a retired instrument (C4 AC4).
 3. `GET /v1/instruments/:id/calibration-events` (cursor, rule 6) — the full history; the detail card's "last 5"
    is this same route with `limit=5`, not a separate endpoint.
-4. **[AMENDED — B7]** Certificate upload reuses the existing `POST /v1/files/presign` → PUT →
-   `POST /v1/files/:id/complete` flow (no schema change to `files`), but linking that uploaded file as an
+4. **[AMENDED — B7; AMENDED-3 — BLOCKING 2]** Certificate upload reuses the existing `POST /v1/files/presign` →
+   PUT → `POST /v1/files/:id/complete` flow (no schema change to `files`), but linking that uploaded file as an
    event's certificate is done **exclusively** by writing `calibration_events.certificate_file_id` — either
    inline via `certificateFileId` in this route's own create body, or via AC5's dedicated attach route. Before
-   accepting either, the server verifies the referenced file **belongs to this tenant** and **`sha256 IS NOT
-   NULL`** (fully uploaded/complete, not a dangling presigned-but-never-uploaded row) — closing the race where
-   the orphan-cleanup job's `DELETE` on an incomplete upload could otherwise leave `certificate_file_id`
-   pointing at a row that gets deleted out from under it. A not-yet-clean (AV pending/failed) certificate
-   cannot be downloaded, reusing the existing gate. `POST /v1/files/presign` itself, for
+   accepting either, the server verifies the referenced file (i) **belongs to this tenant**, (ii) has
+   **`sha256 IS NOT NULL`** (fully uploaded/complete, not a dangling presigned-but-never-uploaded row) —
+   closing the race where the orphan-cleanup job's `DELETE` on an incomplete upload could otherwise leave
+   `certificate_file_id` pointing at a row that gets deleted out from under it — (iii) **[NEW] has
+   `entity_kind = 'calibration_event'` exactly**, and (iv) **[NEW] has `deleted_at IS NULL`**. Checks (iii)/(iv)
+   close a real bypass: without them, a client could presign a file with `entityKind` **omitted** (skipping the
+   `calibration:manage` gate this same AC puts on `entityKind: "calibration_event"`, below) and then simply pass
+   that arbitrary existing tenant file's id as `certificateFileId` here — the presign-time capability gate would
+   be decorative, since linking never actually required going through it. A not-yet-clean (AV pending/failed)
+   certificate cannot be downloaded, reusing the existing gate. `POST /v1/files/presign` itself, for
    `entityKind: "calibration_event"`, now requires `calibration:manage` — **[AMENDED — B7]** closing the
    general gap that presign otherwise carries **no capability check at all** (confirmed: `files.controller.ts`
    has no `@RequireCapability` on `presign`), scoped to this one `entityKind` (the same universal gap for every
    other existing `entityKind` is pre-existing and out of scope here, logged as a related note in §7's Known
    issue).
-5. **[AMENDED — B7, new]** `PUT /v1/instruments/:instrumentId/calibration-events/:eventId/certificate`
-   (`calibration:manage`) — attaches or replaces the named event's `certificate_file_id` after the fact (the
-   "Upload cert" flow when it runs as its own step, not inline with recording the event); same tenant +
-   `sha256 IS NOT NULL` verification as AC4; audited `updated` on the event's parent instrument is **not**
-   re-triggered (only the event row's `certificate_file_id` changes — no due-date recomputation needed).
+5. **[AMENDED — B7, new; AMENDED-3 — BLOCKING 2 & 3(b)]** `PUT
+   /v1/instruments/:instrumentId/calibration-events/:eventId/certificate` (`calibration:manage`) — attaches or
+   replaces the named event's `certificate_file_id` after the fact (the "Upload cert" flow when it runs as its
+   own step, not inline with recording the event). Before accepting the link, the server runs the **same
+   four-part verification as AC4**: tenant match, `sha256 IS NOT NULL`, `entity_kind = 'calibration_event'`,
+   and `deleted_at IS NULL` (the last two close the identical presign-bypass hole named in AC4). **Writes a
+   real `updated` audit event on the `calibration_event` row itself** (closing the previous gap where this
+   action wrote no audit at all) — this action never touches the parent instrument's
+   `last_calibrated`/`next_due`/`last_result`, so it never writes a parent `updated` audit (only the event
+   row's `certificate_file_id` changes — no due-date recomputation needed).
 6. **[AMENDED — smaller correction, new]** Every `POST` create route in this story (`.../calibration-events`)
    takes an `Idempotency-Key` header, mirroring `risk.controller.ts`'s existing `@Headers("idempotency-key")`
    pattern exactly.
@@ -356,7 +456,9 @@ AC
 
 **Web/Mobile/Shared:** Web (a real "Raise NCR" action on a qualifying history row, replacing nothing in the
 jsx — this is new, honest backing for an existing KPI number, not a UI change to the mock). Mobile: unaffected.
-Shared: `NcrSource` enum + `ncrs.source` CHECK widening (folded into `0067`); no new capability.
+Shared: `NcrSource` enum + `ncrs.source` CHECK widening (**[AMENDED-3 — SHOULD-FIX 10]** folded into `0068`,
+corrected from a stale `0067` reference left over from before the B2 migration renumbering — `0067` is the
+composite-FK-prereqs migration only, per §3.2); no new capability.
 
 ### C4 — Instrument lifecycle: retire, transfer, full history
 
@@ -412,29 +514,55 @@ UC
   date, but a new notification cycle starts the moment the instrument is recalibrated and gets a new
   `next_due` — B4), exactly like `document-expiry`'s existing dedupe-by-threshold behaviour, extended to be
   cycle-aware.
+- **[AMENDED-3 — SHOULD-FIX 1, new] Happy (failed calibration):** an active instrument whose newest event is
+  `fail` notifies its `owner` **immediately**, regardless of `next_due` (which may still be far in the future)
+  — a failed gauge is exactly the kind of thing an owner needs to know about right away, the same class of
+  urgency as an overdue date, not something that waits for a date-driven sweep to happen to also catch it.
 - Happy (export): "Audit pack" → real export enqueued via the existing `reports.export`/`run-export.ts`
   pipeline (same UX as `audit_report`/`risk_board_pack`): progress toast → notification → download.
 
 AC
-1. **[AMENDED — B3/B4, full rewrite]** New daily per-tenant job `calibration-due` (mirrors `document-expiry`'s
-   overall shape — one daily sweep per active tenant, no audit event written for the notification itself), with
-   the following corrected, exact design:
+1. **[AMENDED — B3/B4, full rewrite; AMENDED-3 — SHOULD-FIX 1 & 4]** New daily per-tenant job `calibration-due`
+   (mirrors `document-expiry`'s overall shape — one daily sweep per active tenant, no audit event written for
+   the notification itself), with the following corrected, exact design:
    - `packages/core/calibration.ts` exports `activeCalibrationThreshold(input: { nextDue: string; today: string
-     }): 30 | 7 | 0 | -7 | -14 | -21 | ... | null` — **takes ISO date strings, not JS `Date` objects** (B4(c) —
-     same reasoning as C1 AC2). Positive/zero values are the approach-to-due thresholds (30/7/0 days before or
-     on `next_due`); once `today > nextDue` (genuinely overdue, matching AC2's `overdue` status boundary — the
-     due-day itself is threshold `0`, never negative), the function returns the **re-notify window**, stated
-     explicitly as **every 7 days overdue, uncapped** (`-7` at 7 days overdue, `-14` at 14, and so on) — an
-     out-of-calibration measurement instrument is a standing nonconformance until recalibrated, unlike a
-     document that typically renews before lapsing long, so this sprint deliberately does not cap the
-     escalation the way `document-expiry`'s own fixed `[90,30,7]` list implicitly does by simply stopping.
-     Returns `null` when more than 30 days from `next_due` and not yet overdue, or when `nextDue` is unset
-     (`unscheduled` instruments are not notified — nothing to remind about yet).
+     }): number | null` — **[AMENDED-3 — SHOULD-FIX 4]** return type corrected to plain `number` (a
+     `30 | 7 | 0 | -7 | ...` literal union cannot express an unbounded arithmetic sequence in TypeScript, since
+     the overdue escalation below is uncapped; any earlier AC implying a literal-union return type is corrected
+     here) — **takes ISO date strings, not JS `Date` objects** (B4(c) — same reasoning as C1 AC2). Positive/zero
+     values are the approach-to-due thresholds: exactly `30` at 30 days before `next_due`, exactly `7` at 7 days
+     before, exactly `0` on `next_due` itself — every other day strictly between named marks (e.g. 29-8, or
+     6-1 days before) returns `null` (no notification that day; matches `document-expiry`'s own fixed-list
+     "only fire on a named mark" behaviour, not a continuous countdown). Once `today > nextDue` (genuinely
+     overdue, matching AC2's `overdue` status boundary), the function returns the **re-notify window**, and
+     **[AMENDED-3 — SHOULD-FIX 4, previously-undefined between-threshold value now defined]** for any
+     `daysOverdue >= 0` the exact value is **`-7 * floor(daysOverdue / 7)`** — the smallest (most recently
+     crossed) 7-day mark: `daysOverdue` `0`-`6` all resolve to `0` (already notified on the due day itself, so
+     days 1-6 correctly produce no *new* notification under the dedupe key below), `7`-`13` resolve to `-7`,
+     `14`-`20` to `-14`, and so on, uncapped — an out-of-calibration measurement instrument is a standing
+     nonconformance until recalibrated, unlike a document that typically renews before lapsing long, so this
+     sprint deliberately does not cap the escalation the way `document-expiry`'s own fixed `[90,30,7]` list
+     implicitly does by simply stopping. Returns `null` when more than 30 days from `next_due` and not yet
+     overdue, or when `nextDue` is unset (`unscheduled` instruments are not notified via this path — nothing to
+     remind about via a date — but see the next bullet for the `fail` case, which is date-independent).
+   - **[AMENDED-3 — SHOULD-FIX 1, new] Failed-calibration trigger, independent of the date-threshold function
+     above:** any active instrument whose `last_result = 'fail'` notifies its `owner` on every daily sweep until
+     a new calibration event supersedes it (per BLOCKING 1's tie-break rule, C2 AC2) — this fires **regardless
+     of what `activeCalibrationThreshold` returns for `next_due`** (an instrument can fail a check today while
+     its `next_due` is still months away, and must still notify immediately). Deduped by
+     `dedupeKey: "cal-fail:<instrumentId>:<eventId>"` (the failing event's own id, not a date — a fail has no
+     "cycle" to key off other than the specific event that caused it), so exactly one notification is sent per
+     failing event, not re-sent daily while it remains the newest, but a **new** fail event (even same-day, per
+     BLOCKING 1) gets its own fresh key and its own notification.
    - The job queries active instruments whose `next_due` is non-null and has entered a reminder window (via
-     the threshold function above), notifies `owner` (skip if null, mirrors `document-expiry`'s own "no one to
-     remind" skip). **"Today" is computed in the instrument's own plant's timezone** (`plants.timezone`, B4(c)
-     — the column already exists, no schema change needed), not the server's or the tenant's, since a physical
-     instrument's due date is a plant-floor fact.
+     the threshold function above), **or** whose `last_result = 'fail'` (the bullet above), notifies `owner`
+     (skip if null, mirrors `document-expiry`'s own "no one to remind" skip). **[AMENDED-3 — SHOULD-FIX 2]**
+     **"Today" is computed in the instrument's own plant's timezone** (`plants.timezone`, B4(c) — the column
+     already exists, no schema change needed), not the server's or the tenant's, since a physical instrument's
+     due date is a plant-floor fact — **and this is the same plant-timezone rule every calibration READ path
+     uses** (C1 AC3's `dueStatus` filter, C1 AC6's summary, the detail view, and AC2's export below, all
+     consistently — SF2), not a job-only rule, since the SQL-vs-core-function agreement test (§4/§8) depends on
+     it being identical everywhere.
    - **[AMENDED — B4, cycle-tied dedupe key]** `dedupeKey: "cal-due:<instrumentId>:<nextDue>:<threshold>"` —
      including `next_due` in the key (not just the instrument id) is what makes each recalibration cycle get
      its own key space; `notifications_dedupe_uq` (`0001_core.sql:554`) is a **permanent** unique index, so
@@ -443,11 +571,15 @@ AC
      id>` (B9 — this is what makes the notification's click-through resolve, see X1).
    - Registered on the existing `docs` queue's daily sweep (or an equally-shaped new `calibration` queue — an
      implementation-time choice, not a design difference).
-2. **[AMENDED — smaller correction]** `ExportResource` gains `"calibration_audit_pack"`; `run-export.ts` gains
-   a branch rendering the register (KPI strip + full instrument table + each instrument's last calibration
-   date/result) to PDF, scoped to the caller's tenant (and plant scope, if plant-scoped). **The widened
-   constraint is `exports_resource_check` on the real `exports` table** — corrected from this file's earlier,
-   wrong `export_jobs` naming (confirmed: `packages/db/migrations/0011_exports.sql:17`).
+2. **[AMENDED — smaller correction; AMENDED-3 — SHOULD-FIX 2]** `ExportResource` gains
+   `"calibration_audit_pack"`; `run-export.ts` gains a branch rendering the register (KPI strip + full
+   instrument table + each instrument's last calibration date/result) to PDF, scoped to the caller's tenant
+   (and plant scope, if plant-scoped) — computing every instrument's `dueStatus` using the **same
+   instrument-plant-timezone "today" rule** as every other calibration read path (C1 AC3/AC6, this story's AC1
+   job), so an exported PDF's due/overdue classification can never disagree with what the live UI shows for the
+   same instrument on the same day. **The widened constraint is `exports_resource_check` on the real `exports`
+   table** — corrected from this file's earlier, wrong `export_jobs` naming (confirmed:
+   `packages/db/migrations/0011_exports.sql:17`).
 3. `calibration:view` required to request the export (mirrors `risk_board_pack`'s "viewing is enough to
    export" precedent, not the stricter `:manage`).
 
@@ -547,7 +679,10 @@ AC
    ELSE (completed_at + make_interval(months => valid_months))::date END) STORED** — corrected from the
    original text-cast form for the same `IMMUTABLE` reason as C1 AC1's `next_due` (§0/B1); same confirmed
    month-end clamping behaviour (`make_interval`), same integration-test requirement (not a `packages/core`
-   unit test). `evidence_file_id` (nullable FK → `files(id)` — **[AMENDED — B7] see T2 AC2 for how one file is
+   unit test). `evidence_file_id` (nullable **[AMENDED-3 — SHOULD-FIX 6] composite FK → `files(tenant_id, id)`**
+   — corrected from a plain FK to `files(id)`, same reasoning as C2 AC1's `certificate_file_id` correction:
+   consistent with every other tenant-scoped reference in this codebase, and what migration `0067`'s
+   `UNIQUE (tenant_id, id)` on `files` was added for — **[AMENDED — B7] see T2 AC2 for how one file is
    shared across a batch submission**), standard audit columns. Forced RLS, leading `tenant_id` index, **no**
    unique `(tenant_id, member_id, competency_id)` constraint — **[deviation from P16's own draft, flagged §3.1
    for sign-off]**: this sprint proposes a real per-completion history table (one row per recorded training
@@ -562,23 +697,29 @@ AC
    the exact rule stated above in this story's own "Cell-state derivation" UC — unit-tested for all five
    outcomes plus the warn-window boundary (including `expiresAt = today` reading `warn`, matching
    `instrumentDueStatus`'s own due-day rule, B4(b), for consistency across both modules).
-3. `GET /v1/competencies` (cursor, rule 6; `training:view`/`training:manage` — **[correction — see X1 AC1,
-   capability is `training:view`/`training:manage`, not a separate `competency:*` pair]** — **[AMENDED — B8]
-   excludes archived rows by default; a `status=archived` filter value still finds them, mirrors C4 AC3's
-   pattern for retired instruments; see T5**), `POST /v1/competencies` (`training:manage`, `Idempotency-Key`
-   header — smaller correction), `GET/PATCH /v1/competencies/:id` (`lockVersion`).
-4. **[AMENDED — B5/B6/B8]** `GET /v1/training/matrix` (cursor over **members**, not competencies — a tenant's
-   competency count is small and bounded, members are the potentially-large axis; filters `mandatoryOnly`/
-   `gapsOnly`/**`q` (new, B6 — see below)**) — computes each cell live via a `DISTINCT ON (member_id,
-   competency_id) … ORDER BY completed_at DESC` join per member page against **non-archived competencies only**
-   (`WHERE archived_at IS NULL`, B8/T5), applying AC2's pure function per cell; plant-scoped per this story's
-   own corrected UC rule above (not `GET /v1/members`'s precedent, which does not exist). **`q`** is a
-   free-text name search: since a member's display name lives in `control.users`, outside RLS (the same trust
-   boundary `MembersService`'s own doc comment already names, confirmed by reading it), the service resolves
-   `q` by querying `control.users` on the control pool for matching names, intersecting the returned `user_id`s
-   with the tenant's own `memberships` before filtering the matrix — **never** a denormalized name column on
-   `memberships` or `training_records` (rule 8's cross-tenant-invisibility spirit: a name is only ever exposed
-   for a person already confirmed to be a member of this tenant).
+3. **[AMENDED-3 — SHOULD-FIX 7(b)]** `GET /v1/competencies` (cursor, rule 6; `training:view`/`training:manage`
+   — **[correction — see X1 AC1, capability is `training:view`/`training:manage`, not a separate
+   `competency:*` pair]** — **[AMENDED — B8] excludes archived rows by default; a `status=archived` filter
+   value still finds them, mirrors C4 AC3's pattern for retired instruments; see T5**), `POST /v1/competencies`
+   (`training:manage`, `Idempotency-Key` header — smaller correction; **the new row's `seq` is set to
+   `current_max_seq(non-archived) + 1` — appended to the end of the catalog's own order, stated explicitly per
+   Round 3's review; see T5 AC1(b) for the equivalent rule on un-archiving**), `GET/PATCH /v1/competencies/:id`
+   (`lockVersion`).
+4. **[AMENDED — B5/B6/B8; AMENDED-3 — SHOULD-FIX 2]** `GET /v1/training/matrix` (cursor over **members**, not
+   competencies — a tenant's competency count is small and bounded, members are the potentially-large axis;
+   filters `mandatoryOnly`/`gapsOnly`/**`q` (new, B6 — see below)**) — computes each cell live via a
+   `DISTINCT ON (member_id, competency_id) … ORDER BY completed_at DESC` join per member page against
+   **non-archived competencies only** (`WHERE archived_at IS NULL`, B8/T5), applying AC2's pure function per
+   cell using **"today" computed in the tenant's own timezone** (`control.tenants.timezone`) — the same rule
+   T4's job uses (B4(c)), applied here consistently to every training read (SF2: also AC8's summary, T3 AC1's
+   gaps, T3 AC2's export), never the server's local time; plant-scoped per this story's own corrected UC rule
+   above (not `GET /v1/members`'s precedent, which does not exist). **`q`** is a free-text name search: since a
+   member's display name lives in `control.users`, outside RLS (the same trust boundary `MembersService`'s own
+   doc comment already names, confirmed by reading it), the service resolves `q` by querying `control.users` on
+   the control pool for matching names, intersecting the returned `user_id`s with the tenant's own `memberships`
+   before filtering the matrix — **never** a denormalized name column on `memberships` or `training_records`
+   (rule 8's cross-tenant-invisibility spirit: a name is only ever exposed for a person already confirmed to be
+   a member of this tenant).
 5. Cross-tenant / cross-plant competency or member id → 404, not 403 (rule 8).
 6. **Catalog seeding (resolves P17's own "seeded per-tenant or global template?" open question):** the catalog
    is **tenant-owned** (each tenant's admin authors their own `competencies` rows; RLS-scoped like every other
@@ -587,21 +728,27 @@ AC
    archive (T5), never a hard delete or the generic `deleted_at` pattern** — exactly like the demo-seed pattern
    other catalogs (inspection templates, SLA configs) already use. No cross-tenant shared/global template table
    is built (that would be new multi-tenant-shared-catalog infrastructure with no spec anywhere).
-7. **[AMENDED — B5/B8]** KPI strip, exact formulas: **Members tracked** = `count(distinct member_id)` among
-   **active, non-partner** memberships visible to the caller (plant-scoped per this story's UC rule above —
-   B5's own explicit definition, not a wrong precedent); **Coverage** = `100 × (count of (member,
-   mandatory-and-non-archived-competency) pairs in state 'ok'+'warn') / count of all (member,
-   mandatory-and-non-archived-competency) pairs` (the jsx's "of mandatory certs" label, read literally — only
-   mandatory, non-archived competencies count toward the denominator, B8; a "warn"/expiring-but-not-yet-lapsed
-   cert still counts as covered, only `overdue`/`gap` do not); **Expiring < 30 days** = `count(*) where cell
+7. **[AMENDED — B5/B8; AMENDED-3 — SHOULD-FIX 9]** KPI strip, exact formulas: **Members tracked** =
+   `count(distinct member_id)` among **active, non-partner** memberships visible to the caller (plant-scoped
+   per this story's UC rule above — B5's own explicit definition, not a wrong precedent); **Coverage** =
+   `100 × (count of (member, mandatory-and-non-archived-competency) pairs in state 'ok'+'warn') / count of all
+   (member, mandatory-and-non-archived-competency) pairs` (the jsx's "of mandatory certs" label, read
+   literally — only mandatory, non-archived competencies count toward the denominator, B8; a
+   "warn"/expiring-but-not-yet-lapsed cert still counts as covered, only `overdue`/`gap` do not) —
+   **[AMENDED-3 — SHOULD-FIX 9] when the denominator is zero (no mandatory, non-archived competencies exist for
+   the tenant, or none apply to any visible member), Coverage reads `"—"`**, never a divide-by-zero and never a
+   misleading `100%`/`0%`, consistent with this sprint's own established empty-case convention for percentage
+   KPIs (Sprint 04's "reviewed this quarter %" empty case); **Expiring < 30 days** = `count(*) where cell
    state = 'warn'` across all (member, non-archived-competency) pairs, not mandatory-only (the jsx's own KPI
    card carries no "mandatory" qualifier, unlike Coverage's); **Overdue** = `count(*) where cell state in
    ('overdue','gap')` over non-archived competencies (blocking, matches the jsx's "blocked from sign-off"
    sub-label — see Q-C1/§7 for why the *blocking* itself is not enforced elsewhere this sprint; the **count**
    is real, the cross-module enforcement is not).
-8. **[AMENDED — B6, new]** `GET /v1/training/summary` (`training:view`) — returns the four KPI numbers above
-   precomputed server-side in one round trip, plant-scoped identically to the matrix route, mirroring
-   `GET /v1/risks/summary` (Sprint 04) and this sprint's own `GET /v1/instruments/summary` (C1 AC6) exactly.
+8. **[AMENDED — B6, new; AMENDED-3 — SHOULD-FIX 2]** `GET /v1/training/summary` (`training:view`) — returns
+   the four KPI numbers above precomputed server-side in one round trip, plant-scoped identically to the matrix
+   route, mirroring `GET /v1/risks/summary` (Sprint 04) and this sprint's own `GET /v1/instruments/summary`
+   (C1 AC6) exactly. Uses the **same tenant-timezone "today" rule as AC4's matrix** (SF2) — the summary's
+   Coverage/Expiring/Overdue counts can never disagree with the matrix's own cell states at a day boundary.
 
 **Web/Mobile/Shared**
 - **Web:** `apps/web/src/features/training/` — `TrainingMatrixPage` (KPI strip **[AMENDED — B6, now reads
@@ -635,26 +782,45 @@ UC
   (AC4) — a training cannot be "completed" tomorrow.
 
 AC
-1. **[AMENDED — smaller correction]** `POST /v1/training/records` (`training:manage`, `Idempotency-Key`
-   header — **one key per batch submission**, not per member row within it, mirroring `risk.controller.ts`'s
-   pattern) — body `{ memberIds: string[], competencyId, completedAt, evidenceFileId? }`, creates one new
-   history row per `memberId` (T1 AC1), each copying `competencies.valid_months` at insert time (T1 AC1); each
-   member gets its own row and its own audit event (not batched into one, since these are genuinely independent
-   facts about different people, unlike MSA's single-study measurement batch) — but the **request itself** is
-   one idempotent call keyed by one `Idempotency-Key`, so retrying the whole batch never double-creates rows
-   for members it already succeeded for.
-2. **[AMENDED — B7]** Evidence attach reuses the existing Files presign→complete flow. **Sharing one evidence
-   file across a batch submission** (B7): the service generates a `training_batch_id` (a `uuidv7`, not stored
-   anywhere — it exists only as the presign target for this one call) before creating any rows; the caller
-   presigns/uploads with `entityKind: "training_batch"`, `entityId: <training_batch_id>`; once that file's
-   `sha256 IS NOT NULL` (fully uploaded), every `training_records` row created in this same call gets that
-   file's id as its own `evidence_file_id` — so the file is genuinely shared (one upload, referenced by every
-   sibling row), not duplicated per member, while each row's own `evidence_file_id` FK stays the authoritative,
-   real link (mirroring C2's `certificate_file_id` philosophy: a real FK is the source of truth, `files.
-   entity_kind/entity_id` is informational only). The server verifies the file belongs to this tenant and is
-   fully uploaded before accepting `evidenceFileId` in the body, same as C2 AC4. `POST /v1/files/presign` for
-   `entityKind: "training_batch"` now requires `training:manage` (closing the same general presign-capability
-   gap B7 closes for `calibration_event`, §0).
+1. **[AMENDED — smaller correction; AMENDED-3 — SHOULD-FIX 8]** `POST /v1/training/records` (`training:manage`,
+   `Idempotency-Key` header — **one key per batch submission**, not per member row within it, mirroring
+   `risk.controller.ts`'s pattern) — body `{ memberIds: string[], competencyId, completedAt, evidenceFileId? }`,
+   creates one new history row per `memberId` (T1 AC1), each copying `competencies.valid_months` at insert time
+   (T1 AC1); each member gets its own row and its own audit event (not batched into one, since these are
+   genuinely independent facts about different people, unlike MSA's single-study measurement batch).
+   **[AMENDED-3 — SHOULD-FIX 8] The whole batch submission is one all-or-nothing database transaction:** either
+   every `memberId`'s row (and its audit event) commits, or none do — standard transactional semantics, no
+   partial-batch state is ever visible to a reader. This corrects the previous UC wording ("members it already
+   succeeded for"), which wrongly implied a first attempt could partially succeed; the **request itself** is
+   additionally idempotency-keyed by one `Idempotency-Key`, so a *retried* call (after a prior successful
+   commit) never double-creates rows — that is a retry-safety property, not evidence that a single call can
+   itself leave a partial result.
+2. **[AMENDED — B7; AMENDED-3 — BLOCKING 2, full rewrite]** Evidence attach reuses the existing Files
+   presign→upload→complete flow, with the **`training_batch_id` concept dropped entirely** — as originally
+   specified it could not actually be built: it was supposedly generated *inside* this same
+   `POST /v1/training/records` call, whose own request body must already contain a fully-uploaded
+   `evidenceFileId` (a circular/impossible sequencing), and the id itself was "not stored anywhere," so it did
+   nothing. **Corrected flow, sharing one evidence file across a batch submission (B7's original intent, now
+   actually buildable):**
+   1. The client presigns a file upload with `entityKind: "training_batch"` and **`entityId` omitted** (there
+      is no batch entity to reference yet — nothing is created until step 4).
+   2. The client uploads the file to the presigned target.
+   3. The client marks it complete (`POST /v1/files/:id/complete`, setting `sha256`).
+   4. The client then calls this route (`POST /v1/training/records`) with that file's real id as
+      `evidenceFileId` in the request body. The service writes this **same** file id to every `training_records`
+      row created in that one call — so the file is genuinely shared (one upload, referenced by every sibling
+      row), not duplicated per member, while each row's own `evidence_file_id` FK stays the authoritative, real
+      link (mirroring C2's `certificate_file_id` philosophy: a real FK is the source of truth, `files.
+      entity_kind/entity_id` is informational only).
+   - Before accepting `evidenceFileId`, the server verifies the referenced file (i) belongs to this tenant,
+     (ii) has `sha256 IS NOT NULL` (fully uploaded), (iii) **[NEW — BLOCKING 2]** has
+     `entity_kind = 'training_batch'` exactly, and (iv) **[NEW — BLOCKING 2]** has `deleted_at IS NULL` — the
+     last two close the identical bypass named in C2 AC4/AC5: a client could otherwise presign with
+     `entityKind` omitted (skipping the `training:manage` gate below) and then simply pass an arbitrary
+     existing tenant file's id as `evidenceFileId`; without checking the file's own `entity_kind`, that gate
+     would be decorative.
+   - `POST /v1/files/presign` for `entityKind: "training_batch"` requires `training:manage` (closing the same
+     general presign-capability gap B7 closes for `calibration_event`, §0).
 3. Cross-tenant/cross-plant member or competency id → 404 (rule 8).
 4. **[AMENDED — smaller correction, new]** `completedAt` in the future (`> today`, tenant timezone — B4(c)) is
    rejected with `422`.
@@ -675,13 +841,16 @@ UC
   every expiring-within-30-days record, tenant/plant-scoped to the caller.
 
 AC
-1. **[AMENDED — B8]** `GET /v1/training/gaps` (cursor, rule 6; `training:view`) — returns every (member,
-   **non-archived** competency) pair in state `gap`, `overdue`, or `warn`, sorted worst-first (`gap`/`overdue`
-   before `warn`, then soonest-expiring first) — this is the same query T1 AC4's matrix uses with the
-   equivalent filter, exposed as its own route because the "Expiring & overdue" card and the export both need
-   it without paginating the full matrix.
-2. **[AMENDED — smaller correction]** `ExportResource` gains `"skill_gap_report"`; `run-export.ts` gains a
-   branch rendering AC1's full result set to PDF. The widened constraint is `exports_resource_check` on the
+1. **[AMENDED — B8; AMENDED-3 — SHOULD-FIX 2]** `GET /v1/training/gaps` (cursor, rule 6; `training:view`) —
+   returns every (member, **non-archived** competency) pair in state `gap`, `overdue`, or `warn`, sorted
+   worst-first (`gap`/`overdue` before `warn`, then soonest-expiring first) — this is the same query T1 AC4's
+   matrix uses with the equivalent filter, exposed as its own route because the "Expiring & overdue" card and
+   the export both need it without paginating the full matrix. Uses the **same tenant-timezone "today" rule**
+   as T1 AC4/AC8 and T4's job (SF2) — a member/competency pair can never appear on the gaps list in a different
+   state than the matrix shows for it on the same day.
+2. **[AMENDED — smaller correction; AMENDED-3 — SHOULD-FIX 2]** `ExportResource` gains `"skill_gap_report"`;
+   `run-export.ts` gains a branch rendering AC1's full result set to PDF, using the **same tenant-timezone
+   "today" rule** as every other training read path. The widened constraint is `exports_resource_check` on the
    real `exports` table (corrected `export_jobs` naming, same as C5 AC2).
 3. `training:view` required to request the export (mirrors `risk_board_pack`, not the stricter `:manage`).
 
@@ -716,8 +885,10 @@ AC
      "training-expiry:<recordId>:<expiresAt>:<threshold>"` (embeds the record's own `expires_at`, so a
      refresher that produces a *new* record with a *new* `expires_at` gets a fresh key space — the same fix as
      C5's `cal-due` key, B4), `threshold` computed the same way as `calibration.ts`'s
-     `activeCalibrationThreshold` (30/7/0 approaching/at expiry, then **every 7 days overdue, uncapped**, for
-     consistency between the two modules), `entityKind: "training_record"`, `entityId: <record id>`.
+     `activeCalibrationThreshold` — **[AMENDED-3 — SHOULD-FIX 4]** plain `number | null` return type,
+     `-7 * floor(daysOverdue / 7)` for the overdue side, same exact formula and between-mark values as C5 AC1
+     (30/7/0 approaching/at expiry, then every 7 days overdue, uncapped) — for consistency between the two
+     modules, `entityKind: "training_record"`, `entityId: <record id>`.
    - For a pure `gap` (no record exists at all): `dedupeKey: "training-expiry:<memberId>:<competencyId>:gap:
      <YYYY-MM>"` — a calendar-month bucket in the tenant's own timezone, since there is no expiry date to
      derive a cycle from; this re-notifies **once per calendar month** while the gap persists (the "re-notify
@@ -738,8 +909,11 @@ the resulting matrix, never the catalog author's own editing screen — so, like
 flagged for the designer as **NO existing jsx** (§5).
 
 UC
-- Happy (archive): from the catalog admin surface, an admin/manager archives a competency they no longer want
-  authored against (its use has ended, or it was a mistake) — the competency stops appearing anywhere live
+- Happy (archive): **[AMENDED-3 — SHOULD-FIX 7(d)]** from the catalog admin surface, an admin/manager/**auditor**
+  archives a competency they no longer want authored against (its use has ended, or it was a mistake) —
+  auditor is corrected in, mirroring the Sprint 04 pattern of auditor holding every elevated QMS-manage
+  capability (this sprint's own X1 AC1 already grants auditor `training:manage`; this UC's earlier
+  "admin/manager" wording was simply not updated to match) — the competency stops appearing anywhere live
   (matrix columns, KPI denominators, the gaps list, both notification jobs) but every historical
   `training_records` row that references it is untouched and still readable (a member's own history still
   shows "completed Forklift Safety on 2024-03-01" even after that competency is archived) — this is exactly
@@ -764,18 +938,27 @@ AC
 1. `PATCH /v1/competencies/:id/archive` (`training:manage`, `lockVersion`, 409 on stale) — sets `archived_at =
    now()`; archiving an already-archived competency is `422` (no-op transition, mirrors C4 AC1's retire
    precedent). (b) `PATCH /v1/competencies/:id/unarchive` (`training:manage`, `lockVersion`) — clears
-   `archived_at`; `422` if not currently archived. Both audited `status_changed`, not generic `updated`.
-   (c) **Code uniqueness is enforced only among non-archived rows** — the partial unique index from T1 AC1
-   means an un-archive can `409`/`422` if another row has since taken the same `code` while this one was
-   archived; the service surfaces that as a real conflict, not a silent rename.
+   `archived_at`; `422` if not currently archived; **[AMENDED-3 — SHOULD-FIX 7(b)] the un-archived row's `seq`
+   is reset to `current_max_seq(non-archived) + 1`** — appended to the end of the catalog's current order, the
+   same rule T1 AC3 states for a brand-new competency, stated explicitly here since an archived row's old `seq`
+   may now collide with or fall in the middle of rows created/reordered while it was archived. Both audited
+   `status_changed`, not generic `updated`. (c) **[AMENDED-3 — SHOULD-FIX 7(c)] Code uniqueness is enforced only
+   among non-archived rows** — the partial unique index from T1 AC1 means an un-archive can conflict if another
+   row has since taken the same `code` while this one was archived; that conflict is **`409 Conflict`,
+   consistently** (a state-conflict, not a validation failure — corrected from an earlier ambiguous 409/422
+   framing) — the service surfaces it as a real conflict, not a silent rename.
 2. Archived competencies are excluded, by the same `archived_at IS NULL` predicate everywhere: `GET
    /v1/training/matrix` (T1 AC4), `GET /v1/training/summary` (T1 AC8), `GET /v1/training/gaps` (T3 AC1), the
    `training-expiry` job (T4 AC1), and `GET /v1/competencies`'s default listing (T1 AC3) — one predicate,
    applied in every one of these five places, not reimplemented five different ways; a shared query helper in
    `TrainingService`/`CompetenciesService` is the single source of truth for it.
-3. **[Architect's confirmed correction]** `PUT /v1/competencies/order` (`training:manage`) — body: an ordered
-   array of `{ id, seq }` pairs covering every non-archived competency. **Must be a single atomic statement**
-   — one `UPDATE competencies SET seq = v.seq FROM (VALUES …) AS v(id, seq) WHERE competencies.id = v.id AND
+3. **[Architect's confirmed correction; AMENDED-3 — SHOULD-FIX 7(a)]** `PUT /v1/competencies/order`
+   (`training:manage`) — body: an ordered array of `{ id, seq }` pairs covering every non-archived competency.
+   **Returns `409 Conflict` if the body's id list does not exactly match the current set of non-archived
+   competency ids** (a different set, a missing id, or an extra id) — this prevents a stale client from
+   silently reordering a different set than it thinks it's reordering (e.g. a competency was archived or a new
+   one created since the client loaded its copy of the catalog). **Must be a single atomic statement** — one
+   `UPDATE competencies SET seq = v.seq FROM (VALUES …) AS v(id, seq) WHERE competencies.id = v.id AND
    competencies.tenant_id = $tenantId` (or an explicit transaction wrapping equivalent per-row updates with no
    intervening commit) — never N sequential single-row `UPDATE`s, which could interleave with a concurrent
    reorder and leave two competencies sharing a `seq` or a gap in the sequence. Audited `updated` once for the
@@ -897,12 +1080,15 @@ is written until this is approved.)*
    `audit_events` for history" — reasoning in §2 T1 AC1. This is the one genuine schema deviation from the
    phase doc's own draft, and is flagged here for explicit approval the same way Sprint 04 flagged `gauge_
    label` as text-not-FK.
-9. **[AMENDED — B7] Certificate/evidence attachment reuses the existing Files *upload* pipeline unchanged**
-   (`entity_kind` is free-text, §1a, no new upload mechanism, no new `files` schema) — but the **link** from a
-   calibration event to its certificate is corrected to be the real `certificate_file_id` FK exclusively, never
-   a `files.entity_kind/entity_id` lookup (which this sprint's original draft proposed as a second, competing
-   mechanism); training evidence for a batch submission shares one uploaded file across every member row via a
-   `training_batch_id` presign target (C2 AC1/AC4/AC5, T2 AC2, §0).
+9. **[AMENDED — B7; AMENDED-3 — superseded detail, see item 16] Certificate/evidence attachment reuses the
+   existing Files *upload* pipeline unchanged** (`entity_kind` is free-text, §1a, no new upload mechanism, no
+   new `files` schema) — but the **link** from a calibration event to its certificate is corrected to be the
+   real `certificate_file_id` FK exclusively, never a `files.entity_kind/entity_id` lookup (which this sprint's
+   original draft proposed as a second, competing mechanism); training evidence for a batch submission shares
+   one uploaded file across every member row by presigning with `entityKind: "training_batch"` and `entityId`
+   omitted, then referencing that uploaded file's real id as `evidenceFileId` in the batch-create call —
+   **[AMENDED-3]** corrected from an earlier, unbuildable `training_batch_id` presign-target design; see item
+   16 for the full corrected mechanism (C2 AC1/AC4/AC5, T2 AC2, §0).
 10. **Training does NOT block NCR/other actions this sprint** — same reasoning and disposition as item 5;
     the KPI/gap counts (T1 AC7, "BLOCKED" sub-label) are real numbers, the enforcement itself is not built.
 11. **The "Linked e-learning" vendor panel (Cornerstone/SAP SuccessFactors/Litmos/Custom SCORM) is EXCLUDED
@@ -924,24 +1110,46 @@ is written until this is approved.)*
     month = 2026-02-28`; `'2028-01-31' + 1 month = 2028-02-29`, 2028 being a leap year) — both examples are
     asserted in a real integration test, not a `packages/core` unit test, since this is DB-side generated-column
     arithmetic (C1 AC1, T1 AC1).
-14. **[AMENDED — B3, new] A `fail` calibration result never advances an instrument's due date** — only
-    `pass`/`adjusted` do; a new `last_result` column drives an unconditional `overdue` override in
-    `instrumentDueStatus` when the newest event is `fail`, closing a real IATF 7.1.5 correctness bug the
-    original draft had (an out-of-tolerance gauge could otherwise read "good") (C1 AC1/AC2, C2 AC2).
-15. **[AMENDED — B4, new] Due/expiry reminders are cycle-tied and take ISO date strings, never JS `Date`
-    objects** — dedupe keys embed the due/expiry date itself (`cal-due:<id>:<nextDue>:<threshold>`,
-    `training-expiry:<recordId>:<expiresAt>:<threshold>`), since `notifications_dedupe_uq` is a permanent
-    index and the original key shape would have meant an instrument/record is only ever reminded through its
-    first cycle. "Today" is computed in the **instrument's plant's timezone** for calibration and the
-    **tenant's timezone** for training (both columns already exist, no schema change); the re-notify cadence
-    while overdue/lapsed is **every 7 days, uncapped**, and a pure `gap` (no record at all) re-notifies **once
-    per calendar month** (C5 AC1, T4 AC1).
-16. **[AMENDED — B7, new] `certificate_file_id`/`evidence_file_id` are the sole, authoritative links** —
-    `files.entity_kind/entity_id` is informational only and never read to resolve "the certificate"/"the
-    evidence"; both write paths verify the file belongs to this tenant and is fully uploaded (`sha256 IS NOT
-    NULL`) before accepting the link, and `POST /v1/files/presign` now requires the matching `:manage`
-    capability for the two new `entityKind`s this sprint introduces (`calibration_event`, `training_batch`) —
-    closing a real hole where presign otherwise has no capability check at all (C2 AC1/AC4/AC5, T2 AC2).
+14. **[AMENDED — B3, new; AMENDED-3 — BLOCKING 1 & 3] A `fail` calibration result never advances an
+    instrument's due date, and every calibration event is audited regardless of result** — only
+    `pass`/`adjusted` advance `last_calibrated`/`next_due`; a new `last_result` column drives an unconditional
+    `overdue` override in `instrumentDueStatus` when the newest event is `fail`, closing a real IATF 7.1.5
+    correctness bug the original draft had (an out-of-tolerance gauge could otherwise read "good"). **"Newest
+    event" is now defined exactly** — ordered by `(performed_at DESC, created_at DESC)`, not a bare
+    `performed_at >` comparison — closing a same-day tie-break hole where a same-day `fail` recorded after a
+    same-day `pass` could fail to update `last_result` at all (Round 3 BLOCKING 1). **Every calibration event,
+    any result, now writes its own `created` audit on the event row**; only `pass`/`adjusted` additionally
+    write an `updated` audit on the parent instrument (the due-date advance); a `fail`'s `last_result` write to
+    the parent is a non-audited denormalized mirror of the event's own already-audited result — no result type
+    is ever silently unaudited (Round 3 BLOCKING 3) (C1 AC1/AC2, C2 AC2/AC5).
+15. **[AMENDED — B4, new; AMENDED-3 — SHOULD-FIX 1 & 2] Due/expiry reminders are cycle-tied and take ISO date
+    strings, never JS `Date` objects** — dedupe keys embed the due/expiry date itself
+    (`cal-due:<id>:<nextDue>:<threshold>`, `training-expiry:<recordId>:<expiresAt>:<threshold>`), since
+    `notifications_dedupe_uq` is a permanent index and the original key shape would have meant an
+    instrument/record is only ever reminded through its first cycle. "Today" is computed in the **instrument's
+    plant's timezone** for calibration and the **tenant's timezone** for training (both columns already exist,
+    no schema change) — **[AMENDED-3] applied consistently to every READ path, not job-only**: the calibration
+    list's `dueStatus` filter, its summary, its detail view, and its export all use the plant-timezone rule
+    (C1 AC3/AC6, C5 AC2); the training matrix, its summary, its gaps list, and its export all use the
+    tenant-timezone rule (T1 AC4/AC8, T3 AC1/AC2) — the same rule everywhere, since the SQL-vs-core-function
+    agreement test (§4/§8) depends on it. The re-notify cadence while overdue/lapsed is **every 7 days,
+    uncapped** (exact formula, `-7 * floor(daysOverdue / 7)`, SHOULD-FIX 4), and a pure `gap` (no record at all)
+    re-notifies **once per calendar month**; **[AMENDED-3, new]** an instrument whose newest event is `fail`
+    additionally notifies its owner immediately, independent of the date-threshold schedule (C5 AC1, T4 AC1).
+16. **[AMENDED — B7, new; AMENDED-3 — BLOCKING 2, revised] `certificate_file_id`/`evidence_file_id` are the
+    sole, authoritative links** — `files.entity_kind/entity_id` is informational only and never read to resolve
+    "the certificate"/"the evidence"; both are now **composite FKs → `files(tenant_id, id)`** (SF6, corrected
+    from a plain FK). Both write paths verify the file (i) belongs to this tenant, (ii) is fully uploaded
+    (`sha256 IS NOT NULL`), (iii) **has `entity_kind` exactly matching what's expected**
+    (`calibration_event`/`training_batch`), and (iv) **has `deleted_at IS NULL`** before accepting the link —
+    (iii)/(iv) are new in Round 3, closing a real bypass where a client could presign with `entityKind` omitted
+    (skipping the capability gate below) and then simply reuse an arbitrary existing tenant file's id at link
+    time. `POST /v1/files/presign` requires the matching `:manage` capability for the two new `entityKind`s
+    this sprint introduces. **The unbuildable `training_batch_id` mechanism (Round 2) is dropped entirely** —
+    training evidence for a batch is now shared by presigning with `entityKind: "training_batch"` and
+    `entityId` **omitted**, uploading, completing (`sha256` set), and only then calling
+    `POST /v1/training/records` with that file's real id as `evidenceFileId`, which the service copies to every
+    row the call creates (C2 AC1/AC4/AC5, T2 AC2).
 17. **[AMENDED — B8, new] Competency archival uses a dedicated `archived_at` column, never the generic
     `deleted_at` soft-delete pattern** — this sprint's own soft-delete purge job would otherwise eventually
     destroy real training history tied to an archived competency; code uniqueness is enforced only among
@@ -967,15 +1175,25 @@ fixed — this shifts every migration number in the sprint's reserved range up b
 
 **What the user is being asked to approve:** all 17 decisions in §3.1 above — the 30-day warn window; the
 plant/area FK design and its corrected, self-contained plant-scoping rule (no longer pointing at a precedent
-that doesn't exist); free-text vendor/method tracking; the deliberate non-enforcement of calibration/training
-gates elsewhere in the product, with the corrected banner text; the tenant-owned seeded catalog; the
-mandatory-gap cell rule; the per-completion history table for training; the corrected Files-linking design
-(`certificate_file_id`/`evidence_file_id` as the sole authoritative links, presign capability-checked for the
-two new entity kinds); the exclusion of the LMS vendor panel; the `CAL-YYYY-NNNN` code correction; the
-`make_interval`-based generated columns and their confirmed month-end behaviour; the `fail`-never-advances-
-due-date correctness rule; the cycle-tied, timezone-explicit notification design; and the `archived_at`-based
-competency-archival pattern (new story T5) — together with the full schemas in §2's ACs and the renumbered
-migration range `0067`-`0071`, which will be built exactly as specified, never adjusted for cosmetic effect.
+that doesn't exist, and now including the narrow owner-sees-own-instrument exception, SF3); free-text
+vendor/method tracking; the deliberate non-enforcement of calibration/training gates elsewhere in the product,
+with the corrected banner text; the tenant-owned seeded catalog; the mandatory-gap cell rule; the
+per-completion history table for training; **[AMENDED-3]** the corrected Files-linking design
+(`certificate_file_id`/`evidence_file_id` as the sole authoritative links, now composite FKs to
+`files(tenant_id, id)`, presign capability-checked for the two new entity kinds, **and link-time verified
+against the file's own `entity_kind`/`deleted_at`**, with the unbuildable `training_batch_id` mechanism
+replaced by an omitted-`entityId` presign + `evidenceFileId` sequencing); the exclusion of the LMS vendor
+panel; the `CAL-YYYY-NNNN` code correction; the `make_interval`-based generated columns and their confirmed
+month-end behaviour; **[AMENDED-3]** the `fail`-never-advances-due-date correctness rule, now with an exact
+same-day "newest event" tie-break and a three-way calibration-event/instrument audit split (created on every
+event, updated on the parent only for pass/adjusted, updated on the event itself for a certificate re-attach);
+**[AMENDED-3]** the cycle-tied, timezone-explicit notification design, now extended explicitly to every read
+path (not job-only) and including an immediate fail-triggered owner notification; and the `archived_at`-based
+competency-archival pattern (new story T5, now including its reorder/unarchive edge cases) — together with the
+full schemas in §2's ACs and the renumbered migration range `0067`-`0071`, which will be built exactly as
+specified, never adjusted for cosmetic effect. **None of Round 3's corrections add new decisions to approve —
+they sharpen the exact, testable behaviour of decisions 14 and 16 above (and their touch-points, item 15),
+which were already part of what this section asks the user to approve.**
 
 ---
 
@@ -984,17 +1202,17 @@ migration range `0067`-`0071`, which will be built exactly as specified, never a
 | Story | Migration | Contract / REST route | Service | Audit events | RBAC | Tenant isolation |
 |---|---|---|---|---|---|---|
 | **B2 prereq** | **`0067_composite_fk_prereqs.sql`** — `UNIQUE (tenant_id, id)` on `plants`/`areas`/`ncrs`/`files` | none | none | none | n/a | forced RLS already exists on all four; this only adds a constraint |
-| C1 | `0068_calibration.sql` (`instruments`, incl. `last_result`) | `GET/POST /v1/instruments` (+`q` search), `GET/PATCH /v1/instruments/:id`, `GET /v1/instruments/summary` | `InstrumentsService` + `packages/core/calibration.ts` (pure, ISO-date signature) | `created`/`updated`, in-tx | `calibration:view` / `calibration:manage` | forced RLS; plant-scope filter (B5's own stated rule); cross-tenant/plant id → 404 |
-| C2 | `0068` also (`calibration_events`) | `POST/GET /v1/instruments/:id/calibration-events`, `PUT /v1/instruments/:instrumentId/calibration-events/:eventId/certificate` | `InstrumentsService.recordCalibration`/`attachCertificate` | `updated` (parent instrument advance, `pass`/`adjusted` only — B3), in-tx | `calibration:manage` (write, incl. presign for `entityKind:"calibration_event"`) / `calibration:view` (read) | forced RLS, cascades with parent; tenant+`sha256` check before linking a certificate |
+| C1 | `0068_calibration.sql` (`instruments`, incl. `last_result`) | `GET/POST /v1/instruments` (+`q` search over name/code/**area name**, SF5), `GET/PATCH /v1/instruments/:id`, `GET /v1/instruments/summary` | `InstrumentsService` + `packages/core/calibration.ts` (pure, ISO-date signature) | `created`/`updated`, in-tx | `calibration:view` / `calibration:manage` | forced RLS; plant-scope filter (B5's own stated rule) **with an owner-sees-own-instrument exception (SF3)**; cross-tenant/plant id → 404; **all reads use the instrument's plant timezone for "today" (SF2)** |
+| C2 | `0068` also (`calibration_events`) | `POST/GET /v1/instruments/:id/calibration-events`, `PUT /v1/instruments/:instrumentId/calibration-events/:eventId/certificate` | `InstrumentsService.recordCalibration`/`attachCertificate` | **[AMENDED-3]** `created` on the `calibration_event` row, every result, unconditionally; `updated` on the parent instrument only for `pass`/`adjusted` (due-date advance, B3); `updated` on the event row itself when a certificate is attached/replaced (AC5) — three-way split, in-tx | `calibration:manage` (write, incl. presign for `entityKind:"calibration_event"`) / `calibration:view` (read) | forced RLS, cascades with parent; tenant+`sha256`+**`entity_kind='calibration_event'`+`deleted_at IS NULL`** check before linking a certificate (BLOCKING 2); "newest event" ordered by `(performed_at DESC, created_at DESC)` (BLOCKING 1) |
 | C3 | `0068` also (`ncrs.source` CHECK widened; `NcrSource` gains `calibration`) | `POST /v1/instruments/:instrumentId/calibration-events/:eventId/raise-ncr` | `InstrumentsService.raiseNcr` (mirrors `audits.service.ts:raiseNcr`) + `NcrsService.create` | `created` (new NCR), in-tx | `calibration:manage` (route gate) + `ncr:create` (service, redundant-but-harmless — §0) | forced RLS; cross-tenant id → 404; one-time-link guard |
 | C4 | none | `PATCH /v1/instruments/:id/retire`, `PATCH /v1/instruments/:id` (transfer = existing edit route) | `InstrumentsService.retire`/`transfer` (area↔plant consistency check — architect's confirmed exception) | `status_changed` (retire) / `updated` (transfer) | `calibration:manage` | forced RLS |
-| C5 | none (job + `exports_resource_check` widened in `0070`) | `ExportResource` gains `"calibration_audit_pack"` | `run-export.ts` new branch; new `calibration-due` job processor (cycle-tied dedupe, plant-timezone "today" — B4) | existing export-created event; notifications write no audit event (mirrors `document-expiry`) | `calibration:view` (export) | scoped to caller's tenant/plant before enqueue |
+| C5 | none (job + `exports_resource_check` widened in `0070`) | `ExportResource` gains `"calibration_audit_pack"` | `run-export.ts` new branch (same plant-timezone rule, SF2); new `calibration-due` job processor (cycle-tied dedupe, plant-timezone "today" — B4; **[AMENDED-3] plus an immediate, date-independent notification for any instrument whose `last_result = 'fail'`, SF1; `activeCalibrationThreshold` returns plain `number \| null`, `-7 * floor(daysOverdue/7)` on the overdue side, SF4**) | existing export-created event; notifications write no audit event (mirrors `document-expiry`) | `calibration:view` (export) | scoped to caller's tenant/plant before enqueue |
 | C6 | none | reuses C1's `POST /v1/instruments` | `InstrumentsService.create` (shared with C1) | `created` | `calibration:manage` | forced RLS |
-| T1 | `0069_training.sql` (`competencies` incl. `archived_at`, `training_records` incl. `valid_months`) | `GET/POST /v1/competencies`, `GET/PATCH /v1/competencies/:id`, `GET /v1/training/matrix` (+`q` search via `control.users`), `GET /v1/training/summary` | `CompetenciesService`, `TrainingService` + `packages/core/competency.ts` (pure, ISO-date signature) | `created`/`updated`, in-tx | `training:view` / `training:manage` | forced RLS; plant-scope filter on matrix members (B5's own stated rule); cross-tenant/plant id → 404 |
-| T2 | none | `POST /v1/training/records` | `TrainingService.recordTraining` (shared-evidence-via-`training_batch_id` presign target — B7) | `created` per member row, in-tx | `training:manage` (write, incl. presign for `entityKind:"training_batch"`) / `training:view` (read) | forced RLS |
-| T3 | none (`exports_resource_check` widened in `0070`) | `GET /v1/training/gaps`; `ExportResource` gains `"skill_gap_report"` | `TrainingService.gaps`; `run-export.ts` new branch | read-only / existing export-created event | `training:view` | RLS + plant-scoped |
-| T4 | none | none (job only) | new `training-expiry` job processor — **a genuine daily members × mandatory-competencies cross-join, named here as real backend work, not a trivial index scan** (architect's confirmed note); tenant-timezone "today", cycle-tied dedupe (B4) | notifications write no audit event (mirrors `document-expiry`) | n/a | scoped per tenant, excludes archived competencies/partner/inactive members |
-| **T5** | `0069` also (`archived_at`, partial unique index) | `PATCH /v1/competencies/:id/archive`, `PATCH /v1/competencies/:id/unarchive`, `PUT /v1/competencies/order` (single atomic statement — architect's confirmed exception) | `CompetenciesService.archive`/`unarchive`/`reorder` | `status_changed` (archive/unarchive) / `updated` (reorder, once for the whole batch) | `training:manage` | forced RLS; `lockVersion` on archive/unarchive |
+| T1 | `0069_training.sql` (`competencies` incl. `archived_at`, `training_records` incl. `valid_months`) | `GET/POST /v1/competencies` (create sets `seq = max+1`, SF7(b)), `GET/PATCH /v1/competencies/:id`, `GET /v1/training/matrix` (+`q` search via `control.users`), `GET /v1/training/summary` | `CompetenciesService`, `TrainingService` + `packages/core/competency.ts` (pure, ISO-date signature) | `created`/`updated`, in-tx | `training:view` / `training:manage` | forced RLS; plant-scope filter on matrix members (B5's own stated rule); cross-tenant/plant id → 404; **all reads use tenant timezone for "today" (SF2)** |
+| T2 | none | `POST /v1/training/records` | `TrainingService.recordTraining` — **[AMENDED-3]** shared evidence via a presign with `entityKind:"training_batch"` and `entityId` omitted, uploaded/completed first, then referenced as `evidenceFileId` in this call (`training_batch_id` dropped, BLOCKING 2); one all-or-nothing transaction for the whole batch (SF8) | `created` per member row, in-tx | `training:manage` (write, incl. presign for `entityKind:"training_batch"`) / `training:view` (read) | forced RLS; tenant+`sha256`+**`entity_kind='training_batch'`+`deleted_at IS NULL`** check before linking evidence (BLOCKING 2) |
+| T3 | none (`exports_resource_check` widened in `0070`) | `GET /v1/training/gaps`; `ExportResource` gains `"skill_gap_report"` | `TrainingService.gaps`; `run-export.ts` new branch (same tenant-timezone rule, SF2) | read-only / existing export-created event | `training:view` | RLS + plant-scoped |
+| T4 | none | none (job only) | new `training-expiry` job processor — **a genuine daily members × mandatory-competencies cross-join, named here as real backend work, not a trivial index scan** (architect's confirmed note); tenant-timezone "today", cycle-tied dedupe (B4); threshold function returns plain `number \| null` (SF4) | notifications write no audit event (mirrors `document-expiry`) | n/a | scoped per tenant, excludes archived competencies/partner/inactive members |
+| **T5** | `0069` also (`archived_at`, partial unique index) | `PATCH /v1/competencies/:id/archive`, `PATCH /v1/competencies/:id/unarchive` (resets `seq = max+1`, 409 on code clash, SF7(b)/(c)), `PUT /v1/competencies/order` (single atomic statement — architect's confirmed exception; **409 if the id set doesn't exactly match current non-archived ids, SF7(a)**) | `CompetenciesService.archive`/`unarchive`/`reorder` | `status_changed` (archive/unarchive) / `updated` (reorder, once for the whole batch) | `training:manage` | forced RLS; `lockVersion` on archive/unarchive |
 | X1 | none | `@RequireCapability` on all four controllers, incl. T5's new routes | none | none | `calibration:view`/`calibration:manage`/`training:view`/`training:manage` added to `packages/core/src/rbac.ts` per §2 X1 AC1; `calibration`/`training` added to auditor's, `inspector`'s, and `viewer`'s web `ROLE_NAV` `Set`s (B9) | n/a |
 
 Every mutation runs inside `withAudit` in the same transaction (rule 3); both list/matrix endpoints are
@@ -1003,9 +1221,11 @@ status-derivation math are `packages/core` pure functions (rule 5), taking ISO d
 objects (B4), never computed in a controller or a React component. `POST` create routes carry an
 `Idempotency-Key` header (one per training batch, not per member row). A dedicated test proves the SQL-side
 matrix/gaps query and the `packages/core` pure-function version of `competencyCellState`/`instrumentDueStatus`
-agree at every boundary condition (warn/overdue crossovers, the `fail`-override, the due-day-reads-`warn` rule)
-— named here explicitly per the architect's own confirmed note, not assumed to follow automatically from
-"both implement the same rule." **Reserved migration range for this sprint: `0067`-`0071`** (**[AMENDED — B2,
+agree at every boundary condition (warn/overdue crossovers, the `fail`-override, the due-day-reads-`warn` rule,
+**[AMENDED-3] the "newest event" `(performed_at DESC, created_at DESC)` tie-break, and the plant/tenant
+timezone rule applied identically across every read path, SF2**) — named here explicitly per the architect's
+own confirmed note, not assumed to follow automatically from "both implement the same rule." **Reserved
+migration range for this sprint: `0067`-`0071`** (**[AMENDED — B2,
 renumbered]** 0067 composite-FK prereqs on `plants`/`areas`/`ncrs`/`files`, 0068 instruments + calibration_
 events + NcrSource widening, 0069 competencies + training_records + T5's `archived_at`, 0070 `exports_
 resource_check` widening, 0071 held as buffer — Sprint 06 takes `0072` onward).
@@ -1107,6 +1327,17 @@ exactly Sprint 04's own closing note for its one exclusion (Nested/Attribute-kap
   on top of an existing, unaddressed hole without naming it. Fixing the general download-authorization gap
   across every `entity_kind` is out of scope for this sprint (a cross-cutting Files-module fix, not specific to
   calibration/training) — logged here so it is not lost, not treated as this sprint's own defect to fix.
+- **[AMENDED-3 — SHOULD-FIX 10, new] Known issue — `document-expiry.ts`'s `Date`-based signature.** Round 1's
+  amendment (B4, §0) stated that `document-expiry.ts`'s existing `Date`-based function signature
+  (`packages/core/src/document-expiry.ts:33`) carries the same latent exposure to the local-midnight/timezone
+  bug this sprint's own ISO-date-string signatures (`instrumentDueStatus`, `competencyCellState`,
+  `activeCalibrationThreshold`) are deliberately written to avoid — `pg` returns a `date` column as a
+  local-midnight JS `Date`, which can silently shift under a non-UTC server timezone. Round 1's own text
+  claimed this was "logged as a Known issue" here in §7, but on review that entry was never actually added —
+  this bullet is that missing entry, added now (Round 3, SF10). It remains explicitly out of scope for this
+  sprint to fix (`document-expiry.ts` belongs to the existing document-expiry module, not calibration/training,
+  and this sprint does not touch it) — a future story should migrate it to the same ISO-date-string signature
+  this sprint establishes as the pattern for date-driven due/expiry logic.
 - **Sprint 04's own follow-up, now informed by this sprint:** Sprint 04's Q22 named `msa_studies.gauge_label`
   as free text pending a real `instrument_id` FK once calibration ships. **This sprint does not add that FK
   or backfill** — it is explicitly deferred again, one sprint further, to a small follow-up story that adds
@@ -1139,8 +1370,9 @@ exactly Sprint 04's own closing note for its one exclusion (Nested/Attribute-kap
 
 ## 8. Definition of Done
 
-- [ ] **User has explicitly approved §3** (all **17** named decisions in §3.1 — **[AMENDED — B1-B9]**, plus the
-      full schemas in §2's ACs) — **NO BUILD STARTS BEFORE THIS.**
+- [ ] **User has explicitly approved §3** (all **17** named decisions in §3.1 — **[AMENDED — B1-B9;
+      AMENDED-3 — items 14/16 sharpened, no new decision count]**, plus the full schemas in §2's ACs) —
+      **NO BUILD STARTS BEFORE THIS.**
 - [ ] **[AMENDED — B2, renumbered]** Migrations `0067_composite_fk_prereqs.sql`, `0068_calibration.sql`,
       `0069_training.sql`, `0070_calibration_training_exports.sql` applied, in that order (`0067` before the
       others — it is a real dependency, not just numbering); `pnpm db:check` green; `pnpm test:rls` green
@@ -1198,8 +1430,49 @@ exactly Sprint 04's own closing note for its one exclusion (Nested/Attribute-kap
 - [ ] **[AMENDED — B8, new]** Archiving a competency removes it from the matrix/KPIs/gaps/both jobs on the next
       read/sweep without touching any existing `training_records` row that references it (browser/integration-
       verified: archive, then confirm the member's own history for that competency is unchanged); un-archiving
-      restores it; the reorder route is proven atomic under a concurrent-write test (architect's confirmed
-      requirement), not just correct in the single-caller case.
+      restores it (`seq = max+1`, SF7(b)); the reorder route is proven atomic under a concurrent-write test
+      (architect's confirmed requirement), not just correct in the single-caller case; **[AMENDED-3 — SF7(a)/(c)]**
+      the reorder route returns `409` when its body's id list doesn't exactly match the current non-archived
+      set, and an un-archive that collides with a live competency's code returns `409` consistently — both
+      integration-tested.
+- [ ] **[AMENDED-3 — BLOCKING 1, new]** A same-day tie-break test proves: (a) a same-day `fail` recorded
+      *after* a same-day `pass` correctly flips `last_result` to `fail` (the instrument reads `overdue`); (b) a
+      same-day corrective `pass`/`adjusted` recorded *after* a same-day `fail` correctly clears the override —
+      both against real inserted rows with identical `performed_at`, distinguished only by insertion order
+      (`created_at`), not merely asserted against the pure function in isolation.
+- [ ] **[AMENDED-3 — BLOCKING 3, new]** An audit-trail test proves the three-way split: every calibration event
+      (pass, adjusted, **and fail**) writes a `created` audit on the `calibration_event` row; only pass/adjusted
+      additionally write an `updated` audit on the parent `instrument`; a `fail` writes no parent audit; the
+      certificate-attach `PUT` route writes an `updated` audit on the `calibration_event` row and never on the
+      parent instrument — integration-tested against real audit-log rows, not asserted from the AC text alone.
+- [ ] **[AMENDED-3 — BLOCKING 2, new]** The corrected evidence/certificate flow is proven end-to-end: presign
+      with `entityKind` omitted → upload → complete → create/attach call referencing that file's id succeeds
+      (calibration and training both); and a bypass test proves the fix — presigning with `entityKind` omitted
+      and then attempting to link an **unrelated** existing tenant file (wrong `entity_kind`, or one with
+      `deleted_at` set) as a certificate/evidence file is rejected, for both C2 (AC4/AC5) and T2 (AC2).
+- [ ] **[AMENDED-3 — SHOULD-FIX 1, new]** An instrument whose newest event is `fail` notifies its owner on the
+      very next `calibration-due` sweep even when `next_due` is far in the future, integration-tested against a
+      seeded fixture.
+- [ ] **[AMENDED-3 — SHOULD-FIX 2, new]** A test proves the calibration list's `dueStatus` filter, its summary,
+      its detail view, and its export agree on the same instrument's status on the same day (plant timezone);
+      the equivalent test for training's matrix, summary, gaps, and export (tenant timezone).
+- [ ] **[AMENDED-3 — SHOULD-FIX 3, new]** An `inspector`/`viewer` whose own `plantIds` excludes their own
+      designated instrument's plant can still fetch that one instrument by id (200, not 404) and click through
+      to a notification about it, while still 404ing on every *other* out-of-scope instrument — browser/
+      integration-verified.
+- [ ] **[AMENDED-3 — SHOULD-FIX 4, new]** `activeCalibrationThreshold` unit-tested across every `daysOverdue`
+      value 0-20 (not just the named 0/-7/-14 marks), proving the `-7 * floor(daysOverdue/7)` formula for the
+      previously-undefined in-between values (1-6, 8-13, etc.), and that its return type is plain `number`.
+- [ ] **[AMENDED-3 — SHOULD-FIX 5, new]** `GET /v1/instruments?q=` matches an instrument by its area's name,
+      not only by instrument name/code, integration-tested.
+- [ ] **[AMENDED-3 — SHOULD-FIX 6, new]** `pnpm db:check`/RLS tests confirm `certificate_file_id` and
+      `evidence_file_id` are composite FKs to `files(tenant_id, id)`, not plain FKs to `files(id)`.
+- [ ] **[AMENDED-3 — SHOULD-FIX 8, new]** A simulated mid-batch failure in `POST /v1/training/records` (e.g. a
+      constraint violation on one `memberId` row) rolls back the entire batch — no partial set of rows is ever
+      visible to a subsequent read, integration-tested.
+- [ ] **[AMENDED-3 — SHOULD-FIX 9, new]** `GET /v1/training/summary`'s Coverage reads `"—"`, not `0%`/`100%`/an
+      error, when the tenant (or the caller's plant-scoped view) has zero mandatory, non-archived competencies —
+      browser/integration-verified.
 - [ ] Placeholder ledger entries `"planned:calibration"`/`"planned:training"` removed; both removed from
       `PLANNED_MODULES`.
 - [ ] Auditor's, **[AMENDED — B9]** inspector's, and viewer's web nav include `calibration`/`training`;
@@ -1210,10 +1483,13 @@ exactly Sprint 04's own closing note for its one exclusion (Nested/Attribute-kap
       table deviation from P17's draft, the plant/area FK design, the LMS-panel exclusion, the corrected
       overdue-banner copy, the `CAL-YYYY-NNNN` code format, the deferred MSA `instrument_id` follow-up,
       **[AMENDED — new]** the `make_interval` generated-column fix, the `fail`-never-advances-due-date rule,
-      the cycle-tied notification dedupe design, the `certificate_file_id`/`training_batch_id` Files-linking
+      the cycle-tied notification dedupe design, the `certificate_file_id`/`evidence_file_id` Files-linking
       correction, the `archived_at` competency-archival pattern and new T5 story, and the migration
-      renumbering `0067`-`0071`) and `progress_mobile.md` gets an explicit "Sprint 05 — mobile unaffected" line
-      (per Sprint 02/03/04's own DoD lesson, not silently skipped).
+      renumbering `0067`-`0071`, **[AMENDED-3, new]** the exact "newest event" tie-break rule, the three-way
+      calibration-event audit split, the dropped `training_batch_id` mechanism and its replacement flow, the
+      `entity_kind`/`deleted_at` file-link double-check, and the composite-FK correction on
+      `certificate_file_id`/`evidence_file_id`) and `progress_mobile.md` gets an explicit "Sprint 05 — mobile
+      unaffected" line (per Sprint 02/03/04's own DoD lesson, not silently skipped).
 
 ## 9. Out-of-scope confirmation
 
@@ -1226,20 +1502,31 @@ standing, named cross-cutting config edits (nav/rbac/placeholder-ledger) every s
 
 ---
 
-**PO use-case sign-off: PENDING — Ceremony 4 SEND BACK amendment issued (all nine B-items plus eight smaller
-corrections resolved, §0), awaiting the planner's re-confirmation, the UI Lead Designer's audit (Gate 1,
-including the two new boards this amendment adds — Board 9's admin surface, T5, and the failed-calibration
-banner state, C1), and the user's explicit approval of the corrected §3 before any build work starts.**
+**PO use-case sign-off: PENDING — Ceremony 4 SEND BACK AGAIN (Round 3) amendment issued (Round 2's nine B-items
+plus eight smaller corrections were resolved first; this Round 3 pass resolves a second, narrower review's
+3 blocking defects plus 10 should-fix items, §0), awaiting the planner's re-confirmation, the UI Lead
+Designer's audit (Gate 1, including the two new boards Round 2 added — Board 9's admin surface, T5, and the
+failed-calibration banner state, C1 — Round 3 adds no new boards), and the user's explicit approval of the
+corrected §3 before any build work starts.**
 
 Every use case (happy/error/empty/permission/offline/cross-tenant/plant-scope) across C1-C6, T1-T5, and X1 now
 maps to a story with testable acceptance criteria and an explicit Web/Mobile/Shared split; the dead-end audit
-(§6) accounts for every control the jsx introduces plus every new control this amendment adds (T5's archive/
-reorder, C2's certificate-attach route, the three new notification click-throughs), with the one honestly
-excluded panel (Q-T1, LMS vendors) named rather than faked, and two previously-undetected gaps closed — the
-calibration KPI's un-backed "N led to NCR" number (C3, unchanged from the original draft) and Board 9's
-delete/reorder controls, which this amendment gives a real story and real AC (T5, B8) rather than leaving
-promised-but-unbuilt. Five new open questions are logged, not silently dropped (Q-T4, Q-C3, plus the three
-already-named Q-C1/Q-C2/Q-T1/Q-T2/Q-T3 from the original draft), and one pre-existing, unrelated security gap
-(file downloads) is named as a Known issue rather than compounded silently. This file itself introduces no
-product code and spawns no other agent, per this ceremony's instructions — the next steps are the planner's
-re-review of this amendment, the `ui-lead-designer` audit, and the user's §3 approval.
+(§6) accounts for every control the jsx introduces plus every new control Round 2's amendment added (T5's
+archive/reorder, C2's certificate-attach route, the three new notification click-throughs), with the one
+honestly excluded panel (Q-T1, LMS vendors) named rather than faked, and two previously-undetected gaps closed
+— the calibration KPI's un-backed "N led to NCR" number (C3, unchanged from the original draft) and Board 9's
+delete/reorder controls, which Round 2's amendment gave a real story and real AC (T5, B8) rather than leaving
+promised-but-unbuilt. Round 3 adds no new stories, boards, or scope — it closes a same-day audit/tie-break hole
+in C2's write logic (BLOCKING 1), replaces an unbuildable file-linking mechanism with one that actually works
+and closes a real capability-check bypass in both modules' Files-linking (BLOCKING 2), and closes a genuine
+rule-3 audit gap for `fail` calibration events and certificate re-attachment (BLOCKING 3), plus ten smaller,
+all now-testable corrections (owner notification on fail, timezone parity across every read path, a residual
+notification dead-link for a plant-scoped owner, an unbounded-sequence return type, search scope, FK
+composition, four T5 edge cases, batch atomicity wording, a KPI zero-denominator case, and two stale
+cross-references — one of which surfaced a Known issue Round 1 had claimed but never actually logged, now
+added to §7). Five new open questions remain logged from Round 2, not silently dropped (Q-T4, Q-C3, plus the
+three already-named Q-C1/Q-C2/Q-T1/Q-T2/Q-T3 from the original draft), and two pre-existing, unrelated
+Known issues are named rather than compounded silently (the file-download hole, and now `document-expiry.ts`'s
+`Date`-based signature). This file itself introduces no product code and spawns no other agent, per this
+ceremony's instructions — the next steps are the planner's re-review of this Round 3 amendment, the
+`ui-lead-designer` audit, and the user's §3 approval.
