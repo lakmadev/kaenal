@@ -32,6 +32,9 @@ let globexId = "";
 let mgrTok = "";
 let globexMgrTok = "";
 let mgrUserId = "";
+let inspectorTok = ""; // scoped to plantHome only
+let plantHome = "";
+let plantForeign = "";
 
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
@@ -43,7 +46,7 @@ async function tid(slug: string): Promise<string> {
   return id;
 }
 
-async function seedMember(tenantId: string, email: string, role: string): Promise<string> {
+async function seedMember(tenantId: string, email: string, role: string, plantIds: string[] = []): Promise<string> {
   const hash = await hashPassword(PASSWORD);
   const { rows } = await control.query<{ id: string }>(
     `INSERT INTO control.users (email, name, password_hash) VALUES ($1, $2, $3)
@@ -54,12 +57,20 @@ async function seedMember(tenantId: string, email: string, role: string): Promis
   const userId = rows[0]?.id ?? "";
   await withTenant(tenantId, null, async (tx) => {
     await tx.query(
-      `INSERT INTO memberships (tenant_id, user_id, role, status) VALUES ($1,$2,$3,'active')
-       ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role, status = 'active'`,
-      [tenantId, userId, role],
+      `INSERT INTO memberships (tenant_id, user_id, role, plant_ids, status) VALUES ($1,$2,$3,$4,'active')
+       ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role, plant_ids = EXCLUDED.plant_ids, status = 'active'`,
+      [tenantId, userId, role, plantIds],
     );
   });
   return userId;
+}
+
+async function seedPlant(tenantId: string, code: string): Promise<string> {
+  const id = randomUUID();
+  await withTenant(tenantId, null, (tx) =>
+    tx.query(`INSERT INTO plants (id, tenant_id, name, code, timezone) VALUES ($1,$2,$3,$4,'UTC')`, [id, tenantId, code, code]),
+  );
+  return id;
 }
 
 async function token(slug: string, email: string): Promise<string> {
@@ -79,6 +90,14 @@ async function cleanup(): Promise<void> {
   await control.query(`DELETE FROM entity_links WHERE tenant_id = ANY($1)`, [[acmeId, globexId]]);
   await control.query(`DELETE FROM risks WHERE tenant_id = ANY($1) AND title LIKE $2`, [[acmeId, globexId], `${TAG}%`]);
   await control.query(`DELETE FROM fmeas WHERE tenant_id = ANY($1) AND part_code LIKE $2`, [[acmeId, globexId], `${TAG}%`]);
+  await control.query(`DELETE FROM ncrs WHERE tenant_id = $1 AND title LIKE $2`, [acmeId, `${TAG}%`]);
+  await control.query(`DELETE FROM capas WHERE tenant_id = $1 AND title LIKE $2`, [acmeId, `${TAG}%`]);
+  await control.query(
+    `DELETE FROM document_versions WHERE document_id IN (SELECT id FROM documents WHERE tenant_id = $1 AND title LIKE $2)`,
+    [acmeId, `${TAG}%`],
+  );
+  await control.query(`DELETE FROM documents WHERE tenant_id = $1 AND title LIKE $2`, [acmeId, `${TAG}%`]);
+  await control.query(`DELETE FROM plants WHERE tenant_id = $1 AND code LIKE $2`, [acmeId, `${TAG}%`]);
 }
 
 beforeAll(async () => {
@@ -86,8 +105,12 @@ beforeAll(async () => {
   acmeId = await tid(ACME);
   globexId = await tid(GLOBEX);
   await cleanup();
+  plantHome = await seedPlant(acmeId, `${TAG}-HOME`);
+  plantForeign = await seedPlant(acmeId, `${TAG}-FOREIGN`);
   mgrUserId = await seedMember(acmeId, `${TAG}-mgr@acme.test`, "manager");
   await seedMember(globexId, `${TAG}-mgr@globex.test`, "manager");
+  // Plant-scoped role (rbac.ts PLANT_SCOPED_ROLES), assigned only `plantHome`.
+  await seedMember(acmeId, `${TAG}-inspector@acme.test`, "inspector", [plantHome]);
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication();
@@ -95,6 +118,7 @@ beforeAll(async () => {
 
   mgrTok = await token(ACME, `${TAG}-mgr@acme.test`);
   globexMgrTok = await token(GLOBEX, `${TAG}-mgr@globex.test`);
+  inspectorTok = await token(ACME, `${TAG}-inspector@acme.test`);
 });
 
 afterAll(async () => {
@@ -210,5 +234,97 @@ describe("risk <-> fmea entity links (R3)", () => {
     expect(res.status).toBe(404);
 
     await authed("post", `/v1/fmeas/${foreignFmeaId}/delete`, GLOBEX, globexMgrTok).send({});
+  });
+});
+
+/**
+ * SECURITY FIX (post-Sprint-04 review, MEDIUM broken-access-control): a
+ * plant-scoped inspector who can view an unscoped CAPA/document must not
+ * learn a linked NCR/inspection/audit/finding's real code+title when that
+ * target sits in a plant outside `membership.plantIds` — a direct
+ * `GET /v1/ncrs/:id` on the same id would 404 them, and `GET /v1/entity-links`
+ * must not be a side channel around that. `resolveLabel` (entity-links.service.ts)
+ * and `assertEntityVisible` (entity-ref.ts) now both apply the same
+ * `PLANT_SCOPED_KINDS` boundary `graph.service.ts`/`chat.ts` already use.
+ */
+describe("entity-links plant scoping (SECURITY FIX)", () => {
+  let capaId = "";
+  let ncrForeignId = "";
+  let ncrHomeId = "";
+
+  beforeAll(async () => {
+    const capa = await acme("post", "/v1/capas").send({ title: `${TAG} scoped capa`, type: "corrective", priority: "minor" });
+    expect(capa.status).toBe(201);
+    capaId = capa.body.id as string;
+
+    // capa (unscoped) links to two NCRs (plant-scoped): one in the inspector's
+    // own plant, one in a plant they are NOT assigned to.
+    const ncrForeign = await acme("post", "/v1/ncrs").send({ title: `${TAG} foreign ncr`, priority: "major", plantId: plantForeign });
+    expect(ncrForeign.status).toBe(201);
+    ncrForeignId = ncrForeign.body.id as string;
+
+    const ncrHome = await acme("post", "/v1/ncrs").send({ title: `${TAG} home ncr`, priority: "major", plantId: plantHome });
+    expect(ncrHome.status).toBe(201);
+    ncrHomeId = ncrHome.body.id as string;
+
+    const linkForeign = await acme("post", "/v1/entity-links").send({ fromKind: "capa", fromId: capaId, toKind: "ncr", toId: ncrForeignId });
+    expect(linkForeign.status).toBe(201);
+    const linkHome = await acme("post", "/v1/entity-links").send({ fromKind: "capa", fromId: capaId, toKind: "ncr", toId: ncrHomeId });
+    expect(linkHome.status).toBe(201);
+  });
+
+  it("omits the label for a linked target in a foreign plant, but resolves it for a same-plant target (exploit closed)", async () => {
+    const res = await authed("get", `/v1/entity-links?entityKind=capa&entityId=${capaId}`, ACME, inspectorTok);
+    expect(res.status).toBe(200);
+    const items = res.body.items as { toId: string; label?: string }[];
+
+    const foreignLink = items.find((l) => l.toId === ncrForeignId);
+    expect(foreignLink).toBeDefined();
+    // The inspector holds `ncr:view` (so the capability gate alone would have
+    // let this through pre-fix) — the label must still be omitted because the
+    // target is outside their plant scope. Never a raw/guessed value (rule 8).
+    expect(foreignLink?.label).toBeUndefined();
+
+    const homeLink = items.find((l) => l.toId === ncrHomeId);
+    expect(homeLink).toBeDefined();
+    expect(homeLink?.label).toContain(`${TAG} home ncr`);
+  });
+
+  it("resolves the label correctly for a same-plant target and for a manager with no plant restriction (no over-correction)", async () => {
+    const res = await authed("get", `/v1/entity-links?entityKind=capa&entityId=${capaId}`, ACME, inspectorTok);
+    const homeLink = (res.body.items as { toId: string; label?: string }[]).find((l) => l.toId === ncrHomeId);
+    expect(homeLink?.label).toContain(`${TAG} home ncr`);
+
+    // A manager (not plant-scoped) sees both labels regardless of plant.
+    const mgrRes = await acme("get", `/v1/entity-links?entityKind=capa&entityId=${capaId}`);
+    const items = mgrRes.body.items as { toId: string; label?: string }[];
+    expect(items.find((l) => l.toId === ncrForeignId)?.label).toContain(`${TAG} foreign ncr`);
+    expect(items.find((l) => l.toId === ncrHomeId)?.label).toContain(`${TAG} home ncr`);
+  });
+
+  it("404s (never a leak) when the PRIMARY queried entity itself is a plant-scoped record outside the caller's plants", async () => {
+    const direct = await authed("get", `/v1/ncrs/${ncrForeignId}`, ACME, inspectorTok);
+    expect(direct.status).toBe(404);
+
+    const viaLinks = await authed("get", `/v1/entity-links?entityKind=ncr&entityId=${ncrForeignId}`, ACME, inspectorTok);
+    expect(viaLinks.status).toBe(404);
+
+    // Same primary entity, queried by the same-plant inspector on its own
+    // plant's NCR: resolves normally (no over-correction).
+    const viaLinksHome = await authed("get", `/v1/entity-links?entityKind=ncr&entityId=${ncrHomeId}`, ACME, inspectorTok);
+    expect(viaLinksHome.status).toBe(200);
+  });
+
+  it("linking to/from a foreign-plant entity is refused with 404 at create time too (assertEntityVisible), not just hidden on read", async () => {
+    const doc = await acme("post", "/v1/documents").send({ title: `${TAG} scoped doc`, category: "sop" });
+    const docId = doc.body.id as string;
+
+    const res = await authed("post", "/v1/entity-links", ACME, inspectorTok).send({
+      fromKind: "document",
+      fromId: docId,
+      toKind: "ncr",
+      toId: ncrForeignId,
+    });
+    expect(res.status).toBe(404);
   });
 });

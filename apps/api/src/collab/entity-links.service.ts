@@ -5,7 +5,7 @@ import { hasCapability, type Capability, type Membership } from "@kaenal/core";
 import type { CreateEntityLinkBody, EntityKind, EntityLinkDto, Page } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
 import type { AuditContext } from "../ncr/audit-context.js";
-import { assertEntityVisible } from "./entity-ref.js";
+import { assertEntityVisible, isEntityVisible } from "./entity-ref.js";
 
 /**
  * Per-kind label resolution (SPRINT-04 R3 `[AMENDED-2]`, doc-accuracy item).
@@ -99,7 +99,7 @@ function toDto(row: LinkRow, label?: string | null): EntityLinkDto {
 @Injectable()
 export class EntityLinksService {
   async list(tx: Tx, kind: EntityKind, entityId: string, membership: Membership): Promise<Page<EntityLinkDto>> {
-    await assertEntityVisible(tx, kind, entityId);
+    await assertEntityVisible(tx, kind, entityId, membership);
     const { rows } = await tx.query<LinkRow>(
       `SELECT ${LINK_COLUMNS} FROM entity_links
         WHERE deleted_at IS NULL
@@ -121,8 +121,14 @@ export class EntityLinksService {
   }
 
   /** `undefined` (omitted on the wire) when the caller lacks that kind's own
-   *  `:view` capability or the target row no longer resolves — never a raw
-   *  or guessed value (rule 8's spirit, extended to partial visibility). */
+   *  `:view` capability, the target sits in a plant outside the caller's
+   *  `membership.plantIds` (SECURITY FIX — same plant-scope boundary
+   *  `assertEntityVisible` enforces for the primary entity, extended here to
+   *  every *linked* target so a plant-scoped caller can never read a
+   *  foreign-plant inspection/NCR/audit/finding's real code+title through an
+   *  unscoped CAPA/document/supplier link), or the target row no longer
+   *  resolves — never a raw or guessed value (rule 8's spirit, extended to
+   *  partial visibility). */
   private async resolveLabel(
     tx: Tx,
     kind: EntityKind,
@@ -131,6 +137,7 @@ export class EntityLinksService {
   ): Promise<string | undefined> {
     const config = LABEL_CONFIG[kind];
     if (!hasCapability(membership.role, config.capability)) return undefined;
+    if (!(await isEntityVisible(tx, kind, id, membership))) return undefined;
     const cols = LABEL_COLUMNS[config.table] ?? [];
     if (cols.length === 0) return undefined;
     const { rows } = await tx.query<Record<string, unknown>>(
@@ -152,8 +159,8 @@ export class EntityLinksService {
     if (body.fromKind === body.toKind && body.fromId === body.toId) {
       throw new ApiError("VALIDATION_FAILED", "A record cannot be linked to itself");
     }
-    await assertEntityVisible(tx, body.fromKind, body.fromId);
-    await assertEntityVisible(tx, body.toKind, body.toId);
+    await assertEntityVisible(tx, body.fromKind, body.fromId, membership);
+    await assertEntityVisible(tx, body.toKind, body.toId, membership);
 
     const relation = body.relation ?? "linked";
     const { rows: existing } = await tx.query(
