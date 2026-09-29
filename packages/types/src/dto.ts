@@ -137,6 +137,16 @@ export const PlantDto = z.object({
 });
 export type PlantDto = z.infer<typeof PlantDto>;
 
+/** A finer location within a plant (Sprint 05 C1 AC1/C6) — used by the
+ *  instrument register's cascading plant→area select and area-name display.
+ *  `areas` has no `code` column, only `name` (confirmed, §0/SF5). */
+export const AreaDto = z.object({
+  id: z.string().uuid(),
+  plantId: z.string().uuid(),
+  name: z.string(),
+});
+export type AreaDto = z.infer<typeof AreaDto>;
+
 // --- Inspections ------------------------------------------------------------
 
 /**

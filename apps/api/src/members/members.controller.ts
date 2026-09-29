@@ -1,5 +1,6 @@
 import { Controller, Get, Inject, Query } from "@nestjs/common";
-import { PageQuery, type MemberDto, type MemberWorkloadDto, type Page, type PlantDto } from "@kaenal/types";
+import { z } from "zod";
+import { PageQuery, type AreaDto, type MemberDto, type MemberWorkloadDto, type Page, type PlantDto } from "@kaenal/types";
 import { currentTx } from "../context.js";
 import { RequireCapability } from "../decorators.js";
 import { parse } from "../http/validate.js";
@@ -37,6 +38,15 @@ export class MembersController {
   @RequireCapability("ncr:view")
   async plants(): Promise<{ items: PlantDto[] }> {
     return { items: await this.members.listPlants(currentTx(), membershipOf()) };
+  }
+
+  /** Areas within the caller's visible plants (Sprint 05 C1/C6) — the
+   *  instrument register's plant→area cascading select and area-name display. */
+  @Get("v1/areas")
+  @RequireCapability("ncr:view")
+  async areas(@Query() query: unknown): Promise<{ items: AreaDto[] }> {
+    const q = parse(z.object({ plantId: z.string().uuid().optional() }), query);
+    return { items: await this.members.listAreas(currentTx(), membershipOf(), q.plantId) };
   }
 
   /** The assign sheet's roster + live workload. Gated on `ncr:manage` — the

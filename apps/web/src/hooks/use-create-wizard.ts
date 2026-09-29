@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys, unwrap } from "@kaenal/api-client";
-import type { DocumentDto, EightDDto, InspectionDto, NcrDto, PlantDto, RiskDto, TemplateDto, Page } from "@kaenal/types";
+import type { AreaDto, DocumentDto, EightDDto, InspectionDto, NcrDto, PlantDto, RiskDto, TemplateDto, Page } from "@kaenal/types";
 import type { WizardBody } from "@kaenal/core";
 import { getApiClient } from "@/lib/api";
 
@@ -46,6 +46,16 @@ export function usePlants() {
   return useQuery({
     queryKey: ["plants", "list"],
     queryFn: () => getApiClient().listPlants({}).then((r) => unwrap<{ items: PlantDto[] }>(r)),
+  });
+}
+
+/** Areas within the caller's visible plants (Sprint 05 C1/C6) — the
+ *  instrument register's plant→area cascading select and area-name display.
+ *  `plantId` omitted returns every area in the caller's own plant scope. */
+export function useAreas(plantId?: string) {
+  return useQuery({
+    queryKey: ["areas", "list", plantId ?? null],
+    queryFn: () => getApiClient().listAreas({ query: plantId !== undefined ? { plantId } : {} }).then((r) => unwrap<{ items: AreaDto[] }>(r)),
   });
 }
 

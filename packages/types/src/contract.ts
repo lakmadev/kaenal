@@ -51,6 +51,7 @@ import {
   SwitchWorkspaceBody,
   MemberDto,
   PlantDto,
+  AreaDto,
   MemberWorkloadList,
   NcrActionDto,
   NcrDto,
@@ -302,6 +303,14 @@ export const contract = c.router(
       path: "/v1/plants",
       responses: { 200: z.object({ items: z.array(PlantDto) }), ...commonErrors },
       summary: "Sites the caller may raise records in (plant-scoped by role) — the CreateWizard Site select",
+    },
+    listAreas: {
+      method: "GET",
+      path: "/v1/areas",
+      query: z.object({ plantId: z.string().uuid().optional() }),
+      responses: { 200: z.object({ items: z.array(AreaDto) }), ...commonErrors },
+      summary:
+        "Areas within the caller's visible plants (Sprint 05 C1/C6) — the instrument register's plant→area cascading select and area-name display; `plantId` narrows to one plant, omitted returns every area in the caller's plant scope",
     },
     listMemberWorkload: {
       method: "GET",
