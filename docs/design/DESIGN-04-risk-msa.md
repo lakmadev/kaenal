@@ -434,3 +434,37 @@ MSA incomplete-state `ndc` showing "0" instead of "—", plus a minor icon/CTA-p
 short follow-up slice (no new design work — reuse the exact columns/tokens already drawn on the two boards)
 rather than reopening Gate 1. Everything else spot-checked (5 of 8 items, including the previously-flagged
 LinkPicker chip-row question) is confirmed as built exactly to canvas.
+
+### Final closure check (2026-09-29, this session) — commit `f3923be`
+
+Re-read the three deviating files against the exact findings above (no re-audit of the other six items,
+per scope). Environment: Postgres/Redis/`apps/api`/`apps/web` dev servers were already running from a prior
+session; a live sign-in against `demo@acme.test` failed with `TENANT_NOT_FOUND` (a seed/tenant-resolution
+issue in the running container, unrelated to these three files — not touched, per this pass's "do not touch
+product code" scope, and not something this designer role debugs). Verification is therefore a precise
+source read of the three fixed files against §11's own cited board columns, not a re-drawn-from-memory check:
+
+1. **`risk-linked-records.tsx`** — table header is now `Type | Record | Relation | ›` (4 `<th>`s, `Relation`
+   at `width: 130`), row grid is `110px 1fr 130px 24px`, and each row renders `relationLabel` (title-cased
+   `entity_links.relation`, falling back to "Linked"). Matches `RiskLinkedRecords.dc.html` exactly — the
+   dropped column is restored.
+2. **`fmea-workbench.tsx`'s `FmeaLinkedRisks`** — table header is now `Code | Risk | Residual | ›` (4 `<th>`s),
+   backed by a new `useRisksByIds` hook (`apps/web/src/hooks/use-risks.ts`) that batch-resolves the linked
+   risks via the real `listRisks` `ids` filter (no fabricated data), and the Residual cell renders
+   `<ScoreChip score={risk.residualScore} />` — `ScoreChip` is now exported from `risk-register-page.tsx` and
+   imported here, i.e. the exact same component/band-coloring the register itself uses, not a new chip style.
+   A risk not yet resolved falls back to a plain "—", never a wrong or zero score. Matches
+   `FmeaLinkedRisks.dc.html` exactly, including the board's stated reason to exist (severity at a glance).
+3. **`msa-page.tsx`'s `KpiTiles`/`IncompleteState`** — the `ndc` tile line now reads
+   `complete !== null ? String(complete.ndc) : "—"`, consistent with its GR&R/EV/AV siblings (no more
+   fabricated "0"). `IncompleteState` now imports `Sigma` from `lucide-react` and passes `icon={Sigma}` to the
+   shared `EmptyState`, matching the board's Σ glyph.
+
+All three code changes are minimal, on-token (no new color/radius/font), reuse existing exported components
+(`ScoreChip`) and real data (the `ids` filter, `entity_links.relation`) rather than inventing new endpoints or
+client-side guesses — consistent with rules 9 and 10.
+
+**Designer Gate 2 sign-off: CONFIRMED — Gate 2 fully closed.** All three named deviations are fixed exactly as
+specified against their boards; no new deviations introduced. Combined with the 6 of 9 items already confirmed
+matching in the pass above, all 9 spot-checked items now match their canvas boards. This sprint's design
+surface is fully confirmed built-to-canvas.
