@@ -11,8 +11,7 @@
 export const PLACEHOLDER_LEDGER: Readonly<Record<string, number>> = {
   // Planned-module catch-all placeholders (config/planned-modules.ts)
   // risk/msa are built — see app/(app)/risk, app/(app)/msa (Sprint 04). No longer placeholders.
-  "planned:calibration": 5,
-  "planned:training": 5,
+  // calibration/training are built — see app/(app)/calibration, app/(app)/training (Sprint 05). No longer placeholders.
   "planned:complaints": 6,
   "planned:ecn": 6,
   "planned:developer": 9,

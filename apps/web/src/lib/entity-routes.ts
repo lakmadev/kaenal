@@ -11,6 +11,7 @@ import {
   Truck,
   Award,
   ShieldCheck,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -49,6 +50,15 @@ export function entityHref(kind: string, id: string): string | null {
       return `/risk?id=${id}`;
     case "fmea":
       return `/fmea?id=${id}`;
+    // Sprint 05 X1 AC5 (B9) — calibration/training notification deep links.
+    // `/calibration`/`/training` are select-in-list pages, same `?id=`
+    // pattern as risk/fmea above, not `/kind/:id`.
+    case "instrument":
+      return `/calibration?id=${id}`;
+    case "competency":
+      return `/training?competencyId=${id}`;
+    case "training_record":
+      return `/training?recordId=${id}`;
     default:
       return null;
   }
@@ -73,6 +83,10 @@ const ICONS: Record<string, LucideIcon> = {
   // Matches `navigation.ts`'s existing risk/FMEA nav glyphs (R3 AC3).
   risk: Shield,
   fmea: Grid3x3,
+  // Matches `navigation.ts`'s existing calibration/training nav glyphs (X1 AC5).
+  instrument: Wrench,
+  competency: Award,
+  training_record: Award,
 };
 
 export function entityIcon(kind: string): LucideIcon {
@@ -94,6 +108,9 @@ const LABELS: Record<string, string> = {
   audit: "Audit",
   risk: "Risk",
   fmea: "FMEA",
+  instrument: "Instrument",
+  competency: "Competency",
+  training_record: "Training record",
 };
 
 export function entityLabel(kind: string): string {

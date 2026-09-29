@@ -7,6 +7,8 @@ import {
   FileClock,
   Download,
   Bell,
+  Wrench,
+  Award,
   type LucideIcon,
 } from "lucide-react";
 import { Avatar } from "@/components/avatar";
@@ -33,6 +35,14 @@ export function notifMeta(kind: string, entityKind: string | null): NotifMeta {
       return { icon: FileClock, color: "#d97706", category: "document" };
     case "export_ready":
       return { icon: Download, color: "#16a34a", category: "export" };
+    // Sprint 05 X1 AC5 (B9) — calibration/training due-and-expiry alerts.
+    case "instrument_calibration_due":
+      return { icon: Wrench, color: "#d97706", category: "alert" };
+    case "training_expiring":
+      return { icon: Award, color: "#d97706", category: "alert" };
+    // A never-taken mandatory competency is more severe than a lapsing one.
+    case "training_gap":
+      return { icon: Award, color: "#dc2626", category: "alert" };
     default:
       return { icon: Bell, color: "var(--accent)", category: "system" };
   }
