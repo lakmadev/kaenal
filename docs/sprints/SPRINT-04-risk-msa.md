@@ -12,6 +12,19 @@ Sprint 03 gated its predictive-risk design (§3B) before that sprint's Part B wa
 
 ## 0. Amendment (Ceremony 4 SEND BACK response, 2026-09-28)
 
+**Round 5 (post-build correction, 2026-09-29, during Slice 2 validation):** while validating
+`packages/core/src/gauge-rr.ts` against a real, cited published source (the actual AIAG MSA 4th-edition
+worked example, reproduced in "Three Ways to Analyze a Gage R&R Study," BPI Consulting/SPC for Excel, 2015
+— not the hand-derived fixture an earlier pass had to fall back to for lack of network access), the ANOVA
+interaction-pooling formula in §3.2 was found to diverge from the actual AIAG method by ~7% on `σ²_GRR` for
+the real dataset. **User approved the fix**: §3.2's pooling rule now merges interaction and equipment into
+one combined `MSE_pooled` term (matching the real AIAG manual) rather than the originally-approved zero-out
+variant, which only zeroed the interaction component while leaving repeatability computed from unpooled
+`MS_equipment`. This is a correctness fix to already-approved math, not new scope; see §3.2 for the full
+corrected formula (marked `[AMENDED-5]`) and the reasoning. Re-validated: `packages/core/gauge-rr.ts` now
+reproduces the published example's numbers exactly (within the source's own 3-decimal rounding), for both
+`crossed_anova` and `average_range`.
+
 **Round 4 (Ceremony 4, fourth pass, SEND BACK AGAIN, 2026-09-28, same day):** the planner's fourth re-review
 confirmed AC2's guards, AC3/AC5's concurrency wording, the immutability rule, and both doc-only fixes all
 hold — but found two remaining issues, one required-but-cosmetic and one a real correctness gap. Resolved,
@@ -750,21 +763,38 @@ Given the grand mean `x̿`, part means `x̄ₚ`, appraiser means `x̄ₐ`, and a
 - `SS_equipment (repeatability/error) = ΣΣΣ(xᵢⱼₖ − x̄ₐₚ)²` — df = `a·p·(n−1)`
 - Mean squares `MS = SS / df` for each source.
 
-**Interaction pooling (standard AIAG convention, proposed as-is):** if the appraiser×part interaction is not
+**Interaction pooling — [AMENDED-5, post-build correction, 2026-09-29] the real, standard AIAG pooled-MSE
+convention, not the zero-out variant originally proposed:** if the appraiser×part interaction is not
 significant (`MS_interaction ≤ MS_equipment`, the common simplified pooling test used when a formal F-test
-table isn't available), pool it into equipment/repeatability instead of computing a negative variance
-component. This is the standard guard against the well-known "negative variance component" artifact of the
-ANOVA method on small studies — proposed as a fixed rule, not a user-facing toggle.
+table isn't available), it is pooled by merging interaction and equipment into **one combined error term**,
+`MSE_pooled = (SS_interaction + SS_equipment) / (df_interaction + df_equipment)`, and **this pooled value
+replaces both `MS_interaction` and `MS_equipment` in every downstream formula below** — repeatability
+included, not just the appraiser×part component. This is a correction to the originally-approved formula,
+found during Slice 2's validation against the real, cited AIAG MSA 4th-edition worked example ("Three Ways
+to Analyze a Gage R&R Study," BPI Consulting/SPC for Excel, 2015): the original zero-out variant (below,
+struck through) reproduced the published Average-Range results exactly but diverged from the published
+ANOVA results by ~7% on `σ²_GRR` for that same real dataset (0.0981 vs the published 0.0914) — a genuine
+methodological gap, not a rounding artifact, independently re-derived from the raw 90-value dataset before
+concluding this. The pooled-MSE convention below reproduces the published numbers exactly (within the
+source's own 3-decimal rounding). ~~The original proposal: "pool it into equipment/repeatability instead of
+computing a negative variance component" using `MS_interaction`/`MS_equipment` unpooled everywhere except
+the zeroed appraiser×part term itself~~ — superseded by the pooled-MSE formula below. This remains a fixed
+rule, not a user-facing toggle.
 
-Variance components (each clamped to ≥0 before taking a square root):
-- `σ²_repeatability (EV) = MS_equipment`
-- `σ²_appraiser×part = max(0, (MS_interaction − MS_equipment) / n)` (0 if pooled)
-- `σ²_appraiser (AV component) = max(0, (MS_appraiser − MS_interaction) / (n·p))`
+Variance components (each clamped to ≥0 before taking a square root; **[AMENDED-5]** `MS_e` below denotes
+`MSE_pooled` when pooling triggers, else the raw `MS_equipment`):
+- `σ²_repeatability (EV) = MS_e`
+- `σ²_appraiser×part = 0` (always, once pooled — there is no longer a separate interaction term to estimate;
+  when NOT pooled, `σ²_appraiser×part = max(0, (MS_interaction − MS_equipment) / n)` as originally proposed,
+  unchanged)
+- `σ²_appraiser (AV component) = max(0, (MS_appraiser − MS_e) / (n·p))`
 - `σ²_reproducibility (AV) = σ²_appraiser + σ²_appraiser×part`
 - `σ²_GRR = σ²_repeatability + σ²_reproducibility`
-- `σ²_part (PV) = max(0, (MS_part − MS_interaction) / (n·a))`
+- `σ²_part (PV) = max(0, (MS_part − MS_e) / (n·a))`
 - `σ²_total = σ²_GRR + σ²_part`
 - `StdDev` for every row = `√(variance)`.
+- When NOT pooled (`MS_interaction > MS_equipment`), `MS_e` in the `σ²_appraiser`/`σ²_part` formulas above is
+  `MS_interaction`, not `MS_equipment` — unchanged from the original proposal; only the pooled branch changes.
 
 **Method 2 — Average & Range (the `average_range` enum value):** the classic AIAG X̄/R short-form using
 K-factor constants (K1 for repeatability by trial count, K2 for reproducibility by appraiser count, K3 for
