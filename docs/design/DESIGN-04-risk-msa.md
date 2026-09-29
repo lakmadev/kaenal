@@ -389,3 +389,48 @@ sign-off (sprint file §3 — unchanged and already approved) and the §3-Addend
 way; build does not start until this design's Gate 1, §3's backend gate, and the §3-Addendum delta-approval
 all have user approval, and the planner has lifted Ceremony 4's SEND BACK, per SCRUM.md and the sprint file's
 own DoD §8 and closing status line.
+
+---
+
+## 11. Gate 2 confirmation (2026-09-29) — designer sign-off of built screens against this canvas
+
+Scope per `SCRUM.md`'s Gate 2 ("designer confirms built screens match designs"): a **confirmation pass**
+against the PO's Gate-2 acceptance (`SPRINT-04-risk-msa.md` §10, ACCEPTED) and `web-fidelity-reviewer`'s
+pixel-fidelity/WCAG pass (APPROVED, zero defects) — not a re-audit. Environment: Postgres/Redis already up;
+started `apps/api` dev server this session (was not running), signed in as `demo@acme.test` on tenant `acme`
+(`POST /v1/auth/sign-in` → 201). Tenant `acme` has zero seeded risks/MSA studies, so verification was done by
+**reading the shipped component source against each board's actual `.dc.html`** (re-fetched from the canvas
+this session, not taken from this doc's §0/§4 prose) plus exercising the real API routes — the same
+component-vs-board method `web-fidelity-reviewer` used for the states seed data couldn't reach live.
+
+**Per-board confirmation:**
+
+| Board | Built file(s) | Result |
+|---|---|---|
+| `RiskWizardDetails.dc.html` (5th type card + Details form) | `wizard-meta.ts` (`WIZARD_ICON.risk = Shield`, `WIZARD_COLOR.risk = "#dc2626"`), `type-step.tsx`, `risk-details-step.tsx`, `create-wizard.ts` (`RISK_WIZARD_STEPS`, 3-dot) | **Matches.** Shield icon, `#dc2626` (`--risk-critical`), 3-step Type→Details→Review, category/title/likelihood-impact 5-box radiogroups/treatment/owner-single-select/plan, bottom defaults-note box — all confirmed by direct source read, not re-drawn from memory. |
+| `RiskControlsEditor.dc.html` | `risk-controls-editor.tsx` | **Matches**, including the board's own WCAG flag: built uses real Up/Down icon buttons for reorder (no drag-only control), which is what the board's note demanded, not a gap. Kind/strength chip pickers, inline add/edit form, empty state, view-only (no action icons) all confirmed. |
+| `RiskLinkedRecords.dc.html` | `risk-linked-records.tsx` | **Deviates.** Board draws a 4-column `Type \| Record \| Relation \| ›` table (Relation cell reads "Linked"). Built table has only 3 columns — `Type \| Record \| ›` — the Relation column is dropped entirely. Row content (kind chip, mono label, chevron, "+ Link to FMEA", empty state, canManage gating) otherwise matches. |
+| `FmeaLinkedRisks.dc.html` | `fmea-workbench.tsx`'s `FmeaLinkedRisks` | **Deviates, more substantively.** Board draws a 4-column `Code \| Risk \| Residual \| ›` table with residual-score chips using the register's own band coloring (amber "9", red "16"). Built table has a single "Risk" column (label + chevron) — no separate Code column and **no residual-score chip at all**. This drops the pane's main value-add (seeing a linked risk's severity at a glance from FMEA) without a corresponding sprint-file or amendment note authorizing the simplification. |
+| `MsaWizardSteps.dc.html` | `msa-wizard.tsx` | **Matches, verbatim.** The round-3 bound-hint text ("Average & Range requires trials 2–3, appraisers 2–3, parts 2–10 … Crossed (ANOVA) requires a minimum of 2 appraisers/2 parts/2 trials. Both methods cap at 10 appraisers / 50 parts / 10 trials. Dimensions are locked once the study is created.") is reproduced almost word-for-word in `msa-wizard.tsx`'s Step 2 banner. Method picker offers only the 2 real options. 3-dot wizard shell present. |
+| `MsaMeasurementGrid.dc.html` (draft / needs-correction) | `msa-grid.tsx` | **Matches.** Dashed-outline empty vs. solid filled cells, real `<input>` with `aria-label="Appraiser X, Part N, Trial N"`, live "N of 90 entered" counter, `disabledReason` tooltip on a blocked "Complete study", amber "Reopened for correction" banner naming the last-completed date, "Discard changes"/"Save & re-complete" actions gated on `reopened`/`dirty`. |
+| `MsaIncompleteState.dc.html` | `msa-page.tsx` (`KpiTiles`, `IncompleteState`, `RecentRow`) | **Mostly matches, two small deviations.** (1) The board's Σ-icon empty-state glyph is not reproduced — `IncompleteState` calls the shared `EmptyState` with no `icon` prop, so it falls back to the generic `ClipboardList` icon (cosmetic only). (2) The board shows **all four** KPI tiles as "—" when incomplete; built `KpiTiles` shows "—" for GR&R/EV/AV but **"0" for `ndc`** (`v: complete !== null ? String(complete.ndc) : "0"`) — a real, if small, inconsistency against both the board and this sprint's own stated principle ("not a divide-by-zero, not a fabricated result," M1 UC): a bare "0" reads as a computed value, not "not yet computed." The board's inline "Continue data entry →" CTA inside the incomplete message is also not reproduced verbatim; the built page instead always renders the full `MsaGrid` in an unconditional "Measurement grid" section below for `canManage` users, which is functionally equivalent (data entry is not gated behind a click-through) but is a different affordance than what the board draws. Date column, verdict vocabulary/color tokens, and the draft-row "draft" chip all confirmed exact. |
+| `LinkPicker.dc.html` (single-kind chip-row) | `link-picker.tsx`, `lib/link-picker.ts` (`shouldShowKindChips`), `risk-linked-records.tsx`'s call site | **Confirmed fixed, not just flagged.** `shouldShowKindChips(kinds) { return kinds.length > 1; }`, and risk's call site passes `kinds={["fmea"]}` — a single-kind array — so `showKindChips` is `false` and the chip row never renders for this sprint's only caller. The pre-existing inconsistency this canvas's §0 flagged (the board itself still visually shows 5 chips, since it's a static mock predating this fix) is resolved in the actual build; the component even carries an inline comment citing this exact history. |
+
+**Assessment:** 6 of 9 spot-checked items match their board exactly or are confirmed-fixed; 3 real, all
+minor-to-moderate, deviations were found in components neither this doc's own audit nor
+`web-fidelity-reviewer`'s pass had previously called out: the risk linked-records table's missing Relation
+column, the FMEA linked-risks pane's missing Code column and (more materially) its missing residual-score
+chips, and the MSA incomplete-state's "0" vs "—" `ndc` tile plus its swapped empty-state icon and CTA
+placement. None of these break a control's wired behaviour (rule 10) or introduce an off-token color/radius/
+font (rule 9's core prohibition) — they are content/column omissions within the approved visual language, not
+new visual language. But per this role's own standard (WCAG + heuristics, not just "close enough"), the FMEA
+pane's dropped residual-score chip is a genuine information-loss regression from the approved board (an
+engineer reading a linked risk's severity was the pane's stated reason to exist) and should be fixed before
+this sprint's design surface is called fully confirmed.
+
+**Designer Gate 2 sign-off: GAPS FOUND** — three small, non-blocking-to-ship-but-real deviations named above
+(risk linked-records missing Relation column; FMEA linked-risks missing Code column and residual-score chips;
+MSA incomplete-state `ndc` showing "0" instead of "—", plus a minor icon/CTA-placement mismatch). Recommend a
+short follow-up slice (no new design work — reuse the exact columns/tokens already drawn on the two boards)
+rather than reopening Gate 1. Everything else spot-checked (5 of 8 items, including the previously-flagged
+LinkPicker chip-row question) is confirmed as built exactly to canvas.
