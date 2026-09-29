@@ -49,6 +49,12 @@ const VIEW_CAPABILITY: Readonly<Record<ExportResource, Capability>> = {
   risk_board_pack: "risk:view",
   // Sprint 04 M5 — one study's report.
   gauge_rr_aiag_report: "msa:view",
+  // Sprint 05 C5 AC3 — the instrument register's board pack; viewing is
+  // enough to export (mirrors risk_board_pack's `:view`-not-`:manage`
+  // precedent).
+  calibration_audit_pack: "calibration:view",
+  // Sprint 05 T3 AC3 — the skill-gap report; same `:view`-is-enough precedent.
+  skill_gap_report: "training:view",
 };
 
 /**
