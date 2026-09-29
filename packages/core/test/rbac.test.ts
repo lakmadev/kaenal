@@ -64,6 +64,10 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "portal:respond",
     "ai:use",
     "graph:view",
+    "risk:view",
+    "risk:manage",
+    "msa:view",
+    "msa:manage",
   ],
   manager: [
     "inspection:view",
@@ -96,6 +100,10 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "settings:manage",
     "ai:use",
     "graph:view",
+    "risk:view",
+    "risk:manage",
+    "msa:view",
+    "msa:manage",
   ],
   auditor: [
     "inspection:view",
@@ -119,6 +127,10 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "report:view",
     "ai:use",
     "graph:view",
+    "risk:view",
+    "risk:manage",
+    "msa:view",
+    "msa:manage",
   ],
   inspector: [
     "inspection:view",
@@ -135,6 +147,8 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "spc:view",
     "measurement:manage",
     "ai:use",
+    "risk:view",
+    "msa:view",
   ],
   viewer: [
     "inspection:view",
@@ -149,6 +163,8 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "spc:view",
     "report:view",
     "ai:use",
+    "risk:view",
+    "msa:view",
   ],
   partner: ["portal:view", "portal:respond"],
 };

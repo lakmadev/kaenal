@@ -88,6 +88,17 @@ export const CAPABILITIES = [
   // `ROLE_NAV`'s existing web curation of `/graph` — inspector/viewer never
   // see the nav entry and the server must never allow a deep-link past it.
   "graph:view",
+  // Risk register + MSA/Gauge R&R (Sprint 04 R1/M1, X1 AC1). Distribution
+  // mirrors `fmea:view`/`fmea:manage` exactly (§2 X1 AC1): admin/manager/
+  // auditor get full read+write (auditor is an elevated QMS role here, not a
+  // read-only reviewer — same reasoning as `fmea:manage`/`scar:manage`);
+  // inspector/viewer are read-only (visibility for linked-record display
+  // elsewhere, not the standalone module page — that's a web nav curation
+  // gate, not a capability gate); partner holds neither.
+  "risk:view",
+  "risk:manage",
+  "msa:view",
+  "msa:manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -132,6 +143,10 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "settings:manage",
     "ai:use",
     "graph:view",
+    "risk:view",
+    "risk:manage",
+    "msa:view",
+    "msa:manage",
   ],
 
   auditor: [
@@ -156,6 +171,10 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "report:view",
     "ai:use",
     "graph:view",
+    "risk:view",
+    "risk:manage",
+    "msa:view",
+    "msa:manage",
   ],
 
   inspector: [
@@ -173,6 +192,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "spc:view",
     "measurement:manage",
     "ai:use",
+    "risk:view",
+    "msa:view",
   ],
 
   viewer: [
@@ -188,6 +209,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "spc:view",
     "report:view",
     "ai:use",
+    "risk:view",
+    "msa:view",
   ],
 
   // External supplier contact — the read-only portal, nothing internal. Every

@@ -38,3 +38,5 @@ export * from "./audit-checklist.js";
 export * from "./graph-layout.js";
 export * from "./graph-queries.js";
 export * from "./forecast.js";
+export * from "./risk-matrix.js";
+export * from "./gauge-rr.js";
