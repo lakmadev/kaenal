@@ -51,7 +51,7 @@ describe("matrixCounts", () => {
   });
 
   it("ignores a point outside the 1-5 range rather than throwing or miscounting", () => {
-    const grid = matrixCounts([{ likelihood: 0, impact: 3 } as never, { likelihood: 6, impact: 3 } as never]);
+    const grid = matrixCounts([{ likelihood: 0, impact: 3 }, { likelihood: 6, impact: 3 }]);
     expect(grid.flat().reduce((a, b) => a + b, 0)).toBe(0);
   });
 });
