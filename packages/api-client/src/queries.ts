@@ -429,11 +429,15 @@ export const apiQueries = {
       queryKey: queryKeys.instruments.detail(id),
       queryFn: () => client.getInstrument({ params: { id } }).then((r) => unwrap<InstrumentDto>(r)),
     }),
-    calibrationEvents: (client: ApiClient, instrumentId: string, args?: Arg<"listCalibrationEvents">): QueryOption<Page<CalibrationEventDto>> => ({
+    calibrationEvents: (
+      client: ApiClient,
+      instrumentId: string,
+      args?: { query?: Arg<"listCalibrationEvents">["query"] },
+    ): QueryOption<Page<CalibrationEventDto>> => ({
       queryKey: queryKeys.instruments.calibrationEvents(instrumentId, args?.query),
       queryFn: () =>
         client
-          .listCalibrationEvents({ params: { id: instrumentId }, query: args?.query ?? {} } as Arg<"listCalibrationEvents">)
+          .listCalibrationEvents({ params: { id: instrumentId }, query: args?.query ?? {} })
           .then((r) => unwrap<Page<CalibrationEventDto>>(r)),
     }),
   },

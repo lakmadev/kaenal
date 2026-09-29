@@ -47,6 +47,22 @@ export function durationDays(startAt: string | null, endAt: string | null): numb
   return Math.max(1, Math.round(ms / 86_400_000) + 1);
 }
 
+/** Whole days from today (UTC calendar date) to an ISO `YYYY-MM-DD` date —
+ *  positive when in the future, negative when past. Display-only arithmetic
+ *  (the register's "24d"/"Overdue 15d" day-count chips, Sprint 05 C1); the
+ *  authoritative `warn`/`overdue` classification always comes from the
+ *  server's own `dueStatus` field, computed in the instrument's plant
+ *  timezone — this is never used to derive that classification itself. */
+export function daysUntil(iso: string | null | undefined): number | null {
+  if (iso === null || iso === undefined || iso === "") return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) return null;
+  const target = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((target - today) / 86_400_000);
+}
+
 /** "Manjunath Kumar" -> "Manjunath K." (top-bar profile button, shell.jsx). */
 export function shortName(name: string): string {
   const parts = name.trim().split(/\s+/);
