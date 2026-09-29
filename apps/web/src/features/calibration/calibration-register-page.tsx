@@ -215,6 +215,11 @@ export function CalibrationRegisterPage(): React.ReactElement {
                     { value: "overdue", label: "Overdue" },
                   ]}
                 />
+                <div className="ml-auto flex gap-3 text-[11px] text-muted">
+                  <Legend color="rgba(245,158,11,0.12)" label="Due soon" outline />
+                  <Legend color="rgba(220,38,38,0.10)" label="Overdue" outline />
+                  <Legend color="var(--danger-600)" label="Failed — overdue" />
+                </div>
               </div>
 
               {instruments.length === 0 ? (
@@ -284,6 +289,15 @@ export function CalibrationRegisterPage(): React.ReactElement {
         />
       )}
     </div>
+  );
+}
+
+function Legend({ color, label, outline = false }: { color: string; label: string; outline?: boolean }): React.ReactElement {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <span style={{ width: 10, height: 10, borderRadius: 3, background: color, border: outline ? "1px solid var(--border)" : undefined }} />
+      {label}
+    </span>
   );
 }
 
