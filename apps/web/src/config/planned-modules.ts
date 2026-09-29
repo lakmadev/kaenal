@@ -1,7 +1,5 @@
 import {
   Sparkles,
-  Award,
-  Wrench,
   MessageSquare,
   GitBranch,
   Code,
@@ -26,8 +24,7 @@ export interface PlannedModule {
 
 export const PLANNED_MODULES: Record<string, PlannedModule> = {
   // Quick-Log, Mobile App and Quality Engine (pqe) are intentionally excluded — see config/excluded.md.
-  training: { title: "Training & competency", icon: Award },
-  calibration: { title: "Calibration", icon: Wrench },
+  // training/calibration are built — see app/(app)/training, app/(app)/calibration (Sprint 05). Not placeholders.
   complaints: { title: "Customer complaints", icon: MessageSquare },
   ecn: { title: "Engineering changes", icon: GitBranch },
   // fmea is built — see app/(app)/fmea (Phase F). Left out of PLANNED_MODULES so

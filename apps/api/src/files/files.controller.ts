@@ -4,7 +4,7 @@ import { DownloadFileQuery, EntityRefQuery, PresignFileBody, type DownloadFileRe
 import { currentContext, currentTx } from "../context.js";
 import { Internal } from "../decorators.js";
 import { parse } from "../http/validate.js";
-import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
+import { actorIdOf, auditCtxOf, membershipOf } from "../ncr/handler-ctx.js";
 import { FILES_SERVICE } from "../tokens.js";
 import type { FilesService } from "./files.service.js";
 
@@ -31,7 +31,15 @@ export class FilesController {
   @Post("v1/files/presign")
   async presign(@Body() body: unknown): Promise<PresignFileResult> {
     const input = parse(PresignFileBody, body);
-    return this.files.presign(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+    return this.files.presign(
+      currentTx(),
+      currentContext().tenantId,
+      actorIdOf(),
+      input,
+      auditCtxOf(),
+      "user",
+      membershipOf(),
+    );
   }
 
   @Post("v1/files/:id/complete")

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { withAudit, type Tx } from "@kaenal/db";
-import { MAX_FILE_BYTES, validateUpload } from "@kaenal/core";
+import { authorize, MAX_FILE_BYTES, validateUpload, type Membership } from "@kaenal/core";
 import type { ActorKind, DownloadFileResult, FileDto, PresignFileBody, PresignFileResult } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
 import type { AuditContext } from "../ncr/audit-context.js";
@@ -43,6 +43,14 @@ function toFileDto(row: FileRow): FileDto {
   };
 }
 
+/** Sprint 05 §3.1 item 16 (B7) — the two `entityKind`s this sprint gates at
+ *  presign time. Every other `entityKind` (including `undefined`) is
+ *  ungated, matching this route's pre-existing, documented behaviour. */
+const ENTITY_KIND_PRESIGN_CAPABILITY: Readonly<Record<string, "calibration:manage" | "training:manage">> = {
+  calibration_event: "calibration:manage",
+  training_batch: "training:manage",
+};
+
 function sanitizeFilename(name: string): string {
   const cleaned = name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
   return cleaned.length > 0 ? cleaned : "file";
@@ -74,9 +82,25 @@ export class FilesService {
     body: PresignFileBody,
     context: AuditContext,
     actorKind: ActorKind = "user",
+    membership: Membership | null = null,
   ): Promise<PresignFileResult> {
     const decision = validateUpload({ mime: body.mime, sizeBytes: body.sizeBytes });
     if (!decision.ok) throw ApiError.from(decision);
+
+    // Sprint 05 §3.1 item 16 (B7): presign carries NO capability check at all
+    // by design (files are attachments governed by RLS + the AV-scan gate, not
+    // role) — closed here ONLY for the two entityKinds this sprint introduces,
+    // since an unchecked presign otherwise lets a client skip the calibration-
+    // event/training-batch `:manage` gate and later claim an arbitrary tenant
+    // file's id at link time (closed a second way there too, by the exact
+    // entityKind + sha256 + deletedAt check at link time). The general gap for
+    // every other entityKind is pre-existing and out of scope here.
+    const requiredCapability = ENTITY_KIND_PRESIGN_CAPABILITY[body.entityKind ?? ""];
+    if (requiredCapability !== undefined) {
+      if (membership === null) throw new ApiError("FORBIDDEN", `Presigning a '${body.entityKind}' upload requires '${requiredCapability}'`);
+      const auth = authorize(membership, requiredCapability);
+      if (!auth.ok) throw ApiError.from(auth);
+    }
 
     const id = randomUUID();
     const key = `${tenantId}/${id}/${sanitizeFilename(body.filename)}`;

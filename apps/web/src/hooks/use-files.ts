@@ -34,11 +34,16 @@ function putWithProgress(url: string, file: File, mime: string, onProgress?: (pc
 /** Presign → upload → complete. Returns the completed (scan-pending) file row.
  *  `entity` links the file to a record (`entityKind`/`entityId`) as it uploads —
  *  used by any tab that attaches evidence directly to an entity (e.g. the
- *  Audits Evidence tab, S2-2 AC4). */
+ *  Audits Evidence tab, S2-2 AC4). `entityId` is optional (Sprint 05 C2 AC4 /
+ *  T2 AC2, SF3): a calibration certificate or training-evidence upload
+ *  presigns with `entityKind` set (so the capability gate has something to
+ *  check) but `entityId` omitted, since no `calibration_event`/`training_batch`
+ *  row exists yet — the uploaded file's id is linked to the row afterward, in
+ *  the create call's own body (`certificateFileId`/`evidenceFileId`). */
 export async function uploadFile(
   file: File,
   onProgress?: (pct: number) => void,
-  entity?: { entityKind: string; entityId: string },
+  entity?: { entityKind: string; entityId?: string },
 ): Promise<FileDto> {
   const client = getApiClient();
   const mime = file.type !== "" ? file.type : "application/octet-stream";

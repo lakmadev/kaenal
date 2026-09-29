@@ -44,9 +44,26 @@ const ROLE_NAV: Record<string, NavVisibility> = {
     "risk",
     "msa",
     "fmea",
+    "calibration",
+    "training",
   ]),
-  inspector: new Set(["dashboard", "inspections", "ncrs", "documents", "notifications"]),
-  viewer: new Set(["dashboard", "documents", "reports", "notifications"]),
+  inspector: new Set([
+    "dashboard",
+    "inspections",
+    "ncrs",
+    "documents",
+    "notifications",
+    "calibration",
+    "training",
+  ]),
+  viewer: new Set([
+    "dashboard",
+    "documents",
+    "reports",
+    "notifications",
+    "calibration",
+    "training",
+  ]),
   partner: new Set<string>(), // external — routed to /portal, never this shell
 };
 

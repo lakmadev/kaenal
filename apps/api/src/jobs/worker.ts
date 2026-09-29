@@ -22,8 +22,10 @@ import {
   SCHEDULE_SWEEP_CRON,
   SLA_SWEEP_CRON,
   type CleanupOrphanedUploadsJob,
+  type CalibrationDueJob,
   type DocumentExpiryJob,
   type GenerateSummaryJob,
+  type TrainingExpiryJob,
   type MaterializeScheduleJob,
   type OutboxDrainJob,
   type PredictRiskComputeJob,
@@ -48,6 +50,8 @@ import { deliverNotification } from "./processors/deliver-notification.js";
 import { runExport } from "./processors/run-export.js";
 import { materializeScheduleForTenant } from "./processors/materialize-schedule.js";
 import { documentExpiryCheckForTenant } from "./processors/document-expiry.js";
+import { calibrationDueCheckForTenant } from "./processors/calibration-due.js";
+import { trainingExpiryCheckForTenant } from "./processors/training-expiry.js";
 import { computePredictionsForTenant } from "./processors/predict-risk.js";
 import { purgeSoftDeletedForTenant } from "./processors/purge-soft-deleted.js";
 import { fanOutAuditPartitionRoll, rollAuditPartitions } from "./processors/audit-partition-roll.js";
@@ -231,12 +235,32 @@ async function main(): Promise<void> {
             ...DEFAULT_JOB_OPTS,
             jobId: `docs:${t.id}:${docsBucket()}`,
           });
+          // Sprint 05 C5/T4: the same daily sweep also fans out the
+          // calibration-due and training-expiry checks — no new queue needed
+          // (an equally-shaped choice the sprint file leaves as an
+          // implementation-time decision, §4 C5 row).
+          await docsQueue.add(JOBS.calibrationDueCheck, { tenantId: t.id } satisfies CalibrationDueJob, {
+            ...DEFAULT_JOB_OPTS,
+            jobId: `cal-due:${t.id}:${docsBucket()}`,
+          });
+          await docsQueue.add(JOBS.trainingExpiryCheck, { tenantId: t.id } satisfies TrainingExpiryJob, {
+            ...DEFAULT_JOB_OPTS,
+            jobId: `training-expiry:${t.id}:${docsBucket()}`,
+          });
         }
         return;
       }
       if (job.name === JOBS.documentExpiryCheck) {
         const data = job.data as DocumentExpiryJob;
         await documentExpiryCheckForTenant(data, { notifications, pool: await poolFor(data.tenantId) });
+      }
+      if (job.name === JOBS.calibrationDueCheck) {
+        const data = job.data as CalibrationDueJob;
+        await calibrationDueCheckForTenant(data, { notifications, pool: await poolFor(data.tenantId) });
+      }
+      if (job.name === JOBS.trainingExpiryCheck) {
+        const data = job.data as TrainingExpiryJob;
+        await trainingExpiryCheckForTenant(data, { notifications, pool: await poolFor(data.tenantId) });
       }
     },
     { connection, concurrency: 4 },

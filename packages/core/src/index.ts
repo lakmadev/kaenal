@@ -40,3 +40,5 @@ export * from "./graph-queries.js";
 export * from "./forecast.js";
 export * from "./risk-matrix.js";
 export * from "./gauge-rr.js";
+export * from "./calibration.js";
+export * from "./competency.js";

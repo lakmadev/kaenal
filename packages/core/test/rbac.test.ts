@@ -68,6 +68,10 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "risk:manage",
     "msa:view",
     "msa:manage",
+    "calibration:view",
+    "calibration:manage",
+    "training:view",
+    "training:manage",
   ],
   manager: [
     "inspection:view",
@@ -104,6 +108,10 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "risk:manage",
     "msa:view",
     "msa:manage",
+    "calibration:view",
+    "calibration:manage",
+    "training:view",
+    "training:manage",
   ],
   auditor: [
     "inspection:view",
@@ -131,6 +139,10 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "risk:manage",
     "msa:view",
     "msa:manage",
+    "calibration:view",
+    "calibration:manage",
+    "training:view",
+    "training:manage",
   ],
   inspector: [
     "inspection:view",
@@ -149,6 +161,8 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ai:use",
     "risk:view",
     "msa:view",
+    "calibration:view",
+    "training:view",
   ],
   viewer: [
     "inspection:view",
@@ -165,6 +179,8 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "ai:use",
     "risk:view",
     "msa:view",
+    "calibration:view",
+    "training:view",
   ],
   partner: ["portal:view", "portal:respond"],
 };
@@ -215,6 +231,33 @@ describe("the denials that matter most", () => {
 
   it("inspector cannot approve documents", () => {
     expect(hasCapability("inspector", "document:approve")).toBe(false);
+  });
+});
+
+describe("calibration + training capabilities (Sprint 05 X1 AC1)", () => {
+  it("grants admin, manager and auditor full read+write", () => {
+    for (const role of ["admin", "manager", "auditor"] as const) {
+      expect(hasCapability(role, "calibration:view")).toBe(true);
+      expect(hasCapability(role, "calibration:manage")).toBe(true);
+      expect(hasCapability(role, "training:view")).toBe(true);
+      expect(hasCapability(role, "training:manage")).toBe(true);
+    }
+  });
+
+  it("grants inspector and viewer view-only", () => {
+    for (const role of ["inspector", "viewer"] as const) {
+      expect(hasCapability(role, "calibration:view")).toBe(true);
+      expect(hasCapability(role, "calibration:manage")).toBe(false);
+      expect(hasCapability(role, "training:view")).toBe(true);
+      expect(hasCapability(role, "training:manage")).toBe(false);
+    }
+  });
+
+  it("grants partner neither capability", () => {
+    expect(hasCapability("partner", "calibration:view")).toBe(false);
+    expect(hasCapability("partner", "calibration:manage")).toBe(false);
+    expect(hasCapability("partner", "training:view")).toBe(false);
+    expect(hasCapability("partner", "training:manage")).toBe(false);
   });
 });
 

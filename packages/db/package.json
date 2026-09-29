@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@kaenal/config": "workspace:*",
+    "@kaenal/core": "workspace:*",
     "@types/pg": "^8.11.10",
     "dotenv": "^16.4.7",
     "tsx": "^4.19.2",

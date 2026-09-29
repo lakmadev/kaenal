@@ -7,6 +7,7 @@ import {
   AuditFindingKind,
   AuditPhase,
   AuditType,
+  CalibrationResult,
   CapaActionStatus,
   CapaPhase,
   CapaType,
@@ -24,6 +25,8 @@ import {
   ExportStatus,
   FindingSeverity,
   InspectionStatus,
+  InstrumentLifecycleStatus,
+  InstrumentType,
   NcrActionKind,
   NcrActionStatus,
   NcrPriority,
@@ -133,6 +136,16 @@ export const PlantDto = z.object({
   code: z.string(),
 });
 export type PlantDto = z.infer<typeof PlantDto>;
+
+/** A finer location within a plant (Sprint 05 C1 AC1/C6) — used by the
+ *  instrument register's cascading plant→area select and area-name display.
+ *  `areas` has no `code` column, only `name` (confirmed, §0/SF5). */
+export const AreaDto = z.object({
+  id: z.string().uuid(),
+  plantId: z.string().uuid(),
+  name: z.string(),
+});
+export type AreaDto = z.infer<typeof AreaDto>;
 
 // --- Inspections ------------------------------------------------------------
 
@@ -1451,6 +1464,22 @@ export type SupplierProfile = z.infer<typeof SupplierProfile>;
 
 const SupplierGrade = z.enum(["A", "B", "C", "D"]);
 const DateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
+
+/**
+ * A `DateOnly` that additionally rejects a date strictly after the server's
+ * current UTC calendar day (Sprint 05 C2 AC7/T2 AC4 — a calibration cannot be
+ * "performed," nor a training "completed," tomorrow). String comparison on
+ * `YYYY-MM-DD` is chronological, so a plain `<=` works. This is a coarse,
+ * schema-level guard against an unambiguously-future date (e.g. next month) —
+ * the sprint's own authoritative rule compares against the instrument's plant
+ * timezone (C2 AC7) / the tenant's own timezone (T2 AC4, B4(c)), which needs a
+ * DB row and so is enforced again, exactly, in the service; this guard cannot
+ * see that timezone and so never substitutes for it.
+ */
+const notFutureDate = (fieldLabel: string) =>
+  DateOnly.refine((value) => value <= new Date().toISOString().slice(0, 10), {
+    message: `${fieldLabel} cannot be in the future`,
+  });
 
 export const SupplierDto = z.object({
   id: z.string().uuid(),
@@ -2953,3 +2982,408 @@ export const MsaAnalysisResult = z.discriminatedUnion("status", [
   MsaAnalysisComplete,
 ]);
 export type MsaAnalysisResult = z.infer<typeof MsaAnalysisResult>;
+
+// =============================================================================
+// Calibration management (Sprint 05 C1-C6; qms-modules.jsx `CalibrationManagement`)
+// =============================================================================
+// `dueStatus`/cell-state math itself is `packages/core/calibration.ts` (pure,
+// unit-tested, ISO-date-string signature, B4) — these DTOs mirror it exactly.
+// `next_due`/`expires_at` are real Postgres GENERATED columns (migration
+// 0068/0069); `DateOnly` (`YYYY-MM-DD`) is used everywhere a `date` column
+// crosses the wire, matching `packages/core`'s own ISO-date convention (never
+// a JS `Date`/full datetime for a pure calendar date).
+
+/** Derived, never stored (C1 AC2) — mirrors `packages/core/calibration.ts`'s
+ *  `InstrumentDueStatus` exactly. */
+export const InstrumentDueStatus = z.enum(["ok", "warn", "overdue", "unscheduled"]);
+export type InstrumentDueStatus = z.infer<typeof InstrumentDueStatus>;
+
+export const InstrumentDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  name: z.string(),
+  type: InstrumentType,
+  plantId: z.string().uuid(),
+  areaId: z.string().uuid().nullable(),
+  /** Free text (e.g. "Internal — ISO 10360", "External — NABL accredited"). */
+  method: z.string(),
+  /** Free text display string (e.g. "±1.7μm") — nothing computes against it. */
+  tolerance: z.string(),
+  intervalMonths: z.number().int().positive(),
+  lastCalibrated: DateOnly.nullable(),
+  /** GENERATED column; `null` until the first calibration event (C6). */
+  nextDue: DateOnly.nullable(),
+  /** Always the newest event's own result (C2 AC2's tie-break), regardless of
+   *  whether that event advanced `lastCalibrated`/`nextDue` (B3). */
+  lastResult: CalibrationResult.nullable(),
+  owner: z.string().uuid().nullable(),
+  status: InstrumentLifecycleStatus,
+  /** Derived server-side from `instrumentDueStatus` — never independently set. */
+  dueStatus: InstrumentDueStatus,
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type InstrumentDto = z.infer<typeof InstrumentDto>;
+
+/** `GET /v1/instruments` (C1 AC3). `dueStatus` here is a coarser list filter
+ *  (`due_soon`|`overdue`) than the DTO's own 4-state `InstrumentDueStatus` —
+ *  `unscheduled`/`ok` aren't filterable states a register search asks for. */
+export const InstrumentListQuery = PageQuery.extend({
+  type: InstrumentType.optional(),
+  status: InstrumentLifecycleStatus.optional(),
+  dueStatus: z.enum(["due_soon", "overdue"]).optional(),
+  plantId: z.string().uuid().optional(),
+  /** Free-text search over name/code/area name (C1 AC3, SF5). */
+  q: z.string().trim().min(1).max(200).optional(),
+});
+export type InstrumentListQuery = z.infer<typeof InstrumentListQuery>;
+
+/** C6 AC1-3 — `status` defaults to `active`; `lastCalibrated`/`nextDue` are
+ *  `NULL` until the first calibration event, never client-supplied here. */
+export const CreateInstrumentBody = z.object({
+  name: z.string().trim().min(1).max(200),
+  type: InstrumentType,
+  plantId: z.string().uuid(),
+  areaId: z.string().uuid().nullable().optional(),
+  method: z.string().trim().min(1).max(500),
+  tolerance: z.string().trim().min(1).max(200),
+  intervalMonths: z.number().int().positive(),
+  owner: z.string().uuid().nullable().optional(),
+});
+export type CreateInstrumentBody = z.infer<typeof CreateInstrumentBody>;
+
+/**
+ * `PATCH /v1/instruments/:id` (C1 AC3) — a true partial update (every field
+ * but `lockVersion` optional): edits name/type/plant/area/method/tolerance/
+ * interval/owner. Never accepts `lastCalibrated`/`nextDue`/`lastResult`/
+ * `status` directly — those change only via a calibration event (C2) or the
+ * dedicated retire route (C4 AC1). Transfer (C4 AC2) is this same route with
+ * only `plantId`/`areaId` set — the service checks the target `areaId`
+ * actually belongs to the target `plantId` when both are present.
+ */
+export const UpdateInstrumentBody = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  type: InstrumentType.optional(),
+  plantId: z.string().uuid().optional(),
+  areaId: z.string().uuid().nullable().optional(),
+  method: z.string().trim().min(1).max(500).optional(),
+  tolerance: z.string().trim().min(1).max(200).optional(),
+  intervalMonths: z.number().int().positive().optional(),
+  owner: z.string().uuid().nullable().optional(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type UpdateInstrumentBody = z.infer<typeof UpdateInstrumentBody>;
+
+/** `PATCH /v1/instruments/:id/retire` (C4 AC1) — one-way `active -> retired`;
+ *  422 if already retired. `.strict()` since retiring changes only `status`. */
+export const RetireInstrumentBody = z.object({ lockVersion: z.number().int().nonnegative() }).strict();
+export type RetireInstrumentBody = z.infer<typeof RetireInstrumentBody>;
+
+/** `GET /v1/instruments/summary` (C1 AC6) — the KPI strip's four numbers,
+ *  precomputed server-side (a cursor-paginated list cannot supply a tenant
+ *  total, rule 6). Plant-scoped identically to the list route; does NOT carry
+ *  the owner-sees-own-instrument exception (§3.1 item 3). */
+export const InstrumentSummaryDto = z.object({
+  /** `count(*) where status='active'` (C1 AC5). */
+  instrumentsTracked: z.number().int().nonnegative(),
+  /** `count(*) where status='active' and dueStatus='warn'` (C1 AC5). */
+  dueSoon: z.number().int().nonnegative(),
+  /** `count(*) where status='active' and dueStatus='overdue'` — includes
+   *  every `last_result='fail'` instrument regardless of `nextDue` (B3). */
+  overdue: z.number().int().nonnegative(),
+  /** `count(*) from calibration_events where result in ('adjusted','fail')
+   *  and performed_at in the tenant's current calendar year` (C1 AC5). */
+  outOfToleranceFindingsYtd: z.number().int().nonnegative(),
+  /** Sub-stat: how many of the above already have a linked NCR (C3). */
+  outOfToleranceLedToNcrYtd: z.number().int().nonnegative(),
+});
+export type InstrumentSummaryDto = z.infer<typeof InstrumentSummaryDto>;
+
+export const CalibrationEventDto = z.object({
+  id: z.string().uuid(),
+  instrumentId: z.string().uuid(),
+  performedAt: DateOnly,
+  result: CalibrationResult,
+  /** Free text — an external lab name or an internal technician (C2 AC1). */
+  performedBy: z.string(),
+  notes: z.string(),
+  /** Sole, authoritative link to a certificate (§3.1 item 16, B7) — never
+   *  resolved via `files.entityKind`/`entityId`. */
+  certificateFileId: z.string().uuid().nullable(),
+  /** Set once, by C3's raise-NCR route only. */
+  ncrId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type CalibrationEventDto = z.infer<typeof CalibrationEventDto>;
+
+/**
+ * `POST /v1/instruments/:id/calibration-events` (C2 AC2) — `lockVersion`
+ * guards the parent instrument's optimistic-concurrency write (the same
+ * `UPDATE` that advances `lastCalibrated`/`nextDue` for `pass`/`adjusted`, or
+ * just mirrors `lastResult` for `fail`, C2 AC2/BLOCKING 1). `performedAt`
+ * strictly after today (server UTC) is rejected 422 here as a coarse guard;
+ * the service re-checks exactly against the instrument's own plant timezone
+ * (C2 AC7, B4(c)). `certificateFileId` inline-links a file already
+ * presigned/uploaded/completed with `entityKind: "calibration_event"` and
+ * `entityId` omitted (C2 AC4) — never a fresh upload target itself.
+ */
+export const CreateCalibrationEventBody = z.object({
+  performedAt: notFutureDate("performedAt"),
+  result: CalibrationResult,
+  performedBy: z.string().trim().min(1).max(200),
+  notes: z.string().trim().max(4000).default(""),
+  certificateFileId: z.string().uuid().nullable().optional(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type CreateCalibrationEventBody = z.infer<typeof CreateCalibrationEventBody>;
+
+export const CalibrationEventListQuery = PageQuery.extend({});
+export type CalibrationEventListQuery = z.infer<typeof CalibrationEventListQuery>;
+
+/** `PUT /v1/instruments/:instrumentId/calibration-events/:eventId/certificate`
+ *  (C2 AC5) — attach/replace a certificate after the fact; same tenant +
+ *  `sha256 IS NOT NULL` + `entityKind='calibration_event'` +
+ *  `deletedAt IS NULL` verification as the inline flow (AC4). */
+export const AttachCertificateBody = z.object({ fileId: z.string().uuid() });
+export type AttachCertificateBody = z.infer<typeof AttachCertificateBody>;
+
+/** `POST /v1/instruments/:instrumentId/calibration-events/:eventId/raise-ncr`
+ *  (C3 AC2) — no client-supplied fields; the NCR's title/plantId are derived
+ *  server-side from the instrument + event. 422 if the event's
+ *  `result = 'pass'`; 409 if `ncrId` is already set. */
+export const RaiseNcrFromCalibrationBody = z.object({}).strict();
+export type RaiseNcrFromCalibrationBody = z.infer<typeof RaiseNcrFromCalibrationBody>;
+
+// =============================================================================
+// Training & competency (Sprint 05 T1-T5; qms-modules.jsx `TrainingMatrix`)
+// =============================================================================
+// Cell-state math itself is `packages/core/competency.ts` (pure, unit-tested,
+// ISO-date-string signature, B4) — `TrainingMatrixCellDto.state` mirrors its
+// `CompetencyCellState` return type exactly.
+
+export const CompetencyDto = z.object({
+  id: z.string().uuid(),
+  /** Author-chosen slug (e.g. "iatf", "fmea") — NOT counters-sequenced. */
+  code: z.string(),
+  name: z.string(),
+  mandatory: z.boolean(),
+  /** `null` = never expires. */
+  validMonths: z.number().int().positive().nullable(),
+  /** Matrix column order. */
+  seq: z.number().int().nonnegative(),
+  /** `null` when not archived; T5's dedicated marker, never the generic
+   *  soft-delete `deletedAt`. */
+  archivedAt: z.string().datetime().nullable(),
+  /** `count(distinct member_id) from training_records where competency_id =
+   *  :id` — live, never stored; what Board 9's archive-confirm dialog reads
+   *  (T1 AC9, BLOCKING A). */
+  trainingRecordCount: z.number().int().nonnegative(),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type CompetencyDto = z.infer<typeof CompetencyDto>;
+
+/** `GET /v1/competencies` (T1 AC3) — excludes archived rows by default;
+ *  `status=archived` finds them (T5 AC2). */
+export const CompetencyListQuery = PageQuery.extend({
+  status: z.enum(["active", "archived"]).optional(),
+});
+export type CompetencyListQuery = z.infer<typeof CompetencyListQuery>;
+
+/** `POST /v1/competencies` (T1 AC3) — `seq` is always server-assigned
+ *  (`current_max_seq(non-archived) + 1`), never client-supplied. A `code`
+ *  clash against a non-archived competency is `409 Conflict`
+ *  (`[AMENDED-4]` SHOULD-FIX 8(c)). */
+export const CreateCompetencyBody = z.object({
+  code: z.string().trim().min(1).max(64),
+  name: z.string().trim().min(1).max(200),
+  mandatory: z.boolean().default(false),
+  validMonths: z.number().int().positive().nullable().optional(),
+});
+export type CreateCompetencyBody = z.infer<typeof CreateCompetencyBody>;
+
+/** `PATCH /v1/competencies/:id` (T1 AC3) — partial update, `lockVersion`-
+ *  guarded. Flipping `mandatory` never retroactively rewrites
+ *  `training_records` — cell state is always derived live (T5 UC). */
+export const UpdateCompetencyBody = z.object({
+  code: z.string().trim().min(1).max(64).optional(),
+  name: z.string().trim().min(1).max(200).optional(),
+  mandatory: z.boolean().optional(),
+  validMonths: z.number().int().positive().nullable().optional(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type UpdateCompetencyBody = z.infer<typeof UpdateCompetencyBody>;
+
+/** `PATCH /v1/competencies/:id/archive` (T5 AC1) — sets `archivedAt = now()`;
+ *  422 if already archived. `.strict()`: archiving changes only `archivedAt`. */
+export const ArchiveCompetencyBody = z.object({ lockVersion: z.number().int().nonnegative() }).strict();
+export type ArchiveCompetencyBody = z.infer<typeof ArchiveCompetencyBody>;
+
+/** `PATCH /v1/competencies/:id/unarchive` (T5 AC1(b)) — clears `archivedAt`
+ *  and resets `seq = current_max_seq(non-archived) + 1`; 422 if not archived;
+ *  409 on a `code` clash against a non-archived row (T5 AC1(c)). */
+export const UnarchiveCompetencyBody = z.object({ lockVersion: z.number().int().nonnegative() }).strict();
+export type UnarchiveCompetencyBody = z.infer<typeof UnarchiveCompetencyBody>;
+
+/**
+ * `PUT /v1/competencies/order` (T5 AC3, `[AMENDED-4]` SHOULD-FIX 8(a)) — an
+ * explicitly-ordered array of every non-archived competency's id; array
+ * position (0-indexed) becomes the new `seq`. No client-supplied `seq`, so
+ * there is no duplicate-`seq` question — a repeated id is rejected here
+ * (schema-level: no duplicates within the submitted array). The service
+ * separately 409s when this array's id SET doesn't exactly match the
+ * current non-archived set (`ids.length === count(non-archived) &&
+ * new Set(ids).size === ids.length` — the architecture review's own named
+ * correction: comparing set equality alone would silently accept a body that
+ * duplicates one id in place of a missing one, since a `Set` collapses the
+ * duplicate and can appear to "match" a same-size distinct set). That
+ * DB-count comparison needs the current row count and so belongs in the
+ * service, not this schema — this schema only rejects a duplicate id within
+ * the submitted array itself, which no valid ordering could ever contain.
+ */
+export const ReorderCompetenciesBody = z.object({
+  ids: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(2000)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: "ids must not contain duplicates",
+    }),
+});
+export type ReorderCompetenciesBody = z.infer<typeof ReorderCompetenciesBody>;
+
+/** `PUT /v1/competencies/order`'s response — the full, non-archived catalog
+ *  in its new `seq` order; a plain array wrapper, not `page()`'s cursor shape
+ *  (this route is a single atomic reorder, not a paginated list). */
+export const ReorderCompetenciesResult = z.object({ items: z.array(CompetencyDto) });
+export type ReorderCompetenciesResult = z.infer<typeof ReorderCompetenciesResult>;
+
+export const TrainingRecordDto = z.object({
+  id: z.string().uuid(),
+  memberId: z.string().uuid(),
+  competencyId: z.string().uuid(),
+  completedAt: DateOnly,
+  /** Copied from `competencies.validMonths` at insert time — never re-derived
+   *  from the (possibly since-changed) catalog later (B1). */
+  validMonths: z.number().int().positive().nullable(),
+  /** GENERATED from `completedAt` + `validMonths`; `null` when `validMonths`
+   *  is `null` (never expires). */
+  expiresAt: DateOnly.nullable(),
+  /** Sole, authoritative link to evidence — mirrors `certificateFileId`. */
+  evidenceFileId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type TrainingRecordDto = z.infer<typeof TrainingRecordDto>;
+
+/**
+ * `POST /v1/training/records` (T2 AC1) — one all-or-nothing batch: one new
+ * history row per `memberId`, each copying `competencies.validMonths` at
+ * insert time (T1 AC1). `evidenceFileId`, once set, is shared across every
+ * row this call creates — the client presigns with `entityKind:
+ * "training_batch"` and `entityId` omitted, uploads, completes, THEN calls
+ * this route with that file's real id (T2 AC2, BLOCKING 2 — the
+ * `training_batch_id` concept was dropped, unbuildable as originally
+ * specified). `completedAt` strictly after today (server UTC) is rejected
+ * 422 here as a coarse guard; the service re-checks exactly against the
+ * tenant's own timezone (T2 AC4, B4(c)).
+ */
+export const CreateTrainingRecordBody = z.object({
+  memberIds: z.array(z.string().uuid()).min(1).max(500),
+  competencyId: z.string().uuid(),
+  completedAt: notFutureDate("completedAt"),
+  evidenceFileId: z.string().uuid().nullable().optional(),
+});
+export type CreateTrainingRecordBody = z.infer<typeof CreateTrainingRecordBody>;
+
+/** `POST /v1/training/records`'s response — one `TrainingRecordDto` per
+ *  `memberId` in the request, all committed together (SF8) — a plain array
+ *  wrapper, not `page()`'s cursor shape (this is a create response, not a
+ *  paginated list). */
+export const CreateTrainingRecordResult = z.object({ items: z.array(TrainingRecordDto) });
+export type CreateTrainingRecordResult = z.infer<typeof CreateTrainingRecordResult>;
+
+/** A single (member, competency) matrix cell's state — mirrors
+ *  `packages/core/competency.ts`'s `CompetencyCellState` exactly. */
+export const TrainingMatrixCellDto = z.object({
+  competencyId: z.string().uuid(),
+  state: z.enum(["ok", "warn", "overdue", "gap", "na"]),
+  /** The record this state was derived from, if any (no record for `gap`/`na`). */
+  recordId: z.string().uuid().nullable(),
+  expiresAt: DateOnly.nullable(),
+});
+export type TrainingMatrixCellDto = z.infer<typeof TrainingMatrixCellDto>;
+
+/** One member row of the matrix — the page item for `GET /v1/training/matrix`
+ *  (T1 AC4, cursor over MEMBERS, not competencies). */
+export const TrainingMatrixRowDto = z.object({
+  memberId: z.string().uuid(),
+  memberName: z.string(),
+  /** `memberships.title` — the free-text job-title field (e.g. "CMM Specialist"). */
+  title: z.string().nullable(),
+  cells: z.array(TrainingMatrixCellDto),
+});
+export type TrainingMatrixRowDto = z.infer<typeof TrainingMatrixRowDto>;
+
+/** `GET /v1/training/matrix` (T1 AC4) — `q` resolves via `control.users`
+ *  (name search), never a denormalized name column (§3.1 item 5). */
+export const TrainingMatrixQuery = PageQuery.extend({
+  mandatoryOnly: z.coerce.boolean().optional(),
+  gapsOnly: z.coerce.boolean().optional(),
+  q: z.string().trim().min(1).max(200).optional(),
+});
+export type TrainingMatrixQuery = z.infer<typeof TrainingMatrixQuery>;
+
+/** `GET /v1/training/summary` (T1 AC8) — the KPI strip's four numbers,
+ *  precomputed server-side, plant-scoped identically to the matrix route. */
+export const TrainingSummaryDto = z.object({
+  /** `count(distinct member_id)` among active, non-partner, visible members. */
+  membersTracked: z.number().int().nonnegative(),
+  /** `100 × ok+warn / total` over (member, mandatory, non-archived-competency)
+   *  pairs; `null` when the denominator is zero (SF9) — the API never emits
+   *  the literal string `"—"`, that is the web layer's job for a `null`. */
+  coverage: z.number().min(0).max(100).nullable(),
+  /** `count(*) where state = 'warn'`, non-archived, not mandatory-only. */
+  expiringSoon: z.number().int().nonnegative(),
+  /** `count(*) where state in ('overdue','gap')`, non-archived. */
+  overdue: z.number().int().nonnegative(),
+});
+export type TrainingSummaryDto = z.infer<typeof TrainingSummaryDto>;
+
+/** `GET /v1/training/gaps` (T3 AC1) — every (member, non-archived competency)
+ *  pair in state `gap`/`overdue`/`warn`, sorted worst-first. Same query the
+ *  matrix's Gaps filter uses, exposed as its own route so the "Expiring &
+ *  overdue" card and the skill-gap-report export don't have to paginate the
+ *  full matrix. */
+export const TrainingGapsQuery = PageQuery.extend({});
+export type TrainingGapsQuery = z.infer<typeof TrainingGapsQuery>;
+
+export const TrainingGapDto = z.object({
+  memberId: z.string().uuid(),
+  memberName: z.string(),
+  competencyId: z.string().uuid(),
+  competencyName: z.string(),
+  state: z.enum(["gap", "overdue", "warn"]),
+  expiresAt: DateOnly.nullable(),
+});
+export type TrainingGapDto = z.infer<typeof TrainingGapDto>;
+
+/**
+ * `GET /v1/training/records` (T1 AC9, `[AMENDED-4]` BLOCKING A) — a member's
+ * full history, INCLUDING rows whose `competencyId` points at a now-archived
+ * competency (the one training read path that deliberately does not apply
+ * the `archivedAt IS NULL` predicate — T5's own history-preservation promise
+ * depends on it). `memberId` is required. Visibility (enforced by the
+ * service, not this schema): `training:manage` may fetch any member's;
+ * `training:view`-only may fetch only their own (`memberId` must equal the
+ * caller's own membership id, else `403`, not `404` — an intra-tenant
+ * permission boundary, not rule 8's cross-tenant case).
+ */
+export const TrainingRecordsQuery = PageQuery.extend({
+  memberId: z.string().uuid(),
+  competencyId: z.string().uuid().optional(),
+});
+export type TrainingRecordsQuery = z.infer<typeof TrainingRecordsQuery>;

@@ -64,6 +64,10 @@ export const JOBS = {
   outboxSweep: "outbox.sweep",
   /** Per-tenant: deliver pending transactional-outbox events (at-least-once). */
   outboxDrain: "outbox.drain",
+  /** Per-tenant: remind instrument owners of due/overdue/failed calibrations (Sprint 05 C5). */
+  calibrationDueCheck: "docs.calibration-due",
+  /** Per-tenant: remind members of expiring/overdue/gap training (Sprint 05 T4). */
+  trainingExpiryCheck: "docs.training-expiry",
 } as const;
 
 export interface RecomputeSlaJob {
@@ -97,6 +101,12 @@ export interface MaterializeScheduleJob {
   readonly tenantId: string;
 }
 export interface DocumentExpiryJob {
+  readonly tenantId: string;
+}
+export interface CalibrationDueJob {
+  readonly tenantId: string;
+}
+export interface TrainingExpiryJob {
   readonly tenantId: string;
 }
 export interface PredictRiskComputeJob {

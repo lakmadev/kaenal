@@ -1,7 +1,7 @@
 import type pg from "pg";
 import type { Tx } from "@kaenal/db";
 import { isPlantScoped, type Membership } from "@kaenal/core";
-import type { MemberDto, MemberWorkloadDto, Page, PlantDto, Role } from "@kaenal/types";
+import type { AreaDto, MemberDto, MemberWorkloadDto, Page, PlantDto, Role } from "@kaenal/types";
 import { clampLimit, decodeCursor, keysetPredicate, toPage, type Cursor } from "../http/pagination.js";
 
 interface MembershipRow {
@@ -40,6 +40,30 @@ export class MembersService {
       scoped ? [membership.plantIds] : [],
     );
     return rows;
+  }
+
+  /** Areas within the caller's visible plants (Sprint 05 C1/C6) — the
+   *  instrument register's plant→area cascading select and area-name display.
+   *  Plant-scoped roles never see an area outside their own `plantIds`, same
+   *  rule as `listPlants`; `plantId` narrows further to one plant (still
+   *  checked against the caller's own scope, never trusted bare). */
+  async listAreas(tx: Tx, membership: Membership, plantId?: string): Promise<AreaDto[]> {
+    const scoped = isPlantScoped(membership.role) && membership.plantIds.length > 0;
+    const params: unknown[] = [];
+    const clauses = ["deleted_at IS NULL"];
+    if (scoped) {
+      params.push(membership.plantIds);
+      clauses.push(`plant_id = ANY($${params.length}::uuid[])`);
+    }
+    if (plantId !== undefined) {
+      params.push(plantId);
+      clauses.push(`plant_id = $${params.length}`);
+    }
+    const { rows } = await tx.query<{ id: string; plant_id: string; name: string }>(
+      `SELECT id, plant_id, name FROM areas WHERE ${clauses.join(" AND ")} ORDER BY name ASC, id ASC`,
+      params,
+    );
+    return rows.map((r) => ({ id: r.id, plantId: r.plant_id, name: r.name }));
   }
 
   async list(tx: Tx, opts: MembersListOptions): Promise<Page<MemberDto>> {

@@ -4,12 +4,15 @@ import { withTenant } from "@kaenal/db";
 import {
   analyzeGaugeRr,
   chunkRows,
+  competencyCellState,
   EXPORT_ROW_CAP,
+  instrumentDueStatus,
   isPlantScoped,
   scoreBand,
   toCsv,
   toPdf,
   toXlsx,
+  type CalibrationResult,
   type Membership,
 } from "@kaenal/core";
 import { AiReplyExportPayload } from "@kaenal/types";
@@ -114,6 +117,24 @@ const GAUGE_RR_AIAG_REPORT_SPEC: Exportable = {
   plantScoped: false,
   columns: [],
   headers: ["Field", "Value"],
+};
+
+/** Not a table export either: the instrument register's KPI strip + full
+ *  table (Sprint 05 C5 AC2). */
+const CALIBRATION_AUDIT_PACK_SPEC: Exportable = {
+  table: "",
+  plantScoped: false,
+  columns: [],
+  headers: ["Field", "Value"],
+};
+
+/** Not a table export either: every mandatory gap + expiring-within-30-days
+ *  training record (Sprint 05 T3 AC2). */
+const SKILL_GAP_REPORT_SPEC: Exportable = {
+  table: "",
+  plantScoped: false,
+  columns: [],
+  headers: ["Member", "Competency", "State", "Expires"],
 };
 
 /**
@@ -381,6 +402,153 @@ async function gaugeRrReportRows(
   return out;
 }
 
+/** `now()` as YYYY-MM-DD in the given IANA timezone (mirrors the read paths' own rule, §3.1 item 15). */
+function todayIn(tz: string, now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(
+    now,
+  );
+}
+
+/**
+ * Render the instrument register's KPI strip + full table (Sprint 05 C5
+ * AC2), scoped to the caller's visible instruments — a pure plant-membership
+ * view, deliberately WITHOUT the owner-sees-own-instrument exception (§3.1
+ * item 3's EXPORT row): an owned-but-out-of-scope instrument is excluded from
+ * the caller's own board-pack, same as the list/summary decision. Each
+ * instrument's `dueStatus` uses the SAME instrument-plant-timezone "today"
+ * rule as every other calibration read path, so an exported PDF can never
+ * disagree with what the live UI shows for the same instrument on the same day.
+ */
+async function calibrationAuditPackRows(
+  tx: Parameters<Parameters<typeof withTenant>[2]>[0],
+  membership: Membership,
+): Promise<unknown[][]> {
+  const params: unknown[] = [];
+  let where = "WHERE i.deleted_at IS NULL";
+  if (isPlantScoped(membership.role) && membership.plantIds.length > 0) {
+    params.push(membership.plantIds);
+    where += ` AND i.plant_id = ANY($${params.length}::uuid[])`;
+  }
+
+  const { rows } = await tx.query<{
+    code: string;
+    name: string;
+    status: string;
+    last_calibrated: string | null;
+    next_due: string | null;
+    last_result: string | null;
+    timezone: string;
+  }>(
+    `SELECT i.code, i.name, i.status, i.last_calibrated::text AS last_calibrated, i.next_due::text AS next_due,
+            i.last_result, p.timezone
+       FROM instruments i JOIN plants p ON p.id = i.plant_id
+       ${where}
+       ORDER BY i.code ASC`,
+    params,
+  );
+
+  let tracked = 0;
+  let dueSoon = 0;
+  let overdue = 0;
+  const detail: unknown[][] = [];
+  for (const r of rows) {
+    const dueStatus =
+      r.status === "active"
+        ? instrumentDueStatus({
+            nextDue: r.next_due,
+            lastResult: r.last_result as CalibrationResult | null,
+            today: todayIn(r.timezone),
+          })
+        : "unscheduled";
+    if (r.status === "active") {
+      tracked += 1;
+      if (dueStatus === "warn") dueSoon += 1;
+      if (dueStatus === "overdue") overdue += 1;
+    }
+    detail.push([
+      r.code,
+      `${r.name} — ${r.status}, last calibrated ${r.last_calibrated ?? "never"}, next due ${r.next_due ?? "—"} (${dueStatus})`,
+    ]);
+  }
+
+  const out: unknown[][] = [
+    ["Instruments tracked", tracked],
+    ["Due < 30 days", dueSoon],
+    ["Overdue", overdue],
+  ];
+  out.push(...detail);
+  return out;
+}
+
+/**
+ * Render every mandatory gap + expiring-within-30-days training record
+ * (Sprint 05 T3 AC2), tenant/plant-scoped to the caller — re-derives the same
+ * state as `TrainingService.gaps`, using the SAME tenant-timezone "today"
+ * rule as every other training read path.
+ */
+async function skillGapReportRows(
+  tx: Parameters<Parameters<typeof withTenant>[2]>[0],
+  tenantId: string,
+  membership: Membership,
+): Promise<unknown[][]> {
+  const { rows: tenantRows } = await tx.query<{ timezone: string }>(
+    "SELECT timezone FROM control.tenants WHERE id = $1",
+    [tenantId],
+  );
+  const today = todayIn(tenantRows[0]?.timezone ?? "UTC");
+
+  const params: unknown[] = [];
+  let memberWhere = "WHERE status = 'active' AND role <> 'partner' AND deleted_at IS NULL";
+  if (isPlantScoped(membership.role) && membership.plantIds.length > 0) {
+    params.push(membership.plantIds);
+    memberWhere += ` AND (plant_ids = '{}' OR plant_ids && $${params.length}::uuid[])`;
+  }
+  const { rows: members } = await tx.query<{ user_id: string }>(
+    `SELECT user_id FROM memberships ${memberWhere}`,
+    params,
+  );
+  const memberIds = members.map((m) => m.user_id);
+  if (memberIds.length === 0) return [];
+
+  const { rows: competencies } = await tx.query<{ id: string; name: string; mandatory: boolean }>(
+    "SELECT id, name, mandatory FROM competencies WHERE tenant_id = $1 AND archived_at IS NULL AND deleted_at IS NULL",
+    [tenantId],
+  );
+  const { rows: records } = await tx.query<{
+    member_id: string;
+    competency_id: string;
+    expires_at: string | null;
+  }>(
+    `SELECT DISTINCT ON (tr.member_id, tr.competency_id)
+            tr.member_id, tr.competency_id, tr.expires_at::text AS expires_at
+       FROM training_records tr
+       JOIN competencies c ON c.id = tr.competency_id AND c.archived_at IS NULL AND c.deleted_at IS NULL
+      WHERE tr.member_id = ANY($1::uuid[]) AND tr.deleted_at IS NULL
+      ORDER BY tr.member_id, tr.competency_id, tr.completed_at DESC, tr.created_at DESC`,
+    [memberIds],
+  );
+  const byPair = new Map<string, string | null>();
+  for (const r of records) byPair.set(`${r.member_id}:${r.competency_id}`, r.expires_at);
+
+  const { rows: names } = await tx.query<{ id: string; name: string }>(
+    "SELECT id, name FROM control.users WHERE id = ANY($1::uuid[])",
+    [memberIds],
+  );
+  const nameOf = new Map(names.map((n) => [n.id, n.name]));
+
+  const out: unknown[][] = [];
+  for (const memberId of memberIds) {
+    for (const c of competencies) {
+      const hasRecord = byPair.has(`${memberId}:${c.id}`);
+      const expiresAt = byPair.get(`${memberId}:${c.id}`) ?? null;
+      const state = competencyCellState({ hasRecord, mandatory: c.mandatory, expiresAt, today });
+      if (state !== "gap" && state !== "overdue" && state !== "warn") continue;
+      out.push([nameOf.get(memberId) ?? memberId, c.name, state, expiresAt ?? "—"]);
+    }
+  }
+  return out;
+}
+
 /** Wrap the reply text to the PDF column width and append provenance lines. */
 function aiReplyRows(p: AiReplyExportPayload): unknown[][] {
   const wrap = (text: string): string[] => {
@@ -469,6 +637,8 @@ export async function runExport(
       const isForecastPack = job.resource === "predictive_forecast_pack";
       const isRiskBoardPack = job.resource === "risk_board_pack";
       const isGaugeRrReport = job.resource === "gauge_rr_aiag_report";
+      const isCalibrationAuditPack = job.resource === "calibration_audit_pack";
+      const isSkillGapReport = job.resource === "skill_gap_report";
       const spec = isAuditReport
         ? AUDIT_REPORT_SPEC
         : isForecastPack
@@ -477,9 +647,13 @@ export async function runExport(
             ? RISK_BOARD_PACK_SPEC
             : isGaugeRrReport
               ? GAUGE_RR_AIAG_REPORT_SPEC
-              : aiReply !== null
-                ? AI_REPLY_SPEC
-                : EXPORTABLES[job.resource];
+              : isCalibrationAuditPack
+                ? CALIBRATION_AUDIT_PACK_SPEC
+                : isSkillGapReport
+                  ? SKILL_GAP_REPORT_SPEC
+                  : aiReply !== null
+                    ? AI_REPLY_SPEC
+                    : EXPORTABLES[job.resource];
       if (spec === undefined) throw new Error(`Unknown export resource: ${job.resource}`);
 
       const membership = job.requested_by === null ? null : await loadMembership(tx, job.requested_by);
@@ -493,9 +667,13 @@ export async function runExport(
             ? await riskBoardPackRows(tx)
             : isGaugeRrReport
               ? await gaugeRrReportRows(tx, job.filters)
-              : aiReply !== null
-                ? aiReplyRows(aiReply)
-                : await fetchRows(tx, spec, job.filters, membership);
+              : isCalibrationAuditPack
+                ? await calibrationAuditPackRows(tx, membership)
+                : isSkillGapReport
+                  ? await skillGapReportRows(tx, payload.tenantId, membership)
+                  : aiReply !== null
+                    ? aiReplyRows(aiReply)
+                    : await fetchRows(tx, spec, job.filters, membership);
       const stringRows = rows.map((r) => r.map(cell));
 
       // Serialise per format. XLSX/PDF are single documents (they page/scroll

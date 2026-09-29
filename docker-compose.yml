@@ -71,6 +71,7 @@ services:
   # default AV_PROVIDER=stub and skip this service.
   clamav:
     image: clamav/clamav:stable
+    platform: linux/amd64 # no native arm64 build; runs emulated on Apple Silicon
     container_name: kaenal-clamav
     restart: unless-stopped
     ports:

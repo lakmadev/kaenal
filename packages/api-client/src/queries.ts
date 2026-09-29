@@ -65,6 +65,14 @@ import type {
   PredictionDetailResponse,
   RiskDto,
   RiskSummaryDto,
+  InstrumentDto,
+  InstrumentSummaryDto,
+  CalibrationEventDto,
+  CompetencyDto,
+  TrainingMatrixRowDto,
+  TrainingSummaryDto,
+  TrainingGapDto,
+  TrainingRecordDto,
 } from "@kaenal/types";
 import type { ApiClient } from "./client.js";
 import { queryKeys } from "./query-keys.js";
@@ -408,6 +416,32 @@ export const apiQueries = {
     }),
   },
 
+  instruments: {
+    list: (client: ApiClient, args?: Arg<"listInstruments">): QueryOption<Page<InstrumentDto>> => ({
+      queryKey: queryKeys.instruments.list(args?.query),
+      queryFn: () => client.listInstruments(args).then((r) => unwrap<Page<InstrumentDto>>(r)),
+    }),
+    summary: (client: ApiClient): QueryOption<InstrumentSummaryDto> => ({
+      queryKey: queryKeys.instruments.summary(),
+      queryFn: () => client.getInstrumentsSummary().then((r) => unwrap<InstrumentSummaryDto>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<InstrumentDto> => ({
+      queryKey: queryKeys.instruments.detail(id),
+      queryFn: () => client.getInstrument({ params: { id } }).then((r) => unwrap<InstrumentDto>(r)),
+    }),
+    calibrationEvents: (
+      client: ApiClient,
+      instrumentId: string,
+      args?: { query?: Arg<"listCalibrationEvents">["query"] },
+    ): QueryOption<Page<CalibrationEventDto>> => ({
+      queryKey: queryKeys.instruments.calibrationEvents(instrumentId, args?.query),
+      queryFn: () =>
+        client
+          .listCalibrationEvents({ params: { id: instrumentId }, query: args?.query ?? {} })
+          .then((r) => unwrap<Page<CalibrationEventDto>>(r)),
+    }),
+  },
+
   reports: {
     list: (client: ApiClient): QueryOption<Page<ReportDefinitionDto>> => ({
       queryKey: queryKeys.reports.list(),
@@ -535,6 +569,41 @@ export const apiQueries = {
         client
           .getPrediction({ params: { subjectKind: subjectKind as RiskPredictionDto["subjectKind"], id } })
           .then((r) => unwrap<PredictionDetailResponse>(r)),
+    }),
+  },
+
+  // Training & competency (Sprint 05 T1-T5).
+  competencies: {
+    list: (client: ApiClient, args?: Arg<"listCompetencies">): QueryOption<Page<CompetencyDto>> => ({
+      queryKey: queryKeys.competencies.list(args?.query),
+      queryFn: () => client.listCompetencies(args).then((r) => unwrap<Page<CompetencyDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<CompetencyDto> => ({
+      queryKey: queryKeys.competencies.detail(id),
+      queryFn: () => client.getCompetency({ params: { id } }).then((r) => unwrap<CompetencyDto>(r)),
+    }),
+  },
+
+  training: {
+    matrix: (client: ApiClient, args?: Arg<"getTrainingMatrix">): QueryOption<Page<TrainingMatrixRowDto>> => ({
+      queryKey: queryKeys.training.matrix(args?.query),
+      queryFn: () => client.getTrainingMatrix(args).then((r) => unwrap<Page<TrainingMatrixRowDto>>(r)),
+    }),
+    summary: (client: ApiClient): QueryOption<TrainingSummaryDto> => ({
+      queryKey: queryKeys.training.summary(),
+      queryFn: () => client.getTrainingSummary().then((r) => unwrap<TrainingSummaryDto>(r)),
+    }),
+    gaps: (client: ApiClient, args?: Arg<"getTrainingGaps">): QueryOption<Page<TrainingGapDto>> => ({
+      queryKey: queryKeys.training.gaps(args?.query),
+      queryFn: () => client.getTrainingGaps(args).then((r) => unwrap<Page<TrainingGapDto>>(r)),
+    }),
+    records: (client: ApiClient, args: Arg<"listTrainingRecords">): QueryOption<Page<TrainingRecordDto>> => ({
+      queryKey: queryKeys.training.records(args.query),
+      queryFn: () => client.listTrainingRecords(args).then((r) => unwrap<Page<TrainingRecordDto>>(r)),
+    }),
+    record: (client: ApiClient, id: string): QueryOption<TrainingRecordDto> => ({
+      queryKey: queryKeys.training.record(id),
+      queryFn: () => client.getTrainingRecord({ params: { id } }).then((r) => unwrap<TrainingRecordDto>(r)),
     }),
   },
 } as const;

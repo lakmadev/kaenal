@@ -51,6 +51,7 @@ import {
   SwitchWorkspaceBody,
   MemberDto,
   PlantDto,
+  AreaDto,
   MemberWorkloadList,
   NcrActionDto,
   NcrDto,
@@ -138,6 +139,34 @@ import {
   UpdateFmeaItemBody,
   RiskDto,
   RiskListQuery,
+  InstrumentDto,
+  InstrumentListQuery,
+  InstrumentSummaryDto,
+  CreateInstrumentBody,
+  UpdateInstrumentBody,
+  RetireInstrumentBody,
+  CalibrationEventDto,
+  CalibrationEventListQuery,
+  CreateCalibrationEventBody,
+  AttachCertificateBody,
+  RaiseNcrFromCalibrationBody,
+  CompetencyDto,
+  CompetencyListQuery,
+  CreateCompetencyBody,
+  UpdateCompetencyBody,
+  ArchiveCompetencyBody,
+  UnarchiveCompetencyBody,
+  ReorderCompetenciesBody,
+  ReorderCompetenciesResult,
+  TrainingRecordDto,
+  CreateTrainingRecordBody,
+  CreateTrainingRecordResult,
+  TrainingMatrixRowDto,
+  TrainingMatrixQuery,
+  TrainingSummaryDto,
+  TrainingGapDto,
+  TrainingGapsQuery,
+  TrainingRecordsQuery,
   CreateRiskBody,
   UpdateRiskBody,
   RiskSummaryDto,
@@ -274,6 +303,14 @@ export const contract = c.router(
       path: "/v1/plants",
       responses: { 200: z.object({ items: z.array(PlantDto) }), ...commonErrors },
       summary: "Sites the caller may raise records in (plant-scoped by role) — the CreateWizard Site select",
+    },
+    listAreas: {
+      method: "GET",
+      path: "/v1/areas",
+      query: z.object({ plantId: z.string().uuid().optional() }),
+      responses: { 200: z.object({ items: z.array(AreaDto) }), ...commonErrors },
+      summary:
+        "Areas within the caller's visible plants (Sprint 05 C1/C6) — the instrument register's plant→area cascading select and area-name display; `plantId` narrows to one plant, omitted returns every area in the caller's plant scope",
     },
     listMemberWorkload: {
       method: "GET",
@@ -1285,6 +1322,192 @@ export const contract = c.router(
       pathParams: z.object({ id: z.string().uuid() }),
       responses: { 200: MsaAnalysisResult, ...commonErrors },
       summary: "Variance components + %StudyVar + %Tolerance + ndc + verdict, recomputed on read (msa:view)",
+    },
+
+    // --- Calibration management (Sprint 05 C1-C6) ---------------------------
+    listInstruments: {
+      method: "GET",
+      path: "/v1/instruments",
+      query: InstrumentListQuery,
+      responses: { 200: page(InstrumentDto), ...commonErrors },
+      summary:
+        "The instrument register, cursor-paginated (calibration:view); `q` searches name/code/area name; plant-scoped, no owner-exception (§3.1 item 3)",
+    },
+    getInstrumentsSummary: {
+      method: "GET",
+      path: "/v1/instruments/summary",
+      responses: { 200: InstrumentSummaryDto, ...commonErrors },
+      summary:
+        "KPI strip aggregate over ALL the caller's visible instruments (calibration:view) — a paginated list cannot supply this (rule 6); no owner-exception",
+    },
+    createInstrument: {
+      method: "POST",
+      path: "/v1/instruments",
+      body: CreateInstrumentBody,
+      responses: { 201: InstrumentDto, ...commonErrors },
+      summary: "Register a new instrument (calibration:manage); code is server-assigned CAL-YYYY-NNNN",
+    },
+    getInstrument: {
+      method: "GET",
+      path: "/v1/instruments/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: InstrumentDto, ...commonErrors },
+      summary:
+        "One instrument (calibration:view) — the owner-sees-own-instrument plant-scope exception applies here (§3.1 item 3)",
+    },
+    updateInstrument: {
+      method: "PATCH",
+      path: "/v1/instruments/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UpdateInstrumentBody,
+      responses: { 200: InstrumentDto, ...commonErrors },
+      summary:
+        "Edit an instrument, incl. Transfer (plantId/areaId only) (calibration:manage; optimistic); 422 if retired",
+    },
+    retireInstrument: {
+      method: "PATCH",
+      path: "/v1/instruments/:id/retire",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: RetireInstrumentBody,
+      responses: { 200: InstrumentDto, ...commonErrors },
+      summary: "One-way active -> retired (calibration:manage; optimistic); 422 if already retired",
+    },
+    listCalibrationEvents: {
+      method: "GET",
+      path: "/v1/instruments/:id/calibration-events",
+      pathParams: z.object({ id: z.string().uuid() }),
+      query: CalibrationEventListQuery,
+      responses: { 200: page(CalibrationEventDto), ...commonErrors },
+      summary:
+        "Full calibration history, cursor-paginated (calibration:view); the detail card's \"last 5\" is `limit=5` of this route; carries the same owner-exception as the parent instrument's DETAIL fetch",
+    },
+    recordCalibrationEvent: {
+      method: "POST",
+      path: "/v1/instruments/:id/calibration-events",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: CreateCalibrationEventBody,
+      responses: { 201: CalibrationEventDto, ...commonErrors },
+      summary:
+        "Record a calibration event (calibration:manage; lockVersion on the parent, optimistic); pass/adjusted advance the due date, fail never does (B3); 422 if the instrument is retired or performedAt is in the future",
+    },
+    attachCalibrationCertificate: {
+      method: "PUT",
+      path: "/v1/instruments/:instrumentId/calibration-events/:eventId/certificate",
+      pathParams: z.object({ instrumentId: z.string().uuid(), eventId: z.string().uuid() }),
+      body: AttachCertificateBody,
+      responses: { 200: CalibrationEventDto, ...commonErrors },
+      summary:
+        "Attach/replace a calibration event's certificate after the fact (calibration:manage); verifies tenant + sha256 + entityKind='calibration_event' + not-deleted before linking",
+    },
+    raiseNcrFromCalibrationEvent: {
+      method: "POST",
+      path: "/v1/instruments/:instrumentId/calibration-events/:eventId/raise-ncr",
+      pathParams: z.object({ instrumentId: z.string().uuid(), eventId: z.string().uuid() }),
+      body: RaiseNcrFromCalibrationBody,
+      responses: { 201: NcrDto, ...commonErrors },
+      summary:
+        "Raise a real NCR from an out-of-tolerance calibration event (calibration:manage on the route; ncr:create in-service, redundant-but-harmless); 422 on a passing event, 409 if already linked",
+    },
+
+    // --- Training & competency (Sprint 05 T1-T5) ----------------------------
+    listCompetencies: {
+      method: "GET",
+      path: "/v1/competencies",
+      query: CompetencyListQuery,
+      responses: { 200: page(CompetencyDto), ...commonErrors },
+      summary: "The tenant's competency catalog, cursor-paginated (training:view); excludes archived rows by default",
+    },
+    createCompetency: {
+      method: "POST",
+      path: "/v1/competencies",
+      body: CreateCompetencyBody,
+      responses: { 201: CompetencyDto, ...commonErrors },
+      summary: "Author a new competency (training:manage); seq appended to the end; 409 on a code clash",
+    },
+    getCompetency: {
+      method: "GET",
+      path: "/v1/competencies/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: CompetencyDto, ...commonErrors },
+      summary: "One competency (training:view)",
+    },
+    updateCompetency: {
+      method: "PATCH",
+      path: "/v1/competencies/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UpdateCompetencyBody,
+      responses: { 200: CompetencyDto, ...commonErrors },
+      summary: "Edit a competency, incl. flipping mandatory (training:manage; optimistic)",
+    },
+    archiveCompetency: {
+      method: "PATCH",
+      path: "/v1/competencies/:id/archive",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: ArchiveCompetencyBody,
+      responses: { 200: CompetencyDto, ...commonErrors },
+      summary:
+        "Archive a competency — drops it from the matrix/KPIs/gaps/notification jobs, keeps every historical training record readable (training:manage; optimistic); 422 if already archived",
+    },
+    unarchiveCompetency: {
+      method: "PATCH",
+      path: "/v1/competencies/:id/unarchive",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UnarchiveCompetencyBody,
+      responses: { 200: CompetencyDto, ...commonErrors },
+      summary:
+        "Un-archive a competency, seq reset to the end of the current order (training:manage; optimistic); 422 if not archived, 409 on a code clash",
+    },
+    reorderCompetencies: {
+      method: "PUT",
+      path: "/v1/competencies/order",
+      body: ReorderCompetenciesBody,
+      responses: { 200: ReorderCompetenciesResult, ...commonErrors },
+      summary:
+        "Atomically reorder the catalog (training:manage); body is the full ordered id array; 409 if it doesn't exactly match the current non-archived id set",
+    },
+    getTrainingMatrix: {
+      method: "GET",
+      path: "/v1/training/matrix",
+      query: TrainingMatrixQuery,
+      responses: { 200: page(TrainingMatrixRowDto), ...commonErrors },
+      summary:
+        "Members x competencies matrix, cursor-paginated over MEMBERS (training:view); `q` resolves via control.users; plant-scoped",
+    },
+    getTrainingSummary: {
+      method: "GET",
+      path: "/v1/training/summary",
+      responses: { 200: TrainingSummaryDto, ...commonErrors },
+      summary: "KPI strip aggregate over the caller's visible members (training:view); coverage is null when no mandatory competencies exist",
+    },
+    getTrainingGaps: {
+      method: "GET",
+      path: "/v1/training/gaps",
+      query: TrainingGapsQuery,
+      responses: { 200: page(TrainingGapDto), ...commonErrors },
+      summary: "Every (member, competency) pair in gap/overdue/warn, worst-first, cursor-paginated (training:view)",
+    },
+    recordTraining: {
+      method: "POST",
+      path: "/v1/training/records",
+      body: CreateTrainingRecordBody,
+      responses: { 201: CreateTrainingRecordResult, ...commonErrors },
+      summary:
+        "Record a training completion for one or more members, one all-or-nothing batch (training:manage); 422 if completedAt is in the future",
+    },
+    listTrainingRecords: {
+      method: "GET",
+      path: "/v1/training/records",
+      query: TrainingRecordsQuery,
+      responses: { 200: page(TrainingRecordDto), ...commonErrors },
+      summary:
+        "A member's full training history, cursor-paginated, including archived-competency rows (memberId required); training:manage sees any member's, training:view-only sees only their own (403 otherwise)",
+    },
+    getTrainingRecord: {
+      method: "GET",
+      path: "/v1/training/records/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: TrainingRecordDto, ...commonErrors },
+      summary: "One training record with its evidence link, same visibility rule as the list route",
     },
 
     // --- Data platform: query engine (B2) ----------------------------------

@@ -109,6 +109,12 @@ export const NcrSource = defineEnum([
   "manual",
   "complaint",
   "audit",
+  // Sprint 05 C3 AC1 — an out-of-tolerance/failed calibration event can raise
+  // a real NCR (`ncrs.source` CHECK widened in migration 0068). Confirmed
+  // additive/safe: no exhaustive `NcrSource` consumer breaks (grepped this
+  // session — the one UI filter over `NcrSource`, `ncr-list.tsx`, derives its
+  // option list from the data it already has, never a hardcoded switch/map).
+  "calibration",
 ]);
 export type NcrSource = z.infer<typeof NcrSource>;
 
@@ -331,6 +337,12 @@ export const ExportResource = defineEnum([
   // Sprint 04 M5 — one MSA study's full variance-component table + chart +
   // verdict + raw grid, scoped to `filters.studyId`, rendered to PDF.
   "gauge_rr_aiag_report",
+  // Sprint 05 C5 AC2 — the instrument register's KPI strip + full table +
+  // each instrument's last calibration date/result, rendered to PDF.
+  "calibration_audit_pack",
+  // Sprint 05 T3 AC2 — every mandatory gap + every record expiring within 30
+  // days, rendered to PDF.
+  "skill_gap_report",
 ]);
 export type ExportResource = z.infer<typeof ExportResource>;
 
@@ -498,3 +510,30 @@ export type EightDTemplate = z.infer<typeof EightDTemplate>;
 /** The document template choices (createwizard.jsx ENTITY_TYPES.document). */
 export const DocumentTemplate = defineEnum(["sop", "wi", "form", "policy", "manual", "upload"]);
 export type DocumentTemplate = z.infer<typeof DocumentTemplate>;
+
+// --- Calibration management (Sprint 05 C1/C2) -------------------------------
+
+/** The 7 distinct instrument types the binding jsx's `INSTRUMENTS` fixture
+ *  uses (`qms-modules.jsx`) — `instruments.type`'s CHECK (migration 0068). */
+export const InstrumentType = defineEnum([
+  "cmm",
+  "comparator",
+  "profilometer",
+  "ndt",
+  "caliper",
+  "torque",
+  "laser_tracker",
+]);
+export type InstrumentType = z.infer<typeof InstrumentType>;
+
+/** The register's own lifecycle status — distinct from the *due status*
+ *  (`packages/core/calibration.ts`'s `InstrumentDueStatus`), which is never
+ *  stored (C1 AC2). `instruments.status`'s CHECK (migration 0068). */
+export const InstrumentLifecycleStatus = defineEnum(["active", "retired"]);
+export type InstrumentLifecycleStatus = z.infer<typeof InstrumentLifecycleStatus>;
+
+/** A calibration event's outcome — mirrors `packages/core/calibration.ts`'s
+ *  own `CalibrationResult` type exactly. `calibration_events.result` and
+ *  `instruments.last_result`'s CHECKs (migration 0068). */
+export const CalibrationResult = defineEnum(["pass", "adjusted", "fail"]);
+export type CalibrationResult = z.infer<typeof CalibrationResult>;

@@ -187,9 +187,33 @@ export const queryKeys = {
     summary: () => ["risks", "summary"] as const,
   },
 
+  instruments: {
+    all: ["instruments"] as const,
+    list: (params?: unknown) => ["instruments", "list", params ?? null] as const,
+    detail: (id: string) => ["instruments", "detail", id] as const,
+    summary: () => ["instruments", "summary"] as const,
+    calibrationEvents: (instrumentId: string, params?: unknown) =>
+      ["instruments", "detail", instrumentId, "calibration-events", params ?? null] as const,
+  },
+
   predictions: {
     all: ["predictions"] as const,
     list: (params?: unknown) => ["predictions", "list", params ?? null] as const,
     detail: (subjectKind: string, id: string) => ["predictions", "detail", subjectKind, id] as const,
+  },
+
+  competencies: {
+    all: ["competencies"] as const,
+    list: (params?: unknown) => ["competencies", "list", params ?? null] as const,
+    detail: (id: string) => ["competencies", "detail", id] as const,
+  },
+
+  training: {
+    all: ["training"] as const,
+    matrix: (params?: unknown) => ["training", "matrix", params ?? null] as const,
+    summary: () => ["training", "summary"] as const,
+    gaps: (params?: unknown) => ["training", "gaps", params ?? null] as const,
+    records: (params?: unknown) => ["training", "records", params ?? null] as const,
+    record: (id: string) => ["training", "record", id] as const,
   },
 } as const;

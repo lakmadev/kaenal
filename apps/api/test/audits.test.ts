@@ -215,6 +215,15 @@ describe("findings → NCR / CAPA", () => {
     // No second NCR from the same finding.
     const dup = await authed("post", `/v1/audit-findings/${finding.id}/raise-ncr`, auditorTok).send({ priority: "minor" });
     expect(dup.status).toBe(409);
+
+    const { rows } = await control.query<{ before: { ncrId?: string | null }; after: { ncrId?: string | null } }>(
+      `SELECT before, after FROM audit_events
+        WHERE tenant_id = $1 AND entity_kind = 'audit_finding' AND entity_id = $2 AND action = 'updated'
+        ORDER BY created_at DESC LIMIT 1`,
+      [acmeId, finding.id],
+    );
+    expect(rows[0]?.before).toEqual({ ncrId: null });
+    expect(rows[0]?.after).toEqual({ ncrId: ncr.body.id });
   });
 
   it("raises a CAPA from a finding (linking)", async () => {
