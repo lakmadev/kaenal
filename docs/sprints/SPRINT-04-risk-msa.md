@@ -1024,11 +1024,11 @@ selectable-but-broken — CLAUDE.md rule 10 is "never stub," not "never say no."
 - [x] **User has explicitly approved §3** (risk residual-scoring decision; MSA schema incl. `gauge_label`
       text-not-FK; ANOVA method incl. interaction-pooling rule; Average-Range method; k=5.15; ndc formula;
       excellent/acceptable/reject thresholds) — **approved 2026-09-28, as proposed, no changes.**
-- [ ] **[AMENDED-2 — N1] User has explicitly approved §3-Addendum** (`msa_studies.completed_at timestamptz
+- [x] **[AMENDED-2 — N1] User has explicitly approved §3-Addendum** (`msa_studies.completed_at timestamptz
       NULL`, set on first `draft → completed`; a new `PATCH /v1/msa-studies/:id/reopen` route moves
       `completed → draft`, audited `status_changed`; re-completing after a reopen **overwrites**
-      `completed_at`; `completed_at` is **kept**, not cleared, while reopened) — delta-approval, separate from
-      the checkbox above; blocks `0065_msa.sql` and the `reopen` route until granted.
+      `completed_at`; `completed_at` is **kept**, not cleared, while reopened) — **approved 2026-09-29, as
+      proposed.** Build unblocked.
 - [ ] Migrations `0064_risk_register.sql` (`risks`, `risk_controls`, `entity_links`/`EntityKind` widening)
       and `0065_msa.sql` (`msa_studies` incl. `completed_at`, `msa_measurements`) applied; `pnpm db:check`
       green; `pnpm test:rls` green including the two new tables and the widened `entity_links` kinds.
