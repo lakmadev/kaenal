@@ -8,6 +8,7 @@ import {
   defaultRoleFor,
   emptyDraft,
   isDirty,
+  lastStepFor,
   wizardFieldFor,
   stepForWizardField,
   type WizardDraft,
@@ -69,7 +70,7 @@ export function useWizardDraft(initialType: WizardType | null, initialTemplate?:
   function next(): void {
     if (!canGoNext) return;
     setFieldErrors({});
-    setStep((s) => Math.min(3, s + 1));
+    setStep((s) => Math.min(lastStepFor(draft.type), s + 1));
   }
 
   function back(): void {
@@ -79,9 +80,9 @@ export function useWizardDraft(initialType: WizardType | null, initialTemplate?:
   /** A 422's issues, jumped to the earliest step that owns one of them (W7-G). */
   function applyValidationIssues(issues: readonly { path: string; message: string }[]): void {
     const errs: FieldErrors = {};
-    let earliestStep = 3;
+    let earliestStep = lastStepFor(draft.type);
     for (const issue of issues) {
-      const field = wizardFieldFor(issue.path);
+      const field = wizardFieldFor(issue.path, draft.type);
       errs[field] = issue.message;
       earliestStep = Math.min(earliestStep, stepForWizardField(field));
     }

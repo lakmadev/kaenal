@@ -129,6 +129,13 @@ export const queryKeys = {
     items: (fmeaId: string) => ["fmea", "items", fmeaId] as const,
   },
 
+  msa: {
+    all: ["msa"] as const,
+    list: (params?: unknown) => ["msa", "list", params ?? null] as const,
+    detail: (id: string) => ["msa", "detail", id] as const,
+    analysis: (id: string) => ["msa", id, "analysis"] as const,
+  },
+
   reports: {
     all: ["reports"] as const,
     list: () => ["reports", "list"] as const,
@@ -171,6 +178,13 @@ export const queryKeys = {
     rows: (key: string) => ["query", "rows", key] as const,
     metric: (key: string) => ["query", "metric", key] as const,
     series: (key: string) => ["query", "series", key] as const,
+  },
+
+  risks: {
+    all: ["risks"] as const,
+    list: (params?: unknown) => ["risks", "list", params ?? null] as const,
+    detail: (id: string) => ["risks", "detail", id] as const,
+    summary: () => ["risks", "summary"] as const,
   },
 
   predictions: {

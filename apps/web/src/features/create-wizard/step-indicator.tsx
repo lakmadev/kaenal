@@ -1,23 +1,28 @@
 import { useTranslations } from "next-intl";
 import { Check } from "lucide-react";
-import { WIZARD_STEPS } from "@kaenal/core";
+import { stepsFor, type WizardType } from "@kaenal/core";
 
 /**
- * The 4-dot step indicator (createwizard.jsx `StepIndicator`): a filled dot per
+ * The step indicator (createwizard.jsx `StepIndicator`): a filled dot per
  * completed/current step, a connecting line, and — new for S1-1 — a danger dot
- * with "!" for a step a server 422 failed on (W7-G).
+ * with "!" for a step a server 422 failed on (W7-G). 4 dots for every type
+ * except risk (Sprint 04 R4), which skips the shared Assignees step and gets
+ * 3: Type→Details→Review.
  */
 export function StepIndicator({
   current,
   errorStep,
+  type,
 }: {
   current: number;
   errorStep: number | null;
+  type: WizardType | null;
 }): React.ReactElement {
   const t = useTranslations("wizard");
+  const steps = stepsFor(type);
   return (
     <div className="flex items-center gap-2" role="group" aria-label={t("steps")}>
-      {WIZARD_STEPS.map((label, i) => {
+      {steps.map((label, i) => {
         const hasError = errorStep === i;
         const done = i < current && !hasError;
         const isCurrent = i === current;
@@ -55,7 +60,7 @@ export function StepIndicator({
                 {label}
               </span>
             </div>
-            {i < WIZARD_STEPS.length - 1 && (
+            {i < steps.length - 1 && (
               <div style={{ width: 32, height: 1, background: i < current ? "var(--accent)" : "var(--border)" }} />
             )}
           </div>
