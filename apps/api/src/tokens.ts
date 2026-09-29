@@ -63,3 +63,6 @@ export const COLLAB_SERVICE = Symbol("COLLAB_SERVICE");
 export const COLLAB_WIRING = Symbol("COLLAB_WIRING");
 export const RISK_SERVICE = Symbol("RISK_SERVICE");
 export const MSA_SERVICE = Symbol("MSA_SERVICE");
+export const INSTRUMENTS_SERVICE = Symbol("INSTRUMENTS_SERVICE");
+export const COMPETENCIES_SERVICE = Symbol("COMPETENCIES_SERVICE");
+export const TRAINING_SERVICE = Symbol("TRAINING_SERVICE");

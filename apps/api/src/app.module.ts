@@ -119,6 +119,12 @@ import { RiskController } from "./risk/risk.controller.js";
 import { RiskService } from "./risk/risk.service.js";
 import { MsaController } from "./msa/msa.controller.js";
 import { MsaService } from "./msa/msa.service.js";
+import { InstrumentsController } from "./instruments/instruments.controller.js";
+import { InstrumentsService } from "./instruments/instruments.service.js";
+import { CompetenciesController } from "./training/competencies.controller.js";
+import { CompetenciesService } from "./training/competencies.service.js";
+import { TrainingController } from "./training/training.controller.js";
+import { TrainingService } from "./training/training.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -171,6 +177,9 @@ import {
   GRAPH_SERVICE,
   RISK_SERVICE,
   MSA_SERVICE,
+  INSTRUMENTS_SERVICE,
+  COMPETENCIES_SERVICE,
+  TRAINING_SERVICE,
   REALTIME,
   PRESENCE_SERVICE,
   COLLAB_SERVICE,
@@ -228,6 +237,9 @@ import {
     GraphController,
     RiskController,
     MsaController,
+    InstrumentsController,
+    CompetenciesController,
+    TrainingController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -495,6 +507,13 @@ import {
     { provide: GRAPH_SERVICE, useFactory: () => new GraphService() },
     { provide: RISK_SERVICE, useFactory: () => new RiskService() },
     { provide: MSA_SERVICE, useFactory: () => new MsaService() },
+    {
+      provide: INSTRUMENTS_SERVICE,
+      useFactory: (ncrs: NcrService) => new InstrumentsService(ncrs),
+      inject: [NCR_SERVICE],
+    },
+    { provide: COMPETENCIES_SERVICE, useFactory: () => new CompetenciesService() },
+    { provide: TRAINING_SERVICE, useFactory: () => new TrainingService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),
