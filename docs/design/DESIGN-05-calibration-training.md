@@ -14,6 +14,50 @@ Canvas (10 boards): **https://claude.ai/artifact/QW6WiXDaN7panCikLSRu2E**
 
 ---
 
+## 0. Amendment follow-ups (2026-09-29, Ceremony 4 send-back response)
+
+The product owner amended `SPRINT-05-calibration-training.md` (new "## 0. Amendment" section) to resolve
+the `planner`'s architecture-review send-back (B1-B9). Two of the amendment's items were named as small
+design follow-ups against this canvas, not new boards' worth of work (§5 items 8 and 9). Both are now
+done, republished to the same canvas URL (version 4):
+
+1. **§5 item 8 — Failed-calibration banner state (B3, C1).** B3's correctness fix means a `fail`
+   calibration event overrides an instrument to `overdue` unconditionally, regardless of its computed
+   `next_due` — so a failed-but-not-yet-date-overdue instrument can no longer share the plain
+   date-overdue badge/banner without misreading as the lower-severity case. **Board 1 (`Main.dc.html`)
+   gains State C**: a register-table legend contrasting all three severities (due-soon amber tint,
+   date-overdue red **tint**, failed-overdue red **solid fill** — the same solid-danger treatment the
+   board's own "Raise NCR" button already uses, so no colour outside `tokens.css` is introduced) and a
+   solid-fill detail-card banner ("Failed its last calibration on {date} — out of service until
+   recalibrated," with the explicit note that its own `next_due` does not apply while the latest result
+   is a fail). Board height grew 1560→2000px; all boards stacked below it were shifted down by the same
+   440px to keep the canvas's contiguous, non-overlapping layout (a purely mechanical move, no other
+   board's content changed).
+2. **§5 item 9 — Competency catalog admin surface, archive copy (B8, T5).** The amendment's new T5 story
+   settled on `PATCH /v1/competencies/:id/archive`/`/unarchive` (a dedicated `archived_at` column, never
+   a hard delete) — Board 9 (`CompetencyCatalogEditor.dc.html`), drawn before T5 existed, still showed a
+   "Delete" action. Corrected in place: every row's destructive action is now **Archive** (plain
+   `k-btn-ghost`, no danger-red styling — mirroring this codebase's own `document-detail.tsx` "Archive"
+   transition control, the closest existing archive precedent, rather than `fmea-workbench.tsx`'s red
+   "Delete this FMEA?" pattern, which is for a true irreversible delete); an archived-row example was
+   added (muted row, "Archived" chip, "Un-archive" action, no confirm needed for reversing) so the
+   symmetric un-archive path is visible, not just asserted. State C's confirm dialog copy was rewritten
+   to state the exact, reversible consequence: *"Archive 'SPC fundamentals'? It stops appearing on the
+   training matrix, coverage KPIs, gap calculations and due/expiry notifications from now on. 38
+   members' existing training records against it are kept and stay visible in each member's own
+   history — nothing is deleted. You can un-archive it at any time to bring it back."* — Cancel /
+   **Archive competency** (neutral ink primary button, not danger-red, since this is not a destructive
+   delete). Board height grew 900→1020px; only `TrainingEmptyState.dc.html` (the one board after it)
+   shifted down to keep the stack contiguous.
+
+No new colour, radius, font or component style was introduced by either change; both reuse patterns
+already cited on this canvas or already built in `apps/web/src/features/documents/document-detail.tsx`
+and `apps/web/src/features/fmea/fmea-workbench.tsx`. §4.9's original flag (the catalog editor itself
+being a sprint-file design-needs omission) is now resolved: the amendment's new T5 story gives it a real
+AC, so nothing about Board 9 remains conditional beyond this pass's own two copy/state corrections.
+
+---
+
 ## 1. Audit — `CalibrationManagement` jsx vs. stories (qms-modules.jsx:176-319)
 
 | jsx element (lines) | Story | Built today? | Notes |
@@ -262,19 +306,20 @@ by the PO in `SPRINT-05-calibration-training.md` §2's ACs; this design pass add
 the visual surface for behaviour the PO already specified, plus the one flagged gap above. WCAG 2.1 AA
 and Nielsen heuristics are checked for the jsx-derived screens (§3) and all ten boards (§4).
 
-One item is flagged, not blocking, mirroring exactly how DESIGN-04 flagged its own found gap
+One item was flagged, not blocking, mirroring exactly how DESIGN-04 flagged its own found gap
 (§4.6/§7 of that doc):
 
-- **§4.9's competency-catalog-editor gap** should be named explicitly in the architecture review's
-  vertical-slice plan (a small `CompetenciesEditor` component + list/create/update hooks, alongside
-  T1's other work) so it isn't under-scoped at build time — the same disposition DESIGN-04 gave its
-  own link-picker finding, which the planner then scoped explicitly rather than assuming trivial
-  wiring.
+- **§4.9's competency-catalog-editor gap** — **now resolved.** The `planner`'s architecture review
+  (Ceremony 4) sent the sprint file back and the PO's amendment (§0 above) added story **T5**, giving
+  Board 9's archive/reorder controls real ACs (`archive`/`unarchive`/atomic `order` routes,
+  `archived_at`, the shared `archived_at IS NULL` predicate everywhere). This pass (§0 above) corrected
+  Board 9's copy to match T5's real actions (Archive, not Delete) and added the two small follow-ups
+  the amendment itself named (§5 items 8-9). Nothing about Board 9 remains conditional.
 
-**Designer sign-off: APPROVED**, conditional only on the PO/planner's disposition of the §4.9
-competency-catalog-editor flag above (a genuine sprint-file design-needs omission this pass found and
-designed, not a defect in any of the ten boards themselves, all of which are complete and match the
-sprint file's approved stories).
+**Designer sign-off: APPROVED**, unconditionally — every screen/state of both modules across all ten
+boards is mapped to a story with a named target behaviour, the one prior flag is resolved by the PO's
+own amendment, and this session's two follow-ups (failed-calibration banner state, archive confirm
+copy) are done and republished to the same canvas URL.
 
 Gate 1 (user approves new visual design before implementation) is open for the user's review of the
 10-board canvas above. Backend sign-off (sprint file §3 — the instrument/calibration-event schema, the
