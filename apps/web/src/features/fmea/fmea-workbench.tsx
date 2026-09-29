@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, ChevronRight, Link2, Pencil, Plus, Trash2 } from "lucide-react";
 import { actionPriority as apOf, rpn as rpnOf, type ActionPriority } from "@kaenal/core";
 import type { CreateFmeaItemBody, FmeaItemDto, FmeaType } from "@kaenal/types";
 import { useCan } from "@/hooks/use-me";
+import { useEntityLinks } from "@/hooks/use-entity-links";
 import {
   useCreateFmea,
   useCreateFmeaItem,
@@ -15,7 +17,7 @@ import {
   useUpdateFmeaItem,
 } from "@/hooks/use-fmea";
 import { PageHeader } from "@/components/page-header";
-import { Card, CardContent, CardHeader, CardTitle, Dialog, DialogClose, DialogContent, EmptyState, Segmented, Spinner, useToast } from "@/components/ui";
+import { Card, CardContent, CardHeader, CardTitle, Dialog, DialogClose, DialogContent, EmptyState, Segmented, Skeleton, Spinner, useToast } from "@/components/ui";
 
 function scoreColor(v: number): string {
   return v >= 9 ? "#dc2626" : v >= 7 ? "#ea580c" : v >= 4 ? "#f59e0b" : "#22c55e";
@@ -120,6 +122,9 @@ function RatingInput({
  */
 export function FmeaWorkbench(): React.ReactElement {
   const toast = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlId = searchParams.get("id");
   const canManage = useCan("fmea:manage");
   const fmeasQ = useFmeas();
   const fmeas = fmeasQ.data?.items ?? [];
@@ -139,14 +144,18 @@ export function FmeaWorkbench(): React.ReactElement {
   // Auto-pick the first FMEA when nothing valid is selected — but only once the
   // list has SETTLED, so a just-created id (not in the stale list yet) isn't
   // wrongly reset before the refetch lands, and a deleted id is corrected after.
+  // A `?id=` deep-link (Sprint 04 R3 AC — a linked risk's "Link to FMEA"
+  // click-through) takes priority over "first in the list" the first time a
+  // valid selection is needed.
   const listSettled = !fmeasQ.isPending && !fmeasQ.isFetching;
   useEffect(() => {
     if (!listSettled) return;
     const list = fmeasQ.data?.items ?? [];
     if (selectedFmea === null || !list.some((f) => f.id === selectedFmea)) {
-      setSelectedFmea(list[0]?.id ?? null);
+      const preferred = urlId !== null && list.some((f) => f.id === urlId) ? urlId : (list[0]?.id ?? null);
+      setSelectedFmea(preferred);
     }
-  }, [listSettled, selectedFmea, fmeasQ.data]);
+  }, [listSettled, selectedFmea, fmeasQ.data, urlId]);
   const items = itemsQ.data?.items ?? [];
   const deleteFmea = useDeleteFmea();
 
@@ -386,6 +395,8 @@ export function FmeaWorkbench(): React.ReactElement {
               </CardContent>
             </Card>
           </div>
+
+          {fmea !== null && <FmeaLinkedRisks fmeaId={fmea.id} onOpen={(id) => router.push(`/risk?id=${id}`)} />}
         </>
       )}
 
@@ -430,6 +441,68 @@ export function FmeaWorkbench(): React.ReactElement {
 }
 
 const tdStyle: React.CSSProperties = { padding: 10, fontSize: 11.5, verticalAlign: "top" };
+
+/**
+ * R3 [AMENDED — B3] — FMEA's own new reverse pane: read-only, lists risks
+ * linked to this FMEA via `entity_links` (either end — links are undirected
+ * for display, migration 0018). FMEA had zero related-items display before
+ * this sprint (confirmed by grep, §1a), so this is new but narrow: the same
+ * `useEntityLinks`/table pattern risk's own linked-records panel uses,
+ * scoped to this one FMEA and filtered to risk-kind rows only.
+ */
+function FmeaLinkedRisks({ fmeaId, onOpen }: { fmeaId: string; onOpen: (riskId: string) => void }): React.ReactElement {
+  const links = useEntityLinks("fmea", fmeaId);
+  const rows = (links.data?.items ?? [])
+    .map((l) => {
+      const opp = l.fromKind === "fmea" && l.fromId === fmeaId ? { kind: l.toKind, id: l.toId } : { kind: l.fromKind, id: l.fromId };
+      return { key: l.id, id: opp.id, kind: opp.kind, label: l.label };
+    })
+    .filter((r) => r.kind === "risk");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Linked risks</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {links.isLoading ? (
+          <Skeleton className="h-16 rounded-md" />
+        ) : rows.length === 0 ? (
+          <EmptyState icon={Link2} title="No linked risks" body="Risks linked to this FMEA (via its detail page) appear here." />
+        ) : (
+          <div className="k-surface overflow-hidden">
+            <table className="k-table" style={{ width: "100%" }}>
+              <thead>
+                <tr>
+                  <th>Risk</th>
+                  <th style={{ width: 24 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.key}>
+                    <td colSpan={2} style={{ padding: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => onOpen(r.id)}
+                        className="flex w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-[var(--bg-subtle)]"
+                      >
+                        <span className="mono flex-1" style={{ fontSize: 11.5 }}>
+                          {r.label ?? `${r.id.slice(0, 8)}…`}
+                        </span>
+                        <ChevronRight size={13} className="text-muted" aria-hidden />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function NewFmeaDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }): React.ReactElement {
   const toast = useToast();

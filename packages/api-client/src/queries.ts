@@ -63,6 +63,8 @@ import type {
   WorkspacesDto,
   RiskPredictionDto,
   PredictionDetailResponse,
+  RiskDto,
+  RiskSummaryDto,
 } from "@kaenal/types";
 import type { ApiClient } from "./client.js";
 import { queryKeys } from "./query-keys.js";
@@ -388,6 +390,21 @@ export const apiQueries = {
     analysis: (client: ApiClient, id: string): QueryOption<MsaAnalysisResult> => ({
       queryKey: queryKeys.msa.analysis(id),
       queryFn: () => client.getMsaAnalysis({ params: { id } }).then((r) => unwrap<MsaAnalysisResult>(r)),
+    }),
+  },
+
+  risks: {
+    list: (client: ApiClient, args?: Arg<"listRisks">): QueryOption<Page<RiskDto>> => ({
+      queryKey: queryKeys.risks.list(args?.query),
+      queryFn: () => client.listRisks(args).then((r) => unwrap<Page<RiskDto>>(r)),
+    }),
+    summary: (client: ApiClient): QueryOption<RiskSummaryDto> => ({
+      queryKey: queryKeys.risks.summary(),
+      queryFn: () => client.getRisksSummary().then((r) => unwrap<RiskSummaryDto>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<RiskDto> => ({
+      queryKey: queryKeys.risks.detail(id),
+      queryFn: () => client.getRisk({ params: { id } }).then((r) => unwrap<RiskDto>(r)),
     }),
   },
 

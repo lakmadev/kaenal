@@ -5,6 +5,44 @@
 
 ## Current status
 
+**Sprint 04 — Risk register + MSA/Gauge R&R, Slice 6: `/risk` web module (2026-09-29), on branch
+`integration/sprint-03-graph-predictive-jrt4dn`.** Replaces the `/risk` `ModulePlaceholder` with the full
+module per R1-R5 + the FMEA reverse pane (R3). `apps/web/src/features/risk/`: `risk-register-page.tsx`
+(KPI strip from `GET /v1/risks/summary` — real counts, zero-risk empty case reads honest zeros/"—", never
+the jsx's static mock; 5×5 heat map colored via `packages/core`'s `scoreBand`/`matrixCounts` with real
+click-to-filter, driving a `likelihood`/`impact`-filtered `GET /v1/risks` query rather than a toast; by-
+category bar rendering every category with ≥1 risk from the summary aggregate, no top-8 cap; register table
+sorted by residual desc), `risk-edit-dialog.tsx` (Edit/Re-score share one form; Re-score autofocuses the
+likelihood field; `{id, body}` mutation shape so the global 409 reconcile flow opens automatically),
+`risk-controls-editor.tsx` (R2 — real per-risk add/edit/remove/reorder, submitted as a full `controls[]`
+replace on the same risk `PATCH`, never the jsx's four fabricated rows; reorder via up/down buttons rather
+than drag-and-drop), `risk-linked-records.tsx` (R3/B3 — `useEntityLinks`-backed panel using the
+server-resolved `label` field, "Link to FMEA" opens the existing `LinkPicker` scoped to `kinds={["fmea"]}`
+and writes via `useCreateEntityLink`). `apps/web/src/features/fmea/fmea-workbench.tsx` gains the "Linked
+risks" reverse pane (R3 AC7 — FMEA had zero related-items display before this slice, confirmed by grep) and
+`?id=` deep-link pre-select (R3 AC — a linked FMEA's row now round-trips to a real record, not a dead
+link). `apps/web/src/hooks/use-risks.ts` (list/summary/detail/update/board-pack-export mutations/queries)
++ `packages/api-client/src/queries.ts` gains the `apiQueries.risks` block (`queryKeys.risks.*` already
+existed from an earlier slice; the query-option factories were the missing piece). Route:
+`apps/web/src/app/(app)/risk/page.tsx` (a real Next route beats the `[...slug]` placeholder catch-all even
+though `risk` is deliberately still left in `planned-modules.ts` per this task's own scope fence). All six
+states covered (loading skeleton, empty, error+retry, 409 reconcile, offline-disabled mutations via the
+shared `Button`/`useOnline`, `risk:view`/`risk:manage` permission gating — a viewer sees the register
+read-only, no Edit/Re-score/Add-control/Link affordances). Board-pack export wired to the already-complete
+`risk_board_pack` `ExportResource` (backend + `run-export.ts` branch shipped in Slice 4) via the same
+progress-toast → notification → download pipeline `use-msa.ts`'s AIAG-report export uses. **Live Playwright
+verification, full golden path, all green:** create a risk via the wizard → land on `/risk?id=<uuid>` →
+re-score → add a control → link to an FMEA (seeded one via the API first — the demo tenant had zero FMEAs)
+→ confirm the linked-records panel shows it → click through to `/fmea?id=<uuid>` → confirm its new "Linked
+risks" pane shows the risk back → return and trigger the board-pack export (accepted into
+preparing/download state). Test fixtures cleaned up from the shared dev DB afterward. `pnpm --filter
+@kaenal/web typecheck`, `pnpm --filter @kaenal/api-client typecheck`, `pnpm --filter @kaenal/mobile
+typecheck` all clean; `eslint` clean on every changed file. Demo login re-seeded not needed this slice (no
+DB-resetting test run) — sign-in 201 reconfirmed regardless. **Not built this slice (deliberately, per this
+task's own scope fence):** drag-and-drop control reordering (up/down buttons instead — WCAG-equivalent,
+smaller surface); `apps/web/src/features/msa/`, `link-picker.tsx`, `create-wizard.ts`, `rbac.ts`,
+`navigation.ts`, `planned-modules.ts` were explicitly out of scope and untouched.
+
 **Sprint 04 — Risk register + MSA/Gauge R&R, Slice 4: NestJS services + controllers (2026-09-29), on
 branch `integration/sprint-03-graph-predictive-jrt4dn`.** Slices 1-3 (migrations 0064/0065, `packages/core`
 risk-matrix.ts/gauge-rr.ts/rbac.ts, `packages/types` DTOs+contract) were already done and committed on this
