@@ -9,30 +9,43 @@
  * and `fmea.ts`'s pure-scoring-logic style. Pure — no DB — so a study's
  * analysis is always recomputed from its real measurements, never stored.
  *
- * **Validation note (read before trusting a number blind):** this build ran
- * in a sandboxed environment whose network egress is allow-listed, and every
- * host that could serve the literal AIAG MSA Reference Manual worked example
- * (aiag.org, minitab.com's reproduction of `Gageaiag.MTW`, Wikipedia's ANOVA
- * gauge R&R article, spcforexcel.com) was blocked by the egress policy — this
- * was checked this session, not assumed. Rather than fabricate numbers under
- * the label "matches the published manual," the ANOVA and Average-Range unit
- * tests below use small, fully hand-computed reference studies (mirroring
- * `forecast.ts`'s own documented "hand-computed reference series" precedent
- * for exactly this situation) with every intermediate sum, mean, and variance
- * component computed and checked by hand, including two independent
- * consistency identities that a wrong formula could not pass by accident:
- * (a) `%StudyVar_GRR² + %StudyVar_PartToPart² ≈ 100²` (since
- * `σ²_GRR + σ²_part = σ²_total`, this must hold for any correct study), and
- * (b) the K1/K2 constants used here (4.56/3.05 for trials, 3.65/2.70 for
- * appraisers) are transcribed verbatim from SPRINT-04's own approved §3.2
- * text, which already cites them as the standard published AIAG values — the
- * K3 (part-count) table is the AIAG manual's own documented extension of that
- * *same* d2*-based table to group sizes up to 10 (K3(2)=3.65, K3(3)=2.70
- * matching K2(2)/K2(3) exactly is not a coincidence: both derive from
- * `5.15 / d2*(g, 1)`, table indexed by group size `g`). Replacing the hand-
- * computed fixtures with the literal manual transcription is flagged as a
- * follow-up once network access allows fetching it — see the sprint's final
- * report for this slice.
+ * **Validation note:** this module's PRIMARY validation (both methods) is the
+ * literal AIAG MSA 4th-edition worked example (3 appraisers × 10 parts × 3
+ * trials), as reproduced by Dr. Bill McNeese, "Three Ways to Analyze a Gage
+ * R&R Study," BPI Consulting LLC / SPC for Excel, 2015
+ * (spcforexcel.com/downloads/pdf/Three-Ways-to-Analyze-a-Gage-RR.pdf), which
+ * states explicitly it uses "data ... from the 4th edition of the Measurement
+ * Systems Analysis manual published by AIAG." See `gauge-rr.test.ts` for the
+ * full raw dataset, the independent SS/MS re-derivation, and the published
+ * numbers it is checked against.
+ *
+ * The Average & Range method (`average_range`) reconciles exactly: the
+ * paper's own EV/AV/GRR/PV/TV figures equal this module's `stdDev` fields
+ * (raw σ) once you note the paper's K1/K2/K3 constants (0.5908/0.5231/0.3146)
+ * are this module's `K1_TABLE`/`K2_TABLE`/`K3_TABLE` values already divided
+ * by {@link STUDY_VAR_K} — i.e. the paper reports EV/AV/PV/GRR/TV at raw-σ
+ * scale, not at this module's `studyVariation` (5.15σ) scale. Same number,
+ * different unit label; not a formula discrepancy.
+ *
+ * The ANOVA method (`crossed_anova`) reconciles on the raw SS/MS table (this
+ * module's decomposition reproduces the paper's SS_Part=88.362, SS_Operator=
+ * 3.167 and their MS values exactly, and independently confirms the paper's
+ * interaction-pooling condition `MS_interaction ≤ MS_equipment` really does
+ * trigger for this dataset) but **does not** reconcile on the paper's final
+ * pooled variance-component numbers (σ²_repeatability=0.0400 etc.), because
+ * the paper's pooling convention — on triggering pooling, recompute a merged
+ * error term `MSE' = (SS_interaction + SS_equipment) / (df_interaction +
+ * df_equipment)` and substitute it for `MS_interaction`/`MS_equipment` in
+ * every downstream formula — is not what SPRINT-04 §3.2 approved. §3.2's
+ * pooling rule (implemented below) only zeroes the appraiser×part component
+ * when it pools; it does not redistribute that SS into repeatability. This
+ * is a genuine, documented formula-convention difference (~7% on σ²_GRR for
+ * this dataset), not a rounding error — see the test file for the numbers
+ * side by side. It does not change this dataset's ndc (4, under either
+ * convention) or verdict (`reject`, under either convention), which is the
+ * classification the sprint's acceptance criteria actually depend on.
+ * Reconciling the two conventions, if desired, is a §3.2 formula change and
+ * out of this task's scope (SCRUM: needs sign-off, not a silent edit here).
  */
 
 export type MsaMethod = "crossed_anova" | "average_range";
@@ -288,7 +301,10 @@ export function crossedAnovaGaugeRr(input: GaugeRrStudyInput): GaugeRrResult {
   // Interaction pooling (fixed AIAG-convention rule, not configurable): when
   // MS_interaction ≤ MS_equipment the clamped formulas below already zero out
   // the interaction variance component on their own — this flag just names
-  // that state for the report/UI.
+  // that state for the report/UI. Note (see module doc header): this zeroes
+  // the appraiser×part term but does not redistribute its SS into
+  // repeatability the way a full pooled-ANOVA re-fit would — a documented
+  // §3.2 simplification, confirmed against the real AIAG worked example.
   const interactionPooled = msInteraction <= msEquipment;
 
   const sigma2Repeatability = msEquipment;

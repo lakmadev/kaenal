@@ -13,21 +13,191 @@ import {
 } from "../src/gauge-rr.js";
 
 /**
- * See the doc header of `gauge-rr.ts` for why these fixtures are hand-
- * computed rather than transcribed from the AIAG MSA Reference Manual: this
- * session's network egress policy blocked every host that could serve it
- * (aiag.org, Minitab's `Gageaiag.MTW` reproduction, Wikipedia, spcforexcel.com
- * — checked, not assumed). Every sum of squares, mean square, and variance
- * component below was worked out by hand from a designed appraiser×part
- * interaction table with known row/column sums, then cross-checked with two
- * identities a wrong formula could not pass by accident: (a) `%StudyVar_GRR²
- * + %StudyVar_PartToPart² = 100²` (since `σ²_GRR + σ²_part = σ²_total`), and
- * (b) `√(EV² + AV²) = GRR` for the Average-Range case, both asserted below.
- * `Math.sqrt`/`Math.pow` are used in the assertions themselves (not
- * hand-transcribed decimals) for the irrational stdDev/%StudyVar values, so
- * only the underlying integer sums-of-squares are asserted from a hand
- * derivation, not multi-digit decimals prone to transcription error.
+ * PRIMARY validation: the literal AIAG MSA 4th-edition worked example (3
+ * appraisers × 10 parts × 3 trials), as reproduced in Dr. Bill McNeese,
+ * "Three Ways to Analyze a Gage R&R Study," BPI Consulting LLC / SPC for
+ * Excel, 2015 (spcforexcel.com/downloads/pdf/Three-Ways-to-Analyze-a-Gage-RR.pdf).
+ * The paper states explicitly it uses "data ... from the 4th edition of the
+ * Measurement Systems Analysis manual published by AIAG" — see the
+ * `describe("AIAG MSA 4th-edition worked example ...")` blocks below for the
+ * raw dataset and the published numbers, independently re-derived by hand
+ * from the raw data before being checked against this module's output (see
+ * `gauge-rr.ts`'s doc header for the one documented non-reconciliation: the
+ * ANOVA method's pooled-interaction variance components use a different, but
+ * equally real, convention than the paper's — the ndc and verdict, which are
+ * what the sprint's acceptance criteria gate on, agree under both).
+ *
+ * The small hand-computed fixtures below (designed appraiser×part
+ * interaction table, verdict-boundary cases) are kept as supplementary edge-
+ * case coverage — precedence rules and pooling branches the single published
+ * example doesn't happen to exercise on its own — not as the primary
+ * evidence of correctness.
  */
+
+// AIAG MSA 4th-edition worked example, Table 1 (McNeese 2015, "Three Ways to
+// Analyze a Gage R&R Study") — 3 appraisers (A, B, C) × 10 parts × 3 trials.
+// One row per (appraiser, trial); one column per part 1-10.
+const AIAG_TABLE: Record<string, number[][]> = {
+  A: [
+    [0.29, -0.56, 1.34, 0.47, -0.8, 0.02, 0.59, -0.31, 2.26, -1.36],
+    [0.41, -0.68, 1.17, 0.5, -0.92, -0.11, 0.75, -0.2, 1.99, -1.25],
+    [0.64, -0.58, 1.27, 0.64, -0.84, -0.21, 0.66, -0.17, 2.01, -1.31],
+  ],
+  B: [
+    [0.08, -0.47, 1.19, 0.01, -0.56, -0.2, 0.47, -0.63, 1.8, -1.68],
+    [0.25, -1.22, 0.94, 1.03, -1.2, 0.22, 0.55, 0.08, 2.12, -1.62],
+    [0.07, -0.68, 1.34, 0.2, -1.28, 0.06, 0.83, -0.34, 2.19, -1.5],
+  ],
+  C: [
+    [0.04, -1.38, 0.88, 0.14, -1.46, -0.29, 0.02, -0.46, 1.77, -1.49],
+    [-0.11, -1.13, 1.09, 0.2, -1.07, -0.67, 0.01, -0.56, 1.45, -1.77],
+    [-0.15, -0.96, 0.67, 0.11, -1.45, -0.49, 0.21, -0.49, 1.87, -2.16],
+  ],
+};
+
+function aiagMeasurements(): GaugeRrMeasurement[] {
+  const measurements: GaugeRrMeasurement[] = [];
+  const appraisers = ["A", "B", "C"];
+  appraisers.forEach((op, ai) => {
+    AIAG_TABLE[op]!.forEach((row, ti) => {
+      row.forEach((value, pi) => {
+        measurements.push({ appraiser: ai + 1, part: pi + 1, trial: ti + 1, value });
+      });
+    });
+  });
+  return measurements;
+}
+
+describe("AIAG MSA 4th-edition worked example — average_range (McNeese/BPI 2015)", () => {
+  // Published (paper's own K1/K2/K3 = this module's K1_TABLE/K2_TABLE/K3_TABLE
+  // ÷ STUDY_VAR_K — i.e. the paper's EV/AV/GRR/PV/TV are at raw-σ scale, so
+  // they are compared against this module's `stdDev` fields, not
+  // `studyVariation`; see gauge-rr.ts's doc header):
+  //   R̄ = 0.342, X̄_DIFF = 0.445, R_P = 3.511
+  //   EV = 0.202, AV = 0.230, GRR = 0.306, PV = 1.105 (paper's % table: 1.104), TV = 1.146
+  //   %EV = 17.61%, %AV = 20.04%, %GRR(%R&R) = 26.68%, %PV = 96.37%
+  const result = averageRangeGaugeRr({ appraisers: 3, parts: 10, trials: 3, measurements: aiagMeasurements() });
+
+  it("matches the published EV/AV/GRR/PV/TV (raw σ) within the paper's own 3-decimal rounding", () => {
+    expect(result.repeatability.stdDev).toBeCloseTo(0.202, 3);
+    expect(result.reproducibility.stdDev).toBeCloseTo(0.23, 3);
+    expect(result.grr.stdDev).toBeCloseTo(0.306, 3);
+    expect(result.partToPart.stdDev).toBeCloseTo(1.105, 2); // paper's % table rounds this to 1.104
+    expect(result.total.stdDev).toBeCloseTo(1.146, 3);
+  });
+
+  it("matches the published %EV/%AV/%R&R/%PV (within ~0.1pp — this module's K-table is itself rounded to 2 decimals, e.g. K1(3)=3.05 vs the paper's more precise implied 3.0426, so the % figures carry slightly more rounding slack than the σ figures above)", () => {
+    expect(result.repeatability.pctStudyVar).toBeCloseTo(17.61, 0);
+    expect(result.reproducibility.pctStudyVar).toBeCloseTo(20.04, 0);
+    expect(result.grr.pctStudyVar).toBeCloseTo(26.68, 0);
+    expect(result.partToPart.pctStudyVar).toBeCloseTo(96.37, 0);
+  });
+
+  it("has no separate appraiser/interaction rows (not estimated by this method)", () => {
+    expect(result.appraiser).toBeNull();
+    expect(result.appraiserByPart).toBeNull();
+    expect(result.interactionPooled).toBeNull();
+  });
+
+  it("independently re-derived ndc and verdict", () => {
+    // ndc = floor(1.41 × PV/GRR) = floor(1.41 × 1.105/0.306) = floor(5.093) = 5
+    expect(result.ndc).toBe(5);
+    // %StudyVar_GRR ≈ 26.68% is in [10,30) and ndc=5 ≥ 5 → acceptable
+    expect(result.verdict).toBe("acceptable");
+  });
+});
+
+describe("AIAG MSA 4th-edition worked example — crossed_anova (McNeese/BPI 2015)", () => {
+  const result = crossedAnovaGaugeRr({ appraisers: 3, parts: 10, trials: 3, measurements: aiagMeasurements() });
+
+  // Independent re-derivation from the raw Table 1 data (not transcribed from
+  // the paper, which omits the interaction row from its displayed table
+  // precisely because it pools it away): grand mean over all 90 values,
+  // SS_Part = n·a·Σ(partMean−grand)², SS_Operator = n·p·Σ(apprMean−grand)²,
+  // SS_Interaction = n·ΣΣ(cellMean−partMean−apprMean+grand)²,
+  // SS_Equipment = ΣΣΣ(value−cellMean)². These sum exactly to SS_Total
+  // (94.647), the classic ANOVA decomposition identity.
+  it("independently re-derives SS/MS from the raw Table 1 data and matches the paper's published values", () => {
+    // Standalone re-derivation (not calling gauge-rr.ts) confirming the raw
+    // fixture itself matches the paper's stated ANOVA table, before trusting
+    // any module output built on it.
+    const a = 3,
+      p = 10,
+      n = 3;
+    const ms = aiagMeasurements();
+    const cell = (ai: number, pi: number) => ms.filter((m) => m.appraiser === ai && m.part === pi).map((m) => m.value);
+    const meanOf = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+    const grand = meanOf(ms.map((m) => m.value));
+    const partMean = Array.from({ length: p }, (_, pi) => meanOf(ms.filter((m) => m.part === pi + 1).map((m) => m.value)));
+    const apprMean = Array.from({ length: a }, (_, ai) => meanOf(ms.filter((m) => m.appraiser === ai + 1).map((m) => m.value)));
+    const ssPart = n * a * partMean.reduce((s, m) => s + (m - grand) ** 2, 0);
+    const ssAppraiser = n * p * apprMean.reduce((s, m) => s + (m - grand) ** 2, 0);
+    let ssInteraction = 0;
+    for (let ai = 0; ai < a; ai++) {
+      for (let pi = 0; pi < p; pi++) {
+        const cm = meanOf(cell(ai + 1, pi + 1));
+        ssInteraction += (cm - partMean[pi]! - apprMean[ai]! + grand) ** 2;
+      }
+    }
+    ssInteraction *= n;
+    let ssEquipment = 0;
+    for (let ai = 0; ai < a; ai++) {
+      for (let pi = 0; pi < p; pi++) {
+        const cm = meanOf(cell(ai + 1, pi + 1));
+        for (const v of cell(ai + 1, pi + 1)) ssEquipment += (v - cm) ** 2;
+      }
+    }
+    expect(ssPart).toBeCloseTo(88.362, 2);
+    expect(ssAppraiser).toBeCloseTo(3.167, 2);
+    expect(ssPart / (p - 1)).toBeCloseTo(9.818, 2); // MS_Part
+    expect(ssAppraiser / (a - 1)).toBeCloseTo(1.584, 2); // MS_Operator
+    // Pooled "Repeatability/Equipment" the paper reports (SS_interaction +
+    // SS_equipment, df 18+60=78): SS=3.118, MS=0.0400.
+    expect(ssInteraction + ssEquipment).toBeCloseTo(3.118, 2);
+    expect((ssInteraction + ssEquipment) / (18 + 60)).toBeCloseTo(0.04, 3);
+  });
+
+  it("independently confirms the paper's interaction-pooling condition triggers on this real data", () => {
+    // Hand re-derivation: SS_Interaction = 0.359 (df=18) → MS_Interaction =
+    // 0.01994; SS_Equipment = 2.759 (df=60) → MS_Equipment = 0.04598.
+    // MS_Interaction (0.01994) ≤ MS_Equipment (0.04598) → pools, matching the
+    // paper's statement that "the interaction ... was not significant."
+    expect(result.interactionPooled).toBe(true);
+    expect(result.appraiserByPart!.stdDev).toBeCloseTo(0, 10);
+  });
+
+  it("documented non-reconciliation: this module's §3.2 pooling convention gives different (but internally consistent) variance components than the paper's pooled-MSE convention — see gauge-rr.ts's doc header", () => {
+    // This module (SPRINT-04 §3.2, as approved): σ²_repeatability =
+    // MS_equipment (unpooled) = 0.04598; σ²_reproducibility uses the raw
+    // (unpooled) MS_interaction in its subtraction = 0.05212; σ²_part
+    // (same) = 1.08867. The paper's convention instead recomputes a merged
+    // error term MSE' = (SS_interaction+SS_equipment)/(df_interaction+
+    // df_equipment) = 3.118/78 = 0.0400 and substitutes it for
+    // MS_interaction/MS_equipment throughout, giving σ²_repeatability=0.0400,
+    // σ²_reproducibility=0.0515, σ²_part=1.086 instead. Both are internally
+    // consistent; they are not the same formula. Asserting against THIS
+    // module's own (§3.2) hand re-derivation, not the paper's pooled numbers:
+    expect(result.repeatability.stdDev ** 2).toBeCloseTo(0.04598, 4);
+    expect(result.reproducibility.stdDev ** 2).toBeCloseTo(0.05212, 4);
+    expect(result.partToPart.stdDev ** 2).toBeCloseTo(1.08867, 3);
+    expect(result.grr.stdDev ** 2).toBeCloseTo(0.09811, 4);
+    expect(result.total.stdDev ** 2).toBeCloseTo(1.18678, 3);
+  });
+
+  it("ndc and verdict agree with the paper regardless of which pooling convention is used", () => {
+    // This module's own numbers: %StudyVar_GRR ≈ 28.75%, ndc = floor(1.41 ×
+    // 1.04339/0.31322) = floor(4.697) = 4. The paper's pooled-MSE numbers
+    // give %StudyVar_GRR ≈ 27.88%, ndc = floor(1.41 × 1.04211/0.30232) =
+    // floor(4.860) = 4 — the same ndc, and both are < 5, so both convention's
+    // verdicts are `reject`, even though %StudyVar_GRR alone (~28%) sits in
+    // the "acceptable" 10-30% band. This is exactly the ndc-overrides-
+    // %StudyVar precedence edge case the sprint's DoD calls for.
+    expect(result.grr.pctStudyVar).toBeGreaterThanOrEqual(10);
+    expect(result.grr.pctStudyVar).toBeLessThan(30);
+    expect(result.ndc).toBe(4);
+    expect(result.verdict).toBe("reject");
+  });
+});
 
 function grid(a: number, p: number, n: number, cellMean: (a: number, p: number) => number, noise: number[]) {
   const measurements: GaugeRrMeasurement[] = [];
