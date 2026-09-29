@@ -2,9 +2,11 @@ import type pg from "pg";
 import { zipSync } from "fflate";
 import { withTenant } from "@kaenal/db";
 import {
+  analyzeGaugeRr,
   chunkRows,
   EXPORT_ROW_CAP,
   isPlantScoped,
+  scoreBand,
   toCsv,
   toPdf,
   toXlsx,
@@ -93,6 +95,25 @@ const PREDICTIVE_FORECAST_PACK_SPEC: Exportable = {
   plantScoped: false,
   columns: [],
   headers: ["Kind", "Subject", "Horizon", "Predicted", "Confidence", "80% band", "Driver"],
+};
+
+/** Not a table export either: the risk register's KPI strip + heat-map
+ *  counts + full table (Sprint 04 R5), squashed to a 2-column report like
+ *  {@link AUDIT_REPORT_SPEC}. */
+const RISK_BOARD_PACK_SPEC: Exportable = {
+  table: "",
+  plantScoped: false,
+  columns: [],
+  headers: ["Field", "Value"],
+};
+
+/** Not a table export either: one MSA study's variance-component table +
+ *  verdict + raw grid (Sprint 04 M5). */
+const GAUGE_RR_AIAG_REPORT_SPEC: Exportable = {
+  table: "",
+  plantScoped: false,
+  columns: [],
+  headers: ["Field", "Value"],
 };
 
 /**
@@ -207,6 +228,159 @@ async function forecastPackRows(
   ]);
 }
 
+/**
+ * Render the risk register's KPI strip + heat-map cell counts + full table
+ * (Sprint 04 R5), scoped to the caller's visible risks — RLS already bounds
+ * this to the tenant; `risks` carries no `plant_id`, so unlike the other
+ * exports there is no further plant narrowing to apply. Re-derives the same
+ * KPI formulas as `RiskService.summary` (R1 AC6) rather than importing that
+ * service directly, mirroring how `auditReportRows`/`forecastPackRows` above
+ * each re-query rather than reach into another module's service.
+ */
+async function riskBoardPackRows(tx: Parameters<Parameters<typeof withTenant>[2]>[0]): Promise<unknown[][]> {
+  const { rows } = await tx.query<{
+    code: string;
+    title: string;
+    category: string;
+    likelihood: number;
+    impact: number;
+    residual_score: number;
+    status: string;
+    review_due: Date | string | null;
+  }>(
+    `SELECT code, title, category, likelihood, impact, residual_score, status, review_due
+       FROM risks WHERE deleted_at IS NULL ORDER BY residual_score DESC, code ASC`,
+  );
+
+  const total = rows.length;
+  const today = new Date().toISOString().slice(0, 10);
+  let highResidual = 0;
+  let treatmentsOverdue = 0;
+  let accepted = 0;
+  const byCategory = new Map<string, number>();
+  const byBand = { low: 0, medium: 0, high: 0, critical: 0 };
+
+  for (const r of rows) {
+    byCategory.set(r.category, (byCategory.get(r.category) ?? 0) + 1);
+    const band = scoreBand(r.residual_score);
+    byBand[band] += 1;
+    if (band === "high" || band === "critical") highResidual += 1;
+    if (r.status === "accepted") accepted += 1;
+    const due = r.review_due === null ? null : r.review_due instanceof Date ? r.review_due.toISOString().slice(0, 10) : r.review_due;
+    if (due !== null && due < today) treatmentsOverdue += 1;
+  }
+
+  const { rows: reviewed } =
+    total === 0
+      ? { rows: [{ n: "0" }] }
+      : await tx.query<{ n: string }>(
+          `SELECT count(DISTINCT ae.entity_id)::text AS n
+             FROM audit_events ae JOIN risks r ON r.id = ae.entity_id AND r.deleted_at IS NULL
+            WHERE ae.entity_kind = 'risk' AND ae.action IN ('created', 'updated')
+              AND ae.created_at >= date_trunc('quarter', now())
+              AND ae.created_at < date_trunc('quarter', now()) + interval '3 months'`,
+        );
+  const reviewedPct = total === 0 ? null : (100 * Number(reviewed[0]?.n ?? 0)) / total;
+
+  const out: unknown[][] = [
+    ["Total risks", total],
+    ["High residual (>=10)", highResidual],
+    ["Treatments overdue", treatmentsOverdue],
+    ["Accepted", accepted],
+    ["Reviewed this quarter", reviewedPct === null ? "—" : `${reviewedPct.toFixed(0)}%`],
+  ];
+  for (const [category, count] of byCategory) out.push([`By category: ${category}`, count]);
+  for (const [band, count] of Object.entries(byBand)) out.push([`By band: ${band}`, count]);
+  for (const r of rows) {
+    out.push([
+      r.code,
+      `${r.title} — ${r.category}, L${r.likelihood}×I${r.impact}, residual ${r.residual_score} (${scoreBand(r.residual_score)}), ${r.status}`,
+    ]);
+  }
+  return out;
+}
+
+/**
+ * Render one MSA study's full variance-component table + verdict + raw grid
+ * (Sprint 04 M5) — recomputed from the study's real measurements, exactly
+ * like `GET .../analysis`, never from a stored result (rule 5). The
+ * requester's visibility was already 404-checked before enqueue
+ * (`ExportsService.create`); RLS bounds this query to the same tenant.
+ */
+async function gaugeRrReportRows(
+  tx: Parameters<Parameters<typeof withTenant>[2]>[0],
+  filters: { studyId?: string },
+): Promise<unknown[][]> {
+  const studyId = filters.studyId;
+  if (typeof studyId !== "string") throw new Error("gauge_rr_aiag_report export is missing filters.studyId");
+
+  const { rows } = await tx.query<{
+    code: string;
+    characteristic: string;
+    gauge_label: string;
+    method: string;
+    n_appraisers: number;
+    n_parts: number;
+    n_trials: number;
+    tolerance: string | null;
+    status: string;
+  }>(
+    `SELECT code, characteristic, gauge_label, method, n_appraisers, n_parts, n_trials, tolerance, status
+       FROM msa_studies WHERE id = $1 AND deleted_at IS NULL`,
+    [studyId],
+  );
+  const study = rows[0];
+  if (study === undefined) throw new Error("MSA study not found");
+
+  const out: unknown[][] = [
+    ["Code", study.code],
+    ["Characteristic", study.characteristic],
+    ["Gauge", study.gauge_label],
+    ["Method", study.method],
+    ["Design", `${study.n_appraisers} appraisers × ${study.n_parts} parts × ${study.n_trials} trials`],
+    ["Tolerance", study.tolerance === null ? "—" : Number(study.tolerance)],
+    ["Status", study.status],
+  ];
+
+  const { rows: measurements } = await tx.query<{ appraiser: number; part: number; trial: number; value: string }>(
+    `SELECT appraiser, part, trial, value FROM msa_measurements WHERE study_id = $1 AND deleted_at IS NULL`,
+    [studyId],
+  );
+  const required = study.n_appraisers * study.n_parts * study.n_trials;
+  if (measurements.length < required) {
+    out.push(["Analysis", `Incomplete — ${measurements.length}/${required} measurements entered`]);
+    return out;
+  }
+
+  const result = analyzeGaugeRr({
+    method: study.method as "crossed_anova" | "average_range",
+    appraisers: study.n_appraisers,
+    parts: study.n_parts,
+    trials: study.n_trials,
+    tolerance: study.tolerance === null ? null : Number(study.tolerance),
+    measurements: measurements.map((m) => ({ appraiser: m.appraiser, part: m.part, trial: m.trial, value: Number(m.value) })),
+  });
+
+  const sourceRow = (label: string, s: { stdDev: number; studyVariation: number; pctStudyVar: number; pctTolerance: number | null }) =>
+    out.push([label, `stdDev=${s.stdDev.toFixed(4)}, %StudyVar=${s.pctStudyVar.toFixed(2)}%, %Tolerance=${s.pctTolerance === null ? "—" : `${s.pctTolerance.toFixed(2)}%`}`]);
+
+  sourceRow("Repeatability (EV)", result.repeatability);
+  if (result.appraiser !== null) sourceRow("Appraiser", result.appraiser);
+  if (result.appraiserByPart !== null) sourceRow("Appraiser×Part", result.appraiserByPart);
+  sourceRow("Reproducibility (AV)", result.reproducibility);
+  sourceRow("Total Gauge R&R", result.grr);
+  sourceRow("Part-to-Part (PV)", result.partToPart);
+  sourceRow("Total variation", result.total);
+  out.push(["ndc", result.ndc]);
+  out.push(["Verdict", result.verdict]);
+  if (result.interactionPooled !== null) out.push(["Interaction pooled", result.interactionPooled]);
+
+  for (const m of measurements) {
+    out.push([`A${m.appraiser}-P${m.part}-T${m.trial}`, Number(m.value)]);
+  }
+  return out;
+}
+
 /** Wrap the reply text to the PDF column width and append provenance lines. */
 function aiReplyRows(p: AiReplyExportPayload): unknown[][] {
   const wrap = (text: string): string[] => {
@@ -238,7 +412,7 @@ function aiReplyRows(p: AiReplyExportPayload): unknown[][] {
 interface ExportRow {
   resource: string;
   format: string;
-  filters: { status?: string; auditId?: string };
+  filters: { status?: string; auditId?: string; studyId?: string };
   payload: unknown;
   requested_by: string | null;
 }
@@ -293,13 +467,19 @@ export async function runExport(
       const aiReply = job.resource === "ai_reply" ? AiReplyExportPayload.parse(job.payload) : null;
       const isAuditReport = job.resource === "audit_report";
       const isForecastPack = job.resource === "predictive_forecast_pack";
+      const isRiskBoardPack = job.resource === "risk_board_pack";
+      const isGaugeRrReport = job.resource === "gauge_rr_aiag_report";
       const spec = isAuditReport
         ? AUDIT_REPORT_SPEC
         : isForecastPack
           ? PREDICTIVE_FORECAST_PACK_SPEC
-          : aiReply !== null
-            ? AI_REPLY_SPEC
-            : EXPORTABLES[job.resource];
+          : isRiskBoardPack
+            ? RISK_BOARD_PACK_SPEC
+            : isGaugeRrReport
+              ? GAUGE_RR_AIAG_REPORT_SPEC
+              : aiReply !== null
+                ? AI_REPLY_SPEC
+                : EXPORTABLES[job.resource];
       if (spec === undefined) throw new Error(`Unknown export resource: ${job.resource}`);
 
       const membership = job.requested_by === null ? null : await loadMembership(tx, job.requested_by);
@@ -309,9 +489,13 @@ export async function runExport(
         ? await auditReportRows(tx, job.filters, membership)
         : isForecastPack
           ? await forecastPackRows(tx, membership)
-          : aiReply !== null
-            ? aiReplyRows(aiReply)
-            : await fetchRows(tx, spec, job.filters, membership);
+          : isRiskBoardPack
+            ? await riskBoardPackRows(tx)
+            : isGaugeRrReport
+              ? await gaugeRrReportRows(tx, job.filters)
+              : aiReply !== null
+                ? aiReplyRows(aiReply)
+                : await fetchRows(tx, spec, job.filters, membership);
       const stringRows = rows.map((r) => r.map(cell));
 
       // Serialise per format. XLSX/PDF are single documents (they page/scroll

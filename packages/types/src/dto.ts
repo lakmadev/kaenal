@@ -1018,6 +1018,9 @@ export type RaiseCapaFromFindingBody = z.infer<typeof RaiseCapaFromFindingBody>;
 export const ExportFilters = z.object({
   status: z.string().max(60).optional(),
   auditId: z.string().uuid().optional(),
+  /** Required for (and only meaningful for) a `gauge_rr_aiag_report` export —
+   *  the one MSA study whose report is being rendered (Sprint 04 M5). */
+  studyId: z.string().uuid().optional(),
 });
 export type ExportFilters = z.infer<typeof ExportFilters>;
 
@@ -1396,6 +1399,16 @@ export const EntityLinkDto = z.object({
   relation: z.string(),
   /** The end OPPOSITE the queried record — what the detail view renders. */
   createdAt: z.string().datetime(),
+  /**
+   * A server-resolved, human-readable label for the end OPPOSITE the queried
+   * record (Sprint 04 R3 `[AMENDED-2]`) — e.g. a risk's `"RISK-2026-0004 —
+   * Ransomware exposure"` or an FMEA's `partCode`. Capability-checked per
+   * target record: present only when the caller can view that specific
+   * record, omitted (never a raw or guessed value) otherwise, so a link
+   * panel never leaks a label the caller shouldn't see (rule 8's spirit
+   * extended to a partial-visibility read, not just a 404).
+   */
+  label: z.string().nullable().optional(),
 });
 export type EntityLinkDto = z.infer<typeof EntityLinkDto>;
 
@@ -2688,6 +2701,37 @@ export const UpdateRiskBody = z.object({
   lockVersion: z.number().int().nonnegative(),
 });
 export type UpdateRiskBody = z.infer<typeof UpdateRiskBody>;
+
+/**
+ * Unpaginated register-wide aggregate (SPRINT-04 R1, architect-flagged
+ * addition to §4's route table — the KPI strip/heat-map/category panel need
+ * counts across ALL of a tenant's risks, which a cursor-paginated list
+ * cannot supply without violating rule 6). Every count is computed from the
+ * caller's own RLS-scoped `risks` rows; a zero-risk tenant returns all-zero
+ * counts and `reviewedThisQuarterPct: null` (never `0`/`NaN` — R1 AC6's
+ * "—" empty-state formula).
+ */
+export const RiskSummaryDto = z.object({
+  total: z.number().int().nonnegative(),
+  /** Keyed by `RiskCategory`; only categories with ≥1 risk are present (R1 AC5 — no hard-capped/zero-filled list). */
+  byCategory: z.record(z.string(), z.number().int().nonnegative()),
+  byBand: z.object({
+    low: z.number().int().nonnegative(),
+    medium: z.number().int().nonnegative(),
+    high: z.number().int().nonnegative(),
+    critical: z.number().int().nonnegative(),
+  }),
+  /** `scoreBand(residualScore) in ("high","critical")`, i.e. `residualScore >= 10` (R1 AC6). */
+  highResidual: z.number().int().nonnegative(),
+  /** `review_due IS NOT NULL AND review_due < current_date` (R1 AC6). */
+  treatmentsOverdue: z.number().int().nonnegative(),
+  /** `status = 'accepted'` (R1 AC6). */
+  accepted: z.number().int().nonnegative(),
+  /** `100 × distinct risks with a created/updated audit_events row this
+   *  calendar quarter / total`; `null` when `total === 0` (R1 AC6's "—"). */
+  reviewedThisQuarterPct: z.number().min(0).max(100).nullable(),
+});
+export type RiskSummaryDto = z.infer<typeof RiskSummaryDto>;
 
 // --- MSA / Gauge R&R (SPRINT-04 M1-M5; qms-risk-spc.jsx `MSAStudy`) ---------
 // AIAG 4th-edition Gauge R&R studies. The variance-component math itself is

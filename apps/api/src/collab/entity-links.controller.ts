@@ -4,7 +4,7 @@ import { CreateEntityLinkBody, EntityRefQuery, type EntityLinkDto, type Page } f
 import { currentContext, currentTx } from "../context.js";
 import { Internal } from "../decorators.js";
 import { parse } from "../http/validate.js";
-import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
+import { actorIdOf, auditCtxOf, membershipOf } from "../ncr/handler-ctx.js";
 import { ENTITY_LINKS_SERVICE } from "../tokens.js";
 import type { EntityLinksService } from "./entity-links.service.js";
 
@@ -25,13 +25,13 @@ export class EntityLinksController {
   @Get("v1/entity-links")
   async list(@Query() query: unknown): Promise<Page<EntityLinkDto>> {
     const q = parse(EntityRefQuery, query);
-    return this.links.list(currentTx(), q.entityKind, q.entityId);
+    return this.links.list(currentTx(), q.entityKind, q.entityId, membershipOf());
   }
 
   @Post("v1/entity-links")
   async create(@Body() body: unknown): Promise<EntityLinkDto> {
     const input = parse(CreateEntityLinkBody, body);
-    return this.links.create(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+    return this.links.create(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf(), membershipOf());
   }
 
   @Post("v1/entity-links/:id/delete")

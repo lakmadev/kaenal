@@ -1,10 +1,65 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { withAudit, type Tx } from "@kaenal/db";
+import { hasCapability, type Capability, type Membership } from "@kaenal/core";
 import type { CreateEntityLinkBody, EntityKind, EntityLinkDto, Page } from "@kaenal/types";
 import { ApiError, notFound } from "../errors.js";
 import type { AuditContext } from "../ncr/audit-context.js";
 import { assertEntityVisible } from "./entity-ref.js";
+
+/**
+ * Per-kind label resolution (SPRINT-04 R3 `[AMENDED-2]`, doc-accuracy item).
+ * Today's consumers (`capa-detail.tsx`/`document-detail.tsx`/
+ * `supplier-detail.tsx`) just truncate the raw link id — a real linked-
+ * records panel needs a human-readable label. `capability` is the SAME
+ * `:view` capability that already gates that kind's own detail route, so a
+ * label is resolved only when the caller could open the target record
+ * directly; a caller lacking it (or a target that no longer exists — a
+ * foreign-tenant id RLS already hides) gets `label: undefined`, never a raw
+ * or guessed value (rule 8's spirit extended to a partial-visibility read).
+ */
+/** A label column always arrives as a string (`code`/`title`/`name`/…) —
+ *  narrowed explicitly rather than templated as `unknown`. */
+function str(v: unknown): string {
+  return typeof v === "string" ? v : String(v);
+}
+
+interface LabelConfig {
+  readonly capability: Capability;
+  readonly table: string;
+  readonly build: (row: Record<string, unknown>) => string;
+}
+const LABEL_CONFIG: Readonly<Record<EntityKind, LabelConfig>> = {
+  inspection: { capability: "inspection:view", table: "inspections", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
+  ncr: { capability: "ncr:view", table: "ncrs", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
+  eight_d: { capability: "ncr:view", table: "eight_ds", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
+  audit: { capability: "audit:view", table: "audits", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
+  capa: { capability: "capa:view", table: "capas", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
+  document: { capability: "document:view", table: "documents", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
+  supplier: { capability: "supplier:view", table: "suppliers", build: (r) => `${str(r["name"])} (${str(r["code"])})` },
+  scar: { capability: "scar:view", table: "scars", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
+  finding: {
+    capability: "inspection:view",
+    table: "findings",
+    build: (r) => `${str(r["item_ref"])} — ${str(r["description"]).slice(0, 80)}`,
+  },
+  risk: { capability: "risk:view", table: "risks", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
+  fmea: { capability: "fmea:view", table: "fmeas", build: (r) => `${str(r["part_code"])} — ${str(r["part_name"])}` },
+};
+
+const LABEL_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  inspections: ["code", "title"],
+  ncrs: ["code", "title"],
+  eight_ds: ["code", "title"],
+  audits: ["code", "title"],
+  capas: ["code", "title"],
+  documents: ["code", "title"],
+  suppliers: ["name", "code"],
+  scars: ["code", "title"],
+  findings: ["item_ref", "description"],
+  risks: ["code", "title"],
+  fmeas: ["part_code", "part_name"],
+};
 
 interface LinkRow {
   id: string;
@@ -20,7 +75,7 @@ const LINK_COLUMNS = "id, from_kind, from_id, to_kind, to_id, relation, created_
 // Related records are few per entity; one capped page covers every real case.
 const LINK_CAP = 200;
 
-function toDto(row: LinkRow): EntityLinkDto {
+function toDto(row: LinkRow, label?: string | null): EntityLinkDto {
   return {
     id: row.id,
     fromKind: row.from_kind as EntityKind,
@@ -29,6 +84,7 @@ function toDto(row: LinkRow): EntityLinkDto {
     toId: row.to_id,
     relation: row.relation,
     createdAt: row.created_at.toISOString(),
+    ...(label !== undefined ? { label } : {}),
   };
 }
 
@@ -42,7 +98,7 @@ function toDto(row: LinkRow): EntityLinkDto {
  */
 @Injectable()
 export class EntityLinksService {
-  async list(tx: Tx, kind: EntityKind, entityId: string): Promise<Page<EntityLinkDto>> {
+  async list(tx: Tx, kind: EntityKind, entityId: string, membership: Membership): Promise<Page<EntityLinkDto>> {
     await assertEntityVisible(tx, kind, entityId);
     const { rows } = await tx.query<LinkRow>(
       `SELECT ${LINK_COLUMNS} FROM entity_links
@@ -51,7 +107,38 @@ export class EntityLinksService {
         ORDER BY created_at DESC, id DESC LIMIT $3`,
       [kind, entityId, LINK_CAP],
     );
-    return { items: rows.map(toDto), nextCursor: null };
+    const items = await Promise.all(
+      rows.map(async (row) => {
+        const other: { kind: EntityKind; id: string } =
+          row.from_kind === kind && row.from_id === entityId
+            ? { kind: row.to_kind as EntityKind, id: row.to_id }
+            : { kind: row.from_kind as EntityKind, id: row.from_id };
+        const label = await this.resolveLabel(tx, other.kind, other.id, membership);
+        return toDto(row, label);
+      }),
+    );
+    return { items, nextCursor: null };
+  }
+
+  /** `undefined` (omitted on the wire) when the caller lacks that kind's own
+   *  `:view` capability or the target row no longer resolves — never a raw
+   *  or guessed value (rule 8's spirit, extended to partial visibility). */
+  private async resolveLabel(
+    tx: Tx,
+    kind: EntityKind,
+    id: string,
+    membership: Membership,
+  ): Promise<string | undefined> {
+    const config = LABEL_CONFIG[kind];
+    if (!hasCapability(membership.role, config.capability)) return undefined;
+    const cols = LABEL_COLUMNS[config.table] ?? [];
+    if (cols.length === 0) return undefined;
+    const { rows } = await tx.query<Record<string, unknown>>(
+      `SELECT ${cols.join(", ")} FROM ${config.table} WHERE id = $1 AND deleted_at IS NULL`,
+      [id],
+    );
+    const row = rows[0];
+    return row === undefined ? undefined : config.build(row);
   }
 
   async create(
@@ -60,6 +147,7 @@ export class EntityLinksService {
     actorId: string,
     body: CreateEntityLinkBody,
     context: AuditContext,
+    membership: Membership,
   ): Promise<EntityLinkDto> {
     if (body.fromKind === body.toKind && body.fromId === body.toId) {
       throw new ApiError("VALIDATION_FAILED", "A record cannot be linked to itself");
@@ -101,7 +189,8 @@ export class EntityLinksService {
         );
         const row = rows[0];
         if (row === undefined) throw new ApiError("INTERNAL", "Link was not created");
-        return toDto(row);
+        const label = await this.resolveLabel(t, body.toKind, body.toId, membership);
+        return toDto(row, label);
       },
     );
   }

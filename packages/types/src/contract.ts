@@ -140,6 +140,7 @@ import {
   RiskListQuery,
   CreateRiskBody,
   UpdateRiskBody,
+  RiskSummaryDto,
   MsaStudyDto,
   MsaListQuery,
   CreateMsaStudyBody,
@@ -1201,6 +1202,13 @@ export const contract = c.router(
       query: RiskListQuery,
       responses: { 200: page(RiskDto), ...commonErrors },
       summary: "The risk register, cursor-paginated (risk:view); `ids` batch-resolves specific risks",
+    },
+    getRisksSummary: {
+      method: "GET",
+      path: "/v1/risks/summary",
+      responses: { 200: RiskSummaryDto, ...commonErrors },
+      summary:
+        "Unpaginated KPI/heat-map/category aggregate over ALL the caller's visible risks (risk:view) — architect-flagged addition, a paginated list cannot supply this (rule 6)",
     },
     createRisk: {
       method: "POST",

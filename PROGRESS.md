@@ -5,6 +5,40 @@
 
 ## Current status
 
+**Sprint 04 — Risk register + MSA/Gauge R&R, Slice 4: NestJS services + controllers (2026-09-29), on
+branch `integration/sprint-03-graph-predictive-jrt4dn`.** Slices 1-3 (migrations 0064/0065, `packages/core`
+risk-matrix.ts/gauge-rr.ts/rbac.ts, `packages/types` DTOs+contract) were already done and committed on this
+branch; this slice wires the actual API. `RiskService`/`RiskController` (`apps/api/src/risk/`):
+`GET/POST /v1/risks`, `GET /v1/risks/summary` (unpaginated KPI/heat-map/category aggregate — an
+architect-flagged addition to §4's route table, not originally listed, added because a cursor-paginated
+list cannot supply tenant-wide counts without violating rule 6), `GET/PATCH /v1/risks/:id` (full
+`controls[]` array-replace guarded by the parent's own `lockVersion`, audited as one `updated` event).
+`MsaService`/`MsaController` (`apps/api/src/msa/`): `GET/POST /v1/msa-studies`, `GET /v1/msa-studies/:id`,
+`GET /v1/msa-studies/:id/analysis` (recomputed live via `gauge-rr.ts`, never stored), `PATCH
+/v1/msa-studies/:id` (draft→completed, `status_changed`), `PATCH .../reopen` (completed→draft,
+`status_changed`, `completedAt` kept not cleared), `POST .../measurements` (bulk-upsert, its own
+`lockVersion` closing the race a concurrent completion could otherwise slip through — the amendment
+history's main concurrency fix, verified with a dedicated race test). Entity-links (`apps/api/src/collab/
+entity-links.service.ts`) gains a server-resolved, capability-checked `label` field per link (present only
+when the caller holds that kind's own `:view` capability; omitted, never fabricated, otherwise) — wired for
+all 11 `EntityKind` values, not just risk/fmea. Exports: `ExportResource` gains `risk_board_pack`/
+`gauge_rr_aiag_report`, `run-export.ts` gains both render branches, `ExportsService` gains the same
+pre-enqueue 404 pattern `audit_report` uses (a foreign/unknown `studyId` 404s before the job is even
+queued). One real gap found and fixed while integrating (not scope creep — a genuine bug the exports test
+suite caught): `exports.resource`'s DB-level CHECK constraint (0011/0062) did not include the two new
+resources even though the Zod enum did — migration `0066_risk_msa_exports.sql` widens it (the "reserved
+buffer" slot §4 already flagged for exactly this). Tests: `risk.test.ts` (8), `msa.test.ts` (12, incl. the
+lockVersion race + full reopen/re-complete lifecycle), `entity-links.test.ts` (3, new file — risk↔fmea
+linking + label capability-gating + foreign-tenant 404), `exports.test.ts` +4 (the two new export
+resources). `pnpm --filter @kaenal/api test -- risk msa collab exports entity-links fmea graph`: 76/76
+green; full `pnpm --filter @kaenal/api test`: 614/618 green, the other 4 (`webhook-config.test.ts` SSRF/env
+assertions, `scoped-transaction.test.ts` a connection-pool ECONNRESET) reproduce in isolation on files this
+slice never touched — pre-existing container/environment flakes, not regressions. Full monorepo `pnpm
+typecheck`/`pnpm lint` clean (8 packages). Demo login re-seeded and confirmed sign-in 201. **Not built this
+slice (deliberately out of scope per the task):** `apps/web` UI (later slice) and any further
+`packages/core`/`packages/types` changes beyond the one addition this slice needed
+(`RiskSummaryDto` + `getRisksSummary` contract route, for the flagged summary endpoint).
+
 **Sprint 03 — Graph + Predictive (2026-09-28), Gate 2 accepted, sprint closeable.** Both parts merged
 to `integration/sprint-03-graph-predictive`. Part A (graph explorer): migration 0063 adds `entity_links`
 finding kind, `GET /v1/graph/expand` + `GET /v1/graph/query/:queryId`, `packages/core/graph-layout.ts` +

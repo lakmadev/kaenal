@@ -61,3 +61,5 @@ export const REALTIME = Symbol("REALTIME");
 export const PRESENCE_SERVICE = Symbol("PRESENCE_SERVICE");
 export const COLLAB_SERVICE = Symbol("COLLAB_SERVICE");
 export const COLLAB_WIRING = Symbol("COLLAB_WIRING");
+export const RISK_SERVICE = Symbol("RISK_SERVICE");
+export const MSA_SERVICE = Symbol("MSA_SERVICE");
