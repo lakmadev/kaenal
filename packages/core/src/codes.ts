@@ -17,7 +17,12 @@ export type CodeKind =
   | "document"
   | "scar"
   | "supplier"
-  | "ppap";
+  | "ppap"
+  // Sprint 04 R1/M1 — the risk register and MSA/Gauge R&R studies. The jsx's
+  // mock codes (`R-NNN`, `MSA-NNN`) conflicted with this module's one
+  // established `PREFIX-YYYY-NNNN` pattern, so both were corrected to it.
+  | "risk"
+  | "msa";
 
 const PREFIXES: Readonly<Record<CodeKind, string>> = {
   ncr: "NCR",
@@ -29,6 +34,8 @@ const PREFIXES: Readonly<Record<CodeKind, string>> = {
   scar: "SCAR",
   supplier: "SUP",
   ppap: "PPAP",
+  risk: "RISK",
+  msa: "MSA",
 };
 
 /** Sequence width. Numbers beyond 9999 simply get longer rather than wrapping. */
