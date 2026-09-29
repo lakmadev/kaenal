@@ -325,6 +325,12 @@ export const ExportResource = defineEnum([
   // Sprint 03 Part B — the current ranked lines+suppliers forecast, as scoped
   // to the requesting caller, rendered to PDF (`predictive.jsx` "Forecast pack").
   "predictive_forecast_pack",
+  // Sprint 04 R5 — the risk register's KPI strip + heat-map counts + full
+  // table, scoped to the caller's visible risks, rendered to PDF.
+  "risk_board_pack",
+  // Sprint 04 M5 — one MSA study's full variance-component table + chart +
+  // verdict + raw grid, scoped to `filters.studyId`, rendered to PDF.
+  "gauge_rr_aiag_report",
 ]);
 export type ExportResource = z.infer<typeof ExportResource>;
 
@@ -366,6 +372,10 @@ export const EntityKind = defineEnum([
   // Sprint 03 G1 AC4 — an inspection finding, now a first-class graph node
   // (`entity_links`'s CHECK gained it in migration 0063).
   "finding",
+  // Sprint 04 R3 AC1 — risk register + FMEA become real graph nodes
+  // (`entity_links`'s CHECK gained both in migration 0064).
+  "risk",
+  "fmea",
 ]);
 export type EntityKind = z.infer<typeof EntityKind>;
 

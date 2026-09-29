@@ -22,6 +22,8 @@ describe("formatCode", () => {
     ["document", "DOC-2026-0007"],
     ["scar", "SCAR-2026-0007"],
     ["supplier", "SUP-2026-0007"],
+    ["risk", "RISK-2026-0007"],
+    ["msa", "MSA-2026-0007"],
   ] as const)("prefixes %s correctly", (kind, expected) => {
     expect(formatCode(kind, 2026, 7)).toBe(expected);
   });

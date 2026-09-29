@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { ArrowRight, Check, TriangleAlert, X } from "lucide-react";
-import { creatableTypes, isWizardType, WIZARD_TYPES } from "@kaenal/core";
+import { creatableTypes, isWizardType, lastStepFor, stepsFor, WIZARD_TYPES } from "@kaenal/core";
 import { Button, EmptyState, Skeleton, useToast } from "@/components/ui";
 import { useMe } from "@/hooks/use-me";
 import { useOnline } from "@/hooks/use-online";
@@ -15,6 +15,8 @@ import { TypeStep } from "./type-step";
 import { DetailsStep } from "./details-step";
 import { AssigneesStep } from "./assignees-step";
 import { ReviewStep } from "./review-step";
+import { RiskDetailsStep } from "./risk-details-step";
+import { RiskReviewStep } from "./risk-review-step";
 import { useWizardDraft } from "./use-wizard-draft";
 import { usePlants, useWizardCreate, useWizardPublishedTemplates, wizardDetailPath, wizardCode, wizardTitle } from "@/hooks/use-create-wizard";
 
@@ -126,10 +128,11 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
   }
 
   const def = WIZARD_TYPES[requestedType];
+  const isRisk = requestedType === "risk";
   const step = wiz.step;
   const errorStep = Object.keys(wiz.fieldErrors).length > 0 ? wiz.step : null;
   const submitting = create.isPending;
-  const isLastStep = step === 3;
+  const isLastStep = step === lastStepFor(requestedType);
 
   const fieldsBanner =
     Object.keys(wiz.fieldErrors).length > 0 && (step === 1 || step === 2) ? (
@@ -179,7 +182,7 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
           <div style={{ width: 1, height: 24, background: "var(--border)" }} />
           <div className="text-[14px] font-semibold">{t("newItem", { type: def.label })}</div>
         </div>
-        <StepIndicator current={step} errorStep={errorStep} />
+        <StepIndicator current={step} errorStep={errorStep} type={requestedType} />
         <div className="flex gap-2">
           {step > 0 && (
             <Button variant="ghost" onClick={wiz.back} disabled={submitting}>
@@ -210,7 +213,15 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
 
       <div className="fade-in flex-1 overflow-y-auto">
         {step === 0 && <TypeStep types={allowed} selected={wiz.draft.type} onSelect={wiz.setType} />}
-        {step === 1 && (
+        {step === 1 && isRisk && (
+          <RiskDetailsStep
+            draft={wiz.draft}
+            fieldErrors={wiz.fieldErrors}
+            patch={wiz.patch}
+            fieldsNeedAttentionBanner={fieldsBanner}
+          />
+        )}
+        {step === 1 && !isRisk && (
           <DetailsStep
             type={requestedType}
             draft={wiz.draft}
@@ -223,7 +234,7 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
             fieldsNeedAttentionBanner={fieldsBanner}
           />
         )}
-        {step === 2 && (
+        {step === 2 && !isRisk && (
           <AssigneesStep
             type={requestedType}
             people={wiz.draft.people}
@@ -232,7 +243,9 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
             onRemove={wiz.removePerson}
           />
         )}
-        {step === 3 && (
+        {/* Risk skips Assignees (R4 AC1(b)): its step 2 is Review, not step 3. */}
+        {step === 2 && isRisk && <RiskReviewStep draft={wiz.draft} banner={submitFailedBanner} />}
+        {step === 3 && !isRisk && (
           <ReviewStep
             type={requestedType}
             draft={wiz.draft}
@@ -247,7 +260,7 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
         <span>
           {t.rich("tip", { k: (chunks) => <kbd className="kbd">{chunks}</kbd> })}
         </span>
-        <span>{t("stepOf", { step: step + 1, total: 4 })}</span>
+        <span>{t("stepOf", { step: step + 1, total: stepsFor(requestedType).length })}</span>
       </div>
 
       {wiz.confirmingLeave && (

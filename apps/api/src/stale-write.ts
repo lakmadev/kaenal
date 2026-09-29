@@ -37,6 +37,9 @@ const KEY_COLUMN = {
   import_runs: "id",
   import_profiles: "id",
   user_preferences: "user_id",
+  // Sprint 04 R1/M1.
+  risks: "id",
+  msa_studies: "id",
 } as const;
 
 export type StaleTable = keyof typeof KEY_COLUMN;

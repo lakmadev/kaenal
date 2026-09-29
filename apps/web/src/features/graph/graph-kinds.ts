@@ -2,7 +2,9 @@ import {
   Brain,
   ClipboardCheck,
   FileText,
+  Grid3x3,
   Search,
+  Shield,
   ShieldCheck,
   Truck,
   TriangleAlert,
@@ -45,6 +47,13 @@ export const GRAPH_KINDS: Record<EntityKind, GraphKindMeta> = {
   // `scar` never appears in the graph module (entity_links' own CHECK
   // constraint excludes it) — present only so the Record<EntityKind,...> is total.
   scar: { label: "SCAR", card: "SCAR", color: "#64748b", soft: "rgba(100,116,139,0.12)", icon: FileText, layer: 5 },
+  // Sprint 04 R3 / Q27 — `risk`/`fmea` joined `EntityKind`, forcing this map
+  // total for TS, but neither renders in the graph explorer this sprint:
+  // `apps/api/src/graph/graph.service.ts` keeps its own separate literal
+  // `GRAPH_KINDS` array, which this sprint does NOT add them to (logged §7
+  // Q27). Icons match `navigation.ts`'s existing risk/FMEA nav glyphs.
+  risk: { label: "Risk", card: "Risk", color: "#be123c", soft: "rgba(190,18,60,0.12)", icon: Shield, layer: 5 },
+  fmea: { label: "FMEA", card: "FMEA", color: "#4338ca", soft: "rgba(67,56,202,0.12)", icon: Grid3x3, layer: 5 },
 };
 
 /** The 8 kinds the graph explorer actually renders (mirrors `GRAPH_KINDS` in `graph.service.ts`). */

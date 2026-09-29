@@ -92,7 +92,7 @@ async function token(email: string): Promise<string> {
   return decodeURIComponent(session?.split("=")[1]?.split(";")[0] ?? "");
 }
 
-function authed(method: "get" | "post", path: string, bearer: string) {
+function authed(method: "get" | "post" | "patch", path: string, bearer: string) {
   return request(server())[method](path).set("X-Tenant-Id", ACME).set("Authorization", `Bearer ${bearer}`);
 }
 
@@ -368,5 +368,94 @@ describe("predictive_forecast_pack export (Sprint 03 Part B, P4)", () => {
   it("requires prediction:view — a role without it 403s before enqueueing", async () => {
     const res = await authed("post", "/v1/exports", inspectorTok).send({ resource: "predictive_forecast_pack", format: "pdf" });
     expect(res.status).toBe(403);
+  });
+});
+
+describe("risk_board_pack export (Sprint 04 R5)", () => {
+  it("renders the register's KPI strip + table as a PDF, scoped to risk:view", async () => {
+    const mgrId = (await control.query<{ id: string }>("SELECT id FROM control.users WHERE email = 'exp-mgr@acme.test'")).rows[0]!.id;
+    const risk = await authed("post", "/v1/risks", mgrTok).send({
+      category: "cyber",
+      title: "EXPTEST ransomware exposure",
+      owner: mgrId,
+      likelihood: 5,
+      impact: 4,
+      treatment: "mitigate",
+    });
+    expect(risk.status).toBe(201);
+
+    const create = await authed("post", "/v1/exports", mgrTok).send({ resource: "risk_board_pack", format: "pdf" });
+    expect(create.status).toBe(202);
+    await render(create.body.id);
+
+    const done = (await authed("get", `/v1/exports/${create.body.id}`, mgrTok)).body as Export;
+    expect(done.status).toBe("completed");
+    const pdf = storage.read(`${acmeId}/exports/${create.body.id}.pdf`)!.toString("latin1");
+    expect(pdf).toContain("EXPTEST ransomware exposure");
+    expect(pdf).toContain("Total risks");
+
+    await control.query("DELETE FROM risks WHERE title = 'EXPTEST ransomware exposure'");
+  });
+});
+
+describe("gauge_rr_aiag_report export (Sprint 04 M5)", () => {
+  it("404s on a foreign/unknown studyId before enqueueing", async () => {
+    const res = await authed("post", "/v1/exports", mgrTok).send({
+      resource: "gauge_rr_aiag_report",
+      format: "pdf",
+      filters: { studyId: "00000000-0000-0000-0000-000000000000" },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("requires filters.studyId", async () => {
+    const res = await authed("post", "/v1/exports", mgrTok).send({ resource: "gauge_rr_aiag_report", format: "pdf" });
+    expect(res.status).toBe(422);
+  });
+
+  it("renders an incomplete study's honest state, and a completed study's full report", async () => {
+    const study = await authed("post", "/v1/msa-studies", mgrTok).send({
+      characteristic: "EXPTEST bore diameter",
+      gaugeLabel: "EXPTEST caliper",
+      method: "crossed_anova",
+      nAppraisers: 2,
+      nParts: 2,
+      nTrials: 2,
+    });
+    expect(study.status).toBe(201);
+    const studyId = study.body.id as string;
+
+    const incomplete = await authed("post", "/v1/exports", mgrTok).send({
+      resource: "gauge_rr_aiag_report",
+      format: "pdf",
+      filters: { studyId },
+    });
+    expect(incomplete.status).toBe(202);
+    await render(incomplete.body.id);
+    const incompletePdf = storage.read(`${acmeId}/exports/${incomplete.body.id}.pdf`)!.toString("latin1");
+    expect(incompletePdf).toContain("Incomplete");
+
+    const cells = [];
+    for (let a = 1; a <= 2; a++) for (let p = 1; p <= 2; p++) for (let t = 1; t <= 2; t++) cells.push({ appraiser: a, part: p, trial: t, value: 10 + a + p + t * 0.1 });
+    const fill = await authed("post", `/v1/msa-studies/${studyId}/measurements`, mgrTok).send({ lockVersion: 0, cells });
+    expect(fill.status).toBe(200);
+    const complete = await authed("patch", `/v1/msa-studies/${studyId}`, mgrTok).send({ status: "completed", lockVersion: fill.body.lockVersion });
+    expect(complete.status).toBe(200);
+
+    const create = await authed("post", "/v1/exports", mgrTok).send({
+      resource: "gauge_rr_aiag_report",
+      format: "pdf",
+      filters: { studyId },
+    });
+    expect(create.status).toBe(202);
+    await render(create.body.id);
+    const done = (await authed("get", `/v1/exports/${create.body.id}`, mgrTok)).body as Export;
+    expect(done.status).toBe("completed");
+    const pdf = storage.read(`${acmeId}/exports/${create.body.id}.pdf`)!.toString("latin1");
+    expect(pdf).toContain("EXPTEST bore diameter");
+    expect(pdf).toContain("Verdict");
+
+    await control.query("DELETE FROM msa_measurements WHERE study_id = $1", [studyId]);
+    await control.query("DELETE FROM msa_studies WHERE id = $1", [studyId]);
   });
 });

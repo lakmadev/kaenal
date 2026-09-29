@@ -162,6 +162,15 @@ resume from **Current status**, update it in the same commit as the work.
 
 ## Current status
 
+**Sprint 04 (Risk register + MSA/Gauge R&R) — mobile unaffected (2026-09-29).** No `m-*.jsx` designs for
+either risk or MSA/Gauge R&R modules (confirmed by sprint doc §1a grep across multiple amendment rounds);
+no mobile route, nav entry, or mobile-specific endpoint added. `pnpm --filter @kaenal/mobile typecheck`
+stayed green through every slice on the additive-only shared-type changes (`RiskCategory`/`RiskTreatment`/
+`RiskTrend`/`RiskRegisterStatus`/`RiskDto` enums + types, `MsaStudyDto`/`MsaMeasurementDto`/
+`MsaAnalysisResult`/`MsaMethod` types, `risk:view`/`risk:manage`/`msa:view`/`msa:manage` capabilities,
+`RISK`/`MSA` `CodeKind` values, new `risk_board_pack`/`gauge_rr_aiag_report` export resources) — verified
+via the repo-root `pnpm typecheck`.
+
 Sprint 03 Part B (Predictive risk backend) — mobile unaffected. No `m-*.jsx` designs a mobile
 graph/predictive screen (confirmed by the sprint doc's §1a grep); no mobile route, nav entry, or
 mobile-specific endpoint added. `pnpm --filter @kaenal/mobile typecheck` stays green on the additive

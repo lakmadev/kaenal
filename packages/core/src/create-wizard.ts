@@ -10,20 +10,34 @@ import type {
   CreateEightDBody,
   CreateInspectionBody,
   CreateNcrBody,
+  CreateRiskBody,
   DocumentCategory,
   DocumentTemplate,
   EightDTemplate,
   EntityPersonInput,
   NcrPriority,
   NcrSource,
+  RiskCategory,
+  RiskTreatment,
   WizardPriority,
 } from "@kaenal/types";
 import type { Capability } from "./rbac.js";
 
-export type WizardType = "inspection" | "ncr" | "8d" | "document";
+export type WizardType = "inspection" | "ncr" | "8d" | "document" | "risk";
 
 /** Menu / step-0 order (ENTITY_TYPES in the jsx). */
-export const WIZARD_TYPE_ORDER: readonly WizardType[] = ["inspection", "ncr", "8d", "document"];
+export const WIZARD_TYPE_ORDER: readonly WizardType[] = ["inspection", "ncr", "8d", "document", "risk"];
+
+/**
+ * Step labels, per flow shape. Every type shares the same 4-step
+ * Type→Details→Assignees→Review flow EXCEPT `risk` (Sprint 04 R4 AC1/AC3):
+ * its `owner` is a single-select field captured inside its own Details step,
+ * not the shared Assignees step's multi-role `entity_people` write shape, so
+ * risk skips Assignees entirely (Type→Details→Review, 3 steps).
+ */
+export const WIZARD_STEPS = ["Type", "Details", "Assignees", "Review"] as const;
+export const RISK_WIZARD_STEPS = ["Type", "Details", "Review"] as const;
+export const LAST_STEP = WIZARD_STEPS.length - 1;
 
 export interface WizardTemplateOption {
   readonly id: string;
@@ -42,6 +56,8 @@ export interface WizardTypeDef {
   readonly hasPriorityAndDue: boolean;
   /** Empty for inspections: their templates are the tenant's published ones. */
   readonly templates: readonly WizardTemplateOption[];
+  /** This type's step sequence (3 for risk, 4 for everything else — R4 AC3). */
+  readonly steps: readonly string[];
 }
 
 export const WIZARD_TYPES: Readonly<Record<WizardType, WizardTypeDef>> = {
@@ -53,6 +69,7 @@ export const WIZARD_TYPES: Readonly<Record<WizardType, WizardTypeDef>> = {
     areaPlaceholder: "e.g. Welding · Line 3",
     hasPriorityAndDue: true,
     templates: [],
+    steps: WIZARD_STEPS,
   },
   ncr: {
     label: "Non-Conformity",
@@ -68,6 +85,7 @@ export const WIZARD_TYPES: Readonly<Record<WizardType, WizardTypeDef>> = {
       { id: "customer", label: "Customer complaint", meta: "External feedback / return" },
       { id: "audit", label: "Audit finding", meta: "Internal or external audit" },
     ],
+    steps: WIZARD_STEPS,
   },
   "8d": {
     label: "8D Report",
@@ -82,6 +100,7 @@ export const WIZARD_TYPES: Readonly<Record<WizardType, WizardTypeDef>> = {
       { id: "aero", label: "Aerospace (AS9100)", meta: "Customer-driven CAPA" },
       { id: "standard", label: "Standard 8D", meta: "General-purpose template" },
     ],
+    steps: WIZARD_STEPS,
   },
   document: {
     label: "Document",
@@ -98,6 +117,17 @@ export const WIZARD_TYPES: Readonly<Record<WizardType, WizardTypeDef>> = {
       { id: "manual", label: "Manual", meta: "Quality / safety manual section" },
       { id: "upload", label: "Upload existing file", meta: "PDF, DOCX, XLSX" },
     ],
+    steps: WIZARD_STEPS,
+  },
+  risk: {
+    label: "Risk",
+    desc: "Log a risk to the register with likelihood, impact, and treatment.",
+    capability: "risk:manage",
+    titlePlaceholder: "e.g. Single-source aluminum supplier for Line 2 harnesses",
+    areaPlaceholder: "e.g. Welding · Line 3",
+    hasPriorityAndDue: false,
+    templates: [],
+    steps: RISK_WIZARD_STEPS,
   },
 };
 
@@ -110,8 +140,15 @@ export function creatableTypes(capabilities: readonly string[]): WizardType[] {
   return WIZARD_TYPE_ORDER.filter((t) => capabilities.includes(WIZARD_TYPES[t].capability));
 }
 
-export const WIZARD_STEPS = ["Type", "Details", "Assignees", "Review"] as const;
-export const LAST_STEP = WIZARD_STEPS.length - 1;
+/** This type's step labels (3 for risk, 4 otherwise). Null (no type chosen yet) uses the common 4-step shape for the step-0 chrome. */
+export function stepsFor(type: WizardType | null): readonly string[] {
+  return type === null ? WIZARD_STEPS : WIZARD_TYPES[type].steps;
+}
+
+/** The index of this type's last (Review) step. */
+export function lastStepFor(type: WizardType | null): number {
+  return stepsFor(type).length - 1;
+}
 
 export const PRIORITY_OPTIONS: readonly { id: WizardPriority; label: string }[] = [
   { id: "low", label: "Low" },
@@ -127,9 +164,33 @@ export const PERSON_ROLE_OPTIONS = [
   { id: "watcher", label: "Watcher" },
 ] as const;
 
+/** Risk category options (R4 AC1's "the 9 values"). */
+export const RISK_CATEGORY_OPTIONS: readonly { id: RiskCategory; label: string }[] = [
+  { id: "supply", label: "Supply chain" },
+  { id: "process", label: "Process" },
+  { id: "compliance", label: "Compliance" },
+  { id: "cyber", label: "Cybersecurity" },
+  { id: "people", label: "People" },
+  { id: "quality", label: "Quality" },
+  { id: "environmental", label: "Environmental" },
+  { id: "financial", label: "Financial" },
+  { id: "reputation", label: "Reputation" },
+];
+
+/** Risk treatment options (R4 AC1). */
+export const RISK_TREATMENT_OPTIONS: readonly { id: RiskTreatment; label: string }[] = [
+  { id: "mitigate", label: "Mitigate" },
+  { id: "accept", label: "Accept" },
+  { id: "transfer", label: "Transfer" },
+  { id: "avoid", label: "Avoid" },
+];
+
+/** The 1-5 likelihood/impact scale (R4 AC1's segmented picker). */
+export const RISK_SCALE_OPTIONS: readonly number[] = [1, 2, 3, 4, 5];
+
 export interface WizardDraft {
   type: WizardType | null;
-  /** Template id (a published inspection template's uuid for inspections). */
+  /** Template id (a published inspection template's uuid for inspections). Unused by risk (no templates). */
   template: string | null;
   title: string;
   priority: WizardPriority;
@@ -143,6 +204,15 @@ export interface WizardDraft {
   people: EntityPersonInput[];
   /** Document "Upload existing file" — an uploaded file id. */
   fileId: string | null;
+  /** Risk-only fields (R4 AC1) — captured in risk's own Details step, not shared with the other 4 types. */
+  riskCategory: RiskCategory | null;
+  riskLikelihood: number | null;
+  riskImpact: number | null;
+  riskTreatment: RiskTreatment | null;
+  /** Optional at create (R4 AC1); posted as `''` when left blank. */
+  riskPlan: string;
+  /** The risk's single owner — a userId, captured as a single-select in Details, not via Assignees. */
+  riskOwner: string | null;
 }
 
 export function emptyDraft(type: WizardType | null): WizardDraft {
@@ -158,6 +228,12 @@ export function emptyDraft(type: WizardType | null): WizardDraft {
     linkedNcr: "",
     people: [],
     fileId: null,
+    riskCategory: null,
+    riskLikelihood: null,
+    riskImpact: null,
+    riskTreatment: null,
+    riskPlan: "",
+    riskOwner: null,
   };
 }
 
@@ -171,13 +247,35 @@ export function isDirty(d: WizardDraft): boolean {
     d.description.trim() !== "" ||
     d.linkedNcr.trim() !== "" ||
     d.people.length > 0 ||
-    d.fileId !== null
+    d.fileId !== null ||
+    d.riskCategory !== null ||
+    d.riskLikelihood !== null ||
+    d.riskImpact !== null ||
+    d.riskTreatment !== null ||
+    d.riskPlan.trim() !== "" ||
+    d.riskOwner !== null
   );
 }
 
-/** `canNext()` of the jsx, step by step. */
+function riskDetailsComplete(d: WizardDraft): boolean {
+  return (
+    d.riskCategory !== null &&
+    d.title.trim() !== "" &&
+    d.riskLikelihood !== null &&
+    d.riskImpact !== null &&
+    d.riskTreatment !== null &&
+    d.riskOwner !== null
+  );
+}
+
+/** `canNext()` of the jsx, step by step. Risk branches to its own 3-step
+ *  shape (Type→Details→Review) since it skips the shared Assignees step. */
 export function canAdvance(step: number, d: WizardDraft): boolean {
   if (step === 0) return d.type !== null;
+  if (d.type === "risk") {
+    if (step === 1) return riskDetailsComplete(d);
+    return true; // step 2 = Review for risk
+  }
   if (step === 1) return d.template !== null && d.title.trim() !== "";
   if (step === 2) return d.people.length > 0;
   return true;
@@ -187,6 +285,15 @@ export function canAdvance(step: number, d: WizardDraft): boolean {
 export function advanceBlocker(step: number, d: WizardDraft): string | null {
   if (canAdvance(step, d)) return null;
   if (step === 0) return "Pick a type to continue.";
+  if (d.type === "risk") {
+    if (d.riskCategory === null) return "Choose a category.";
+    if (d.title.trim() === "") return "A title is required.";
+    if (d.riskLikelihood === null) return "Choose a likelihood.";
+    if (d.riskImpact === null) return "Choose an impact.";
+    if (d.riskTreatment === null) return "Choose a treatment.";
+    if (d.riskOwner === null) return "Choose an owner.";
+    return null;
+  }
   if (step === 1) return d.template === null ? "Choose a template." : "A title is required.";
   if (step === 2) return "Add at least one person — an owner.";
   return null;
@@ -245,11 +352,46 @@ export type WizardBody =
   | { type: "inspection"; body: CreateInspectionBody }
   | { type: "ncr"; body: CreateNcrBody }
   | { type: "8d"; body: CreateEightDBody }
-  | { type: "document"; body: CreateDocumentBody };
+  | { type: "document"; body: CreateDocumentBody }
+  | { type: "risk"; body: CreateRiskBody };
 
 /** A complete draft → the matching create body. Null if it isn't complete. */
 export function buildCreateBody(d: WizardDraft): WizardBody | null {
-  if (d.type === null || d.template === null) return null;
+  if (d.type === null) return null;
+  // Risk has no templates (WIZARD_TYPES.risk.templates === []) — it returns
+  // early so the template null-check below only ever applies to the other
+  // 4 types, which all require one.
+  if (d.type === "risk") {
+    const { riskCategory, riskLikelihood, riskImpact, riskTreatment, riskOwner } = d;
+    if (
+      riskCategory === null ||
+      riskLikelihood === null ||
+      riskImpact === null ||
+      riskTreatment === null ||
+      riskOwner === null ||
+      d.title.trim() === ""
+    ) {
+      return null;
+    }
+    return {
+      type: "risk",
+      body: {
+        category: riskCategory,
+        title: d.title.trim(),
+        owner: riskOwner,
+        likelihood: riskLikelihood,
+        impact: riskImpact,
+        treatment: riskTreatment,
+        // Explicit, matching R4 AC1's create-time defaults — the server
+        // applies the same values if these are omitted, but CreateRiskBody's
+        // output type requires them since they're zod `.default()` fields.
+        status: "active",
+        trend: "flat",
+        plan: d.riskPlan.trim(),
+      },
+    };
+  }
+  if (d.template === null) return null;
   const title = d.title.trim();
   const plantId = d.plantId === "" ? null : d.plantId;
   const areaLabel = nullable(d.area);
@@ -356,11 +498,42 @@ export type WizardField =
   | "linkedNcr"
   | "description"
   | "file"
-  | "people";
+  | "people"
+  | "category"
+  | "likelihood"
+  | "impact"
+  | "treatment"
+  | "plan"
+  | "owner";
 
-/** The wizard field a 422 issue path belongs to. */
-export function wizardFieldFor(path: string): WizardField {
+/**
+ * The wizard field a 422 issue path belongs to. `type` disambiguates fields
+ * whose raw path collides across types — risk's own `category` (a real,
+ * user-picked value) vs. the other types' `category`, which is derived from
+ * their template pick and so belongs on the Template picker.
+ */
+export function wizardFieldFor(path: string, type?: WizardType | null): WizardField {
   const head = path.split(".")[0] ?? path;
+  if (type === "risk") {
+    switch (head) {
+      case "category":
+        return "category";
+      case "likelihood":
+        return "likelihood";
+      case "impact":
+        return "impact";
+      case "treatment":
+        return "treatment";
+      case "plan":
+        return "plan";
+      case "owner":
+        return "owner";
+      case "title":
+        return "title";
+      default:
+        return "title";
+    }
+  }
   switch (head) {
     case "templateId":
     case "template":
@@ -390,6 +563,8 @@ export function wizardFieldFor(path: string): WizardField {
   }
 }
 
+/** Every field lands on the Details step (index 1) except `people` (Assignees,
+ *  index 2 — a step risk doesn't have, since risk has no `people` field). */
 export function stepForWizardField(f: WizardField): number {
   return f === "people" ? 2 : 1;
 }

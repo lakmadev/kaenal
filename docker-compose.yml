@@ -31,8 +31,20 @@ services:
       timeout: 5s
       retries: 20
 
+  # MinIO stopped publishing anonymous-pullable images: Docker Hub in Oct 2025,
+  # then quay.io/minio/minio too on 2026-09-24 (both now require a paid/authed
+  # pull). Chainguard's from-source build is the current free/anonymous
+  # community workaround. It runs as non-root (uid 65532), so a one-shot init
+  # container fixes the volume's ownership before minio starts.
+  minio-init:
+    image: cgr.dev/chainguard/minio:latest
+    user: "0:0"
+    entrypoint: ["chown", "-R", "65532:65532", "/data"]
+    volumes:
+      - kaenal-miniodata:/data
+
   minio:
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
     container_name: kaenal-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -44,6 +56,9 @@ services:
       - "9001:9001"
     volumes:
       - kaenal-miniodata:/data
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s

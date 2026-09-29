@@ -9,6 +9,7 @@ import type { AuditContext } from "../ncr/audit-context.js";
 import { NoopProducer, type JobProducer } from "../jobs/producer.js";
 import type { Storage } from "../files/storage.js";
 import type { AuditsService } from "../audits/audits.service.js";
+import type { MsaService } from "../msa/msa.service.js";
 
 interface ExportRow {
   id: string;
@@ -42,6 +43,12 @@ const VIEW_CAPABILITY: Readonly<Record<ExportResource, Capability>> = {
   audit_report: "audit:view",
   // Sprint 03 Part B — the ranked lines+suppliers forecast pack.
   predictive_forecast_pack: "prediction:view",
+  // Sprint 04 R5 — exporting the register you can already view (mirrors
+  // predictive_forecast_pack's `:view`-not-`:manage` precedent, not
+  // audit_report's stricter one).
+  risk_board_pack: "risk:view",
+  // Sprint 04 M5 — one study's report.
+  gauge_rr_aiag_report: "msa:view",
 };
 
 /**
@@ -61,6 +68,7 @@ export class ExportsService {
     private readonly storage: Storage,
     private readonly jobs: JobProducer = new NoopProducer(),
     private readonly audits?: AuditsService,
+    private readonly msa?: MsaService,
   ) {}
 
   async create(
@@ -84,6 +92,15 @@ export class ExportsService {
       if (auditId === undefined) throw new ApiError("VALIDATION_FAILED", "filters.auditId is required");
       if (this.audits === undefined) throw new ApiError("INTERNAL", "Audit report export is not wired");
       await this.audits.assertViewable(tx, membership, auditId);
+    }
+
+    // Same pre-enqueue-check pattern for a single MSA study's report — a
+    // foreign/unknown studyId is a 404 here, never a job that fails later.
+    if (body.resource === "gauge_rr_aiag_report") {
+      const studyId = body.filters?.studyId;
+      if (studyId === undefined) throw new ApiError("VALIDATION_FAILED", "filters.studyId is required");
+      if (this.msa === undefined) throw new ApiError("INTERNAL", "Gauge R&R report export is not wired");
+      await this.msa.assertViewable(tx, studyId);
     }
 
     const id = randomUUID();

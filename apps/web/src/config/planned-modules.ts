@@ -4,8 +4,6 @@ import {
   Wrench,
   MessageSquare,
   GitBranch,
-  Shield,
-  Target,
   Code,
   Building2,
   Package,
@@ -32,11 +30,11 @@ export const PLANNED_MODULES: Record<string, PlannedModule> = {
   calibration: { title: "Calibration", icon: Wrench },
   complaints: { title: "Customer complaints", icon: MessageSquare },
   ecn: { title: "Engineering changes", icon: GitBranch },
-  risk: { title: "Risk register", icon: Shield },
   // fmea is built — see app/(app)/fmea (Phase F). Left out of PLANNED_MODULES so
   // the real route serves instead of the "coming soon" placeholder.
   // spc is built — see app/(app)/spc (features/spc). Not a placeholder.
-  msa: { title: "MSA / Gauge R&R", icon: Target },
+  // risk is built — see app/(app)/risk (Sprint 04). Not a placeholder.
+  // msa is built — see app/(app)/msa (Sprint 04). Not a placeholder.
   "ai-governance": { title: "AI Governance", icon: Sparkles },
   developer: { title: "Developer Platform", icon: Code },
   "multi-tenancy": { title: "Multi-tenancy", icon: Building2 },

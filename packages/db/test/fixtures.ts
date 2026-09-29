@@ -405,6 +405,36 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
      RETURNING id`,
     [t, areaId, userId],
   );
+
+  // Sprint 04 Slice 1 — risk register (0064): one risk + one control, owned
+  // by the seeded admin member.
+  const riskId = await q(
+    `INSERT INTO risks (tenant_id, code, category, title, owner, likelihood, impact,
+                        residual_score, trend, treatment, status)
+     VALUES ($1, $2, 'process', 'Weld cell single point of failure', $3, 4, 4, 12,
+             'flat', 'mitigate', 'active') RETURNING id`,
+    [t, `RISK-${tag}-0001`, userId],
+  );
+  await q(
+    `INSERT INTO risk_controls (tenant_id, risk_id, kind, description, strength, seq)
+     VALUES ($1, $2, 'preventive', 'Preventive maintenance schedule on weld cell', 'medium', 1)
+     RETURNING id`,
+    [t, riskId],
+  );
+
+  // Sprint 04 Slice 1 — MSA / Gauge R&R (0065): one draft study + one grid cell.
+  const msaStudyId = await q(
+    `INSERT INTO msa_studies (tenant_id, code, characteristic, gauge_label, method,
+                              n_appraisers, n_parts, n_trials, tolerance, status, owner)
+     VALUES ($1, $2, 'Bore diameter', 'Zeiss Contura', 'crossed_anova', 3, 10, 3, 0.05,
+             'draft', $3) RETURNING id`,
+    [t, `MSA-${tag}-0001`, userId],
+  );
+  await q(
+    `INSERT INTO msa_measurements (tenant_id, study_id, appraiser, part, trial, value)
+     VALUES ($1, $2, 1, 1, 1, 10.02) RETURNING id`,
+    [t, msaStudyId],
+  );
 }
 
 /**

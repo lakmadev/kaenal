@@ -1018,6 +1018,9 @@ export type RaiseCapaFromFindingBody = z.infer<typeof RaiseCapaFromFindingBody>;
 export const ExportFilters = z.object({
   status: z.string().max(60).optional(),
   auditId: z.string().uuid().optional(),
+  /** Required for (and only meaningful for) a `gauge_rr_aiag_report` export —
+   *  the one MSA study whose report is being rendered (Sprint 04 M5). */
+  studyId: z.string().uuid().optional(),
 });
 export type ExportFilters = z.infer<typeof ExportFilters>;
 
@@ -1396,6 +1399,16 @@ export const EntityLinkDto = z.object({
   relation: z.string(),
   /** The end OPPOSITE the queried record — what the detail view renders. */
   createdAt: z.string().datetime(),
+  /**
+   * A server-resolved, human-readable label for the end OPPOSITE the queried
+   * record (Sprint 04 R3 `[AMENDED-2]`) — e.g. a risk's `"RISK-2026-0004 —
+   * Ransomware exposure"` or an FMEA's `partCode`. Capability-checked per
+   * target record: present only when the caller can view that specific
+   * record, omitted (never a raw or guessed value) otherwise, so a link
+   * panel never leaks a label the caller shouldn't see (rule 8's spirit
+   * extended to a partial-visibility read, not just a 404).
+   */
+  label: z.string().nullable().optional(),
 });
 export type EntityLinkDto = z.infer<typeof EntityLinkDto>;
 
@@ -2534,3 +2547,409 @@ export const PredictionDetailResponse = z.object({
   predictions: z.array(RiskPredictionDto),
 });
 export type PredictionDetailResponse = z.infer<typeof PredictionDetailResponse>;
+
+// --- Risk register (SPRINT-04 R1/R2; qms-risk-spc.jsx `RiskRegister`) -------
+// A 5×5 likelihood×impact register (`packages/core/risk-matrix.ts` computes
+// score bands + heat-map counts, never this file). `inherentScore` is DB-
+// derived (`likelihood * impact`, GENERATED ALWAYS); `residualScore` is the
+// risk owner's own independently-entered judgment call (§3.1) — never derived
+// here. Managed under `risk:manage`, read under `risk:view`; optimistic +
+// audited. `controls[]` is a full-array-replace sub-list (R2 AC2), not its
+// own routes — mirrors the parent resource owning its child rows the way
+// `fmea_items` are owned by their FMEA, but folded into the same PATCH here
+// rather than a child route, per R2 AC2's explicit design.
+
+export const RiskCategory = z.enum([
+  "supply",
+  "process",
+  "compliance",
+  "cyber",
+  "people",
+  "quality",
+  "environmental",
+  "financial",
+  "reputation",
+]);
+export type RiskCategory = z.infer<typeof RiskCategory>;
+
+export const RiskTreatment = z.enum(["mitigate", "accept", "transfer", "avoid"]);
+export type RiskTreatment = z.infer<typeof RiskTreatment>;
+
+export const RiskTrend = z.enum(["up", "down", "flat"]);
+export type RiskTrend = z.infer<typeof RiskTrend>;
+
+export const RiskRegisterStatus = z.enum(["active", "monitoring", "accepted"]);
+export type RiskRegisterStatus = z.infer<typeof RiskRegisterStatus>;
+
+export const RiskControlKind = z.enum(["detective", "preventive", "corrective", "contingency"]);
+export type RiskControlKind = z.infer<typeof RiskControlKind>;
+
+export const RiskControlStrength = z.enum(["strong", "medium", "weak"]);
+export type RiskControlStrength = z.infer<typeof RiskControlStrength>;
+
+/** One risk_controls row, as read (R2 AC1). */
+export const RiskControlDto = z.object({
+  id: z.string().uuid(),
+  kind: RiskControlKind,
+  description: z.string(),
+  strength: RiskControlStrength,
+  seq: z.number().int().nonnegative(),
+});
+export type RiskControlDto = z.infer<typeof RiskControlDto>;
+
+/**
+ * One control row as sent in `UpdateRiskBody.controls` (R2 AC2's full-array
+ * replace). `id` present keeps an existing row's identity across the replace
+ * (so its own `created_at`/history aren't lost); omitted for a new row the
+ * server assigns an id to. The whole array replaces the risk's controls in
+ * one transaction, in `seq` order (R2 AC3).
+ */
+export const RiskControlInput = z.object({
+  id: z.string().uuid().optional(),
+  kind: RiskControlKind,
+  description: z.string().trim().min(1).max(2000),
+  strength: RiskControlStrength,
+  seq: z.number().int().nonnegative().default(0),
+});
+export type RiskControlInput = z.infer<typeof RiskControlInput>;
+
+export const RiskDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  category: RiskCategory,
+  title: z.string(),
+  owner: z.string().uuid(),
+  likelihood: z.number().int().min(1).max(5),
+  impact: z.number().int().min(1).max(5),
+  /** `likelihood × impact`, DB-derived — never independently set. */
+  inherentScore: z.number().int().min(1).max(25),
+  residualScore: z.number().int().min(1).max(25),
+  trend: RiskTrend,
+  treatment: RiskTreatment,
+  status: RiskRegisterStatus,
+  plan: z.string(),
+  reviewDue: DateOnly.nullable(),
+  controls: z.array(RiskControlDto),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type RiskDto = z.infer<typeof RiskDto>;
+
+export const RiskListQuery = PageQuery.extend({
+  category: RiskCategory.optional(),
+  status: RiskRegisterStatus.optional(),
+  treatment: RiskTreatment.optional(),
+  owner: z.string().uuid().optional(),
+  likelihood: z.coerce.number().int().min(1).max(5).optional(),
+  impact: z.coerce.number().int().min(1).max(5).optional(),
+  /**
+   * Batch-resolve a fixed set of risks by id, comma-separated (R1's
+   * `[AMENDED-2]` addition — feeds FMEA's reverse-pane label lookup, R3 AC7).
+   * Parsed to a deduplicated array of uuids server-side; never a substring or
+   * free-text search.
+   */
+  ids: z
+    .string()
+    .max(4000)
+    .transform((s) =>
+      Array.from(new Set(s.split(",").map((v) => v.trim()).filter((v) => v.length > 0))),
+    )
+    .pipe(z.array(z.string().uuid()).max(100))
+    .optional(),
+});
+export type RiskListQuery = z.infer<typeof RiskListQuery>;
+
+/** Create-time fields (R1 AC3, R4 AC1). Fields the wizard doesn't capture get
+ *  their R4 AC1 defaults here, so both the full edit surface and the wizard's
+ *  minimal surface post the same shape. `residualScore` omitted defaults to
+ *  `likelihood × impact` (the not-yet-scored inherent value) — the service
+ *  computes that default server-side since it must match the DB's own
+ *  GENERATED `inherent_score`, never a client-computed guess. */
+export const CreateRiskBody = z.object({
+  category: RiskCategory,
+  title: z.string().trim().min(1).max(200),
+  owner: z.string().uuid(),
+  likelihood: z.number().int().min(1).max(5),
+  impact: z.number().int().min(1).max(5),
+  residualScore: z.number().int().min(1).max(25).optional(),
+  trend: RiskTrend.default("flat"),
+  treatment: RiskTreatment,
+  status: RiskRegisterStatus.default("active"),
+  plan: z.string().trim().max(4000).default(""),
+  reviewDue: DateOnly.nullable().optional(),
+});
+export type CreateRiskBody = z.infer<typeof CreateRiskBody>;
+
+/** Full edit surface (R1 UC "Edit / Re-score both open the same edit
+ *  surface") — every field is re-sent, optimistic via `lockVersion`. Controls
+ *  are an optional full-array replace (R2 AC2); omitted leaves the risk's
+ *  existing controls untouched. */
+export const UpdateRiskBody = z.object({
+  category: RiskCategory,
+  title: z.string().trim().min(1).max(200),
+  owner: z.string().uuid(),
+  likelihood: z.number().int().min(1).max(5),
+  impact: z.number().int().min(1).max(5),
+  residualScore: z.number().int().min(1).max(25),
+  trend: RiskTrend,
+  treatment: RiskTreatment,
+  status: RiskRegisterStatus,
+  plan: z.string().trim().max(4000),
+  reviewDue: DateOnly.nullable(),
+  controls: z.array(RiskControlInput).max(50).optional(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type UpdateRiskBody = z.infer<typeof UpdateRiskBody>;
+
+/**
+ * Unpaginated register-wide aggregate (SPRINT-04 R1, architect-flagged
+ * addition to §4's route table — the KPI strip/heat-map/category panel need
+ * counts across ALL of a tenant's risks, which a cursor-paginated list
+ * cannot supply without violating rule 6). Every count is computed from the
+ * caller's own RLS-scoped `risks` rows; a zero-risk tenant returns all-zero
+ * counts and `reviewedThisQuarterPct: null` (never `0`/`NaN` — R1 AC6's
+ * "—" empty-state formula).
+ */
+export const RiskSummaryDto = z.object({
+  total: z.number().int().nonnegative(),
+  /** Keyed by `RiskCategory`; only categories with ≥1 risk are present (R1 AC5 — no hard-capped/zero-filled list). */
+  byCategory: z.record(z.string(), z.number().int().nonnegative()),
+  byBand: z.object({
+    low: z.number().int().nonnegative(),
+    medium: z.number().int().nonnegative(),
+    high: z.number().int().nonnegative(),
+    critical: z.number().int().nonnegative(),
+  }),
+  /** `scoreBand(residualScore) in ("high","critical")`, i.e. `residualScore >= 10` (R1 AC6). */
+  highResidual: z.number().int().nonnegative(),
+  /** `review_due IS NOT NULL AND review_due < current_date` (R1 AC6). */
+  treatmentsOverdue: z.number().int().nonnegative(),
+  /** `status = 'accepted'` (R1 AC6). */
+  accepted: z.number().int().nonnegative(),
+  /** `100 × distinct risks with a created/updated audit_events row this
+   *  calendar quarter / total`; `null` when `total === 0` (R1 AC6's "—"). */
+  reviewedThisQuarterPct: z.number().min(0).max(100).nullable(),
+});
+export type RiskSummaryDto = z.infer<typeof RiskSummaryDto>;
+
+// --- MSA / Gauge R&R (SPRINT-04 M1-M5; qms-risk-spc.jsx `MSAStudy`) ---------
+// AIAG 4th-edition Gauge R&R studies. The variance-component math itself is
+// `packages/core/gauge-rr.ts` (pure, unit-tested); these DTOs mirror its real
+// `GaugeRrResult`/`MsaMethod`/`GaugeRrVerdict` shapes exactly (read at build
+// time, not guessed) so the wire format never drifts from the math. The
+// analysis is NEVER stored pre-computed (M1 AC3) — `MsaAnalysisResult` is a
+// discriminated union so an incomplete study's "needs N more measurements"
+// state is a real, honest shape, not a fabricated zeroed result.
+
+export const MsaMethod = z.enum(["crossed_anova", "average_range"]);
+export type MsaMethod = z.infer<typeof MsaMethod>;
+
+export const MsaStudyStatus = z.enum(["draft", "completed"]);
+export type MsaStudyStatus = z.infer<typeof MsaStudyStatus>;
+
+export const GaugeRrVerdict = z.enum(["excellent", "acceptable", "reject"]);
+export type GaugeRrVerdict = z.infer<typeof GaugeRrVerdict>;
+
+/** One `msa_measurements` grid cell, 1-based on every axis (matches
+ *  `packages/core/gauge-rr.ts`'s `GaugeRrMeasurement`). */
+export const MsaMeasurementDto = z.object({
+  appraiser: z.number().int().positive(),
+  part: z.number().int().positive(),
+  trial: z.number().int().positive(),
+  value: z.number(),
+});
+export type MsaMeasurementDto = z.infer<typeof MsaMeasurementDto>;
+
+export const MsaStudyDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  characteristic: z.string(),
+  gaugeLabel: z.string(),
+  method: MsaMethod,
+  nAppraisers: z.number().int().positive(),
+  nParts: z.number().int().positive(),
+  nTrials: z.number().int().positive(),
+  /** `null` when the study declares no tolerance — `%Tolerance` reads "—". */
+  tolerance: z.number().positive().nullable(),
+  status: MsaStudyStatus,
+  /** Set on first `draft→completed`; overwritten (not cleared) by a later
+   *  reopen + re-complete cycle (§3-Addendum). */
+  completedAt: z.string().datetime().nullable(),
+  owner: z.string().uuid(),
+  /** The grid's current cells — there is no separate list route (§4's route
+   *  table), so the study detail read is also the grid's data source. */
+  measurements: z.array(MsaMeasurementDto),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type MsaStudyDto = z.infer<typeof MsaStudyDto>;
+
+/**
+ * `nAppraisers`/`nParts`/`nTrials`/`method`/`gaugeLabel`/`tolerance`/
+ * `characteristic` are immutable after creation (M2 AC3) — this is the ONLY
+ * body that ever sets them. Bounds (M1 AC4/AC5, M2 AC4), both methods, both
+ * layers: the shared upper cap (10/50/10) is enforced directly in the shape
+ * below; the method-keyed lower bounds are enforced by the `.superRefine`
+ * below it (Zod's mechanism for a cross-field rule keyed on another field —
+ * the "refine keyed on `method`" this slice's brief asks for). The per-study
+ * range check against a study's *own* declared dimensions (for the
+ * measurement-batch route) needs the DB row and is NOT here — that's
+ * `MsaService`'s concern (next slice), since Zod cannot see database state.
+ */
+export const CreateMsaStudyBody = z
+  .object({
+    characteristic: z.string().trim().min(1).max(200),
+    gaugeLabel: z.string().trim().min(1).max(200),
+    method: MsaMethod,
+    nAppraisers: z.number().int().min(1).max(10),
+    nParts: z.number().int().min(1).max(50),
+    nTrials: z.number().int().min(1).max(10),
+    tolerance: z.number().positive().nullable().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.method === "average_range") {
+      if (val.nTrials !== 2 && val.nTrials !== 3) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["nTrials"],
+          message: "average_range requires 2 or 3 trials",
+        });
+      }
+      if (val.nAppraisers !== 2 && val.nAppraisers !== 3) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["nAppraisers"],
+          message: "average_range requires 2 or 3 appraisers",
+        });
+      }
+      if (val.nParts < 2 || val.nParts > 10) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["nParts"],
+          message: "average_range requires 2-10 parts",
+        });
+      }
+    } else {
+      if (val.nAppraisers < 2) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["nAppraisers"],
+          message: "crossed_anova requires at least 2 appraisers",
+        });
+      }
+      if (val.nParts < 2) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["nParts"],
+          message: "crossed_anova requires at least 2 parts",
+        });
+      }
+      if (val.nTrials < 2) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["nTrials"],
+          message: "crossed_anova requires at least 2 trials",
+        });
+      }
+    }
+  });
+export type CreateMsaStudyBody = z.infer<typeof CreateMsaStudyBody>;
+
+export const MsaListQuery = PageQuery.extend({
+  status: MsaStudyStatus.optional(),
+  method: MsaMethod.optional(),
+});
+export type MsaListQuery = z.infer<typeof MsaListQuery>;
+
+/**
+ * `POST .../measurements` batch body (M2 AC2, `[AMENDED-4]`) — `{ lockVersion,
+ * cells }`, not a bare array, so the batch closes the same-version race with
+ * a concurrent completion (409 on stale `lockVersion`). Each cell's index is
+ * bounds-checked here only against the GLOBAL cap (10/50/10) — the per-study
+ * check against this study's own declared `nAppraisers`/`nParts`/`nTrials`
+ * needs the DB row and belongs in `MsaService` (next slice), not here.
+ */
+export const MsaMeasurementCellInput = z.object({
+  appraiser: z.number().int().min(1).max(10),
+  part: z.number().int().min(1).max(50),
+  trial: z.number().int().min(1).max(10),
+  value: z.number(),
+});
+export type MsaMeasurementCellInput = z.infer<typeof MsaMeasurementCellInput>;
+
+export const MsaMeasurementBatchBody = z.object({
+  lockVersion: z.number().int().nonnegative(),
+  /** Hard ceiling: 10×50×10, the shared upper cap's worst case. */
+  cells: z.array(MsaMeasurementCellInput).min(1).max(5000),
+});
+export type MsaMeasurementBatchBody = z.infer<typeof MsaMeasurementBatchBody>;
+
+/**
+ * `draft → completed` (M2 AC3, `[AMENDED-4]`) — `.strict()`: exactly
+ * `{ status: "completed", lockVersion }`, nothing else (dimensions are
+ * immutable, see `CreateMsaStudyBody`'s doc comment). An extra field is a 422,
+ * never silently dropped.
+ */
+export const MsaCompleteBody = z
+  .object({
+    status: z.literal("completed"),
+    lockVersion: z.number().int().nonnegative(),
+  })
+  .strict();
+export type MsaCompleteBody = z.infer<typeof MsaCompleteBody>;
+
+/** `completed → draft` (M2 AC5, `[AMENDED-2]`) — optimistic via `lockVersion`,
+ *  same as every other status-transition route in this sprint. `.strict()`
+ *  for the same reason as `MsaCompleteBody`: a reopen changes only `status`. */
+export const MsaReopenBody = z.object({ lockVersion: z.number().int().nonnegative() }).strict();
+export type MsaReopenBody = z.infer<typeof MsaReopenBody>;
+
+/** One variance source's row (EV/AV/GRR/PV/Total) — mirrors
+ *  `packages/core/gauge-rr.ts`'s `GaugeRrSourceResult` exactly. */
+export const MsaGaugeRrSourceDto = z.object({
+  stdDev: z.number(),
+  studyVariation: z.number(),
+  pctStudyVar: z.number(),
+  /** `null` when the study has no declared tolerance — never a fabricated number or ÷0. */
+  pctTolerance: z.number().nullable(),
+});
+export type MsaGaugeRrSourceDto = z.infer<typeof MsaGaugeRrSourceDto>;
+
+/** A study that cannot be analyzed yet (M1 UC "incomplete study") — an honest
+ *  empty state, never a divide-by-zero or a fabricated result. */
+export const MsaAnalysisIncomplete = z.object({
+  status: z.literal("incomplete"),
+  measurementsEntered: z.number().int().nonnegative(),
+  measurementsRequired: z.number().int().positive(),
+});
+export type MsaAnalysisIncomplete = z.infer<typeof MsaAnalysisIncomplete>;
+
+/** Mirrors `packages/core/gauge-rr.ts`'s `GaugeRrResult` field-for-field. */
+export const MsaAnalysisComplete = z.object({
+  status: z.literal("complete"),
+  method: MsaMethod,
+  repeatability: MsaGaugeRrSourceDto,
+  /** `crossed_anova` only; `null` for `average_range`. */
+  appraiser: MsaGaugeRrSourceDto.nullable(),
+  /** `crossed_anova` only; `null` for `average_range`. */
+  appraiserByPart: MsaGaugeRrSourceDto.nullable(),
+  reproducibility: MsaGaugeRrSourceDto,
+  grr: MsaGaugeRrSourceDto,
+  partToPart: MsaGaugeRrSourceDto,
+  total: MsaGaugeRrSourceDto,
+  ndc: z.number(),
+  verdict: GaugeRrVerdict,
+  /** `null` for `average_range`, which has no interaction term to pool. */
+  interactionPooled: z.boolean().nullable(),
+});
+export type MsaAnalysisComplete = z.infer<typeof MsaAnalysisComplete>;
+
+/** `GET /v1/msa-studies/:id/analysis` (M1 AC3) — always recomputed from the
+ *  study's real measurements, never stored pre-computed. */
+export const MsaAnalysisResult = z.discriminatedUnion("status", [
+  MsaAnalysisIncomplete,
+  MsaAnalysisComplete,
+]);
+export type MsaAnalysisResult = z.infer<typeof MsaAnalysisResult>;

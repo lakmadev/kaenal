@@ -58,6 +58,11 @@ const ENTITY_ROUTE: Record<EntityKind, string | null> = {
   eight_d: null, // 8D detail route not built yet
   scar: null, // SCAR detail route not built yet
   finding: null, // routes to its inspection, highlighted (Sprint 03 G2) — not wired here yet
+  // Sprint 04 R3 — risk/fmea joined `EntityKind`; both are select-in-list
+  // pages with a `?id=` deep-link (R1 AC7), not a `/kind/:id` route —
+  // `openEntity` below special-cases them rather than building `/${route}/${id}`.
+  risk: "risk",
+  fmea: "fmea",
 };
 
 /** Human label for an entity kind in the linked-records list. */
@@ -71,6 +76,8 @@ const ENTITY_LABEL: Record<EntityKind, string> = {
   eight_d: "8D",
   scar: "SCAR",
   finding: "Finding",
+  risk: "Risk",
+  fmea: "FMEA",
 };
 
 type Tab = "plan" | "rca" | "effectiveness" | "history";
@@ -144,7 +151,10 @@ function CapaDetailView({
 
   const openEntity = (kind: EntityKind, entityId: string): void => {
     const route = ENTITY_ROUTE[kind];
-    if (route !== null) router.push(`/${route}/${entityId}`);
+    if (route === null) return;
+    // `risk`/`fmea` are select-in-list pages with a `?id=` deep-link (R1 AC7),
+    // not a `/kind/:id` route.
+    router.push(kind === "risk" || kind === "fmea" ? `/${route}?id=${entityId}` : `/${route}/${entityId}`);
   };
 
   const idx = phaseIndex(capa.status);

@@ -5,6 +5,78 @@
 
 ## Current status
 
+**Sprint 04 — Gate 2 confirmation fidelity fixes (2026-09-29), on top of the ACCEPTED Gate 2 below.**
+Designer's Gate 2 confirmation pass (`docs/design/DESIGN-04-risk-msa.md` §11) found 3 real deviations
+against the approved canvas boards; all fixed this slice, verified against the actual `.dc.html` boards
+and browser-screenshotted with API-seeded fixtures (tenant `acme` had no risks/MSA studies): (1)
+`risk-linked-records.tsx` — restored the board's dropped 4th "Relation" column (`entity_links.relation`,
+capitalized, e.g. "Linked"). (2) `fmea-workbench.tsx`'s `FmeaLinkedRisks` pane — added the missing
+Code column and residual-score chip (the pane's stated reason to exist); batch-resolves linked risks'
+real `code`/`residualScore` via a new `useRisksByIds` hook (`listRisks`'s existing `ids` filter, never a
+fabricated value), rendering the score with `risk-register-page.tsx`'s own exported `ScoreChip`/
+`BAND_COLOR` (no new chip style). (3) `msa-page.tsx`'s `KpiTiles` — the `ndc` tile now shows "—" instead
+of a fabricated "0" when the study is `incomplete`, consistent with its sibling tiles. Also fixed the
+two "minor, no fix required" items the designer flagged as trivial: `IncompleteState` now passes lucide's
+`Sigma` icon to `EmptyState` (board's Σ glyph) instead of the generic fallback. The CTA-vs-always-visible-
+grid difference was left as-is per the designer's own "functionally equivalent" call. `pnpm --filter
+@kaenal/web typecheck` and scoped `eslint` clean; demo sign-in re-verified 201 after starting the API dev
+server fresh this session (no DB-resetting command run, so no re-seed was needed).
+
+**Sprint 04 — Risk register + MSA/Gauge R&R, Gate 2 ACCEPTED (2026-09-29), ready to merge.** Closes two
+real modules per R1-R5/M1-M5/X1 + the FMEA reverse pane (R3). Full sequence: Slice 1-3 (migrations 0064-0065,
+`packages/core` risk-matrix.ts/gauge-rr.ts/rbac.ts, shared DTOs/contract), Slice 4 (API services + controllers
++ exports), Slice 5 ([MSA web module](4523ed3) — KPI tiles, variance table, chart, verdict banner, New-study
+wizard, AIAG-report export, all real), Slice 6 ([risk web module](3c87f7d) — KPI strip, 5×5 heat map + click-
+to-filter, category bar, register table, detail card with controls editor + linked-records panel, CreateWizard
+3-step wizard, board-pack export; `?id=` deep-link pre-select for both), Slice 7 ([CreateWizard risk wiring](7d8dbcc)
+— `risk` as a real 5th card in Type-step + quick-create menu, 3-step branch instead of 4, Details step fields
+with creator-supplied `owner`), Slice 8 ([LinkPicker component + useCreateEntityLink hook](c949a61) — new
+write-side component for R3), Slice 9 ([Nav/placeholder retirement](43affe0) — risk/msa removed from placeholders,
+nav wired, auditor's nav includes fmea for the R3 story, full RBAC wiring), Slice 10 ([Entity-links label
+resolution + plant-scope security fix](e472560) — `entity_links` responses carry server-resolved,
+capability-checked `label` field; plant-scoped kinds hide labels across plant boundaries; CAPA/document/
+supplier detail pages now show labels instead of truncated ids). Tests: core 77 (gauge-rr/risk-matrix/codes
+AIAG-validated, bounds, verdict-precedence, K-tables), api 618/622 green (the 4 pre-existing failures unrelated),
+rls 357/357 green, db:check 58 tables. Full gate: `pnpm typecheck && pnpm lint` clean, demo sign-in 201.
+**Minor DoD gaps found at Gate 2 (non-functional):** `PROGRESS.md` "Current status" stopped at Slice 6, stale
+by 4 real commits + 2 infra fixes (now brought current here); `progress_mobile.md` had no Sprint 04 entry at all
+(now added); the `GET /v1/risks/summary` test is looser than "unit-tested against seeded fixtures" asked for
+(logic correct, test thoroughness miss logged below). No product code, schema, or contract changes needed.
+
+**Sprint 04 — Risk register + MSA/Gauge R&R, Slice 4: NestJS services + controllers (2026-09-29), on
+branch `integration/sprint-03-graph-predictive-jrt4dn`.** Slices 1-3 (migrations 0064/0065, `packages/core`
+risk-matrix.ts/gauge-rr.ts/rbac.ts, `packages/types` DTOs+contract) were already done and committed on this
+branch; this slice wires the actual API. `RiskService`/`RiskController` (`apps/api/src/risk/`):
+`GET/POST /v1/risks`, `GET /v1/risks/summary` (unpaginated KPI/heat-map/category aggregate — an
+architect-flagged addition to §4's route table, not originally listed, added because a cursor-paginated
+list cannot supply tenant-wide counts without violating rule 6), `GET/PATCH /v1/risks/:id` (full
+`controls[]` array-replace guarded by the parent's own `lockVersion`, audited as one `updated` event).
+`MsaService`/`MsaController` (`apps/api/src/msa/`): `GET/POST /v1/msa-studies`, `GET /v1/msa-studies/:id`,
+`GET /v1/msa-studies/:id/analysis` (recomputed live via `gauge-rr.ts`, never stored), `PATCH
+/v1/msa-studies/:id` (draft→completed, `status_changed`), `PATCH .../reopen` (completed→draft,
+`status_changed`, `completedAt` kept not cleared), `POST .../measurements` (bulk-upsert, its own
+`lockVersion` closing the race a concurrent completion could otherwise slip through — the amendment
+history's main concurrency fix, verified with a dedicated race test). Entity-links (`apps/api/src/collab/
+entity-links.service.ts`) gains a server-resolved, capability-checked `label` field per link (present only
+when the caller holds that kind's own `:view` capability; omitted, never fabricated, otherwise) — wired for
+all 11 `EntityKind` values, not just risk/fmea. Exports: `ExportResource` gains `risk_board_pack`/
+`gauge_rr_aiag_report`, `run-export.ts` gains both render branches, `ExportsService` gains the same
+pre-enqueue 404 pattern `audit_report` uses (a foreign/unknown `studyId` 404s before the job is even
+queued). One real gap found and fixed while integrating (not scope creep — a genuine bug the exports test
+suite caught): `exports.resource`'s DB-level CHECK constraint (0011/0062) did not include the two new
+resources even though the Zod enum did — migration `0066_risk_msa_exports.sql` widens it (the "reserved
+buffer" slot §4 already flagged for exactly this). Tests: `risk.test.ts` (8), `msa.test.ts` (12, incl. the
+lockVersion race + full reopen/re-complete lifecycle), `entity-links.test.ts` (3, new file — risk↔fmea
+linking + label capability-gating + foreign-tenant 404), `exports.test.ts` +4 (the two new export
+resources). `pnpm --filter @kaenal/api test -- risk msa collab exports entity-links fmea graph`: 76/76
+green; full `pnpm --filter @kaenal/api test`: 614/618 green, the other 4 (`webhook-config.test.ts` SSRF/env
+assertions, `scoped-transaction.test.ts` a connection-pool ECONNRESET) reproduce in isolation on files this
+slice never touched — pre-existing container/environment flakes, not regressions. Full monorepo `pnpm
+typecheck`/`pnpm lint` clean (8 packages). Demo login re-seeded and confirmed sign-in 201. **Not built this
+slice (deliberately out of scope per the task):** `apps/web` UI (later slice) and any further
+`packages/core`/`packages/types` changes beyond the one addition this slice needed
+(`RiskSummaryDto` + `getRisksSummary` contract route, for the flagged summary endpoint).
+
 **Sprint 03 — Graph + Predictive (2026-09-28), Gate 2 accepted, sprint closeable.** Both parts merged
 to `integration/sprint-03-graph-predictive`. Part A (graph explorer): migration 0063 adds `entity_links`
 finding kind, `GET /v1/graph/expand` + `GET /v1/graph/query/:queryId`, `packages/core/graph-layout.ts` +
@@ -2101,6 +2173,30 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 
 ## Decisions log
 
+- **Sprint 04 — Risk register + MSA/Gauge R&R decisions (2026-09-29, see `docs/sprints/SPRINT-04-risk-msa.md`
+  §3 approved + §3-Addendum delta-approved).** Risk's `residual_score` is independently entered by the owner,
+  not derived from treatment-effectiveness formula — matches ISO 31000 practice (see §3.1). MSA's `gauge_label`
+  is free text (not an `instrument_id` FK) because Sprint 05's calibration module doesn't exist yet; a real
+  FK + backfill is a named Sprint-05 follow-up (Q22). K=5.15 multiplier (AIAG 4th edition, 99% coverage);
+  alternative 6.0/99.73% considered, rejected. Interaction-pooling convention: **[AMENDED-5, 2026-09-29]**
+  the real AIAG pooled-MSE method (merges interaction + equipment into one combined `MSE_pooled` term),
+  found during Slice 2 validation against the published AIAG worked example — the originally-approved zero-out
+  variant diverged ~7% on σ²_GRR for that real dataset, corrected to reproduce the published numbers exactly
+  (within the source's 3-decimal rounding). Both `crossed_anova` (minimum 2/2/2 appraisers/parts/trials) and
+  `average_range` (bounds trials 2-3, appraisers 2-3, parts 2-10) enforce the AIAG K-table domains; shared
+  upper cap 10/50/10 for both methods. Nested/Attribute(kappa) MSA methods explicitly NOT built — the jsx
+  mock shows them but P15 names only the two built methods with no spec for the others; future story can add
+  them if wanted, each needing its own sign-off on its own math (Q23). `RISK-YYYY-NNNN`/`MSA-YYYY-NNNN` code
+  format (not the `R-NNN`/`MSA-NNN` mock) via the established `counters` mechanism. CreateWizard's per-type
+  step-count: risk gets 3 steps (Type → Details → Review, owner captured in-step not via Assignees), other 4
+  types keep 4 (Q26 follow-up, but its generic `LinkPicker` built this sprint). Entity-links plant-scope leak
+  fixed this sprint (e.g. cross-plant risk label omitted despite having `:view` cap); pre-existing gaps in
+  `comments.service.ts`/`audit-log.service.ts` same class, logged in Known issues (Q25 as well — NCR/8D/audit/
+  supplier don't get a linked-records panel this sprint, only FMEA does, risk-only reverse pane). Auditor's
+  nav now includes `fmea` (alongside `risk`/`msa`) because this sprint's R3 story gives auditor a risk→FMEA
+  link they couldn't click through without it — a genuine dead-end fix, not extra scope (half-closes Q24;
+  `spc` remains open, no forcing function this sprint).
+
 - **Sprint 03 — Gate 2 close-out decisions (2026-09-28, see `SPRINT-03-graph-predictive.md` §9 and
   design docs §6).** v1 statistical baseline (`forecast.ts`) replaces the jsx's fabricated "v3
   gradient-boosted / 91% backtested" claims — user-approved per ROADMAP Q2, honest until a real model
@@ -2863,6 +2959,30 @@ per-module screens come next. Engineering docs: `apps/web/README.md`, `apps/web/
 ---
 
 ## Known issues / TODO
+
+- **Sprint 04 Risk register + MSA/Gauge R&R — carried-forward + new known issues (2026-09-29, sprint doc
+  §7 Q22–Q28, Gate 2 gap #3).** Q22: MSA's `gauge_label` FK to calibration deferred to Sprint 05 + backfill.
+  Q23: "Nested" and "Attribute (kappa)" MSA methods have no spec or math — future work if wanted, each needing
+  sign-off. Q24 (half-closed): auditor nav gap for `fmea` fixed this sprint by N4; `spc` remains open (no
+  forcing function this sprint, left for future). Q25: NCR/8D/audit/supplier don't get a linked-records
+  panel this sprint (FMEA reverse pane risk-only); retrofitting those modules is a separate future story.
+  Q26: `LinkPicker` is generic (kind as a prop) but only risk→FMEA call site ships; wiring it for other links
+  is a future sprint. Q27: widening `EntityKind` to include `risk`/`fmea` forces `graph-kinds.ts` to name
+  them for TS completeness, but risk/FMEA nodes do NOT render in the graph explorer this sprint (separate
+  future story, Q27). Q28 (process): two consecutive sprints (Sprint 03, now 04) had `PROGRESS.md` staleness
+  caught at Gate 2 by hand. Worth a small pre-Gate-2 checklist step or CI check flagging staleness
+  automatically (e.g. `PROGRESS.md`'s newest dated entry vs `git log`'s newest feature commit date).
+  **Test thoroughness gap (Gate 2 gap #3, non-functional):** `GET /v1/risks/summary`'s one test only asserts
+  loose bounds (`>= 1`) on KPI values and never exercises the exact `residual_score >= 10` high-residual
+  boundary, the `review_due` overdue-date boundary, or a zero-risk tenant hitting the `null`/"—" path at the
+  summary-endpoint level (the underlying logic IS unit-tested in `risk-matrix.test.ts`'s `scoreBand` and
+  bounds, which `summary()` calls — substance is solid, test thoroughness is the miss). Tighten in the
+  close-out pass or log as an explicit follow-up.
+  **Pre-existing plant-scope gaps (same class as the fixed entity-links bug, still open):** `comments.service.ts`
+  (comment creation) and `audit-log.service.ts` (audit event creation) do not plant-scope their 404s for
+  plant-scoped entity kinds (inspection/ncr/audit/finding) — a caller from a different plant can see whether
+  the entity exists in another plant by the error code (403 exists, 404 doesn't). Both are a distinct class from
+  entity-links' label-resolution gap this sprint fixed, worth a separate hardening pass rather than bundled here.
 
 - **Sprint 03 Graph + Predictive — carried-forward known issues (2026-09-28, sprint doc §9 / design
   docs §6).** Q17: cross-tenant failure-modes panel needs its own privacy design + approval before it

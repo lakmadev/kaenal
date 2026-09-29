@@ -62,7 +62,19 @@ const ENTITY_ROUTE: Record<EntityKind, string> = {
   // Findings have no detail route of their own — they route to their parent
   // inspection (Sprint 03 G2 wires the finding-highlighted variant).
   finding: "inspections",
+  // Sprint 04 R3 — risk/fmea joined `EntityKind`. Unlike every other kind
+  // here, `/risk`/`/fmea` are select-in-list pages with a `?id=` deep-link
+  // (R1 AC7), not a `/kind/:id` route — `onOpen` below special-cases both
+  // rather than building `/${route}/${id}`, so this entry is the base path only.
+  risk: "risk",
+  fmea: "fmea",
 };
+
+/** `risk`/`fmea` use a `?id=` deep-link, not a `/kind/:id` path segment. */
+function entityOpenHref(kind: EntityKind, id: string): string {
+  const base = ENTITY_ROUTE[kind];
+  return kind === "risk" || kind === "fmea" ? `/${base}?id=${id}` : `/${base}/${id}`;
+}
 const ENTITY_LABEL: Record<EntityKind, string> = {
   inspection: "Inspection",
   ncr: "NCR",
@@ -73,6 +85,8 @@ const ENTITY_LABEL: Record<EntityKind, string> = {
   supplier: "Supplier",
   finding: "Finding",
   scar: "SCAR",
+  risk: "Risk",
+  fmea: "FMEA",
 };
 
 export function DocumentDetail({ id }: { id: string }): React.ReactElement {
@@ -274,7 +288,7 @@ function DocumentDetailView({
             {tab === "preview" && <PreviewTab doc={doc} />}
             {tab === "versions" && <VersionsTab id={doc.id} currentVersion={doc.version} meId={meId} />}
             {tab === "approvals" && <ApprovalsTab doc={doc} meId={meId} />}
-            {tab === "links" && <LinkedTab docId={doc.id} onOpen={(kind, id) => router.push(`/${ENTITY_ROUTE[kind]}/${id}`)} />}
+            {tab === "links" && <LinkedTab docId={doc.id} onOpen={(kind, id) => router.push(entityOpenHref(kind, id))} />}
           </div>
         </div>
 

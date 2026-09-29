@@ -115,6 +115,10 @@ import { SpcController } from "./spc/spc.controller.js";
 import { SpcService } from "./spc/spc.service.js";
 import { GraphController } from "./graph/graph.controller.js";
 import { GraphService } from "./graph/graph.service.js";
+import { RiskController } from "./risk/risk.controller.js";
+import { RiskService } from "./risk/risk.service.js";
+import { MsaController } from "./msa/msa.controller.js";
+import { MsaService } from "./msa/msa.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -165,6 +169,8 @@ import {
   IMPORT_SERVICE,
   SPC_SERVICE,
   GRAPH_SERVICE,
+  RISK_SERVICE,
+  MSA_SERVICE,
   REALTIME,
   PRESENCE_SERVICE,
   COLLAB_SERVICE,
@@ -220,6 +226,8 @@ import {
     ImportController,
     SpcController,
     GraphController,
+    RiskController,
+    MsaController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -406,8 +414,9 @@ import {
     },
     {
       provide: EXPORTS_SERVICE,
-      useFactory: (storage: Storage, jobs: JobProducer, audits: AuditsService) => new ExportsService(storage, jobs, audits),
-      inject: [STORAGE, JOB_PRODUCER, AUDITS_SERVICE],
+      useFactory: (storage: Storage, jobs: JobProducer, audits: AuditsService, msa: MsaService) =>
+        new ExportsService(storage, jobs, audits, msa),
+      inject: [STORAGE, JOB_PRODUCER, AUDITS_SERVICE, MSA_SERVICE],
     },
     // The AI gateway is the one model chokepoint (06 §3). The provider is chosen
     // by env: `stub` (default — deterministic, no model, keeps dev/test/CI free of
@@ -484,6 +493,8 @@ import {
     { provide: IMPORT_SERVICE, useFactory: () => new ImportService() },
     { provide: SPC_SERVICE, useFactory: () => new SpcService() },
     { provide: GRAPH_SERVICE, useFactory: () => new GraphService() },
+    { provide: RISK_SERVICE, useFactory: () => new RiskService() },
+    { provide: MSA_SERVICE, useFactory: () => new MsaService() },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

@@ -11,6 +11,8 @@ import type {
   ChargebackReportDto,
   FmeaDto,
   FmeaItemDto,
+  MsaStudyDto,
+  MsaAnalysisResult,
   IntegrationDto,
   IntegrationEventDto,
   WebhookPolicyDto,
@@ -61,6 +63,8 @@ import type {
   WorkspacesDto,
   RiskPredictionDto,
   PredictionDetailResponse,
+  RiskDto,
+  RiskSummaryDto,
 } from "@kaenal/types";
 import type { ApiClient } from "./client.js";
 import { queryKeys } from "./query-keys.js";
@@ -371,6 +375,36 @@ export const apiQueries = {
     items: (client: ApiClient, fmeaId: string): QueryOption<Page<FmeaItemDto>> => ({
       queryKey: queryKeys.fmea.items(fmeaId),
       queryFn: () => client.listFmeaItems({ params: { id: fmeaId } }).then((r) => unwrap<Page<FmeaItemDto>>(r)),
+    }),
+  },
+
+  msa: {
+    list: (client: ApiClient, args?: Arg<"listMsaStudies">): QueryOption<Page<MsaStudyDto>> => ({
+      queryKey: queryKeys.msa.list(args?.query),
+      queryFn: () => client.listMsaStudies(args).then((r) => unwrap<Page<MsaStudyDto>>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<MsaStudyDto> => ({
+      queryKey: queryKeys.msa.detail(id),
+      queryFn: () => client.getMsaStudy({ params: { id } }).then((r) => unwrap<MsaStudyDto>(r)),
+    }),
+    analysis: (client: ApiClient, id: string): QueryOption<MsaAnalysisResult> => ({
+      queryKey: queryKeys.msa.analysis(id),
+      queryFn: () => client.getMsaAnalysis({ params: { id } }).then((r) => unwrap<MsaAnalysisResult>(r)),
+    }),
+  },
+
+  risks: {
+    list: (client: ApiClient, args?: Arg<"listRisks">): QueryOption<Page<RiskDto>> => ({
+      queryKey: queryKeys.risks.list(args?.query),
+      queryFn: () => client.listRisks(args).then((r) => unwrap<Page<RiskDto>>(r)),
+    }),
+    summary: (client: ApiClient): QueryOption<RiskSummaryDto> => ({
+      queryKey: queryKeys.risks.summary(),
+      queryFn: () => client.getRisksSummary().then((r) => unwrap<RiskSummaryDto>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<RiskDto> => ({
+      queryKey: queryKeys.risks.detail(id),
+      queryFn: () => client.getRisk({ params: { id } }).then((r) => unwrap<RiskDto>(r)),
     }),
   },
 

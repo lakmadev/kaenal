@@ -1,4 +1,4 @@
-import { ClipboardCheck, TriangleAlert, Brain, FileText, type LucideIcon } from "lucide-react";
+import { ClipboardCheck, TriangleAlert, Brain, FileText, Shield, type LucideIcon } from "lucide-react";
 import type { WizardType } from "@kaenal/core";
 
 /**
@@ -11,6 +11,8 @@ export const WIZARD_ICON: Record<WizardType, LucideIcon> = {
   ncr: TriangleAlert,
   "8d": Brain,
   document: FileText,
+  // Same icon `navigation.ts`/R3 already establish for risk elsewhere in the app.
+  risk: Shield,
 };
 
 export const WIZARD_COLOR: Record<WizardType, string> = {
@@ -18,4 +20,7 @@ export const WIZARD_COLOR: Record<WizardType, string> = {
   ncr: "#ea580c",
   "8d": "#6366f1",
   document: "#0d9488",
+  // tokens.css `--risk-critical` — the one risk-severity tint not already
+  // spent by ncr (`--risk-high`) or 8d (`--risk-info`), DESIGN-04 §5 row 2.
+  risk: "#dc2626",
 };

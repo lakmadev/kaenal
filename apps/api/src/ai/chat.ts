@@ -38,6 +38,11 @@ const ENTITY_SPECS: Readonly<Record<EntityKind, EntitySpec>> = {
   // plant-scoped chat context for findings is a follow-up if/when the AI
   // assistant needs to reference one directly.
   finding: { table: "findings", label: "item_ref", plantScoped: false, view: "inspection:view" },
+  // Sprint 04 R3 — risk register + FMEA join the shared EntityKind enum.
+  // Neither table has a `plant_id` column (0064/0030), so both stay unscoped
+  // here, same reasoning as `finding` above.
+  risk: { table: "risks", label: "title", plantScoped: false, view: "risk:view" },
+  fmea: { table: "fmeas", label: "part_name", plantScoped: false, view: "fmea:view" },
 };
 
 export interface PreparedChat {
