@@ -1597,10 +1597,11 @@ exactly Sprint 04's own closing note for its one exclusion (Nested/Attribute-kap
 
 ## 8. Definition of Done
 
-- [ ] **User has explicitly approved §3** (all **17** named decisions in §3.1 — **[AMENDED — B1-B9;
+- [x] **User has explicitly approved §3** (all **17** named decisions in §3.1 — **[AMENDED — B1-B9;
       AMENDED-3 — items 14/16 sharpened; AMENDED-4 — items 3/8/15 sharpened (the owner-exception table, the
       training-history read routes, and the corrected approach-side threshold algorithm), no new decision
-      count]**, plus the full schemas in §2's ACs) — **NO BUILD STARTS BEFORE THIS.**
+      count]**, plus the full schemas in §2's ACs) — **approved 2026-09-29, as proposed, no changes.** Build
+      unblocked.
 - [ ] **[AMENDED — B2, renumbered]** Migrations `0067_composite_fk_prereqs.sql`, `0068_calibration.sql`,
       `0069_training.sql`, `0070_calibration_training_exports.sql` applied, in that order (`0067` before the
       others — it is a real dependency, not just numbering); `pnpm db:check` green; `pnpm test:rls` green
