@@ -486,6 +486,15 @@ describe("Raise NCR (C3) — one-time link", () => {
 
     const again = await acme("post", `/v1/instruments/${id}/calibration-events/${failId}/raise-ncr`).send({});
     expect(again.status).toBe(409);
+
+    const { rows } = await control.query<{ before: { ncrId?: string | null }; after: { ncrId?: string | null } }>(
+      `SELECT before, after FROM audit_events
+        WHERE tenant_id = $1 AND entity_kind = 'calibration_event' AND entity_id = $2 AND action = 'updated'
+        ORDER BY created_at DESC LIMIT 1`,
+      [acmeId, failId],
+    );
+    expect(rows[0]?.before).toEqual({ ncrId: null });
+    expect(rows[0]?.after).toEqual({ ncrId: raise.body.id });
   });
 });
 

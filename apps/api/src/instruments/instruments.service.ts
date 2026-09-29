@@ -380,12 +380,14 @@ export class InstrumentsService {
   async update(
     tx: Tx,
     tenantId: string,
+    membership: Membership,
     actorId: string,
     id: string,
     body: UpdateInstrumentBody,
     ctx: AuditContext,
   ): Promise<InstrumentDto> {
     const current = await this.loadRow(tx, id);
+    this.assertDetailScope(membership, actorId, current);
     if (current.lock_version !== body.lockVersion) {
       throw await staleWriteError(tx, {
         table: "instruments",
@@ -494,12 +496,14 @@ export class InstrumentsService {
   async retire(
     tx: Tx,
     tenantId: string,
+    membership: Membership,
     actorId: string,
     id: string,
     body: RetireInstrumentBody,
     ctx: AuditContext,
   ): Promise<InstrumentDto> {
     const current = await this.loadRow(tx, id);
+    this.assertDetailScope(membership, actorId, current);
     if (current.lock_version !== body.lockVersion) {
       throw await staleWriteError(tx, {
         table: "instruments",
@@ -592,6 +596,7 @@ export class InstrumentsService {
   async recordCalibrationEvent(
     tx: Tx,
     tenantId: string,
+    membership: Membership,
     actorId: string,
     instrumentId: string,
     body: CreateCalibrationEventBody,
@@ -606,6 +611,7 @@ export class InstrumentsService {
     );
     const instrument = locked[0];
     if (instrument === undefined) throw notFound();
+    this.assertDetailScope(membership, actorId, instrument);
     if (instrument.lock_version !== body.lockVersion) {
       throw await staleWriteError(tx, {
         table: "instruments",
@@ -745,12 +751,16 @@ export class InstrumentsService {
   async attachCertificate(
     tx: Tx,
     tenantId: string,
+    membership: Membership,
     actorId: string,
     instrumentId: string,
     eventId: string,
     body: AttachCertificateBody,
     ctx: AuditContext,
   ): Promise<CalibrationEventDto> {
+    const instrument = await this.loadRow(tx, instrumentId);
+    this.assertDetailScope(membership, actorId, instrument);
+
     const { rows } = await tx.query<CalibrationEventRow>(
       `SELECT ${CALIBRATION_EVENT_COLUMNS} FROM calibration_events
         WHERE id = $1 AND instrument_id = $2 AND deleted_at IS NULL`,
@@ -799,6 +809,7 @@ export class InstrumentsService {
     ctx: AuditContext,
   ): Promise<NcrDto> {
     const instrument = await this.loadRow(tx, instrumentId);
+    this.assertDetailScope(membership, actorId, instrument);
     const { rows } = await tx.query<CalibrationEventRow>(
       `SELECT ${CALIBRATION_EVENT_COLUMNS} FROM calibration_events
         WHERE id = $1 AND instrument_id = $2 AND deleted_at IS NULL`,
@@ -832,11 +843,29 @@ export class InstrumentsService {
       ctx,
     );
 
-    const linked = await tx.query(
-      "UPDATE calibration_events SET ncr_id = $1, updated_by = $3 WHERE id = $2 AND ncr_id IS NULL",
-      [ncr.id, eventId, actorId],
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "calibration_event",
+        entityId: eventId,
+        action: "updated",
+        before: { ncrId: null },
+        after: { ncrId: ncr.id },
+        requestId: ctx.requestId,
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      },
+      async (t) => {
+        const linked = await t.query(
+          "UPDATE calibration_events SET ncr_id = $1, updated_by = $3 WHERE id = $2 AND ncr_id IS NULL",
+          [ncr.id, eventId, actorId],
+        );
+        if (linked.rowCount === 0) throw new ApiError("CONFLICT", "That event was just linked to another NCR");
+      },
     );
-    if (linked.rowCount === 0) throw new ApiError("CONFLICT", "That event was just linked to another NCR");
     return ncr;
   }
 }

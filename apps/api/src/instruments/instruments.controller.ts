@@ -86,6 +86,7 @@ export class InstrumentsController {
     return this.instruments.update(
       currentTx(),
       currentContext().tenantId,
+      membershipOf(),
       actorIdOf(),
       parse(uuid, id),
       parse(UpdateInstrumentBody, body),
@@ -99,6 +100,7 @@ export class InstrumentsController {
     return this.instruments.retire(
       currentTx(),
       currentContext().tenantId,
+      membershipOf(),
       actorIdOf(),
       parse(uuid, id),
       parse(RetireInstrumentBody, body),
@@ -133,7 +135,16 @@ export class InstrumentsController {
     const { result } = await this.idempotency.run(
       `${ctx.tenantId}:record-calibration-event:${instrumentId}`,
       idempotencyKey,
-      () => this.instruments.recordCalibrationEvent(currentTx(), ctx.tenantId, actorId, instrumentId, input, auditCtxOf()),
+      () =>
+        this.instruments.recordCalibrationEvent(
+          currentTx(),
+          ctx.tenantId,
+          membershipOf(),
+          actorId,
+          instrumentId,
+          input,
+          auditCtxOf(),
+        ),
     );
     return result;
   }
@@ -148,6 +159,7 @@ export class InstrumentsController {
     return this.instruments.attachCertificate(
       currentTx(),
       currentContext().tenantId,
+      membershipOf(),
       actorIdOf(),
       parse(uuid, instrumentId),
       parse(uuid, eventId),

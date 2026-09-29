@@ -679,11 +679,29 @@ export class AuditsService {
       context,
     );
 
-    const linked = await tx.query(
-      "UPDATE audit_findings SET ncr_id = $1, updated_by = $3 WHERE id = $2 AND ncr_id IS NULL",
-      [ncr.id, finding.id, actorId],
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "audit_finding",
+        entityId: finding.id,
+        action: "updated",
+        before: { ncrId: null },
+        after: { ncrId: ncr.id },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const linked = await t.query(
+          "UPDATE audit_findings SET ncr_id = $1, updated_by = $3 WHERE id = $2 AND ncr_id IS NULL",
+          [ncr.id, finding.id, actorId],
+        );
+        if (linked.rowCount === 0) throw new ApiError("CONFLICT", "That finding was just linked to another NCR");
+      },
     );
-    if (linked.rowCount === 0) throw new ApiError("CONFLICT", "That finding was just linked to another NCR");
     return ncr;
   }
 
