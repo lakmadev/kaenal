@@ -77,7 +77,7 @@ thirteen **in place** in the stories/sections below (marked `[AMENDED-3]` at eac
 | SF6 | `certificate_file_id`/`evidence_file_id` were specified as plain FKs to `files(id)`, inconsistent with every other tenant-scoped reference, and leaving migration `0067`'s own `files` `UNIQUE (tenant_id, id)` unused | Corrected to composite FKs `→ files(tenant_id, id)` (C2 AC1, T1 AC1) |
 | SF7 | T5 (competency catalog) had four small gaps: no 409 on a stale reorder id-set, no stated `seq` for a new/unarchived row, ambiguous 409/422 for a code clash on unarchive, and its UC named only admin/manager for `training:manage` | All four stated explicitly: reorder route 409s if the body's id list doesn't exactly match the current non-archived set (T5 AC3); a new or just-unarchived competency gets `seq = current_max_seq + 1` (T1 AC3, T5 AC1); the code-clash case is 409 Conflict, consistently (T5 AC1); auditor added alongside admin/manager (T5 UC) |
 | SF8 | T2's UC language ("members it already succeeded for") implied partial-batch success, contradicting atomicity | Corrected: a training-record batch is one all-or-nothing transaction — all rows commit together or none do, no partial-batch state ever visible (T2 AC1) |
-| SF9 | Training coverage KPI's zero-mandatory-competency case was undefined | Reads `"—"`, consistent with this sprint's own empty-case convention for percentage KPIs (T1 AC7) |
+| SF9 | Training coverage KPI's zero-mandatory-competency case was undefined | API returns `coverage: null` (T1 AC8); the web layer renders `"—"`, consistent with this sprint's own empty-case convention for percentage KPIs — corrected further by SF7 below (the API never returns the literal string) |
 | SF10 | Two stale cross-references: a line still said `NcrSource`/`ncrs.source` widening was "folded into `0067`" (post-renumbering it's `0068`); Round 1's amendment (B4) claimed a document-expiry-related Known issue was logged in §7, but it was never actually added | Both corrected: C3's Web/Mobile/Shared line now says `0068`; the missing Known issue (`document-expiry.ts`'s `Date`-based signature, §1a/B4) is now added to §7 |
 
 **Effect on §3 (the user's approval ask):** BLOCKING 1-3 change backend behaviour that is part of what §3 asks the
@@ -212,7 +212,7 @@ UC
   everywhere:
   | Route | Owner-exception applies? |
   |---|---|
-  | **LIST** (`GET /v1/instruments`, AC3) | **No.** An out-of-scope owner still cannot browse the register beyond their own row(s); plant-overlap is the only visibility rule here. |
+  | **LIST** (`GET /v1/instruments`, AC3) | **No.** An out-of-scope owner's own instrument does **not** appear in the list either — plant-overlap is the only visibility rule here, with zero exception (they still reach it via the notification's deep link straight to DETAIL, which does carry the exception). |
   | **SUMMARY/KPI aggregate** (`GET /v1/instruments/summary`, AC6) | **No.** An owned-but-out-of-scope instrument does not count toward the caller's own KPI numbers — the summary stays a pure plant-membership view, consistent with the list decision. |
   | **DETAIL fetch** (`GET /v1/instruments/:id`, AC4) | **Yes** (unchanged from Round 3). |
   | **CALIBRATION-EVENT HISTORY** (`GET /v1/instruments/:id/calibration-events`, C2 AC3) | **Yes**, newly closed this round — an owner who can see the detail card must be able to see its history, or the card's own "last 5"/"View all" controls would 404 for exactly the person the module means to keep informed. |
@@ -722,7 +722,12 @@ UC
 - Happy: open `/training` → KPI strip (real counts), competency matrix (members rows × competency columns,
   cell states **Certified (green ok) / Expiring (amber warn) / Overdue-or-gap (red fail) / N-A (gray —)**,
   filter by name/role, segmented All/Mandatory-only/Gaps), clicking a cell shows that member's history for
-  that competency.
+  that competency. **[AMENDED-4]** For a `training:view`-only caller, only cells in their OWN row are
+  clickable (matches AC9's read rule exactly, so no click ever produces a 403) — other members' cells still
+  render their real state (so the matrix's aggregate picture stays honest and useful) but are visually
+  non-interactive (no hover/click affordance, `aria-disabled`), the smallest-reasonable-choice resolution
+  rather than adding a new denied-state board for a control that should simply not invite the click. A
+  `training:manage` caller's cells are all clickable, unchanged.
 - Cell-state derivation (**the one real design decision this sprint's §3 needs sign-off on**, resolving P17's
   own open question about mandatory-gap semantics): for each (member, competency) pair —
   - no training record **and** `competency.mandatory = true` → **gap** (red — a required certification never
@@ -1261,7 +1266,13 @@ is written until this is approved.)*
 8. **`training_records` is a real per-completion history table**, not P17's own draft "unique latest row, +
    `audit_events` for history" — reasoning in §2 T1 AC1. This is the one genuine schema deviation from the
    phase doc's own draft, and is flagged here for explicit approval the same way Sprint 04 flagged `gauge_
-   label` as text-not-FK.
+   label` as text-not-FK. **[AMENDED-4]** This history is real and readable, not just stored: `GET
+   /v1/training/records` (filtered by `memberId`, cursor-paginated, INCLUDES archived-competency rows so T5's
+   "existing records are kept" promise is actually visible) and `GET /v1/training/records/:id` (single-record +
+   evidence lookup) both exist (T1 AC9, §4). Visibility: a `training:manage` holder sees any member's records; a
+   `training:view`-only caller sees only their own (403 on any other `memberId`, checked after a 404 tenant
+   check) — this is training/evidence data about a specific person, not a general quality record, so it does not
+   follow the module's own broader view-capability by default.
 9. **[AMENDED — B7; AMENDED-3 — superseded detail, see item 16] Certificate/evidence attachment reuses the
    existing Files *upload* pipeline unchanged** (`entity_kind` is free-text, §1a, no new upload mechanism, no
    new `files` schema) — but the **link** from a calibration event to its certificate is corrected to be the
@@ -1408,11 +1419,11 @@ what this section already asks the user to approve.
 | Story | Migration | Contract / REST route | Service | Audit events | RBAC | Tenant isolation |
 |---|---|---|---|---|---|---|
 | **B2 prereq** | **`0067_composite_fk_prereqs.sql`** — `UNIQUE (tenant_id, id)` on `plants`/`areas`/`ncrs`/`files` | none | none | none | n/a | forced RLS already exists on all four; this only adds a constraint |
-| C1 | `0068_calibration.sql` (`instruments`, incl. `last_result`) | `GET/POST /v1/instruments` (+`q` search over name/code/**area name**, SF5), `GET/PATCH /v1/instruments/:id`, `GET /v1/instruments/summary` | `InstrumentsService` + `packages/core/calibration.ts` (pure, ISO-date signature) | `created`/`updated`, in-tx | `calibration:view` / `calibration:manage` | forced RLS; plant-scope filter (B5's own stated rule) **with an owner-sees-own-instrument exception (SF3)**; cross-tenant/plant id → 404; **all reads use the instrument's plant timezone for "today" (SF2)** |
+| C1 | `0068_calibration.sql` (`instruments`, incl. `last_result`) | `GET/POST /v1/instruments` (+`q` search over name/code/**area name**, SF5), `GET/PATCH /v1/instruments/:id`, `GET /v1/instruments/summary` | `InstrumentsService` + `packages/core/calibration.ts` (pure, ISO-date signature) | `created`/`updated`, in-tx | `calibration:view` / `calibration:manage` | forced RLS; plant-scope filter (B5's own stated rule) **with the owner-sees-own-instrument exception applying to DETAIL and CALIBRATION-EVENT HISTORY only, not LIST/SUMMARY/EXPORT — see §2 C1 UC's per-route table [AMENDED-4, BLOCKING C]**; cross-tenant/plant id → 404; **all reads use the instrument's plant timezone for "today" (SF2)** |
 | C2 | `0068` also (`calibration_events`) | `POST/GET /v1/instruments/:id/calibration-events`, `PUT /v1/instruments/:instrumentId/calibration-events/:eventId/certificate` | `InstrumentsService.recordCalibration`/`attachCertificate` | **[AMENDED-3]** `created` on the `calibration_event` row, every result, unconditionally; `updated` on the parent instrument only for `pass`/`adjusted` (due-date advance, B3); `updated` on the event row itself when a certificate is attached/replaced (AC5) — three-way split, in-tx | `calibration:manage` (write, incl. presign for `entityKind:"calibration_event"`) / `calibration:view` (read) | forced RLS, cascades with parent; tenant+`sha256`+**`entity_kind='calibration_event'`+`deleted_at IS NULL`** check before linking a certificate (BLOCKING 2); "newest event" ordered by `(performed_at DESC, created_at DESC)` (BLOCKING 1) |
 | C3 | `0068` also (`ncrs.source` CHECK widened; `NcrSource` gains `calibration`) | `POST /v1/instruments/:instrumentId/calibration-events/:eventId/raise-ncr` | `InstrumentsService.raiseNcr` (mirrors `audits.service.ts:raiseNcr`) + `NcrsService.create` | `created` (new NCR), in-tx | `calibration:manage` (route gate) + `ncr:create` (service, redundant-but-harmless — §0) | forced RLS; cross-tenant id → 404; one-time-link guard |
 | C4 | none | `PATCH /v1/instruments/:id/retire`, `PATCH /v1/instruments/:id` (transfer = existing edit route) | `InstrumentsService.retire`/`transfer` (area↔plant consistency check — architect's confirmed exception) | `status_changed` (retire) / `updated` (transfer) | `calibration:manage` | forced RLS |
-| C5 | none (job + `exports_resource_check` widened in `0070`) | `ExportResource` gains `"calibration_audit_pack"` | `run-export.ts` new branch (same plant-timezone rule, SF2); new `calibration-due` job processor (cycle-tied dedupe, plant-timezone "today" — B4; **[AMENDED-3] plus an immediate, date-independent notification for any instrument whose `last_result = 'fail'`, SF1; `activeCalibrationThreshold` returns plain `number \| null`, `-7 * floor(daysOverdue/7)` on the overdue side, SF4**) | existing export-created event; notifications write no audit event (mirrors `document-expiry`) | `calibration:view` (export) | scoped to caller's tenant/plant before enqueue |
+| C5 | none (job + `exports_resource_check` widened in `0070`) | `ExportResource` gains `"calibration_audit_pack"` | `run-export.ts` new branch (same plant-timezone rule, SF2); new `calibration-due` job processor (cycle-tied dedupe, plant-timezone "today" — B4; **[AMENDED-3] plus a date-independent notification, sent on the next daily sweep (not real-time), for any instrument whose `last_result = 'fail'`, SF1 — [AMENDED-4] dedupe key includes the newest failing event's own id, found via the C2 AC2 tie-break rule; `activeCalibrationThreshold` returns `number \| null` (30/7/0/null approach-side per document-expiry.ts's real behavior — [AMENDED-4] BLOCKING B, not exact-day-only), `-7 * floor(daysOverdue/7)` on the overdue side, normalized so `-0` reads as `0`, SF4/SF6**) | existing export-created event; notifications write no audit event (mirrors `document-expiry`) | `calibration:view` (export) | scoped to caller's tenant/plant before enqueue |
 | C6 | none | reuses C1's `POST /v1/instruments` | `InstrumentsService.create` (shared with C1) | `created` | `calibration:manage` | forced RLS |
 | T1 | `0069_training.sql` (`competencies` incl. `archived_at`, `training_records` incl. `valid_months`) | `GET/POST /v1/competencies` (create sets `seq = max+1`, SF7(b); **[AMENDED-4 — SHOULD-FIX 8(c)]** 409 on code clash), `GET/PATCH /v1/competencies/:id`, `GET /v1/training/matrix` (+`q` search via `control.users`), `GET /v1/training/summary` (`coverage: number \| null`, "—" rendered by web, SF7), **[AMENDED-4 — BLOCKING A, new]** `GET /v1/training/records` (required `memberId`, includes archived-competency rows), `GET /v1/training/records/:id` | `CompetenciesService`, `TrainingService` + `packages/core/competency.ts` (pure, ISO-date signature) | `created`/`updated`, in-tx | `training:view` / `training:manage` — **[AMENDED-4] the two new history routes: `training:manage` sees any member's, `training:view`-only sees only their own (403 otherwise)** | forced RLS; plant-scope filter on matrix members (B5's own stated rule); cross-tenant/plant id → 404; **all reads use tenant timezone for "today" (SF2)** |
 | T2 | none | `POST /v1/training/records` | `TrainingService.recordTraining` — **[AMENDED-3]** shared evidence via a presign with `entityKind:"training_batch"` and `entityId` omitted, uploaded/completed first, then referenced as `evidenceFileId` in this call (`training_batch_id` dropped, BLOCKING 2); one all-or-nothing transaction for the whole batch (SF8) | `created` per member row, in-tx | `training:manage` (write, incl. presign for `entityKind:"training_batch"`) / `training:view` (read) | forced RLS; tenant+`sha256`+**`entity_kind='training_batch'`+`deleted_at IS NULL`** check before linking evidence (BLOCKING 2) |
@@ -1456,9 +1467,10 @@ resource_check` widening, 0071 held as buffer — Sprint 06 takes `0072` onward)
    or a member's own history list; needs a design pass in the existing detail-drawer visual language.
    **[AMENDED-4 — BLOCKING A]** This is Board 7 named by the architecture review — the drawer now has a real
    data source (`GET /v1/training/records`, T1 AC9), including rows against an archived competency (shown, not
-   hidden, per T5's own promise) and each row's evidence-download affordance; a `training:view`-only viewer
-   opening another member's row (if such a control is even reachable for them) gets the drawer's own
-   permission-denied state, not a 403 error page.
+   hidden, per T5's own promise) and each row's evidence-download affordance. **[AMENDED-4, resolved]** A
+   `training:view`-only caller's matrix cells outside their own row are non-interactive (T1 UC), so this drawer
+   is never opened against someone else's data from the matrix itself — no permission-denied state needs
+   designing. The drawer's own error state (network/loading failure) still applies as normal.
 6. **Calibration/training empty states** (C1/T1) — zero-instrument and zero-competency states, consistent with
    Sprint 02/03/04's own empty-state precedent.
 7. **Corrected overdue-banner copy** (§3.1 item 5) — same visual treatment as the jsx's banner, new text; a
