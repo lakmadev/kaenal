@@ -435,6 +435,38 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
      VALUES ($1, $2, 1, 1, 1, 10.02) RETURNING id`,
     [t, msaStudyId],
   );
+
+  // Sprint 05 Slice 2 — calibration (0068): one active instrument, owned by
+  // the seeded admin member, plus one `pass` calibration event certified by
+  // the seeded evidence file (exercises certificate_file_id's composite FK).
+  const instrumentId = await q(
+    `INSERT INTO instruments (tenant_id, code, name, type, plant_id, area_id, method,
+                              tolerance, interval_months, last_calibrated, owner, status)
+     VALUES ($1, $2, 'CMM #1', 'cmm', $3, $4, 'Internal — ISO 10360', '±1.7μm', 12,
+             '2026-01-15', $5, 'active') RETURNING id`,
+    [t, `CAL-${tag}-0001`, plantId, areaId, userId],
+  );
+  await q(
+    `INSERT INTO calibration_events (tenant_id, instrument_id, performed_at, result,
+                                     performed_by, notes, certificate_file_id)
+     VALUES ($1, $2, '2026-01-15', 'pass', 'A2LA Cal Labs', 'Within tolerance', $3)
+     RETURNING id`,
+    [t, instrumentId, fileId],
+  );
+
+  // Sprint 05 Slice 2 — training (0069): one non-archived mandatory
+  // competency plus one completed, non-expiring training record for the
+  // seeded admin member.
+  const competencyId = await q(
+    `INSERT INTO competencies (tenant_id, code, name, mandatory, valid_months, seq)
+     VALUES ($1, $2, 'IATF 16949 Awareness', true, 24, 1) RETURNING id`,
+    [t, `iatf-${tag}`],
+  );
+  await q(
+    `INSERT INTO training_records (tenant_id, member_id, competency_id, completed_at, valid_months)
+     VALUES ($1, $2, $3, '2026-01-10', 24) RETURNING id`,
+    [t, userId, competencyId],
+  );
 }
 
 /**
