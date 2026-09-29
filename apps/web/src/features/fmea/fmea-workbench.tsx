@@ -7,6 +7,7 @@ import { actionPriority as apOf, rpn as rpnOf, type ActionPriority } from "@kaen
 import type { CreateFmeaItemBody, FmeaItemDto, FmeaType } from "@kaenal/types";
 import { useCan } from "@/hooks/use-me";
 import { useEntityLinks } from "@/hooks/use-entity-links";
+import { useRisksByIds } from "@/hooks/use-risks";
 import {
   useCreateFmea,
   useCreateFmeaItem,
@@ -18,6 +19,7 @@ import {
 } from "@/hooks/use-fmea";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle, Dialog, DialogClose, DialogContent, EmptyState, Segmented, Skeleton, Spinner, useToast } from "@/components/ui";
+import { ScoreChip } from "@/features/risk/risk-register-page";
 
 function scoreColor(v: number): string {
   return v >= 9 ? "#dc2626" : v >= 7 ? "#ea580c" : v >= 4 ? "#f59e0b" : "#22c55e";
@@ -449,6 +451,17 @@ const tdStyle: React.CSSProperties = { padding: 10, fontSize: 11.5, verticalAlig
  * this sprint (confirmed by grep, §1a), so this is new but narrow: the same
  * `useEntityLinks`/table pattern risk's own linked-records panel uses,
  * scoped to this one FMEA and filtered to risk-kind rows only.
+ *
+ * [DESIGN-04 §11 Gate 2 fix 2] `FmeaLinkedRisks.dc.html` draws Code | Risk |
+ * Residual | › — a residual-score chip is this pane's stated reason to
+ * exist ("seeing a linked risk's severity at a glance from FMEA"), which
+ * `entity_links` alone can't supply (its `label` is a display string, not a
+ * score). Batch-resolves the linked risks' own records via `useRisksByIds`
+ * (the same `listRisks` `ids` filter R3 AC7 already added) to read each
+ * one's real `code`/`residualScore` — never a fabricated value — and renders
+ * the score with the exact `ScoreChip` the risk register already uses for
+ * its own score badges (`@kaenal/core`'s `scoreBand` + register `BAND_COLOR`
+ * tokens), not a new chip style.
  */
 function FmeaLinkedRisks({ fmeaId, onOpen }: { fmeaId: string; onOpen: (riskId: string) => void }): React.ReactElement {
   const links = useEntityLinks("fmea", fmeaId);
@@ -458,6 +471,8 @@ function FmeaLinkedRisks({ fmeaId, onOpen }: { fmeaId: string; onOpen: (riskId: 
       return { key: l.id, id: opp.id, kind: opp.kind, label: l.label };
     })
     .filter((r) => r.kind === "risk");
+  const risks = useRisksByIds(rows.map((r) => r.id));
+  const riskById = new Map((risks.data?.items ?? []).map((r) => [r.id, r]));
 
   return (
     <Card>
@@ -474,27 +489,35 @@ function FmeaLinkedRisks({ fmeaId, onOpen }: { fmeaId: string; onOpen: (riskId: 
             <table className="k-table" style={{ width: "100%" }}>
               <thead>
                 <tr>
+                  <th style={{ width: 150 }}>Code</th>
                   <th>Risk</th>
+                  <th style={{ width: 90 }}>Residual</th>
                   <th style={{ width: 24 }} />
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.key}>
-                    <td colSpan={2} style={{ padding: 0 }}>
-                      <button
-                        type="button"
-                        onClick={() => onOpen(r.id)}
-                        className="flex w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-[var(--bg-subtle)]"
-                      >
-                        <span className="mono flex-1" style={{ fontSize: 11.5 }}>
-                          {r.label ?? `${r.id.slice(0, 8)}…`}
-                        </span>
-                        <ChevronRight size={13} className="text-muted" aria-hidden />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((r) => {
+                  const risk = riskById.get(r.id);
+                  return (
+                    <tr key={r.key}>
+                      <td colSpan={4} style={{ padding: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => onOpen(r.id)}
+                          className="grid w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-[var(--bg-subtle)]"
+                          style={{ gridTemplateColumns: "150px 1fr 90px 24px" }}
+                        >
+                          <span className="mono" style={{ fontSize: 11.5 }}>
+                            {risk?.code ?? `${r.id.slice(0, 8)}…`}
+                          </span>
+                          <span style={{ fontSize: 11.5 }}>{risk?.title ?? r.label ?? `${r.id.slice(0, 8)}…`}</span>
+                          {risk !== undefined ? <ScoreChip score={risk.residualScore} /> : <span className="text-muted">—</span>}
+                          <ChevronRight size={13} className="text-muted" aria-hidden />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

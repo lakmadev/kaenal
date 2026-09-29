@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Download, Plus } from "lucide-react";
+import { Download, Plus, Sigma } from "lucide-react";
 import type { GaugeRrVerdict, MsaAnalysisComplete, MsaGaugeRrSourceDto, MsaStudyDto } from "@kaenal/types";
 import { useCan, useMe } from "@/hooks/use-me";
 import { useMsaAiagReportExport, useMsaAnalysis, useMsaStudies, useMsaStudy } from "@/hooks/use-msa";
@@ -241,7 +241,7 @@ function KpiTiles({ analysis }: { analysis: MsaAnalysisComplete | { status: "inc
     { l: "Total GR&R %", v: complete !== null ? `${complete.grr.pctStudyVar.toFixed(1)}%` : "—", c: complete !== null ? VERDICT_STYLE[complete.verdict].fg : "var(--text-muted)" },
     { l: "Repeatability (EV)", v: complete !== null ? `${complete.repeatability.pctStudyVar.toFixed(1)}%` : "—", c: "#2563eb", s: "Equipment variation" },
     { l: "Reproducibility (AV)", v: complete !== null ? `${complete.reproducibility.pctStudyVar.toFixed(1)}%` : "—", c: "#7c3aed", s: "Appraiser variation" },
-    { l: "ndc", v: complete !== null ? String(complete.ndc) : "0", c: "#0d9488", s: "Number distinct categories (≥ 5)" },
+    { l: "ndc", v: complete !== null ? String(complete.ndc) : "—", c: complete !== null ? "#0d9488" : "var(--text-muted)", s: "Number distinct categories (≥ 5)" },
   ];
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -318,6 +318,7 @@ function ActiveStudyCard({
 function IncompleteState({ entered, required }: { entered: number; required: number }): React.ReactElement {
   return (
     <EmptyState
+      icon={Sigma}
       title="Not enough measurements yet"
       body={`${entered} of ${required} entered — ${required - entered} more needed before an analysis can be computed.`}
     />

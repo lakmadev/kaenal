@@ -17,7 +17,14 @@ import { RiskEditDialog } from "./risk-edit-dialog";
 import { RiskControlsEditor } from "./risk-controls-editor";
 import { RiskLinkedRecords } from "./risk-linked-records";
 
-const BAND_COLOR: Record<RiskScoreBand, string> = {
+/**
+ * Score-band color tokens (R1 §3.1 thresholds, `scoreBand` in
+ * `@kaenal/core`). Exported so other surfaces that render a risk's score —
+ * e.g. FMEA's `FmeaLinkedRisks` reverse pane (SPRINT-04 R3, DESIGN-04 §11
+ * fix 2) — reuse this exact register coloring rather than inventing their
+ * own.
+ */
+export const BAND_COLOR: Record<RiskScoreBand, string> = {
   critical: "#dc2626",
   high: "#ea580c",
   medium: "#f59e0b",
@@ -55,7 +62,7 @@ const TREATMENT_LABEL: Record<string, string> = {
   avoid: "avoid",
 };
 
-function ScoreChip({ score }: { score: number }): React.ReactElement {
+export function ScoreChip({ score }: { score: number }): React.ReactElement {
   return (
     <span
       className="inline-flex items-center justify-center rounded font-bold text-white"

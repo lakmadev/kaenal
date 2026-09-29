@@ -5,6 +5,23 @@
 
 ## Current status
 
+**Sprint 04 — Gate 2 confirmation fidelity fixes (2026-09-29), on top of the ACCEPTED Gate 2 below.**
+Designer's Gate 2 confirmation pass (`docs/design/DESIGN-04-risk-msa.md` §11) found 3 real deviations
+against the approved canvas boards; all fixed this slice, verified against the actual `.dc.html` boards
+and browser-screenshotted with API-seeded fixtures (tenant `acme` had no risks/MSA studies): (1)
+`risk-linked-records.tsx` — restored the board's dropped 4th "Relation" column (`entity_links.relation`,
+capitalized, e.g. "Linked"). (2) `fmea-workbench.tsx`'s `FmeaLinkedRisks` pane — added the missing
+Code column and residual-score chip (the pane's stated reason to exist); batch-resolves linked risks'
+real `code`/`residualScore` via a new `useRisksByIds` hook (`listRisks`'s existing `ids` filter, never a
+fabricated value), rendering the score with `risk-register-page.tsx`'s own exported `ScoreChip`/
+`BAND_COLOR` (no new chip style). (3) `msa-page.tsx`'s `KpiTiles` — the `ndc` tile now shows "—" instead
+of a fabricated "0" when the study is `incomplete`, consistent with its sibling tiles. Also fixed the
+two "minor, no fix required" items the designer flagged as trivial: `IncompleteState` now passes lucide's
+`Sigma` icon to `EmptyState` (board's Σ glyph) instead of the generic fallback. The CTA-vs-always-visible-
+grid difference was left as-is per the designer's own "functionally equivalent" call. `pnpm --filter
+@kaenal/web typecheck` and scoped `eslint` clean; demo sign-in re-verified 201 after starting the API dev
+server fresh this session (no DB-resetting command run, so no re-seed was needed).
+
 **Sprint 04 — Risk register + MSA/Gauge R&R, Gate 2 ACCEPTED (2026-09-29), ready to merge.** Closes two
 real modules per R1-R5/M1-M5/X1 + the FMEA reverse pane (R3). Full sequence: Slice 1-3 (migrations 0064-0065,
 `packages/core` risk-matrix.ts/gauge-rr.ts/rbac.ts, shared DTOs/contract), Slice 4 (API services + controllers

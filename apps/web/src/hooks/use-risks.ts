@@ -39,6 +39,20 @@ export function useRisk(id: string | null) {
   });
 }
 
+/**
+ * Batch-resolves a fixed set of risks by id via `listRisks`'s `ids` filter
+ * (R1 `[AMENDED-2]`) — used by FMEA's `FmeaLinkedRisks` reverse pane to read
+ * each linked risk's real `code`/`residualScore` for its Code/Residual
+ * columns (DESIGN-04 §11 fix 2), never a fabricated or client-guessed value.
+ */
+export function useRisksByIds(ids: readonly string[]) {
+  const client = getApiClient();
+  return useQuery({
+    ...apiQueries.risks.list(client, ids.length > 0 ? { query: { ids: ids.join(",") } } : undefined),
+    enabled: ids.length > 0,
+  });
+}
+
 function invalidateRisk(qc: ReturnType<typeof useQueryClient>, risk: RiskDto): void {
   qc.setQueryData(queryKeys.risks.detail(risk.id), risk);
   void qc.invalidateQueries({ queryKey: queryKeys.risks.list() });

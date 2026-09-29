@@ -28,7 +28,7 @@ export function RiskLinkedRecords({ risk, canManage }: { risk: RiskDto; canManag
 
   const rows = (links.data?.items ?? []).map((l) => {
     const opp = l.fromKind === "risk" && l.fromId === risk.id ? { kind: l.toKind, id: l.toId } : { kind: l.fromKind, id: l.fromId };
-    return { key: l.id, kind: opp.kind, id: opp.id, label: l.label ?? null };
+    return { key: l.id, kind: opp.kind, id: opp.id, label: l.label ?? null, relation: l.relation };
   });
 
   function onSelect(record: LinkPickerRecord): void {
@@ -79,6 +79,7 @@ export function RiskLinkedRecords({ risk, canManage }: { risk: RiskDto; canManag
               <tr>
                 <th style={{ width: 110 }}>Type</th>
                 <th>Record</th>
+                <th style={{ width: 130 }}>Relation</th>
                 <th style={{ width: 24 }} />
               </tr>
             </thead>
@@ -87,15 +88,16 @@ export function RiskLinkedRecords({ risk, canManage }: { risk: RiskDto; canManag
                 const href = entityHref(r.kind, r.id);
                 const Icon = entityIcon(r.kind);
                 const recordLabel = r.label ?? `${r.id.slice(0, 8)}…`;
+                const relationLabel = r.relation.length > 0 ? r.relation[0]!.toUpperCase() + r.relation.slice(1) : "Linked";
                 return (
                   <tr key={r.key}>
-                    <td colSpan={3} style={{ padding: 0 }}>
+                    <td colSpan={4} style={{ padding: 0 }}>
                       <button
                         type="button"
                         disabled={href === null}
                         onClick={href !== null ? () => router.push(href) : undefined}
                         className="grid w-full items-center gap-2 px-2.5 py-2 text-left enabled:hover:bg-[var(--bg-subtle)] disabled:cursor-default"
-                        style={{ gridTemplateColumns: "110px 1fr 24px" }}
+                        style={{ gridTemplateColumns: "110px 1fr 130px 24px" }}
                         aria-label={`${entityLabel(r.kind)} ${recordLabel}`}
                       >
                         <span className="k-chip" style={{ background: "var(--bg-subtle)" }}>
@@ -103,6 +105,9 @@ export function RiskLinkedRecords({ risk, canManage }: { risk: RiskDto; canManag
                         </span>
                         <span className="mono" style={{ fontSize: 11.5 }}>
                           {recordLabel}
+                        </span>
+                        <span className="text-muted" style={{ fontSize: 11.5 }}>
+                          {relationLabel}
                         </span>
                         {href !== null && <ChevronRight size={13} className="text-muted" aria-hidden />}
                       </button>
