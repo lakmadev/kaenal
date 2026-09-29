@@ -138,6 +138,10 @@ export function useRecordTraining() {
       void qc.invalidateQueries({ queryKey: queryKeys.training.matrix() });
       void qc.invalidateQueries({ queryKey: queryKeys.training.summary() });
       void qc.invalidateQueries({ queryKey: queryKeys.training.gaps() });
+      // A new record changes the competency's own live `trainingRecordCount`
+      // (T1 AC9) — the catalog editor's archive-confirm copy reads it, so it
+      // must never go stale after a completion is recorded against it.
+      void qc.invalidateQueries({ queryKey: queryKeys.competencies.all });
       for (const row of result.items) {
         void qc.invalidateQueries({ queryKey: queryKeys.training.records({ memberId: row.memberId }) });
       }

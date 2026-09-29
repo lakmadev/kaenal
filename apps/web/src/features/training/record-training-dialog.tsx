@@ -31,7 +31,7 @@ export function RecordTrainingDialog({
 }): React.ReactElement {
   const toast = useToast();
   const members = useMembers();
-  const competencies = useCompetencies({ limit: 200 });
+  const competencies = useCompetencies({ limit: 100 });
   const record = useRecordTraining();
   const fileInputRef = useRef<HTMLInputElement>(null);
 

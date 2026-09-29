@@ -56,7 +56,7 @@ export function TrainingMemberDrawer({
   onClose: () => void;
   onRecordTraining: (competencyId?: string) => void;
 }): React.ReactElement {
-  const records = useTrainingRecords({ memberId, limit: 200 });
+  const records = useTrainingRecords({ memberId, limit: 100 });
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {

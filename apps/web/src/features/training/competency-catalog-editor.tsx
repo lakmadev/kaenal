@@ -35,8 +35,8 @@ const EMPTY_DRAFT: Draft = { id: null, code: "", name: "", mandatory: false, val
  */
 export function CompetencyCatalogEditor({ canManage, onClose }: { canManage: boolean; onClose: () => void }): React.ReactElement {
   const toast = useToast();
-  const active = useCompetencies({ limit: 200 });
-  const archived = useCompetencies({ status: "archived", limit: 200 });
+  const active = useCompetencies({ limit: 100 });
+  const archived = useCompetencies({ status: "archived", limit: 100 });
   const create = useCreateCompetency();
   const update = useUpdateCompetency();
   const archive = useArchiveCompetency();
@@ -291,8 +291,8 @@ export function CompetencyCatalogEditor({ canManage, onClose }: { canManage: boo
               It stops appearing on the training matrix, coverage KPIs, gap calculations and due/expiry notifications
               from now on. {confirmArchive.trainingRecordCount}{" "}
               {confirmArchive.trainingRecordCount === 1 ? "member's" : "members'"} existing training records against
-              it are kept and stay visible in each member's own history — nothing is deleted. You can un-archive it
-              at any time to bring it back.
+              it are kept and stay visible in each member&rsquo;s own history — nothing is deleted. You can un-archive
+              it at any time to bring it back.
             </p>
             <div className="mt-3 flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setConfirmArchive(null)}>

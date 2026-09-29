@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Download, Plus, Settings2 } from "lucide-react";
 import type { TrainingGapDto, TrainingMatrixCellDto, TrainingMatrixRowDto } from "@kaenal/types";
@@ -61,7 +61,7 @@ export function TrainingPage(): React.ReactElement {
   }, [queryInput]);
 
   const summary = useTrainingSummary();
-  const competencies = useCompetencies({ limit: 200 });
+  const competencies = useCompetencies({ limit: 100 });
   const matrix = useTrainingMatrix({
     limit: 100,
     mandatoryOnly: filter === "mandatory" ? true : undefined,
