@@ -99,6 +99,19 @@ export const CAPABILITIES = [
   "risk:manage",
   "msa:view",
   "msa:manage",
+  // Calibration management + Training & competency (Sprint 05 C1/T1, X1 AC1).
+  // Distribution mirrors `risk:view`/`risk:manage`/`msa:view`/`msa:manage`
+  // exactly: admin/manager/auditor get full read+write (auditor is an
+  // elevated QMS role here, same reasoning as `fmea:manage`/`risk:manage`);
+  // inspector/viewer are read-only (curated web nav access, X1 AC1/AC2 — the
+  // person a due/expiry notification is about must be able to see their own
+  // instrument/competency state, not just the roles that manage the module);
+  // partner holds neither (an instrument register and a member competency
+  // matrix are internal-tenant data, not portal-scoped).
+  "calibration:view",
+  "calibration:manage",
+  "training:view",
+  "training:manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -147,6 +160,10 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "risk:manage",
     "msa:view",
     "msa:manage",
+    "calibration:view",
+    "calibration:manage",
+    "training:view",
+    "training:manage",
   ],
 
   auditor: [
@@ -175,6 +192,10 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "risk:manage",
     "msa:view",
     "msa:manage",
+    "calibration:view",
+    "calibration:manage",
+    "training:view",
+    "training:manage",
   ],
 
   inspector: [
@@ -194,6 +215,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ai:use",
     "risk:view",
     "msa:view",
+    "calibration:view",
+    "training:view",
   ],
 
   viewer: [
@@ -211,6 +234,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "ai:use",
     "risk:view",
     "msa:view",
+    "calibration:view",
+    "training:view",
   ],
 
   // External supplier contact — the read-only portal, nothing internal. Every

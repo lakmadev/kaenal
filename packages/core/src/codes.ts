@@ -22,7 +22,12 @@ export type CodeKind =
   // mock codes (`R-NNN`, `MSA-NNN`) conflicted with this module's one
   // established `PREFIX-YYYY-NNNN` pattern, so both were corrected to it.
   | "risk"
-  | "msa";
+  | "msa"
+  // Sprint 05 C1 — the calibration instrument register. Competency codes are
+  // NOT in this list: a competency `code` is a short, author-chosen slug
+  // (`iatf`, `fmea`) set once by an admin, never sequence-generated via
+  // `counters` (§3.1 item 12) — only instruments get a `PREFIX-YYYY-NNNN` code.
+  | "instrument";
 
 const PREFIXES: Readonly<Record<CodeKind, string>> = {
   ncr: "NCR",
@@ -36,6 +41,7 @@ const PREFIXES: Readonly<Record<CodeKind, string>> = {
   ppap: "PPAP",
   risk: "RISK",
   msa: "MSA",
+  instrument: "CAL",
 };
 
 /** Sequence width. Numbers beyond 9999 simply get longer rather than wrapping. */
