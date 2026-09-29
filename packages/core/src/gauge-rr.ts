@@ -27,25 +27,18 @@
  * scale, not at this module's `studyVariation` (5.15σ) scale. Same number,
  * different unit label; not a formula discrepancy.
  *
- * The ANOVA method (`crossed_anova`) reconciles on the raw SS/MS table (this
- * module's decomposition reproduces the paper's SS_Part=88.362, SS_Operator=
- * 3.167 and their MS values exactly, and independently confirms the paper's
- * interaction-pooling condition `MS_interaction ≤ MS_equipment` really does
- * trigger for this dataset) but **does not** reconcile on the paper's final
- * pooled variance-component numbers (σ²_repeatability=0.0400 etc.), because
- * the paper's pooling convention — on triggering pooling, recompute a merged
- * error term `MSE' = (SS_interaction + SS_equipment) / (df_interaction +
- * df_equipment)` and substitute it for `MS_interaction`/`MS_equipment` in
- * every downstream formula — is not what SPRINT-04 §3.2 approved. §3.2's
- * pooling rule (implemented below) only zeroes the appraiser×part component
- * when it pools; it does not redistribute that SS into repeatability. This
- * is a genuine, documented formula-convention difference (~7% on σ²_GRR for
- * this dataset), not a rounding error — see the test file for the numbers
- * side by side. It does not change this dataset's ndc (4, under either
- * convention) or verdict (`reject`, under either convention), which is the
- * classification the sprint's acceptance criteria actually depend on.
- * Reconciling the two conventions, if desired, is a §3.2 formula change and
- * out of this task's scope (SCRUM: needs sign-off, not a silent edit here).
+ * The ANOVA method (`crossed_anova`) reconciles exactly on the paper's
+ * published pooled variance-component numbers (σ²_repeatability=0.0400,
+ * σ²_reproducibility=0.0515, σ²_part=1.086, σ²_GRR=0.0914), per SPRINT-04
+ * §3.2 `[AMENDED-5]`: when interaction pooling triggers
+ * (`MS_interaction ≤ MS_equipment`), a merged error term `MSE_pooled =
+ * (SS_interaction + SS_equipment) / (df_interaction + df_equipment)` is
+ * substituted for BOTH `MS_interaction` and `MS_equipment` in every
+ * downstream formula (repeatability included, not just the appraiser×part
+ * term). An earlier "zero-out" variant only zeroed the appraiser×part
+ * component on pooling without redistributing its SS into repeatability;
+ * that diverged ~7% on σ²_GRR from this same published example and was
+ * corrected by `[AMENDED-5]` — see the test file for the worked numbers.
  */
 
 export type MsaMethod = "crossed_anova" | "average_range";
@@ -298,20 +291,25 @@ export function crossedAnovaGaugeRr(input: GaugeRrStudyInput): GaugeRrResult {
   const msInteraction = ssInteraction / dfInteraction;
   const msEquipment = ssEquipment / dfEquipment;
 
-  // Interaction pooling (fixed AIAG-convention rule, not configurable): when
-  // MS_interaction ≤ MS_equipment the clamped formulas below already zero out
-  // the interaction variance component on their own — this flag just names
-  // that state for the report/UI. Note (see module doc header): this zeroes
-  // the appraiser×part term but does not redistribute its SS into
-  // repeatability the way a full pooled-ANOVA re-fit would — a documented
-  // §3.2 simplification, confirmed against the real AIAG worked example.
+  // Interaction pooling (fixed AIAG-convention rule, not configurable):
+  // SPRINT-04 §3.2 [AMENDED-5], the real published AIAG pooled-MSE
+  // convention. When MS_interaction ≤ MS_equipment, the interaction and
+  // equipment error terms are merged into one pooled error term, MSE_pooled,
+  // which replaces BOTH MS_interaction and MS_equipment in every downstream
+  // formula below — repeatability included, not just the appraiser×part
+  // term, which is why `msE` (repeatability's error term) and `msSubtractor`
+  // (the appraiser/part subtraction's error term) coincide once pooled but
+  // differ, as MS_equipment vs MS_interaction, when not pooled.
   const interactionPooled = msInteraction <= msEquipment;
+  const msePooled = (ssInteraction + ssEquipment) / (dfInteraction + dfEquipment);
+  const msE = interactionPooled ? msePooled : msEquipment;
+  const msSubtractor = interactionPooled ? msePooled : msInteraction;
 
-  const sigma2Repeatability = msEquipment;
-  const sigma2AppraiserByPart = Math.max(0, (msInteraction - msEquipment) / n);
-  const sigma2Appraiser = Math.max(0, (msAppraiser - msInteraction) / (n * p));
+  const sigma2Repeatability = msE;
+  const sigma2AppraiserByPart = interactionPooled ? 0 : Math.max(0, (msInteraction - msEquipment) / n);
+  const sigma2Appraiser = Math.max(0, (msAppraiser - msSubtractor) / (n * p));
   const sigma2Reproducibility = sigma2Appraiser + sigma2AppraiserByPart;
-  const sigma2PartToPart = Math.max(0, (msPart - msInteraction) / (n * a));
+  const sigma2PartToPart = Math.max(0, (msPart - msSubtractor) / (n * a));
 
   return finalize({
     method: "crossed_anova",

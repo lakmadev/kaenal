@@ -21,11 +21,9 @@ import {
  * Measurement Systems Analysis manual published by AIAG" — see the
  * `describe("AIAG MSA 4th-edition worked example ...")` blocks below for the
  * raw dataset and the published numbers, independently re-derived by hand
- * from the raw data before being checked against this module's output (see
- * `gauge-rr.ts`'s doc header for the one documented non-reconciliation: the
- * ANOVA method's pooled-interaction variance components use a different, but
- * equally real, convention than the paper's — the ndc and verdict, which are
- * what the sprint's acceptance criteria gate on, agree under both).
+ * from the raw data before being checked against this module's output (per
+ * SPRINT-04 §3.2 `[AMENDED-5]`, the ANOVA method's pooled-MSE convention now
+ * reconciles exactly with the paper's published variance components).
  *
  * The small hand-computed fixtures below (designed appraiser×part
  * interaction table, verdict-boundary cases) are kept as supplementary edge-
@@ -166,32 +164,25 @@ describe("AIAG MSA 4th-edition worked example — crossed_anova (McNeese/BPI 201
     expect(result.appraiserByPart!.stdDev).toBeCloseTo(0, 10);
   });
 
-  it("documented non-reconciliation: this module's §3.2 pooling convention gives different (but internally consistent) variance components than the paper's pooled-MSE convention — see gauge-rr.ts's doc header", () => {
-    // This module (SPRINT-04 §3.2, as approved): σ²_repeatability =
-    // MS_equipment (unpooled) = 0.04598; σ²_reproducibility uses the raw
-    // (unpooled) MS_interaction in its subtraction = 0.05212; σ²_part
-    // (same) = 1.08867. The paper's convention instead recomputes a merged
-    // error term MSE' = (SS_interaction+SS_equipment)/(df_interaction+
-    // df_equipment) = 3.118/78 = 0.0400 and substitutes it for
-    // MS_interaction/MS_equipment throughout, giving σ²_repeatability=0.0400,
-    // σ²_reproducibility=0.0515, σ²_part=1.086 instead. Both are internally
-    // consistent; they are not the same formula. Asserting against THIS
-    // module's own (§3.2) hand re-derivation, not the paper's pooled numbers:
-    expect(result.repeatability.stdDev ** 2).toBeCloseTo(0.04598, 4);
-    expect(result.reproducibility.stdDev ** 2).toBeCloseTo(0.05212, 4);
-    expect(result.partToPart.stdDev ** 2).toBeCloseTo(1.08867, 3);
-    expect(result.grr.stdDev ** 2).toBeCloseTo(0.09811, 4);
-    expect(result.total.stdDev ** 2).toBeCloseTo(1.18678, 3);
+  it("matches the paper's published pooled-MSE variance components exactly (SPRINT-04 §3.2 [AMENDED-5])", () => {
+    // Pooling triggers (MS_interaction=0.01994 ≤ MS_equipment=0.04598), so
+    // MSE_pooled = (SS_interaction+SS_equipment)/(df_interaction+df_equipment)
+    // = 3.118/78 = 0.0400 replaces both MS_interaction and MS_equipment
+    // everywhere below — reproducing the paper's published numbers:
+    // σ²_repeatability=0.0400, σ²_reproducibility=0.0515, σ²_part=1.086,
+    // σ²_GRR=0.0914.
+    expect(result.repeatability.stdDev ** 2).toBeCloseTo(0.04, 3);
+    expect(result.reproducibility.stdDev ** 2).toBeCloseTo(0.0515, 3);
+    expect(result.partToPart.stdDev ** 2).toBeCloseTo(1.086, 3);
+    expect(result.grr.stdDev ** 2).toBeCloseTo(0.0914, 3);
+    expect(result.total.stdDev ** 2).toBeCloseTo(1.1774, 3);
   });
 
-  it("ndc and verdict agree with the paper regardless of which pooling convention is used", () => {
-    // This module's own numbers: %StudyVar_GRR ≈ 28.75%, ndc = floor(1.41 ×
-    // 1.04339/0.31322) = floor(4.697) = 4. The paper's pooled-MSE numbers
-    // give %StudyVar_GRR ≈ 27.88%, ndc = floor(1.41 × 1.04211/0.30232) =
-    // floor(4.860) = 4 — the same ndc, and both are < 5, so both convention's
-    // verdicts are `reject`, even though %StudyVar_GRR alone (~28%) sits in
-    // the "acceptable" 10-30% band. This is exactly the ndc-overrides-
-    // %StudyVar precedence edge case the sprint's DoD calls for.
+  it("ndc and verdict match the paper", () => {
+    // ndc = floor(1.41 × √1.086444/√0.091467) = floor(1.41 × 3.4463) =
+    // floor(4.859) = 4. %StudyVar_GRR ≈ 27.88% sits in the "acceptable"
+    // 10-30% band, but ndc=4 < 5 overrides it — the ndc-overrides-%StudyVar
+    // precedence edge case the sprint's DoD calls for.
     expect(result.grr.pctStudyVar).toBeGreaterThanOrEqual(10);
     expect(result.grr.pctStudyVar).toBeLessThan(30);
     expect(result.ndc).toBe(4);
@@ -296,15 +287,21 @@ describe("crossedAnovaGaugeRr — Case B: no real interaction, pooled, acceptabl
     expect(result.appraiserByPart?.stdDev).toBeCloseTo(0, 10);
   });
 
-  it("recovers the hand-derived variance components", () => {
+  it("recovers the hand-derived variance components (pooled-MSE convention, SPRINT-04 §3.2 [AMENDED-5])", () => {
     // SS_appraiser = 2·3·[(20-20)²+(21-20)²+(19-20)²] = 12, df=2 → MS=6
-    // SS_equipment = Σ(±0.5)² over 18 points = 4.5, df=9 → MS=0.5
-    expect(result.repeatability.stdDev ** 2).toBeCloseTo(0.5, 10);
-    expect(result.appraiser!.stdDev ** 2).toBeCloseTo(1, 10); // (6-0)/(2·3)
-    expect(result.reproducibility.stdDev ** 2).toBeCloseTo(1, 10);
-    expect(result.partToPart.stdDev ** 2).toBeCloseTo(100, 10); // (600-0)/(2·3)
-    expect(result.grr.stdDev ** 2).toBeCloseTo(1.5, 10);
-    expect(result.total.stdDev ** 2).toBeCloseTo(101.5, 10);
+    // SS_interaction = 0, df=4; SS_equipment = Σ(±0.5)² over 18 points = 4.5,
+    // df=9 → MS=0.5. Pooled: MSE_pooled = (0+4.5)/(4+9) = 4.5/13 = 0.346154,
+    // replacing both MS_interaction and MS_equipment below.
+    const msePooled = 4.5 / 13;
+    expect(result.repeatability.stdDev ** 2).toBeCloseTo(msePooled, 10);
+    expect(result.appraiser!.stdDev ** 2).toBeCloseTo((6 - msePooled) / 6, 10);
+    expect(result.reproducibility.stdDev ** 2).toBeCloseTo((6 - msePooled) / 6, 10);
+    expect(result.partToPart.stdDev ** 2).toBeCloseTo((600 - msePooled) / 6, 10); // (SS_part=1200, df=2 → MS=600)
+    expect(result.grr.stdDev ** 2).toBeCloseTo(msePooled + (6 - msePooled) / 6, 10);
+    expect(result.total.stdDev ** 2).toBeCloseTo(
+      msePooled + (6 - msePooled) / 6 + (600 - msePooled) / 6,
+      10,
+    );
   });
 
   it("is acceptable: 10% ≤ %StudyVar_GRR < 30% and ndc ≥ 5", () => {
@@ -333,8 +330,14 @@ describe("crossedAnovaGaugeRr — Case C: identical appraisers, tight noise, exc
   });
 
   it("is excellent: %StudyVar_GRR < 10%", () => {
-    // MS_equipment = Σ(±0.3)² over 18 points / 9 = 0.18 → GRR σ² = 0.18, total σ² = 100.18
-    expect(result.grr.stdDev ** 2).toBeCloseTo(0.18, 10);
+    // SS_interaction=0, df=4; SS_equipment = Σ(±0.3)² over 18 points = 1.62,
+    // df=9 → MS_equipment=0.18. Pooled: MSE_pooled = (0+1.62)/(4+9) =
+    // 1.62/13 = 0.124615, replacing MS_equipment for repeatability (no
+    // appraiser/part effect here, so those components are unaffected at 0
+    // and 99.979... respectively, but GRR/total shift with repeatability).
+    const msePooled = 1.62 / 13;
+    expect(result.repeatability.stdDev ** 2).toBeCloseTo(msePooled, 10);
+    expect(result.grr.stdDev ** 2).toBeCloseTo(msePooled, 10);
     expect(result.grr.pctStudyVar).toBeLessThan(10);
     expect(result.ndc).toBeGreaterThanOrEqual(5);
     expect(result.verdict).toBe("excellent");
