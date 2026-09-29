@@ -1187,3 +1187,74 @@ No further schema change beyond N1's new route (no new column). Per ROADMAP §0 
 blocked until: (1) the planner re-reviews this Round 2 amendment and lifts the SEND BACK, and (2) the user
 grants delta-approval on the corrected §3-Addendum text (the column **and** its reopen/overwrite/retention
 rules together, as one package — not the round-1 text in isolation).
+
+---
+
+## 10. Gate 2 — PO acceptance verdict (2026-09-29, Ceremony 7)
+
+**Verified independently this session** (not taken on the implementer's, `web-fidelity-reviewer`'s,
+`security-reviewer`'s or `ci-gate-runner`'s word alone — commands re-run, code re-read, demo login re-proven):
+
+| Check | Result |
+|---|---|
+| `pnpm --filter @kaenal/core test -- gauge-rr risk-matrix codes` | 77/77 green, incl. all AIAG worked-example, bounds, verdict-precedence, K-table tests |
+| `pnpm --filter @kaenal/api test -- msa risk entity-links exports fmea` | 48/48 green |
+| `pnpm --filter @kaenal/api test` (full) | 618/622 green; the same 4 failures `ci-gate-runner` reported (`webhook-config.test.ts` ×3, `scoped-transaction.test.ts` ×1) reproduced identically — confirmed pre-existing and unrelated (webhook SSRF/policy-default assertions and a DB-pool ECONNRESET, neither file touched by this sprint) |
+| `pnpm test:rls` | 357/357 green (up from Sprint 03's 333 — consistent with `risks`/`risk_controls`/`msa_studies`/`msa_measurements` added) |
+| `pnpm db:check` | 58 tenant tables, RLS lint clean |
+| `pnpm typecheck` (all 7 packages) | Clean |
+| `pnpm lint` | Clean, no findings |
+| `pnpm --filter @kaenal/mobile typecheck` | Clean — independently re-run, not just trusted from the CI gate |
+| Demo login | Re-seeded (`seed-demo.ts`) after this session's own `pnpm test`/`pnpm test:rls` runs, `POST /v1/auth/sign-in` → **201**, confirmed twice (once before, once after a stray process restart) |
+| Migrations `0064`/`0065`/`0066` | Read in full: `apply_tenant_rls('risks')`/`('risk_controls')`, leading `tenant_id` indexes, composite member FKs, `entity_links` CHECK widened for `risk`/`fmea` exactly mirroring `0063`'s `finding` pattern; `0066` closes a real DB-CHECK/Zod-enum mismatch the exports suite itself caught |
+| **R2 controls editor** | Confirmed real, not the old fabricated mock: `risk.service.ts` persists `risk_controls` via a delete-and-reinsert full-array replace inside the same `updated` audit event; `risk-controls-editor.tsx` derives its rows from `risk.controls` (the parent's real, per-risk data), keyed by `risk.id` so it resets cleanly per selected risk — no fixed four-row template anywhere |
+| **M2 reopen/re-complete lifecycle + lockVersion race** | Read `msa.service.ts` in full: `recordMeasurements`/`complete`/`reopen` all check `lockVersion` first (409 on stale), `recordMeasurements` 422s on a `completed` study and on any out-of-range cell index, `complete` 422s on non-`draft` and on an incomplete grid, `reopen` 422s on non-`completed`; `completed_at` is overwritten on re-completion and kept (not cleared) through reopen. `apps/api/test/msa.test.ts`'s full-lifecycle test (draft→fill→complete→reopen→edit→re-complete) and its dedicated race test (a stale-lockVersion batch racing a concurrent completion → 409, not corruption) both pass and genuinely exercise every guard named above, not a superficial happy-path check |
+| **Security fix** (`e472560`) | Read the diff in full: `entity-ref.ts`'s `assertEntityVisible` now takes an optional `membership` and 404s a foreign-plant primary entity for the four plant-scoped kinds (`inspection`/`ncr`/`audit`/`finding`, mirroring `graph.service.ts`'s own `PLANT_SCOPED_KINDS`); `isEntityVisible` reuses the same check to decide whether `entity-links.service.ts`'s `resolveLabel` may resolve a *linked* target's label. `entity-links.test.ts`'s new "plant scoping (SECURITY FIX)" block (4 tests, independently re-run, all green) proves the exploit is closed (foreign-plant label omitted despite holding the kind's `:view` capability), proves no over-correction (same-plant inspector and an unrestricted manager still see the label), and proves the fix applies at both read (`GET /v1/entity-links`) and write (`POST /v1/entity-links` 404s a foreign-plant target at link-creation time too) |
+| **Dead-end audit (§6)** | `grep -rn "ModulePlaceholder"` finds no match anywhere near risk/msa; `PLANNED_MODULES` has no `risk`/`msa` keys (comments confirm "built — see app/(app)/risk|msa"); `apps/web/src/app/(app)/risk/page.tsx` and `.../msa/page.tsx` are real routes; `apps/web/test/placeholder-ledger.test.ts`'s structural check (every actual placeholder is ledgered, every ledger entry still exists) passes, which independently proves neither route is a stray, un-ledgered placeholder |
+| RBAC grant matrix (X1 AC1) | `packages/core/src/rbac.ts` read in full: admin/manager/auditor all four capabilities; inspector/viewer `risk:view`/`msa:view` only; partner neither — exact match |
+| Auditor nav fix (X1 AC2) | `apps/web/src/config/rbac.ts`'s `ROLE_NAV.auditor` set includes `risk`, `msa`, **and** `fmea` — exact match, confirmed by direct read |
+| R4 wizard defaults | `create-wizard.ts`'s `buildCreateBody` sets `status: "active"`, `trend: "flat"`, omits `residualScore`; `risk.service.ts`'s `create` applies `body.residualScore ?? body.likelihood * body.impact` — matches R4 AC1's inherent-score default exactly |
+| M4 Date column | `msa-page.tsx`: `longDate(study.completedAt ?? study.createdAt)` — exact match to AC3's precedence rule |
+| M3 verdict vocabulary/color | `msa-page.tsx`'s verdict style map: `excellent`=success/green, `acceptable`=warning/amber, `reject`=danger/red; no "pass/marginal/fail" string anywhere in the MSA feature directory |
+| R1 KPI zero-case | `risk-register-page.tsx`: `reviewedThisQuarterPct !== null ? ... : "—"`, and the service returns `null` at `total === 0` — exact match |
+| Exports (R5/M5) | `run-export.ts` has real `risk_board_pack`/`gauge_rr_aiag_report` branches (not stubs), gated by `0066`'s widened CHECK |
+
+**Minor, non-blocking gaps found:**
+
+1. **`PROGRESS.md` "Current status" is stale**, same class of miss Sprint 03's Gate 2 flagged. Its top entry
+   stops at "Slice 6: `/risk` web module" (2026-09-29) and never mentions the MSA web module (`4523ed3`), the
+   CreateWizard risk story (`7d8dbcc`), the X1 nav/placeholder-retirement commit (`43affe0`), the security fix
+   (`e472560`), or the two docker-compose fixes (`8e4a1be`, `e95c61d`) — five real commits undocumented. This
+   is a direct miss against CLAUDE.md's session protocol and §8's own "PROGRESS.md updated" DoD line.
+2. **`progress_mobile.md` has no Sprint 04 entry at all** (confirmed by grep — the file's "Current status"
+   section's newest entry is still Sprint 03 Part B). §8 explicitly asks for "an explicit 'Sprint 04 — mobile
+   unaffected' line" — missing, not just under-detailed. `pnpm --filter @kaenal/mobile typecheck` itself is
+   clean (independently confirmed above), so the substance holds; only the record of it is missing.
+3. **`GET /v1/risks/summary`'s own test is looser than the DoD asks for.** §8 says the four non-quarter KPI
+   formulas and the audit-events-derived "reviewed this quarter" formula are "unit-tested against seeded
+   fixtures, not eyeballed against the UI." `risk.test.ts`'s one `summary` test only asserts
+   `toBeGreaterThanOrEqual(1)`-style loose bounds and never exercises the `review_due` overdue-date boundary,
+   the exact `residual_score` 9-vs-10 high-residual boundary at the summary-endpoint level (thresholds ARE
+   precisely tested in `risk-matrix.test.ts`'s `scoreBand`, which `summary()` calls — so the underlying logic
+   is solid), or a real zero-risk tenant hitting the `null`/"—" path end-to-end. The implementation itself is
+   correct (read and confirmed above); this is a test-thoroughness gap, not a functional defect.
+
+**None of the three gaps above are functional defects** — every acceptance criterion I could exercise against
+real code, real tests I re-ran myself, and the demo app's live sign-in checks out. All three are
+documentation/test-thoroughness misses CLAUDE.md and this sprint's own DoD treat as part of "done," not
+optional polish, so they block a clean close but not the underlying engineering.
+
+**One forward-looking backlog candidate** (SCRUM.md's continuous-improvement rule, logged not built): this is
+the **second consecutive sprint** (Sprint 03's Gate 2, then this one) where `PROGRESS.md`/`progress_mobile.md`
+fell behind the actual commit history by several real slices before Gate 2 caught it. **Q28 (new):** worth a
+small process fix — e.g. a pre-Gate-2 checklist step (or a lightweight CI check comparing `PROGRESS.md`'s
+newest dated entry against `git log`'s newest feature commit date) that flags staleness automatically, rather
+than relying on the PO to catch it by hand at acceptance time every sprint.
+
+**Verdict: PO acceptance — ACCEPTED, conditional on `PROGRESS.md`/`progress_mobile.md` being brought current**
+(gaps #1-#2 above) before the sprint is marked closed. Gap #3 (the loose `summary` test) should be tightened
+in the same close-out pass or logged as an explicit follow-up if deferred — it is not a functional defect, but
+the DoD's own wording ("not eyeballed") is not yet fully met. No product code, schema, or contract rework is
+required: every migration, route, service, capability, audit event, and UI control this sprint introduced is
+real, wired, and independently verified against running tests and code, not taken on any prior reviewer's word
+alone.
