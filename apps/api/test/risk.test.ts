@@ -34,6 +34,15 @@ let viewerTok = "";
 let globexMgrTok = "";
 let mgrUserId = "";
 
+// A dedicated, freshly-provisioned tenant for the `GET /v1/risks/summary`
+// tests below, so its KPI counts are exact against a known fixture set —
+// never mixed with ACME's ambient rows from the CRUD/controls describe
+// blocks above (or from any other suite touching the shared `acme` tenant).
+const SUMMARY_TENANT = `${TAG}-sum`;
+let summaryTenantId = "";
+let summaryTok = "";
+let summaryOwnerId = "";
+
 type Srv = Parameters<typeof request>[0];
 const server = (): Srv => app.getHttpServer() as Srv;
 
@@ -97,9 +106,21 @@ beforeAll(async () => {
   mgrTok = await token(ACME, `${TAG}-mgr@acme.test`);
   viewerTok = await token(ACME, `${TAG}-viewer@acme.test`);
   globexMgrTok = await token(GLOBEX, `${TAG}-mgr@globex.test`);
+
+  await control.query(
+    `INSERT INTO control.tenants (id, slug, name, model, status) VALUES (uuidv7(), $1, 'Risk Summary Fixture', 'shared', 'active')
+     ON CONFLICT (slug) DO NOTHING`,
+    [SUMMARY_TENANT],
+  );
+  summaryTenantId = await tid(SUMMARY_TENANT);
+  summaryOwnerId = await seedMember(summaryTenantId, `${TAG}-summary-mgr@sum.test`, "manager");
+  summaryTok = await token(SUMMARY_TENANT, `${TAG}-summary-mgr@sum.test`);
 });
 
 afterAll(async () => {
+  await control.query(`DELETE FROM risk_controls WHERE tenant_id = $1`, [summaryTenantId]);
+  await control.query(`DELETE FROM risks WHERE tenant_id = $1`, [summaryTenantId]);
+  await control.query(`DELETE FROM control.tenants WHERE id = $1`, [summaryTenantId]);
   await cleanup();
   const ids = (
     await control.query<{ id: string }>("SELECT id FROM control.users WHERE email LIKE $1", [`${TAG}-%@%.test`])
@@ -280,25 +301,73 @@ describe("Risk controls (R2) — full-array replace guarded by the parent's lock
 });
 
 describe("GET /v1/risks/summary", () => {
-  it("aggregates counts across ALL visible risks, honestly empty-cased at zero", async () => {
-    await newRisk({ title: `${TAG} summary-high`, likelihood: 5, impact: 5, treatment: "accept" });
-    const acceptedRisk = await newRisk({
-      title: `${TAG} summary-accepted`,
+  async function newSummaryRisk(overrides: Record<string, unknown> = {}): Promise<{ id: string; body: Record<string, unknown> }> {
+    const res = await authed("post", "/v1/risks", SUMMARY_TENANT, summaryTok).send({
+      category: "cyber",
+      title: `${TAG} sum-fixture`,
+      owner: summaryOwnerId,
       likelihood: 1,
       impact: 1,
-      treatment: "accept",
-      status: "accepted",
-      residualScore: 1,
+      treatment: "mitigate",
+      ...overrides,
     });
-    expect(acceptedRisk.body["status"]).toBe("accepted");
+    expect(res.status).toBe(201);
+    return { id: res.body.id as string, body: res.body as Record<string, unknown> };
+  }
 
-    const res = await acme("get", "/v1/risks/summary", viewerTok);
+  // Runs first, against the freshly-provisioned SUMMARY_TENANT before any
+  // risk exists in it — a genuine zero-risk tenant, not "no risks matched a
+  // filter." R1 AC6's own stated empty-case rule: reviewedThisQuarterPct is
+  // `null` (never `0`/`NaN`) when total is 0.
+  it("reads real zeros for a genuinely empty tenant", async () => {
+    const res = await authed("get", "/v1/risks/summary", SUMMARY_TENANT, summaryTok);
     expect(res.status).toBe(200);
-    expect(res.body.total).toBeGreaterThanOrEqual(2);
-    expect(res.body.accepted).toBeGreaterThanOrEqual(1);
-    expect(res.body.highResidual).toBeGreaterThanOrEqual(1);
-    expect(res.body.byCategory).toHaveProperty("cyber");
-    expect(typeof res.body.reviewedThisQuarterPct === "number" || res.body.reviewedThisQuarterPct === null).toBe(true);
+    expect(res.body).toEqual({
+      total: 0,
+      byCategory: {},
+      byBand: { low: 0, medium: 0, high: 0, critical: 0 },
+      highResidual: 0,
+      treatmentsOverdue: 0,
+      accepted: 0,
+      reviewedThisQuarterPct: null,
+    });
+  });
+
+  it("aggregates exact counts against a deterministic fixture set, each bucket with a counterexample that proves it isn't just 'all risks'", async () => {
+    // R1: residual 1 (low band) — the "not high, not overdue, not accepted"
+    // control case every other bucket's exactness is checked against.
+    await newSummaryRisk({ category: "cyber", reviewDue: "2099-01-01" });
+    // R2: residual exactly 10 — the high-residual boundary itself (R1 AC6:
+    // scoreBand >= 10 is "high").
+    await newSummaryRisk({ category: "cyber", residualScore: 10, reviewDue: "2099-01-01" });
+    // R3: residual exactly 9 — one point below the boundary; must NOT count
+    // as high-residual, proving the count isn't "every risk."
+    await newSummaryRisk({ category: "process", residualScore: 9, reviewDue: "2099-01-01" });
+    // R4: reviewDue in the past — the sole overdue risk; low residual and
+    // active status so it doesn't also land in high/accepted.
+    await newSummaryRisk({ category: "cyber", residualScore: 3, reviewDue: "2020-01-01" });
+    // R5: status accepted — the sole accepted risk; low residual and a
+    // future reviewDue so it doesn't also land in high/overdue.
+    await newSummaryRisk({
+      category: "process",
+      residualScore: 2,
+      status: "accepted",
+      treatment: "accept",
+      reviewDue: "2099-01-01",
+    });
+
+    const res = await authed("get", "/v1/risks/summary", SUMMARY_TENANT, summaryTok);
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(5);
+    expect(res.body.byCategory).toEqual({ cyber: 3, process: 2 });
+    expect(res.body.byBand).toEqual({ low: 3, medium: 1, high: 1, critical: 0 });
+    expect(res.body.highResidual).toBe(1); // only R2 (score 10) — R3 (score 9) proves the boundary
+    expect(res.body.treatmentsOverdue).toBe(1); // only R4 — R1/R2/R3/R5's future reviewDue prove it
+    expect(res.body.accepted).toBe(1); // only R5 — R1-R4's active status prove it
+    // All 5 fixtures were just created (this quarter), each audited as a
+    // `created` event in the same transaction (rule 3) -> 100%, not merely
+    // "a number".
+    expect(res.body.reviewedThisQuarterPct).toBe(100);
   });
 });
 
