@@ -111,7 +111,7 @@ export function InstrumentDetailCard({
   const retired = instrument.status === "retired";
 
   return (
-    <Card>
+    <Card data-testid="instrument-detail-card">
       <CardHeader>
         <div className="flex w-full items-start justify-between">
           <div>

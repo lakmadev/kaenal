@@ -55,9 +55,24 @@ export function useInstrument(id: string | null) {
   });
 }
 
+/**
+ * `queryKeys.instruments.list()`'s bare key ends in `null` (no filter args),
+ * which TanStack's default partial-match invalidation does NOT treat as a
+ * wildcard against a live query keyed with a real params object (e.g.
+ * `{ limit: 100 }`) at that same position (`partialMatchKey(a, null)` is
+ * `false` for any non-null `a`) — so invalidating with the bare key alone
+ * silently misses the register's own parametrized list query. A `predicate`
+ * over the fixed `["instruments","list"]` prefix catches every variant.
+ */
+function invalidateInstrumentsList(qc: ReturnType<typeof useQueryClient>): void {
+  void qc.invalidateQueries({
+    predicate: (query) => query.queryKey[0] === "instruments" && query.queryKey[1] === "list",
+  });
+}
+
 function invalidateInstrument(qc: ReturnType<typeof useQueryClient>, instrument: InstrumentDto): void {
   qc.setQueryData(queryKeys.instruments.detail(instrument.id), instrument);
-  void qc.invalidateQueries({ queryKey: queryKeys.instruments.list() });
+  invalidateInstrumentsList(qc);
   void qc.invalidateQueries({ queryKey: queryKeys.instruments.summary() });
 }
 
@@ -115,10 +130,27 @@ export function useCalibrationEvents(instrumentId: string | null, query?: Calibr
   });
 }
 
+/**
+ * `queryKeys.instruments.calibrationEvents(id)`'s own key ends in a bare
+ * `null` fourth element (no params), which TanStack's default partial-match
+ * invalidation does NOT treat as a wildcard against a real params object
+ * (e.g. `{ limit: 5 }`) at that same position — so invalidating with the
+ * bare key alone silently misses every parametrized history query (the
+ * detail card's own `limit: 5` "last 5" query, in particular). A `predicate`
+ * over the fixed-length prefix (everything but the trailing params element)
+ * catches every variant regardless of its own query args.
+ */
+function invalidateCalibrationEvents(qc: ReturnType<typeof useQueryClient>, instrumentId: string): void {
+  const prefix = queryKeys.instruments.calibrationEvents(instrumentId).slice(0, 4);
+  void qc.invalidateQueries({
+    predicate: (query) => prefix.every((part, i) => query.queryKey[i] === part),
+  });
+}
+
 function invalidateAfterEvent(qc: ReturnType<typeof useQueryClient>, instrumentId: string): void {
   void qc.invalidateQueries({ queryKey: queryKeys.instruments.detail(instrumentId) });
-  void qc.invalidateQueries({ queryKey: queryKeys.instruments.calibrationEvents(instrumentId) });
-  void qc.invalidateQueries({ queryKey: queryKeys.instruments.list() });
+  invalidateCalibrationEvents(qc, instrumentId);
+  invalidateInstrumentsList(qc);
   void qc.invalidateQueries({ queryKey: queryKeys.instruments.summary() });
 }
 
@@ -153,9 +185,7 @@ export function useAttachCalibrationCertificate() {
   return useMutation({
     mutationFn: ({ instrumentId, eventId, body }: { instrumentId: string; eventId: string; body: AttachCertificateBody }) =>
       client.attachCalibrationCertificate({ params: { instrumentId, eventId }, body }).then((r) => unwrap<CalibrationEventDto>(r)),
-    onSuccess: (_event, vars) => {
-      void qc.invalidateQueries({ queryKey: queryKeys.instruments.calibrationEvents(vars.instrumentId) });
-    },
+    onSuccess: (_event, vars) => invalidateCalibrationEvents(qc, vars.instrumentId),
   });
 }
 
@@ -168,9 +198,7 @@ export function useRaiseNcrFromCalibrationEvent() {
   return useMutation({
     mutationFn: ({ instrumentId, eventId }: { instrumentId: string; eventId: string }) =>
       client.raiseNcrFromCalibrationEvent({ params: { instrumentId, eventId }, body: {} }).then((r) => unwrap<NcrDto>(r)),
-    onSuccess: (_ncr, vars) => {
-      void qc.invalidateQueries({ queryKey: queryKeys.instruments.calibrationEvents(vars.instrumentId) });
-    },
+    onSuccess: (_ncr, vars) => invalidateCalibrationEvents(qc, vars.instrumentId),
   });
 }
 
