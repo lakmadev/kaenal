@@ -21,6 +21,9 @@ const ENTITY_TABLES: Record<EntityKind, string> = {
   supplier: "suppliers",
   scar: "scars",
   finding: "findings",
+  // Sprint 04 R3 AC1 — risk register + FMEA become real graph nodes.
+  risk: "risks",
+  fmea: "fmeas",
 };
 
 export function tableFor(kind: EntityKind): string {

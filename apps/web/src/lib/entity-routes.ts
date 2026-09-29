@@ -5,7 +5,9 @@ import {
   FileText,
   Brain,
   FileWarning,
+  Grid3x3,
   Package,
+  Shield,
   Truck,
   Award,
   ShieldCheck,
@@ -41,6 +43,12 @@ export function entityHref(kind: string, id: string): string | null {
       return `/suppliers/${id}`;
     case "audit":
       return `/audits/${id}`;
+    // Sprint 04 R3 AC3 — `/risk`/`/fmea` are select-in-list pages; their
+    // record route is a `?id=` deep-link (R1 AC7), not `/kind/:id`.
+    case "risk":
+      return `/risk?id=${id}`;
+    case "fmea":
+      return `/fmea?id=${id}`;
     default:
       return null;
   }
@@ -62,6 +70,9 @@ const ICONS: Record<string, LucideIcon> = {
   // glyph — reusing it for `audit` would collide in search/notifications, so
   // audits get `ShieldCheck` instead (DESIGN-02-audits.md §2.5).
   audit: ShieldCheck,
+  // Matches `navigation.ts`'s existing risk/FMEA nav glyphs (R3 AC3).
+  risk: Shield,
+  fmea: Grid3x3,
 };
 
 export function entityIcon(kind: string): LucideIcon {
@@ -81,6 +92,8 @@ const LABELS: Record<string, string> = {
   supplier: "Supplier",
   training: "Training",
   audit: "Audit",
+  risk: "Risk",
+  fmea: "FMEA",
 };
 
 export function entityLabel(kind: string): string {
