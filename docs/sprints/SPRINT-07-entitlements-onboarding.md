@@ -351,9 +351,9 @@ UC
   that sends a member request to the workspace admins (P6); after sending, the card shows "Requested — your
   admin has been notified" and the action is disabled. No Add to plan / Start trial / Compare plans (they would
   403 or lead to an admin-only page; 04 §6 "never render a button that will 403").
-- Happy: the pack becomes effective (any path: toggle, trial, operator CLI, request fulfilled) → the overlay
+- Happy: the pack becomes effective (any path: toggle, trial, staff console [AM1], request fulfilled, framework declared [AM1]) → the overlay
   lifts and the lock icons disappear **without a reload**: the entitlements query is invalidated by the
-  mutation, and by the realtime `entity.updated {kind:'entitlements'}` event for changes made elsewhere (CLI,
+  mutation, and by the realtime `entity.updated {kind:'entitlements'}` event for changes made elsewhere (staff console [AM1],
   another admin).
 - Create surfaces: in the CreateWizard type step, the quick-create menu and the command palette's quick actions,
   a type whose module is gated (today: `risk`, `ecn`) shows a lock chip; choosing it shows the inline upsell (§5
@@ -397,7 +397,7 @@ AC
    token, §5).
 7. Create surfaces (CreateWizard type cards, quick-create menu, palette quick actions) consult the same resolver;
    Playwright proves choosing a locked type never reaches a form.
-8. Realtime: P4/P5/P6/P8 mutations emit `entity.updated {kind:'entitlements'}` on the tenant channel; the web
+8. Realtime: P4/P5/P6 and O1 frameworks [AM1] mutations (and 07C's staff writes) emit `entity.updated {kind:'entitlements'}` on the tenant channel; the web
    client invalidates `['entitlements']` on it (04 §7 targeted invalidation).
 
 Web: hook, sidebar, `LockedRoute`, overlay (admin + non-admin variants), create-surface locks. Mobile: no screen
