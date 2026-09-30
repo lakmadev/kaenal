@@ -38,7 +38,8 @@ Sprint 08 cannot open until 07C closes** (ROADMAP §4).
 precedent in this codebase beyond two sentences of the spec (01 §3.2, 07 §7, quoted in §1a). **No build starts
 until ~~(1) the user approves §3 and answers §7's [USER] items,~~ ([AM2] done — see below) (2) the UI Lead Designer's
 boards for §5 are approved, and (3) the `planner` architecture review and a `security-reviewer` pass both return
-SIGN OFF.**
+SIGN OFF.** **[AR]** The first architecture review returned SEND BACK (Amendment 4); a **re-review** of the amended
+files against DoR #4's checklist is now what (3) requires.
 
 **Amendment 2 — final planning amendment, 2026-09-30 (tagged [AM2]).** The user confirmed **full tenant-content
 access for Kaenal staff, through the time-boxed (4-hour), reasoned, audited grant** (Q-SC3). The PO's earlier SD7
@@ -80,6 +81,61 @@ stand between this file and Gate 2. Nothing here should be read as the security 
 
 New decision from this pass: **PO-SC9** (§7) — the two concrete numbers in SR3's fix (5 grants/hour, 3-tenant
 anomaly threshold), decided by the PO under CLAUDE.md's standing rule (smallest reasonable choice, revisitable).
+
+
+**Amendment 4 — architecture review SEND BACK, 2026-09-30 (tagged [AR]).** The `planner` architecture review of 07 +
+07C returned **SEND BACK with 23 blocking defects**, grouped into 15 themes. The PO verified each code citation
+before writing a fix (all were accurate except one, noted as AR23) and amended both files; this table itemizes every
+separable defect, so it has more rows than the reviewer's count. Sprint 07's side is recorded in its own Amendment 3
+(same [AR] tag). **This amendment answers the SEND BACK in the documents; it does not close the architecture gate.**
+The reviewer's own follow-up list (theme 15) is carried as Definition of Ready #4, a named re-review checklist, and
+the `security-reviewer` must re-read §3 because [AR] changed it materially (DoR #3). No design board for this file
+exists yet (the UI Lead Designer's pass is running separately); nothing here claims Gate 1.
+
+| # | Defect (reviewer theme) | Resolution |
+|---|---|---|
+| AR1 | Staff and tenant pipelines not separated: platform branch inside the ONE global tenant interceptor (`app.module.ts:545`), tenant routes on the platform host; SD1's reason for rejecting a separate process was wrong (1) | Separate platform API process: `platform-main.ts` → `PlatformAppModule`, own listener, deployment and single `PlatformLifecycleInterceptor`; reasoning why this is not a breach of the one-interceptor decision; two-router enumeration test (C2 AC2-AC3, SD1 revised to option (c)) |
+| AR2 | `staff` not reserved (`tenant.ts:14`) (1) | `staff` and `platform` reserved; 0078 guard (CX AC2a) |
+| AR3 | Tenant API held `DATABASE_STAFF_URL` + `DATABASE_SUPPORT_URL`; support-view validation and platform events via the full staff pool (1a) | Those credentials exist only in the platform process (C2 AC1); new narrow `kaenal_support_gate` role (C10 AC1) |
+| AR4 | A cookie picked the authenticator and the pool (1b) | Principal resolved before the tenant tx; pool follows the principal; `current_user` test (C10 AC4) |
+| AR5 | Content-grant DB backstop incomplete vs the reviewer's `support_grant_live()` (2) | AM3's function kept as the ONE mechanism and completed: tenant, platform-user status + current role, `clock_timestamp()`, InitPlan per statement, `kaenal_support` commercial scope, `USING` + `WITH CHECK`, built into `apply_tenant_rls`, one body for shared/dedicated (C10 AC2a, SD7) |
+| AR6 | `GET /v1/events` SSE outlives a grant (`realtime.controller.ts:30`) (3a) | Refused for support viewers, with the reason refusal beats per-event re-checks (C10 AC4, SD7) |
+| AR7 | Presigned URLs live 900 s (3b) | `min(60 s, grant remaining)` (C12 AC6) |
+| AR8 | Client caches survive grant end (3c) | Explicit web ACs in `apps/platform` (C4 AC6) and `apps/web` support view (C10 AC7) |
+| AR9 | Audit coverage of query / search / graph unclear (4) | Route classification table; `/v1/query*`, `/v1/search`, graph named; query definition logged when there are no ids (C10 AC5) |
+| AR10 | `support_accessed` with a real `entity_kind` becomes a customer webhook and throws under the reader role (5) | Verified in `outbox-event.ts` / `audit.ts:201`; `support_view` / `support_grant` internal kinds + both bridges skip them (C10 AC5, C3 AC6, SD11) |
+| AR11 | "Unsafe method = 403" breaks read-only POSTs (`query.controller.ts:48-60`) (6) | `@ReadOnlyPost` allowlist with write-guard tests (C10 AC4) |
+| AR12 | `support_viewer` principal undefined; 195 member-assuming sites in 38 files; Settings reads undecided (7) | **New story C12**; PO decision **PO-SC10** on Settings reads (§7) |
+| AR13 | Commercial grant's History tab needs `audit_events`, which would expose every payload (8a) | Column SELECT + RESTRICTIVE entity-kind policy; Sprint 07 settings events get dedicated kinds (C3 AC3) |
+| AR14 | Support-view tables could reference a commercial grant (8b) | Composite `(grant_id, grant_scope)` FK + CHECK; `UNIQUE (id, scope)` (C10 AC1, C3 AC2) |
+| AR15 | Role change left content grants live; capability checked only at creation (8c) | Role change ends grants the new role cannot hold; current role re-checked per request by every authenticator and the DB function (C11 AC2, C3 AC1/AC5) |
+| AR16 | Catalog / `tenant_plans` could be read from a dedicated DB's stale copy (9) | Primary-database pool always; router-fake test (SPRINT-07 P0 AC5, §3.2) |
+| AR17 | Resolver snapshot could mix versions (10a) | Catalog in one `REPEATABLE READ` tx keyed by its own version; tenant inputs in one statement; why one tx is impossible for dedicated tenants (SPRINT-07 P0 AC5, P1 AC7) |
+| AR18 | `apply-bundle` check-then-write; 9-row precondition assumed (10b) | `FOR UPDATE` on all 9 rows in fixed order; 9-row invariant made real in provisioning (SPRINT-07 P1 AC5, P4 AC4, P8; C5 AC2) |
+| AR19 | Grant creation not idempotent / not unique per scope; price-book drafts and catalog writes unserialized (10c) | Advisory lock + reuse of the open grant (C3 AC7); single-draft index, conditional publish, `catalog_meta FOR UPDATE`, typed count recomputed in-tx (C7 AC2, C8 AC2, SPRINT-07 §3.1) |
+| AR20 | Plan-request double fulfilment (10d) | Guarded transition first, before any entitlement change, same tx (C6 AC3) |
+| AR21 | "staff" / "support" / "admin" naming collisions (11) | Whole plane renamed to `platform` (terminology note above); import-boundary lint recommended (CX AC1) |
+| AR22 | Outbox treated as a generic bus: PII to wildcard webhooks; `sales_inbox` unwritable from the tenant-tx drainer (12a) | Ids-only internal events (`outbox.audience`), webhook skip, `InternalProjectionHandler` + `kaenal_projector` (SD11, C4 AC2, C6 AC1; SPRINT-07 P6 AC6, X1 AC8) |
+| AR23 | "Email in the same transaction" is false (12b). *Correction to the review:* today's call sites enqueue **before** commit, not after (`auth.controller.ts:221`) | After-commit enqueue chosen and applied everywhere; durable records carry the hand-offs (SD12; SPRINT-07 P6, O1, O3; C6, C11); the pre-existing in-handler enqueues → Known issues |
+| AR24 | SD5 updated an append-only row (12c) | Intent row + outcome row referencing it; flagged outcome-less intents (SD5, C3 AC2) |
+| AR25 | `kaenal_support` grants incomplete (12d) | + INSERT `notifications`, SELECT `notification_prefs`, column SELECT `memberships (user_id, role, status)`; PO also found and added the QMS status columns C5's downgrade counts need (C3 AC3) |
+| AR26 | C7 AC1 promised cross-tenant counts that AC3/SD7 forbid (12e) | Counts struck from C7 AC1 and §4 |
+| AR27 | P2 AC4 locked only today's gated routes (12f) | Every non-guaranteed module wrapped via `MODULE_ROUTES`, resolver decides (SPRINT-07 P2 AC4, AC7) |
+| AR28 | `entitlement_trials` lacked an `id` and exactly-once expiry; `entitlements.created_by`/`updated_by` had no FK (13) | `id uuid`, `expiry_processed_at`; FKs by `ALTER` on the existing columns (`0001_core.sql:618`) (SPRINT-07 P1 AC4, P5 AC2) |
+| AR29 | New LOGIN roles would inherit the local default password on every dedicated DB via `migrate-tenants` (14) | All five new roles `NOLOGIN`; credentials set by provisioning / ops / dev-only `db:dev-roles` (SD6) |
+
+Reviewer items confirmed sound and left as designed (theme 14): migrations 0073-0081 free on every branch; 07C's
+dependency on 07's schema satisfied by filename order; 07C adds no new tenant tables, so the RESTRICTIVE policies
+combine correctly with `tenant_isolation` (no `TO` clause). The resolver's catalog-as-argument / cached-by-version
+design is kept (theme 9), with AR16's trap closed.
+
+Where the PO did **not** apply the reviewer's wording literally, and why: (1) AR17 — one `REPEATABLE READ`
+transaction over profile + entitlements + trials + catalog cannot exist for a dedicated tenant (two physical
+databases), so each side gets its own consistent snapshot; (2) AR3 — `kaenal_support_gate` needs two column-scoped
+writes beyond the reviewer's list (insert the support-view session at exchange, set `revoked_at` at End), stated
+with their reason; (3) AR5 — the function keeps AM3's name `support_reader_grant_active` per the lead's instruction
+not to introduce a second mechanism; (4) AR21 — the DB roles keep "support" because the spec names a "support role"
+(01 §3.2), and the spec term is not a platform role or a pack.
 
 ---
 
@@ -143,7 +199,8 @@ renders ("Support accessed", `apps/mobile/src/app/(app)/audit.tsx:11-22`). The s
 Order by dependency (INVEST): C1-C3 are the security foundation (identity, session path, access model) and ship
 before any screen; C4 is the first screen; C5-C8 are the commercial capabilities the user named; C9 is
 accountability; **[AM2] C10 is the user-decided content access (read-only support view) and C11 platform account
-management**; CX is isolation and wiring. Every story states its Web / Mobile / Shared split: **Web** here means
+management**; **[AR] C12 defines the `support_viewer` principal C10 depends on (build C12 with or before C10's tenant
+side)**; CX is isolation and wiring. Every story states its Web / Mobile / Shared split: **Web** here means
 `apps/platform` (the tenant web app `apps/web` is untouched unless stated), **Mobile** is always "unaffected" with the
 reason, **Shared** is `packages/types` (platform contract, a separate entry point), `packages/core` (platform RBAC, pure
 rules), API and migrations.
@@ -1271,7 +1328,7 @@ AC
 
 ---
 
-## 3. Security + architecture design — DECIDED [AM2/AM3] (security-reviewer pass still required before build)
+## 3. Security + architecture design — DECIDED [AM2/AM3/AR] (architecture re-review and security-reviewer pass still required before build)
 
 **[AM2] Status.** SD1-SD6 and SD8 stand as the PO's decisions under CLAUDE.md's standing rule (the user was asked
 no further questions, per the lead's instruction); SD7 is **rewritten** for the user's Q-SC3 decision; SD9 is new.
@@ -1524,7 +1581,12 @@ It adds two roles (`kaenal_support`, `kaenal_support_reader`), a restrictive pol
 only, one small local mirror table (`support_grant_backstop`) that carries no tenant business data**, and — for the
 content scope only — two tenant-contract routes (`POST /v1/support-view/exchange`, `POST /v1/support-view/end`), a
 third authenticator inside the ONE lifecycle interceptor, and the tenant web app's support-view mode (C10). Mobile
-is untouched.
+is untouched. **[AR]** Updated inventory of tenant-side changes: the tenant API process gains the `support_viewer`
+principal (C12), the principal-first support-view path and the `@ReadOnlyPost` decorator (C10 AC4), and exactly two
+new credentials (`kaenal_support_reader`, `kaenal_support_gate`) — it holds **no** platform or commercial-support
+credential (SD1); the two support RESTRICTIVE policies come from the redefined `apply_tenant_rls` on every tenant
+table (C10 AC2a); the mirror lives in `control.support_grant_backstop` (not a tenant table), next to the
+`control.database_identity` marker; `outbox.audience` is Sprint 07's (0076); still no new tenant table.
 
 **SD9 — [AM2, NEW] Support-view hand-off across hosts.** The platform console and the tenant app live on different
 hosts with host-only cookies (SD1, SD3), so a content grant reaches the tenant host through a **single-use, 60-second
@@ -1705,6 +1767,17 @@ issues" at close; none blocks Gate 1, the architecture review or the security re
   numbers are the PO's smallest-reasonable-choice call, not the user's or the security reviewer's; revisitable if
   real usage shows either threshold is too tight or too loose.
 
+**[AR] Known issues recorded by this amendment** (copied to PROGRESS.md "Known issues" at close):
+- **Pre-existing: emails enqueued before commit.** `auth.controller.ts:221` (invite), `:255` (password reset) and
+  `suppliers.controller.ts:186` call `jobs.sendEmail` inside the handler, i.e. before the interceptor's tenant
+  transaction commits, so a request that rolls back after that line still sends its email. Not changed by these
+  sprints (outside their scope); the SD12 after-commit buffer is the fix when someone takes it on.
+- **Support view: integration health without configuration.** PO-SC10 excludes the integrations surface because its
+  config and delivery logs can hold credentials; a config-free health projection for support is a future candidate.
+- **Dedicated databases: platform-user status/role not checkable locally.** C10 AC2a's dedicated branch relies on
+  end-propagation (with retries) plus the primary-side application checks for deactivation/demotion; stated, not
+  hidden. Revisit if a dedicated tenant needs a stronger guarantee.
+
 **Out of scope (named).** Platform writes to tenant QMS records; "log in as" a specific tenant member; bulk export in
 support view; a tenant consent setting for platform access; platform SSO; platform account self-registration;
 provisioning/offboarding from the console; billing/payments (Q6); any mobile platform surface or mobile support view.
@@ -1717,6 +1790,10 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
 - [x] [AM3] The pre-build security review's 1 High + 3 Medium findings + 1 flagged prerequisite (SR1-SR5) are
       resolved in this document (SD7's finalized DB backstop, new SD10, C10 AC2/AC2a/AC5/AC8, C3 AC8/AC9/AC10). This
       is a **document fix, not a re-run of the review** — see the next line.
+- [x] [AR] The architecture review's SEND BACK (23 blocking defects, itemized AR1-AR29 in Amendment 4) is answered
+      in both documents — a **document fix, not a re-review**; the `planner` re-review against DoR #4 is still open.
+- [ ] **[AR] `planner` architecture RE-REVIEW SIGN OFF** on the [AR]-amended 07 + 07C, covering DoR #4's checklist
+      R1-R10, before build starts.
 - [ ] `security-reviewer` **SIGN OFF on this revised §3** (confirming SR1-SR5 are actually closed by the rewrite,
       not just claimed closed), UI Lead Designer's boards D-C1…D-C12 [AM2] approved by the user (Gate 1), and
       `planner` architecture review (shared with Sprint 07's) — all three before build starts. **A second
@@ -1766,6 +1843,32 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
 - [ ] Mobile: `pnpm --filter @kaenal/mobile typecheck` + tests green; `progress_mobile.md` notes "07C: no mobile
       change (internal web tool; support view is web-only; support audit events render in the existing oversight
       feed row)".
+- [ ] **[AR] Process separation (AR1-AR4):** the platform API runs from `platform-main.ts` on its own port and
+      deployment; the two-router enumeration test and its mutation checks green; the tenant app boots without
+      `DATABASE_PLATFORM_URL` / `DATABASE_SUPPORT_URL`; `SELECT current_user` is `kaenal_support_reader` in a
+      support-view handler and `kaenal_app` in a member handler; an invalid support-view cookie opens no transaction;
+      `staff` / `platform` slugs rejected. **Recommended:** the import-boundary lint rule (CX AC1) fails on a planted
+      violation (the architect confirms; the PO cannot verify a lint rule by reading).
+- [ ] **[AR] DB enforcement (AR5, AR13-AR15, AR25, AR29):** both RESTRICTIVE grant policies present on every table
+      with `tenant_isolation` and created by `apply_tenant_rls`; every C10 AC2a mutation check (drop policy, stub
+      function, `now()` for `clock_timestamp()`, drop tenant / status / role predicate, redefine `apply_tenant_rls`)
+      fails a test, for both support roles and the dedicated branch; the commercial audit-scope policy and column
+      grants hold; composite `(grant_id, grant_scope)` FKs reject a commercial grant; the five new roles are
+      `rolcanlogin = false` after `pnpm db:migrate`; grant tests for `kaenal_support_gate` and `kaenal_projector`.
+- [ ] **[AR] Audit / outbox (AR9, AR10, AR22-AR24):** a detail view under a content grant writes one `support_view`
+      row, no outbox row and no realtime signal; a `*`-subscribed customer webhook receives no support event and no
+      internal event (`plan_request.changed`, `tenant_commercial.changed`), and no requester email appears in any
+      outbox row; the sales inbox and commercial summary are populated by `InternalProjectionHandler` through
+      `kaenal_projector`; query / search / graph platform events recorded; SD5 intent/outcome failure-injection test
+      green; no AC claims same-transaction email and each email path enqueues after commit (rollback → no email).
+- [ ] **[AR] Expiry (AR6-AR8):** `GET /v1/events` → 403 for a support viewer; a download link issued with < 60 s left
+      on the grant dies with the grant; both web apps clear their caches on grant end (Playwright).
+- [ ] **[AR] C12:** the 20-capability list pinned by test; every tenant route classified (unclassified = denied);
+      PO-SC10's readable / denied Settings sections behave as listed; the three helpers throw 403 for a support viewer;
+      C10 AC6's enumerating test (every GET and `@ReadOnlyPost` route) green.
+- [ ] **[AR] Concurrency (AR15, AR19, AR20):** concurrent grant creates → one grant; concurrent fulfils → one 200 and
+      one 409 with one entitlement change; concurrent drafts / publishes → one success; catalog writes get distinct
+      versions and a changed impact → 409 `IMPACT_CHANGED`; demotion ends the content grant on commit.
 - [ ] Gates green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
 - [ ] Demo tenant re-seeded **and** platform accounts re-seeded after the suites; **tenant sign-in 201** and **platform
       sign-in (password + TOTP) succeed**.
@@ -1787,8 +1890,18 @@ findings are resolved in this text, but the reviewer has not yet re-read and sig
 sign-off, and the separate post-build code review (CX AC6), both remain outstanding. Nothing in this amendment
 should be read as the security gate being closed.**
 
-**PO use-case sign-off: SIGNED (= APPROVED for SCRUM.md Gate 1), 2026-09-30; reaffirmed after Amendment 3,
-2026-09-30.** Verified, not assumed: **12 stories** (C1-C11, CX). Every use case — platform bootstrap and console
+**[AR] Architecture review: SEND BACK (2026-09-30) — answered in this document by Amendment 4; RE-REVIEW REQUIRED.**
+The 23 blocking defects are itemized and resolved in text (AR1-AR29). The PO does **not** consider the SEND BACK
+closed: several resolutions are designs that only the architect can confirm are sound in this codebase (the InitPlan
+shape, the principal-first interceptor path, the 195-site classification, the two-router test), and the reviewer's
+own theme-15 list is carried as DoR #4. The `security-reviewer` must also re-read §3, which [AR] changed materially
+(SD1, SD5, SD6, SD7, SD11, SD12, C10 AC2a, the new roles).
+
+**PO use-case sign-off: SIGNED (the PO's part of SCRUM.md Gate 1 only — Gate 1 itself is NOT complete: the D-C
+design boards do not exist yet), 2026-09-30; reaffirmed after Amendment 3 and again after Amendment 4 [AR],
+2026-09-30.** **[AR]** Verified, not assumed: **13 stories** (C1-C12, CX) — C12 (the `support_viewer` principal) is
+new; its use cases (all-plant reads, PO-SC10 readable and denied Settings sections, the 403 for any member-only path)
+each map to C12 ACs, a §4 row, a D-C12 state and §6 entries. Earlier count: 12 stories (C1-C11, CX). Every use case — platform bootstrap and console
 platform account management, sign-in / MFA / sessions / **[AM3] step-up re-auth**, commercial and content grants (4 h, reason,
 reference for content, **[AM3]** rate limit + anomaly flag, expiry, end, deactivation), the read-only support view
 of all tenant records with per-record **and [AM3] per-list-view** tenant/platform audit, **[AM3]** a DB-level
@@ -1808,9 +1921,32 @@ existing stories C2, C3, C10 and §3).
    SIGN OFF with the slice plan, the reader-role table denylist (C10 AC2 — **[AM3] including the column-level-secret
    check this amendment adds to that AC**), the per-user route denylist (C10 AC4) and the list of GET routes with
    write side effects (C10 AC6).
-3. **Security review.** `security-reviewer` signs off **this revised** §3 (SD1-SD10 [AM3]) before any 07C code is
+3. **Security review.** `security-reviewer` signs off **this revised** §3 (SD1-SD12 [AM3/AR]) before any 07C code is
    written — specifically confirming SR1-SR5 are actually closed by the rewrite, not merely asserted closed by the
    PO — and reviews the built code again before Gate 2 (CX AC6), where SR1-SR5 are checked against what actually
    shipped (the DB-level backstop genuinely blocks an expired/absent grant even with the app check bypassed; the
    step-up token is genuinely required and consumed; the rate limit and anomaly event genuinely fire at 5/hour and
    3 tenants/hour; list-view audit events genuinely carry entity ids) rather than taken on trust.
+4. **[AR] Architecture re-review checklist** (the reviewer's theme 15, plus what the [AR] resolutions leave for the
+   architect to confirm). Each item is a named deliverable of the `planner` re-review; none is silently dropped, and
+   items marked *PO* would come back to the PO only if the architect finds they need a product decision.
+   - **R1 — Exhaustive route lists:** every `@RequireModule` route (SPRINT-07 P3 AC2) and every `@PlatformRoute` /
+     `@PlatformPublic` route with its capability (SD2 matrix), produced from the controllers.
+   - **R2 — Open-record definitions** per module for downgrade warnings (SPRINT-07 D3, P4 AC5), and the exact
+     status/stage columns `kaenal_support` therefore needs (C3 AC3 [AR]). *PO* if a module's "open" is ambiguous.
+   - **R3 — O5 checks:** the index behind each onboarding task's completion query (SPRINT-07 O5 AC2) and the
+     conditional completion-on-read write (O5 UC [AR]).
+   - **R4 — `kaenal_support_reader` denylist, table-level AND column-level** (C10 AC2; AM3's SR5 prerequisite, kept).
+   - **R5 — Route denylists:** (a) the per-platform-role route map derived from SD2 (which platform routes each of
+     `platform_support` / `platform_sales` / `platform_admin` cannot reach); (b) the support-view per-user and secrets
+     denylist and the complete `SUPPORT_VIEW_ROUTE_POLICY` classification (C10 AC4, C12 AC4).
+   - **R6 — RESTRICTIVE function performance:** `EXPLAIN` shows `support_reader_grant_active(...)` evaluated once per
+     statement (InitPlan), not per row, on representative list and report queries (C10 AC2a).
+   - **R7 — GET routes that write:** confirm the enumeration — known: `files.service.ts:261` (`file_downloaded`),
+     SPRINT-07 O5 completion-on-read, the SSE stream (`realtime.controller.ts:30`) — and add any others (C12 AC6).
+   - **R8 — The 195 member-assuming call sites (38 files):** classify read vs write and the direct
+     `currentContext().membership` reads (C12 AC5).
+   - **R9 — Process separation mechanics:** the two-router enumeration approach, the import-boundary lint rule, and
+     how `platform-main.ts` is built, run and deployed alongside `main.ts` and the worker (C2 AC2-AC3, CX AC1).
+   - **R10 — Re-verify AR1-AR29** against the original findings, including the PO's four stated deviations from the
+     reviewer's literal wording (Amendment 4).
