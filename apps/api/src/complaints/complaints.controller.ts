@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Inject, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Headers, HttpCode, Inject, Param, Patch, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import {
   AcknowledgeComplaintBody,
@@ -85,6 +85,7 @@ export class ComplaintsController {
   }
 
   @Post("v1/complaints/:id/acknowledge")
+  @HttpCode(200)
   @RequireCapability("complaint:manage")
   async acknowledge(@Param("id") id: string, @Body() body: unknown): Promise<ComplaintDto> {
     const input = parse(AcknowledgeComplaintBody, body);
@@ -92,6 +93,7 @@ export class ComplaintsController {
   }
 
   @Post("v1/complaints/:id/close")
+  @HttpCode(200)
   @RequireCapability("complaint:manage")
   async close(@Param("id") id: string, @Body() body: unknown): Promise<ComplaintDto> {
     const input = parse(CloseComplaintBody, body);
@@ -99,6 +101,7 @@ export class ComplaintsController {
   }
 
   @Post("v1/complaints/:id/convert")
+  @HttpCode(200)
   @RequireCapability("complaint:manage")
   async convert(@Param("id") id: string, @Body() body: unknown): Promise<ComplaintConvertResult> {
     const input = parse(ComplaintConvertBody, body);

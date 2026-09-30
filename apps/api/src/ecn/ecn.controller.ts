@@ -83,6 +83,7 @@ export class EcnController {
   }
 
   @Post("v1/ecns/:id/submit")
+  @HttpCode(200)
   @RequireCapability("ecn:manage")
   async submit(@Param("id") id: string, @Body() body: unknown): Promise<EcnDto> {
     const input = parse(EcnLifecycleBody, body);
@@ -90,6 +91,7 @@ export class EcnController {
   }
 
   @Post("v1/ecns/:id/withdraw")
+  @HttpCode(200)
   @RequireCapability("ecn:manage")
   async withdraw(@Param("id") id: string, @Body() body: unknown): Promise<EcnDto> {
     const input = parse(EcnLifecycleBody, body);
@@ -97,6 +99,7 @@ export class EcnController {
   }
 
   @Post("v1/ecns/:id/resubmit")
+  @HttpCode(200)
   @RequireCapability("ecn:manage")
   async resubmit(@Param("id") id: string, @Body() body: unknown): Promise<EcnDto> {
     const input = parse(EcnLifecycleBody, body);
@@ -104,6 +107,7 @@ export class EcnController {
   }
 
   @Post("v1/ecns/:id/close")
+  @HttpCode(200)
   @RequireCapability("ecn:manage")
   async close(@Param("id") id: string, @Body() body: unknown): Promise<EcnDto> {
     const input = parse(EcnLifecycleBody, body);
@@ -117,6 +121,7 @@ export class EcnController {
   }
 
   @Post("v1/ecns/:id/approvals/:stage")
+  @HttpCode(200)
   @RequireCapability("ecn:approve")
   async decideApproval(@Param("id") id: string, @Param("stage") stage: string, @Body() body: unknown): Promise<EcnDto> {
     const input = parse(DecideEcnApprovalBody, body);
