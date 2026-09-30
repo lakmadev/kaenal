@@ -13,7 +13,69 @@ written. **NO BUILD MAY START until the user has explicitly approved §3** — c
 convert-to-NCR/8D/CAPA mechanism; ECN schema + the canonical stage/approval machine (which corrects two real
 inconsistencies found between the jsx's own `ECNList` and `ECNKanban` mocks, detailed in §3.2); and the
 document auto-revision mechanism. This mirrors exactly how Sprints 03/04/05 gated their own §3/§3B before
-those sprints' builds started.
+those sprints' builds started. **§0 records a Ceremony 4 SEND BACK on the version the user had already
+approved — several of §0's fixes change what §3 says, so the corrected §3 needs a fresh, explicit
+re-approval before build starts (see §0's own DELTAS block for exactly which parts).**
+
+---
+
+## 0. Amendment (Ceremony 4 SEND BACK response, 2026-09-30)
+
+The `planner` agent reviewed this sprint file at Ceremony 4 (architecture review, before any code exists yet)
+and returned **SEND BACK** on eight blocking gaps (B1-B8) plus nine should-fix items (S1-S9). This section
+resolves every one, verified against the actual codebase this session (not taken on the reviewer's word — every
+file:line citation below was re-read before its fix was written in), mirroring Sprint 05's own multi-round
+amendment discipline. §2 (stories/AC), §3 (backend design), §4 (backend-needs table), §6 (dead-end audit) and
+§7 (open questions) are updated in place to carry these fixes; this table is the scannable index of what changed
+and why.
+
+### Blocking (all resolved)
+
+| # | Defect (verified) | Fix |
+|---|---|---|
+| B1 | The approve/reject route (old E4 AC2) only accepted the 4 gated stages and required `:stage == ecns.stage` — nothing could drive `draft→feasibility`, `implementation→closed`, or `draft→rejected`. X1 AC7 also self-contradicted: "notifies approvers at creation for feasibility" vs. `stage` defaulting to `draft` at creation (E1 AC1) | Added `POST /v1/ecns/:id/submit` (`draft→feasibility`, `ecn:manage`, audited `status_changed`) and `POST /v1/ecns/:id/close` (`implementation→closed`, `ecn:manage`, audited `status_changed`). Added `POST /v1/ecns/:id/withdraw` (`draft→rejected`, `ecn:manage`, audited `status_changed`) — named "withdraw," not "reject," because no `ecn_approvals` row exists for `draft` (E4 AC1 pre-creates only the 4 gated rows) so there is no four-eyes decision to make; withdrawing your own draft is an author action, not an approval. Kanban drag action named for every column (E2, revised). Approvers are now notified when `submit` actually lands the ECN on `feasibility` (X1 AC7, contradiction closed) — never at creation |
+| B2 | `PATCH /v1/ecns/:id` could change `owner` at any stage (old E1 AC3), so a creator could reassign ownership then approve their own ECN. `documentMachine`'s own `forbidsSelfApproval` (`packages/core/src/state-machines/document.ts:44-54`, read in full) only guards `to === "approved"` — it does **not** block self-*rejection* — so "mirrors documentMachine exactly" was an inaccurate claim for a stronger rule | `owner` frozen the instant `stage` leaves `draft` — `PATCH` 422s on an `owner` change once `stage !== 'draft'` (E1 AC3, revised). Four-eyes made **explicitly stricter than documents, stated as such, not claimed as an exact mirror**: an approve/reject/submit/close/withdraw actor must be `≠ ecns.owner` **and** `≠ ecns.created_by` (both checked; `created_by` is one of the "standard audit columns" every table already carries, confirmed `packages/db/migrations/0001_core.sql:33-34`) — for **both** decisions, approve and reject, unlike `documentMachine`'s narrower approve-only guard (E4 AC2, revised) |
+| B3 | Read `documents.service.ts`'s `newVersion` (`apps/api/src/documents/documents.service.ts:358-409`, confirmed in full): (a) line 402 sets `file_id = body.fileId ?? null` — the old E5 spec passed `fileId: null`, which detaches the document's live file; (b) line 399 sets `owner_id = actorId` unconditionally — the approver would silently become owner of every revised document; (c) `newVersion` throws `INVALID_TRANSITION` (not-approved, line 371), `CONFLICT` (version exists, line 376), or a 409 stale-write (line 405) — none of these can be allowed to abort the whole ECN transition; (d) the skip list was only ever returned in the HTTP response, never persisted | (a) Auto-revise now passes `fileId: row.file_id` (the document's **current** file, read before the call), never `null`. (b) `DocumentsService.newVersion` gains one **small, additive, optional** parameter — `ownerId?: string` on `NewDocumentVersionBody` — documented as a signature change, not silently "no signature change": when omitted (every existing caller, `documents.controller.ts`'s own route), behaviour is unchanged (`owner_id = actorId`, exactly as today); ECN's auto-revise always passes it explicitly as the document's own **current** `owner_id` (read before the call), so a document's owner never changes as a side effect of an ECN reaching `implementation` — decided explicitly, not left ambiguous. (c) Each document's revision attempt runs inside its own `SAVEPOINT` (precedent: `apps/api/src/jobs/processors/purge-soft-deleted.ts`'s `purgeRow`, lines 152-190, confirmed real — `SAVEPOINT`, attempt, `RELEASE` on success / `ROLLBACK TO SAVEPOINT` + `RELEASE` on failure); "not currently approved" and "version already exists" are pre-checked by reading the document row before calling `newVersion` (named skip reasons `not_approved`/`version_exists`, never relying on catching those two specific errors), while the stale-write 409 (a genuine race — the row changed between the pre-check read and the call) is still caught inside the `SAVEPOINT` as a third skip reason (`concurrent_modification`) since it cannot be pre-checked away. The ECN's own `implementation` transition commits regardless of any document's outcome. (e) The skip/revise list is now **persisted**, not just returned once: a new `ecns.auto_revise_result jsonb NULL` column (migration `0072`) is set in the same transaction and also written into the `status_changed` audit event's `after` payload; `GET /v1/ecns/:id` (`EcnDto`) exposes it as `autoRevise: { revised: string[]; skipped: { documentId: string; reason: "not_approved" \| "version_exists" \| "concurrent_modification" }[] } \| null` so the detail view can show it after the fact, not only in the one-time approval response (E5, revised). Exact `entity_links` scope stated: `WHERE from_kind = 'ecn' AND to_kind = 'document' AND from_id = :ecnId` |
+| B4 | Read `entity-links.service.ts`'s `assertEntityVisible`/`LABEL_CONFIG` (`apps/api/src/collab/entity-links.service.ts:28-47`) and `entity-ref.ts`'s `assertEntityVisible` (`apps/api/src/collab/entity-ref.ts:88-97`, confirmed in full): it checks only tenant/plant scope, never a capability. `entity-links.controller.ts`/`comments.controller.ts` (both read in full) carry **no** `@RequireCapability` at all — safe only because, today, every internal role already holds every one of the 11 existing `EntityKind`s' own `:view` capability (confirmed against `packages/core/src/rbac.ts`'s full grant lists) and `partner` is excluded entirely by `@Internal()`. `comments.service.ts` (`apps/api/src/collab/comments.service.ts:104,135`, confirmed) calls `assertEntityVisible` **without even a `membership` argument** — no plant-scope check at all today. `EntityKind` gaining `complaint`/`ecn` is the **first** case where a real internal role (`inspector`, by this sprint's own §1 decision) lacks a kind's `:view` — so the historical "safe by coincidence" argument stops holding the moment this sprint ships. No ECN-specific unlink route existed, so anyone with the generic `entity-links` delete could strip an ECN→document link after `implementation`, bypassing E5's stage-freeze | `assertEntityVisible` (`entity-ref.ts`) now also requires the caller's capability: `ENTITY_TABLES` becomes a table of `{ table, capability }` (reusing the exact capability strings `LABEL_CONFIG` already carries per kind, so no new capability is invented), and `assertEntityVisible` 404s (never 403, rule 8) when the caller lacks it. This is a **zero-behaviour-change** fix for the 11 existing kinds (every internal role already holds their `:view`, confirmed above) and is what actually closes the new inspector-facing gap for `complaint`/`ecn`. `comments.controller.ts` now passes `membershipOf()` through to `comments.service.ts`'s `list`/`create` (mirroring `entity-links.service.ts`'s existing pattern), so comments get both the capability check and the plant-scope check comments never had. **New:** `POST /v1/ecns/:id/links/:linkId/delete` (`ecn:manage` **and** `stage` strictly before `implementation`, else 422), audited `unlinked` (existing action enum value, `packages/types/src/enums.ts:422`, confirmed — no new enum needed) — the real ECN-specific guard the generic route can't provide (E5, revised) |
+| B5 | Read `search.service.ts`'s `KINDS`/`queryKind` (`apps/api/src/search/search.service.ts:19-24,85`, confirmed in full): `search()` has no per-kind capability check (only the special-cased `AUDIT_HIDDEN_ROLES` nav-hiding rule), and `queryKind`'s SQL hard-codes `SELECT id, code, title, ...` — a literal `title` column. Complaints' real title-bearing column is `subject` (C1 AC1), which would error at runtime | `KindConfig` gains two fields: `capability: Capability` (checked in `search()` before a kind is queried at all — skips kinds the caller can't view, closing the same class of gap as B4) and `titleColumn: string` (defaults to `"title"` for every existing kind, unchanged; `complaint: { table: "complaints", plantScoped: false, capability: "complaint:view", titleColumn: "subject" }`, `ecn: { table: "ecns", plantScoped: false, capability: "ecn:view", titleColumn: "title" }`); `queryKind`'s SQL interpolates `titleColumn` (still safe — the map is hard-coded, never user input, same security note as today) and aliases it back to `title` in the result so `SearchResultDto`'s shape is unchanged (X1 AC5, revised) |
+| B6 | Read `audits.service.ts`'s `raiseNcr`/`raiseCapa` (`apps/api/src/audits/audits.service.ts:655-706,708-740`, confirmed in full) and `packages/core/src/rbac.ts`'s `auditor`/`CreateNcrBody`/`CreateCapaBody`/`CreateEightDBody`/`NcrPriority`/`CapaType`/`WizardPriority` (`packages/types/src/dto.ts:315-338,435-449,822-840`, `packages/types/src/enums.ts:121-122,218-219,499-500`, all confirmed): (a) two concurrent converts race on an `IS NULL` guard read at different times; (b) converting an already-closed complaint was unspecified; (c) UC prose said converting a `capa`-status complaint to NCR "is rejected" while AC2 said it's created and linked — self-contradicting — plus a stray "the **ECN's** existing progress" typo at line 274 (this section is about complaints, not ECN); (d) AC2 only audited the complaint when `status` changed, so a second convert to a different target (status unchanged) wrote **no** audit event on the complaint — the exact Sprint-05 bug class (bare mutation escaping `withAudit`); (e) `raiseCapa`'s own link-back (`audits.service.ts:734-738`) is a **bare `tx.query` UPDATE outside `withAudit`** — confirmed, a real pre-existing unaudited mutation, NOT fixed when `raiseNcr` was fixed in Sprint 05; (f) auditor holds `ncr:create` (not `ncr:manage`) and `capa:view` (not `capa:manage`) — confirmed against the full `auditor` grant list — while 8D creation requires `ncr:manage` (`eight-d.controller.ts:53`) and CAPA creation requires `capa:manage` (`capa.controller.ts:56`), so an auditor genuinely **cannot** convert to 8D or CAPA, contradicting the old "redundant-but-harmless" framing; (g) `NcrPriority` has 3 values (`minor\|major\|critical`), complaint `severity` has 4 (`critical\|high\|medium\|low`), `CapaType` (`corrective\|preventive`) has no complaint analog at all, and `CreateEightDBody`'s `priority` field is typed `WizardPriority` (4 values, matching severity 1:1) — three different shapes, not one; (h) `eight_ds.source`/`source_id` client-settability was unstated | (a) `POST /v1/complaints/:id/convert` now requires `lockVersion` in the body; the service `SELECT ... FOR UPDATE`s the complaint row first, computes the new status from the **locked** row (never the pre-lock read), and the `UPDATE` statement carries `WHERE lock_version = $lockVersion` (409 on mismatch) **and** an explicit `status <> 'closed'` guard (422, not silently reopening a close that landed first — locking alone makes the race impossible, and the explicit guard makes the "already closed" case a named, tested outcome rather than an implicit one). (b) Converting an already-`closed` complaint → 422 (`COMPLAINT_CLOSED`), stated explicitly. (c) UC prose corrected to match AC2's real, kept behaviour: converting to a chronologically-earlier target is **allowed** — it creates and links the target record without moving `status` backward (a complaint can carry multiple linked records) — and the "ECN's" typo is fixed to "the complaint's." (d) The complaint now gets an audit event on **every** successful convert: `updated` when `status` doesn't change, `status_changed` when it does — no more silent, unaudited link-only writes. (e) `audits.service.ts`'s `raiseCapa` link-back is fixed in this sprint (small, named, adjacent fix, same file/class of bug as the already-fixed `raiseNcr`) to use `withAudit` exactly like `raiseNcr` already does — the convert route's own complaint-audit logic is specified to follow `raiseNcr`'s (the fixed one's) pattern, never `raiseCapa`'s old one. (f) The convert route now performs a **real, enforced** per-target capability check — `ncr:create` for NCR, `ncr:manage` for 8D, `capa:manage` for CAPA — a caller lacking the target's capability gets a real 403 (no bypass, no silent escalation), and §5's convert-target picker is filtered client-side to only the targets the caller actually holds. (g) The convert body is now a **discriminated union keyed on `target`**: `{ target: "ncr"; title?: string }` (priority derived, not accepted from the client — see mapping below), `{ target: "eight_d"; title?: string }`, `{ target: "capa"; title?: string; type: CapaType }` (CAPA's `type` has no complaint analog, so the caller must supply it — the one field this sprint's discriminated union requires beyond what severity can derive). An explicit severity→priority mapping table is defined (below) rather than left to be invented at build time. Also decided: if a complaint already has `ncr_id` set and 8D/CAPA is requested next, the new 8D/CAPA links to the **existing** NCR (`ncrId` passed through to `EightDService.create`/`CapasService.create`'s own `ncrId`/`sourceId`), not a fresh one — if that NCR already has its own 8D, a second 8D request 409s (`CONFLICT`, mirrors `raiseNcr`'s "already has an NCR" precedent) rather than silently reusing or duplicating. (h) Stated plainly: `eight_ds.source`/`source_id` (and NCR's `source`/`sourceId`, CAPA's `sourceKind`/`sourceId`) are **always set internally by `ComplaintsService.convert`**, never accepted as convert-body fields from the client — consistent with how `raiseNcr`/`raiseCapa` already set them today (§2 C4, revised) |
+| B7 | Read `job-types.ts` (`apps/api/src/jobs/job-types.ts:140`, confirmed: `SLA_SWEEP_CRON = "*/5 * * * *"`, every 5 minutes) and `packages/core/src/sla.ts` (confirmed in full, 217 lines): (a) a once-daily job cannot serve a 1h/4h ack target; (b) closing a complaint before it's ever acknowledged would leave `complaintSlaState` computing forever against a moving `now`; (c) changing `severity` via `PATCH` wasn't stated to re-derive SLA targets; (d) `AT_RISK_THRESHOLD = 0.8` (confirmed at `sla.ts:163`, not 75%), and §1a claimed "reuses the business-hours machinery" while §3.1 said the ack-clock is "a plain elapsed-hours comparison, not routed through `computeDueAt`" — both true of different pieces, stated as if contradictory | (a) The complaint SLA check rides the **existing** 5-minute `sla.sweep` cadence (`SLA_SWEEP_CRON`) — no new daily job. (b) `complaintSlaState` freezes its computation at `closedAt` when set (a closed complaint's SLA state is fixed at closing time, never recomputed against a later `now`) — stated as an explicit input/rule, not left implicit. (c) `PATCH /v1/complaints/:id` changing `severity` re-derives and overwrites `sla_target_hours`/`sla_close_target_days` from the SLA matrix in the same transaction, audited as part of the existing `updated` event (C1 AC2, revised) — stated as required behaviour, not assumed. (d) `complaintSlaState`'s at-risk threshold is corrected to use the **existing** `AT_RISK_THRESHOLD` (0.8) imported from `packages/core/src/sla.ts`, not a second, inconsistent 75% constant. §1a's own text is corrected to stop claiming the business-hours *machinery* (`computeDueAt`/`addBusinessHours`) is reused — only the `SlaState` **type** and the general on_track/at_risk/breached philosophy are reused; `computeDueAt` is confirmed (by reading it) to be inherently business-hours-aware with no plain-elapsed-hours mode, so the complaint ack-clock correctly does **not** call it at all, exactly as §3.1 already said — §1a is restated to agree, not contradict |
+| B8 | Re-read `qms-modules.jsx`'s `ECNList` (lines 549-591) and `CustomerComplaints` (lines 332-475) in full again: (a) `ECNList` has a real "Affected" column (`{e.eff} docs`, line 576 — e.g. "18 docs") never captured by the old `EcnDto`/E1 AC; (b) row `ECN-2026-0180` (line 562) is shown at `s: 'ppap', stl: 'PPAP', step: 4, of: 6` — a stage name that appears **nowhere** in the canonical machine — and the list's own row order places `ECN-2026-0182` ("Doc revision," step 5, line 560) **before** `ECN-2026-0181` ("Pilot run," step 6, line 561), i.e. documents-before-pilot, while the approved §3.2 fires auto-revise **after** pilot (`pilot→implementation`); (c) the complaint row's button reads exactly **"Link / Create NCR"** (`qms-modules.jsx:413`, confirmed verbatim) — implying link-to-existing as a real second capability, which the old C4 built as "create new and link" only, with the existing-NCR half silently dropped; (d) every `COMPLAINTS` fixture row (lines 325-329) carries at most **one** `linked` value — the jsx never shows what a multi-linked row would display | (a) `EcnDto`/`GET /v1/ecns` gain a computed `linkedDocumentCount: number` field (`count(*)` over `entity_links WHERE from_kind='ecn' AND to_kind='document' AND from_id=:id`), rendered as the list's "Affected" column (E1 AC1/AC3, revised). (b) **Not resolved here** — written up as new §3.2a, explicit deltas for the user, per the review's own instruction not to silently resolve jsx questions a second time. (c) "Link to an existing NCR" is added back as a real, explicit story addition: `POST /v1/complaints/:id/convert` gains a fourth discriminated-union variant, `{ target: "ncr"; existingNcrId: string }` (`ncr:view`-visible via `assertEntityVisible`, tenant-scoped, 404 not 403 on a foreign id) — links the complaint to that NCR (same `WHERE ncr_id IS NULL` guard, same audit rule) without creating a new NCR (C4, revised; §5 UI gains a "link existing" affordance next to "create new" in the convert picker). (d) The "Linked" column's rule is now explicit: since a complaint can accumulate more than one link this sprint (once "link existing" ships), the column shows the **single most-advanced** linked record by `complaintMachine`'s own rank order (`capa` > `eight_d` > `ncr` — the same rank C4 AC2 already defines for status-advance), never "most recent" or a comma-joined list (C1 AC1, revised) |
+
+**Severity → priority mapping (B6g), stated explicitly:**
+
+| Complaint `severity` | → NCR/CAPA `priority` (`NcrPriority`: minor/major/critical) | → 8D `priority` (`WizardPriority`: low/medium/high/critical) |
+|---|---|---|
+| `critical` | `critical` | `critical` |
+| `high` | `major` | `high` |
+| `medium` | `minor` | `medium` |
+| `low` | `minor` | `low` |
+
+### Should-fix (all resolved)
+
+| # | Item (verified) | Fix |
+|---|---|---|
+| S1 | `ncrs` already has `UNIQUE (tenant_id, id)` (`ncrs_tenant_id_uq`, added by `packages/db/migrations/0067_composite_fk_prereqs.sql:29-30`, and consumed by a real composite FK at `0068_calibration.sql:158` — both confirmed) — composite-FK-ready, per this codebase's established pattern (Postgres FK checks bypass RLS; a plain FK is only safe when ids are server-generated, never client-supplied). `eight_ds`/`capas` confirmed to have **only** `UNIQUE (tenant_id, code)` (`0001_core.sql:285,371`), no `UNIQUE (tenant_id, id)` yet. B8(c)'s "link to an existing NCR" variant accepts a **client-supplied** `existingNcrId` — a plain FK is no longer safe once RLS can't be trusted to have already scoped that id (the classic composite-FK trigger condition) | The complaint↔NCR/8D/CAPA link columns switch from plain FK to **composite** FK (`(tenant_id, ncr_id) REFERENCES ncrs(tenant_id, id)`, etc. — mirrors `0067`'s pattern exactly), now **required**, not optional, because of B8(c). Migration `0071` additions: `ALTER TABLE eight_ds ADD CONSTRAINT eight_ds_tenant_id_uq UNIQUE (tenant_id, id)` and `ALTER TABLE capas ADD CONSTRAINT capas_tenant_id_uq UNIQUE (tenant_id, id)` (both confirmed missing today) before `complaints.ncr_id`/`eight_d_id`/`capa_id` are declared as composite FKs (C1 AC1, revised) |
+| S2 | The approve/reject route's internal statement order wasn't specified precisely; E5's own link route had no concurrency guard against a stage-advance racing a link-add; linking had no stated stage ceiling | E4 AC2 now states the exact order: (1) `UPDATE ecns ... WHERE lock_version=$v AND stage=$s` (optimistic concurrency + stage guard in one statement, 409/422 respectively on no match — the two failure modes are told apart by a follow-up read, mirroring this codebase's existing stale-write-error pattern); (2) update the matching `ecn_approvals` row `WHERE decision='pending'`; (3) run E5's auto-revise only on the specific transition that needs it (`pilot→implementation`). `POST /v1/ecns/:id/link` (E5) now takes `SELECT ... FOR SHARE` on the parent `ecns` row first (prevents a concurrent approve from advancing the stage mid-link); linking is restricted to stages `draft` through `pilot` only (422 once `stage` has reached `implementation`, `closed`, or `rejected` — tightened from "422 once past pilot" to name every terminal/post-pilot stage explicitly) |
+| S3 | Read `document-detail.tsx` (confirmed: its own local `ENTITY_ROUTE`/`ENTITY_LABEL`, `Record<EntityKind,...>` maps at lines 53/78) and `capa-detail.tsx` (own local `ENTITY_ROUTE`/`ENTITY_LABEL` at lines 51/69) — both **separate** from `apps/web/src/lib/entity-routes.ts`'s shared helpers, both force-widened by `EntityKind` gaining `complaint`/`ecn`, and both missed by the old X1 AC3 (which only touched the shared `entity-routes.ts`). `chat.ts`'s `ENTITY_SPECS.label` (confirmed, `apps/api/src/ai/chat.ts:25-45`) is literally the DB column name to select | X1 AC3 (revised) now also lists `document-detail.tsx`'s and `capa-detail.tsx`'s own local `ENTITY_ROUTE`/`ENTITY_LABEL` maps as places `complaint: "/complaints?id="` / `ecn: "/ecn?id="` and their display labels must be added. X1 AC4 (revised) states `chat.ts`'s `ENTITY_SPECS` gains `complaint: { table: "complaints", label: "subject", plantScoped: false, view: "complaint:view" }` and `ecn: { table: "ecns", label: "title", plantScoped: false, view: "ecn:view" }` — `label: "subject"`, the real column (matches B5's fix) |
+| S4 | ECN's post-`closed`/`rejected` editability, complaint's post-`closed` editability, and `owner` reassignability were all left implicit | Stated explicitly: ECN is **not** editable via `PATCH` once `stage` is `closed` or `rejected` (422, both fields and `owner`) — fully frozen (E1 AC3, revised). A `closed` complaint remains editable only via `PATCH`'s existing field set (`customer`/`contact`/`channel`/`severity`/`subject`/`description`/`batchRef`/`cost`) — closing a complaint does not freeze it the way ECN's terminal stages do, since P18 names no such freeze and a closed complaint's cost is often only known after closing (C1 AC1's own `cost_usd` rationale); `status`/`ncr_id`/`eight_d_id`/`capa_id`/timestamps stay non-`PATCH`able regardless, as already stated. Complaint `owner`: **not** reassignable this sprint (no route exists to change it after creation) — stated as a deliberate decision, not an oversight; a future sprint can add reassignment if a real use case names one (§7) |
+| S5 | No uniqueness constraint on `complaint_attachments`, no named audit event for adding one, and "attachments after intake" was unstated | `UNIQUE (tenant_id, complaint_id, file_id)` added to `complaint_attachments` (migration `0071`, C1 AC1, revised) — prevents a duplicate attachment row. Attachments can be added **only at creation** this sprint (via `attachmentFileIds` in `POST /v1/complaints`, C2 AC1) — no separate "add attachment later" route is built (P18/the jsx name no such control); each insertion is covered by the complaint's own `created` audit event (no separate per-attachment event needed, since attachments are created in the same transaction as the complaint, not as an independent later mutation) — stated explicitly, not left to be assumed either way |
+| S6 | `customer_color` was specified as a **stored** column — a derived, display-only value, which this codebase's own established norm (`packages/core/src/rbac.ts`'s carried-over Sprint 05 C1a comment: "pure, unit-tested derivation functions..., never a stored 'status' column computed against `now()`," and more directly, the same "computed on read" norm applies to any cheap display derivation) says should be computed, not persisted | `complaints.customer_color` **column removed** from migration `0071` (C1 AC1, revised). `customerColor(name: string): string` (`packages/core/customer-color.ts`, unchanged, still pure/unit-tested) is now called **on read**, in `toComplaintDto`, never stored — `ComplaintDto.customerColor` is a computed response field, not a persisted one |
+| S7 | The ECN approval-pending broadcast (old X1 AC7) notified "everyone with `ecn:approve`," which would include the ECN's own `owner`/`created_by` if either happened to hold that capability | X1 AC7 (revised) excludes the ECN's own `owner` and `created_by` from the approval-pending notification broadcast — they should not be told their own ECN needs someone else's sign-off |
+| S8 | `ecn_approvals.role_required` (old E4 AC1) is stored as the literal constant `"admin_or_manager"` for every row, but the actual gate (old E4 AC2 step (c)) hard-codes the admin/manager check in code — no service method reads the column's value at all; confirmed no other table anywhere in this codebase has a `role_required` column to mirror | `role_required` **removed** from `ecn_approvals` (migration `0072`, E4 AC1, revised) — a dead field this sprint has no use for; the fixed, uniform admin/manager-only rule (Q30, unchanged) is enforced entirely in `ecnMachine`'s guard, with nothing left to configure that a stored-but-unread column would imply |
+| S9 | `documentMachine` allows `rejected → draft` (resubmission); the ECN machine treats `rejected` as fully terminal with no resubmission path — an asymmetry the old spec picked an answer to silently | **Not resolved here** — logged as new open question **Q33** in §7, explicitly for the user/PO to decide, not silently answered either way |
+
+### DELTAS TO THE ALREADY-APPROVED §3 — need the user's re-approval
+
+*(The rest of this amendment — B4-B6's RBAC/search/audit corrections, B7's SLA cadence/threshold fixes, S1-S8 — are corrections and clarifications within the spirit of what §3 already said, not new decisions. These four are different: they change a schema, a workflow rule, or a mechanism's signature that the user already signed off on 2026-09-30, or put a genuinely new decision in front of the user for the first time. Relay exactly these to the user.)*
+
+1. **New ECN routes (B1):** `submit` (draft→feasibility), `close` (implementation→closed), `withdraw` (draft→rejected) — three routes that don't exist in the approved §3 at all, changing the ECN lifecycle from "4 gated transitions only" to "4 gated + 3 author-driven."
+2. **ECN `owner` frozen after `draft`, and four-eyes widened to `owner` OR `created_by`, for both approve and reject (B2):** the approved §3 let `owner` be edited at any time and only blocked self-*approval* (mirroring documents); this is now a stricter, ECN-specific rule.
+3. **`DocumentsService.newVersion` gains an optional `ownerId` parameter (B3b):** a real signature change to existing, shipped code outside this sprint's new modules, even though it's additive and behaviour-preserving for every existing caller.
+4. **Complaint SLA sweep rides the existing 5-minute job, not a new daily one; `AT_RISK_THRESHOLD` is 0.8, reusing the existing constant, not a new 75% one (B7):** both numbers/mechanisms differ from what §3.1 originally said the user approved.
+5. **jsx-fidelity questions, genuinely new, not silently resolved (B8b) — see §3.2a below:** is "PPAP" a real distinct stage the canonical machine should add, or is it `ECNList`'s own mock error (like "Doc revision" already was)? Does the jsx's documents-before-pilot row ordering mean auto-revise should fire earlier in the pipeline (e.g., on `cab_approval→pilot`) rather than on `pilot→implementation` as approved?
+6. **"Link to an existing NCR" added back as a real capability (B8c):** the jsx's button always said "Link / **Create** NCR" (both verbs); the approved §3 only built "create new," silently dropping half of what the button promises — now added back, which is new schema (composite FK, S1) and a new discriminated-union body shape.
+7. **`Q33` (S9):** should ECN allow `rejected → draft` resubmission the way documents do? Left open, not decided by this amendment.
 
 ---
 
@@ -100,13 +162,14 @@ UC
 AC
 1. Migration `0071_complaints.sql`: `complaints` — `tenant_id`, `id`, `code` (`COM-YYYY-NNNN` via `codes.ts`'s
    `counters` mechanism; `CodeKind` gains `"complaint"` → prefix `COM`), `customer` text NOT NULL (free text —
-   P18 §2 defines no customer master table; a customer is whatever string the loggist types), `customer_color`
-   text NOT NULL, **server-computed, never user-chosen** — a new pure `packages/core/src/customer-color.ts`
+   P18 §2 defines no customer master table; a customer is whatever string the loggist types) — **no
+   `customer_color` column (§0 S6)**: a new pure `packages/core/src/customer-color.ts`
    `customerColor(name: string): string` deterministically hashes `customer` to one of a fixed 10-color
    palette (the jsx's own 5 literal hex values — `#003c64`, `#1c1c1c`, `#cc0000`, `#0066b1`, `#0a8541` — plus 5
    more chosen for WCAG-AA contrast against white text, all as literal design tokens per `design-rules.md`'s
-   per-entity-kind-color convention), so the same customer name always renders the same chip color without a
-   customer table (unit-tested for determinism, not randomness), `contact` text NOT NULL (single free-text
+   per-entity-kind-color convention) is called **on every read**, in `toComplaintDto` — `ComplaintDto.
+   customerColor` is a computed response field, never persisted (unit-tested for determinism, not randomness;
+   matches this codebase's own norm of never storing a cheap, derivable display value), `contact` text NOT NULL (single free-text
    field, e.g. "Magnus Eriksson · Quality Manager" — matches the list's own display format exactly; **not**
    split into name/title columns, since nothing in the jsx or P18 shows them as separate fields — see §3.1 for
    why this field exists at all despite not being in the drawn `IntakeForm`), `channel` enum (`portal\|
@@ -122,23 +185,35 @@ AC
    NULL — **both denormalized at creation from the severity's SLA-matrix config at that moment** (mirrors
    Sprint 05 T1 AC1's `training_records.valid_months` denormalization precedent exactly — a later change to the
    SLA matrix must never retroactively alter an existing complaint's own due dates), `owner` (composite member
-   FK, NOT NULL, defaults to the creating actor), `ncr_id` uuid REFERENCES `ncrs(id)` ON DELETE RESTRICT NULL,
-   `eight_d_id` uuid REFERENCES `eight_ds(id)` ON DELETE RESTRICT NULL, `capa_id` uuid REFERENCES `capas(id)`
-   ON DELETE RESTRICT NULL — **plain FKs, the `audit_findings.ncr_id`/`capa_id` pattern, not composite** (§1a),
+   FK, NOT NULL, defaults to the creating actor — **frozen: no route reassigns it this sprint, §0 S4**),
+   `ncr_id` uuid, `eight_d_id` uuid, `capa_id` uuid, all NULL — **composite FKs, not plain (§0 S1, superseding
+   the original `audit_findings.ncr_id`/`capa_id` plain-FK precedent)**: `(tenant_id, ncr_id) REFERENCES
+   ncrs(tenant_id, id) ON DELETE RESTRICT`, `(tenant_id, eight_d_id) REFERENCES eight_ds(tenant_id, id) ON
+   DELETE RESTRICT`, `(tenant_id, capa_id) REFERENCES capas(tenant_id, id) ON DELETE RESTRICT` — required now
+   that C4's "link to an existing NCR" (§0 B8c) accepts a client-supplied id, which a plain FK can't safely
+   trust (Postgres FK checks bypass RLS). `0071` first adds the missing prerequisites, confirmed absent today:
+   `ALTER TABLE eight_ds ADD CONSTRAINT eight_ds_tenant_id_uq UNIQUE (tenant_id, id)` and `ALTER TABLE capas ADD
+   CONSTRAINT capas_tenant_id_uq UNIQUE (tenant_id, id)` (`ncrs` already has this, `0067_composite_fk_prereqs.
+   sql:29-30`),
    `search_vector` generated tsvector over `subject`/`description`/`customer` (mirrors `0008_search_vectors.sql`
    exactly), `lock_version`, standard audit columns. Forced RLS, leading `tenant_id` index, unique
    `(tenant_id, code)`, `UNIQUE (tenant_id, id)` (self-consistency — target for `complaint_attachments`' composite
    FK, C2 AC1). Also in `0071`: `complaint_attachments` (`tenant_id`, `id`, `complaint_id` composite FK →
    `complaints(tenant_id, id)` ON DELETE CASCADE, `file_id` composite FK → `files(tenant_id, id)` ON DELETE
    RESTRICT — `files` already has this unique constraint from Sprint 05's `0067`, §1a — `created_by`,
-   `created_at`). `EntityKind` gains `"complaint"`; `entity_links_from_kind_check`/`_to_kind_check` widened
+   `created_at`, **`UNIQUE (tenant_id, complaint_id, file_id)` (§0 S5 — no duplicate attachment rows)**).
+   `EntityKind` gains `"complaint"`; `entity_links_from_kind_check`/`_to_kind_check` widened
    (mirrors `0064`'s pattern).
 2. `GET /v1/complaints` (cursor, rule 6; filters `status`/`severity`/`channel`/`owner`/`unlinked`(bool, `ncr_id
    IS NULL`)/`q` free-text over `search_vector`), `POST /v1/complaints` (`complaint:manage`, `Idempotency-Key`
    header, mirrors every other sprint's create-route pattern), `GET /v1/complaints/:id` (`complaint:view`),
    `PATCH /v1/complaints/:id` (`lockVersion`, `complaint:manage` — edits customer/contact/channel/severity/
-   subject/description/batch/cost; never `status`/`ncr_id`/`eight_d_id`/`capa_id`/`acknowledged_at`/
-   `closed_at` directly — those change only via C3/C4/C5's own dedicated actions). Not plant-scoped (no
+   subject/description/batch/cost, **remains editable after `closed` too (§0 S4 — closing a complaint does not
+   freeze it, unlike ECN's terminal stages)**; never `status`/`ncr_id`/`eight_d_id`/`capa_id`/`acknowledged_at`/
+   `closed_at` directly — those change only via C3/C4/C5's own dedicated actions. **Changing `severity` re-
+   derives and overwrites `sla_target_hours`/`sla_close_target_days` from the SLA matrix in the same
+   transaction (§0 B7c)** — stated as required behavior, not assumed. `owner` is never `PATCH`able this sprint
+   (§0 S4 — not reassignable, no route exists). Not plant-scoped (no
    `plant_id` column — a customer complaint is not tied to one physical plant, mirrors document/capa/supplier
    precedent). All mutations `withAudit` in the same transaction (rule 3).
 3. `GET /v1/complaints/summary` (`complaint:view`) — one round trip returning every KPI/tab count below,
@@ -164,20 +239,31 @@ AC
 4. Cross-tenant complaint id → 404, not 403 (rule 8), mutation-tested against RLS.
 5. `sla_state` (`SlaState` — reused type, `on_track\|at_risk\|breached`, §1a) is **computed on every read**,
    never stored, via a new pure `packages/core/src/complaint-sla.ts` `complaintSlaState(input: { slaTargetHours:
-   number; receivedAt: string; acknowledgedAt: string | null; now: string }): SlaState`: if `acknowledgedAt` is
+   number; receivedAt: string; acknowledgedAt: string | null; closedAt: string | null; now: string }): SlaState`:
+   **if `closedAt` is set, the state is frozen at whichever it resolved to at closing time — never recomputed
+   against a later `now` (§0 B7b, explicit input/rule, not left implicit)**; otherwise, if `acknowledgedAt` is
    set, the state is fixed forever at whichever it resolved to at that moment (`on_track` if acknowledged
    within `slaTargetHours` of receipt, else `breached` — a late first response stays permanently `breached`
    for this leg, regardless of what happens after); if not yet acknowledged, `breached` when elapsed hours
-   exceed `slaTargetHours`, `at_risk` when elapsed hours are ≥ 75% of `slaTargetHours`, else `on_track`. Takes
-   ISO strings, never JS `Date` objects (mirrors Sprint 05 B4's deliberate deviation for the same `pg`
-   timezone-shift reason). Unit-tested including the 75% boundary and the "acknowledged late, stays breached
-   forever" rule.
+   exceed `slaTargetHours`, `at_risk` when elapsed hours are ≥ `packages/core/src/sla.ts`'s existing
+   `AT_RISK_THRESHOLD` (**0.8, confirmed at `sla.ts:163` — reused, not a second, inconsistent 75% constant, §0
+   B7d**) fraction of `slaTargetHours`, else `on_track`. Takes ISO strings, never JS `Date` objects (mirrors
+   Sprint 05 B4's deliberate deviation for the same `pg` timezone-shift reason). Unit-tested including the
+   0.8 boundary and both the "acknowledged late, stays breached forever" and "frozen at close" rules. **Runs on
+   the existing 5-minute `sla.sweep` cadence (`SLA_SWEEP_CRON`, `job-types.ts:140`, confirmed) — no new daily
+   job (§0 B7a)**, since a once-daily check cannot serve a 1h/4h acknowledge target.
+
+6. **"Linked" column rule, stated explicitly (§0 B8d):** once a complaint can carry more than one linked record
+   (C4, once "link existing NCR" ships), the register's "Linked" column shows the **single most-advanced**
+   linked record by `complaintMachine`'s own rank order (`capa` > `eight_d` > `ncr` — the same rank C4 AC2
+   already uses for status-advance) — never "most recent" and never a comma-joined list.
 
 **Web/Mobile/Shared**
 - **Web:** `apps/web/src/features/complaints/` — `ComplaintsPage` (KPI strip, 4 tabs w/ real counts, register
-  table w/ customer color chip/severity badge/status chip/linked-record link or "Convert" affordance/received
-  relative-time, "Intake channels"/"SLA matrix" reference cards reproduced as static reference content — see
-  §3.1 for why these two cards are real but non-interactive this sprint), empty/loading/error/offline states.
+  table w/ customer color chip/severity badge/status chip/linked-record link (AC6's most-advanced-wins rule) or
+  "Convert" affordance/received relative-time, "Intake channels"/"SLA matrix" reference cards reproduced as
+  static reference content — see §3.1 for why these two cards are real but non-interactive this sprint),
+  empty/loading/error/offline states.
 - **Mobile:** not built — no `m-*.jsx` design (confirmed §1a); no route, no nav entry; `pnpm --filter
   @kaenal/mobile typecheck` must stay green on the additive shared-type changes only.
 - **Shared:** migration `0071` (`complaints`, `complaint_attachments`, `EntityKind`/`entity_links` widening);
@@ -285,35 +371,68 @@ UC
   manage` already holds `ncr:create`/`capa:manage`, so this is redundant-but-harmless, not an independent
   gate).
 
+UC (revised, §0 B6c) — converting to a target chronologically *behind* the complaint's current status (e.g.,
+"convert to NCR" on a complaint already at `8d`) is **allowed**: it creates the NCR and links it (a complaint
+can carry more than one linked record for traceability) but does not move `status` backward, exactly as AC2
+below states — the earlier UC text calling this "rejected" was a self-contradiction against its own AC and is
+corrected here, not the AC.
+
 AC
-1. `POST /v1/complaints/:id/convert` (`complaint:manage`) body `{ target: "ncr" | "eight_d" | "capa", title?,
-   priority? }` — reuses `NcrsService.create`/`EightDService.create`/`CapasService.create` directly (not a new
-   parallel creation path), passing `source: "complaint"` (NCR — already a valid `NcrSource` value, §1a, no
-   migration needed) / `sourceKind: "complaint"` (CAPA) / a new, equally minimal `source`-style field for 8D
-   (8D's own schema, `0001_core.sql:264-286`, has no `source`/`source_id` columns at all today — this sprint
-   adds them, migration `0071`: `eight_ds.source text NULL`, `eight_ds.source_id uuid NULL`, unconstrained,
-   matching the loose pattern `ncrs.source_id`/`capas.source_id` already use, not a CHECK-constrained enum
-   this sprint since 8D currently has no other `source` value to enumerate against), `sourceId: <complaint
-   id>`. Sets the corresponding `complaints.ncr_id`/`eight_d_id`/`capa_id` in the same transaction with a
-   `WHERE <fk> IS NULL` guard (409 on a concurrent double-convert, mirrors `raiseNcr`'s exact pattern).
-2. **Status-advance rule, exact:** `complaintMachine` (new, `packages/core/src/state-machines/complaint.ts`)
-   assigns each status a rank (`triage=0, investigation=1, 8d=2, capa=3, closed=4`, terminal). Converting to
-   `ncr` sets `status = max(current, investigation)`; to `eight_d` sets `status = max(current, "8d")`; to
-   `capa` sets `status = max(current, "capa")` — status only ever advances or stays put, never regresses.
-   Converting to a target chronologically *behind* the complaint's current status (e.g., "convert to NCR" on a
-   complaint already at `8d`) still creates the NCR and links it (a complaint can gain an NCR link after the
-   fact for traceability) but does **not** move `status` backward — `status` stays at its current, more
-   advanced value. Audited `status_changed` only when `status` actually changes; the NCR/8D/CAPA creation
-   itself is always audited `created` on the new record via its own `withAudit` call (rule 3), regardless of
-   whether `status` moved.
-3. Cross-tenant complaint id → 404, not 403 (rule 8); RLS mutation-tested for the double-convert race (two
-   concurrent converts to the same target, exactly one wins with 200, the other gets 409).
+1. **Discriminated union body, keyed on `target` (§0 B6f/g/h), replacing the old flat body:**
+   - `{ target: "ncr"; title?: string } ` — derives `priority` from severity (mapping table, §0). Requires
+     `ncr:create`.
+   - `{ target: "ncr"; existingNcrId: string }` — **link to an existing NCR (§0 B8c, added back)**: the jsx's
+     own button reads "Link / Create NCR," implying both; `existingNcrId` must be `ncr:view`-visible to the
+     caller (`assertEntityVisible`, tenant-scoped, 404 not 403 on a foreign id) — no new NCR is created.
+   - `{ target: "eight_d"; title?: string }` — derives `priority` (`WizardPriority`) from severity. Requires
+     `ncr:manage` (8D's own real creation capability, confirmed `eight-d.controller.ts:53`). If the complaint
+     already has `ncr_id` set, the 8D links to that **existing** NCR (passed as `ncrId`), not a fresh one; if
+     that NCR already has its own 8D, this 409s (`CONFLICT`, mirrors `raiseNcr`'s "already has an NCR" pattern)
+     rather than silently reusing or duplicating.
+   - `{ target: "capa"; title?: string; type: CapaType }` — derives `priority` from severity; `type` has no
+     complaint analog, so the caller must supply it (the CAPA variant's one extra required field). Requires
+     `capa:manage` (confirmed `capa.controller.ts:56`).
+   - Every variant reuses `NcrsService.create`/`EightDService.create`/`CapasService.create` directly (not a new
+     parallel creation path). `source`/`sourceId` (NCR), `sourceKind`/`sourceId` (CAPA), and 8D's new
+     `source`/`source_id` (migration `0071`: `eight_ds.source text NULL`, `eight_ds.source_id uuid NULL`,
+     unconstrained, matching `ncrs.source_id`/`capas.source_id`'s loose pattern) are **always set internally by
+     `ComplaintsService.convert`** — never accepted as client body fields (§0 B6h, consistent with how
+     `raiseNcr`/`raiseCapa` already set them today).
+   - **Real, enforced per-target capability gate (§0 B6f):** the caller must actually hold the target's own
+     creation capability (`ncr:create` / `ncr:manage` / `capa:manage`) — a caller lacking it (e.g., an auditor,
+     who holds `complaint:manage` but only `ncr:create`/`capa:view`, confirmed against `rbac.ts`'s full
+     `auditor` grant) gets a real 403, not a silent bypass; §5's convert-target picker is filtered client-side
+     to only the targets the caller actually holds.
+2. **Race-safe status advance and locking (§0 B6a/b):** `POST /v1/complaints/:id/convert` requires `lockVersion`
+   in the body. The service `SELECT ... FOR UPDATE`s the complaint row **first**, then computes the new status
+   from the **locked** row (never a pre-lock read) using `complaintMachine` (new,
+   `packages/core/src/state-machines/complaint.ts`, rank `triage=0, investigation=1, 8d=2, capa=3, closed=4`,
+   terminal): converting to `ncr`/existing-NCR sets `status = max(current, investigation)`; to `eight_d` sets
+   `status = max(current, "8d")`; to `capa` sets `status = max(current, "capa")` — status only ever advances or
+   stays put. The `UPDATE` carries `WHERE lock_version = $lockVersion AND status <> 'closed'` (409 on a
+   `lockVersion` mismatch; **422, `COMPLAINT_CLOSED`, if the complaint is already `closed`, stated explicitly
+   §0 B6b** — locking the row first already makes a convert-racing-a-close unable to silently reopen it; the
+   explicit `status <> 'closed'` guard turns that into a named, tested outcome rather than an implicit one of
+   the lock alone). **The complaint is audited on every successful convert, with no exception (§0 B6d):**
+   `status_changed` when `status` actually moves, `updated` when it doesn't (e.g., a second convert to a
+   different target after the first already advanced status) — never a silent, unaudited link-only write. The
+   NCR/8D/CAPA creation itself is always separately audited `created` on the new record via its own `withAudit`
+   call (rule 3). **`audits.service.ts`'s `raiseCapa` link-back is fixed in this same sprint (§0 B6e, small,
+   named, adjacent fix)** — its bare `tx.query` UPDATE (`audits.service.ts:734-738`, confirmed unaudited) is
+   rewritten to use `withAudit`, exactly like `raiseNcr`'s already-fixed pattern; the convert route's own
+   complaint-audit logic follows `raiseNcr`'s pattern, never `raiseCapa`'s old one.
+3. Cross-tenant complaint id (or `existingNcrId`) → 404, not 403 (rule 8); RLS mutation-tested for the
+   double-convert race (two concurrent converts to the same target, `SELECT ... FOR UPDATE` serializes them —
+   exactly one wins with 200, the other gets 409 on the now-stale `lockVersion`, never a lost-update overwrite).
 
 **Web/Mobile/Shared:** Web (Convert action in C3's detail panel + the register table's inline "Link / Create
-NCR"-equivalent affordance for unconverted rows, a target picker (NCR/8D/CAPA)). Mobile: unaffected. Shared:
-migration `0071`'s `eight_ds.source`/`source_id` addition; `ComplaintConvertBody`/`ComplaintConvertTarget` in
-`packages/types`; `packages/core/state-machines/complaint.ts` (pure, unit-tested against every status-rank
-transition including the "converts backward, status doesn't move" case).
+NCR" affordance for unconverted rows — now a real 4-way choice: create NCR / link existing NCR / create 8D /
+create CAPA, each shown only if the caller holds its capability, §0 B6f). Mobile: unaffected. Shared: migration
+`0071`'s `eight_ds.source`/`source_id` addition, `eight_ds_tenant_id_uq`/`capas_tenant_id_uq` (§0 S1), and the
+composite-FK conversion of `complaints.ncr_id`/`eight_d_id`/`capa_id` (§0 S1, moved from C1); a small, named,
+adjacent fix to `apps/api/src/audits/audits.service.ts`'s `raiseCapa` (§0 B6e); `ComplaintConvertBody`
+(discriminated union) in `packages/types`; `packages/core/state-machines/complaint.ts` (pure, unit-tested
+against every status-rank transition including the "converts backward, status doesn't move" case).
 
 ### E1 — ECN schema, canonical stage machine, List view
 
@@ -338,7 +457,12 @@ AC
    `stage = 'draft'`**, frozen once the approval pipeline begins — a change's risk assessment shouldn't shift
    after reviewers have started signing off against it), `stage` enum (`draft\|feasibility\|risk_review\|
    cab_approval\|pilot\|implementation\|closed\|rejected` — the canonical machine, §3.2) DEFAULT `draft`,
-   `owner` (composite member FK, NOT NULL, defaults to the creating actor), `effective_date` date NULL,
+   `owner` (composite member FK, NOT NULL, defaults to the creating actor, **frozen once `stage` leaves `draft`
+   — §0 B2, no route reassigns it after that**), `effective_date` date NULL, `linkedDocumentCount` (**not a
+   column — computed on read, §0 B8a**: `count(*)` over `entity_links WHERE from_kind='ecn' AND
+   to_kind='document' AND from_id=ecns.id`, the jsx's own "Affected" column, `qms-modules.jsx:576`), **
+   `auto_revise_result jsonb NULL` (§0 B3e — set on the `pilot→implementation` transition, persists E5's
+   revise/skip outcome for later reads, never only a one-time API response)**,
    `search_vector` generated tsvector over `title`/`description` (mirrors `0008_search_vectors.sql`),
    `lock_version`, standard audit columns. Forced RLS, leading `tenant_id` index, unique `(tenant_id, code)`,
    `UNIQUE (tenant_id, id)` (self — target for `ecn_approvals`' composite FK). Not plant-scoped (no `plant_id`
@@ -351,25 +475,40 @@ AC
    transitions: `draft → [feasibility, rejected]`, `feasibility → [risk_review, rejected]`, `risk_review → [
    cab_approval, rejected]`, `cab_approval → [pilot, rejected]`, `pilot → [implementation, rejected]`,
    `implementation → [closed]`, `closed → []`, `rejected → []` — every pre-implementation stage can be
-   rejected (closing the jsx's own missing "Rejected" Kanban column, §1a/§3.2); guards mirror
-   `documentMachine`'s `requiresApproverRole` (only `admin`/`manager` may approve/reject any of the 4 gated
-   stages, §3.2) and `forbidsSelfApproval` (approver ≠ `ecns.owner`).
-3. `GET /v1/ecns` (cursor, rule 6; filters `changeType`/`stage`/`changeRisk`/`owner`/`q` over `search_vector`),
-   `POST /v1/ecns` (`ecn:manage`, `Idempotency-Key`), `GET /v1/ecns/:id` (`ecn:view`), `PATCH /v1/ecns/:id`
-   (`lockVersion`, `ecn:manage` — edits `title`/`description`/`effectiveDate`/`owner` always; `changeType`/
-   `changeRisk` only while `stage = 'draft'`, 422 otherwise; never `stage` directly, which only changes via
-   E4's approval route). All mutations `withAudit` in the same transaction (rule 3).
+   rejected (closing the jsx's own missing "Rejected" Kanban column, §1a/§3.2). **The three transitions out of
+   `draft` and into a terminal/next-of-6 stage are driven by three different, explicitly named routes, not one
+   generic "approve" call (§0 B1):** `draft→feasibility` by `POST /v1/ecns/:id/submit`; `draft→rejected` by
+   `POST /v1/ecns/:id/withdraw` (an author action — no `ecn_approvals` row exists for `draft`, so there is no
+   four-eyes decision to make here); the 4 gated stages' `→next-or-rejected` by E4's approve/reject route;
+   `implementation→closed` by `POST /v1/ecns/:id/close`. Guards mirror `documentMachine`'s `requiresApproverRole`
+   (only `admin`/`manager` may approve/reject any of the 4 gated stages, §3.2) but **`forbidsSelfApproval` is
+   made explicitly stricter than `documentMachine`'s (§0 B2)**: the actor must be `≠ ecns.owner` **and**
+   `≠ ecns.created_by`, checked for **both** approve and reject (`documentMachine`'s own version, confirmed by
+   reading `document.ts:44-54`, only blocks self-*approval* — this ECN-specific rule is a deliberate,
+   stated divergence, not a claimed exact mirror).
+3. `GET /v1/ecns` (cursor, rule 6; filters `changeType`/`stage`/`changeRisk`/`owner`/`q` over `search_vector`;
+   response includes `linkedDocumentCount`/`autoReviseResult`, §0 B8a/B3e), `POST /v1/ecns` (`ecn:manage`,
+   `Idempotency-Key`), `GET /v1/ecns/:id` (`ecn:view`), `PATCH /v1/ecns/:id`
+   (`lockVersion`, `ecn:manage` — edits `title`/`description`/`effectiveDate` always; `changeType`/
+   `changeRisk` only while `stage = 'draft'`, 422 otherwise; **`owner` only while `stage = 'draft'`, 422
+   otherwise (§0 B2, revised from "always")**; **rejected entirely (422) once `stage` is `closed` or
+   `rejected` — fully frozen, §0 S4**; never `stage` directly, which only changes via E4's approval route or
+   the new `submit`/`withdraw`/`close` routes, §0 B1). All mutations `withAudit` in the same transaction
+   (rule 3).
 4. Cross-tenant ECN id → 404, not 403 (rule 8), mutation-tested against RLS.
 
 **Web/Mobile/Shared**
 - **Web:** `apps/web/src/features/ecn/` — `EcnListPage` (segmented toggle default `list`, table w/ type chip,
-  progress bar, risk chip, owner avatar, effective date), empty/loading/error/offline states.
+  progress bar, risk chip, owner avatar, effective date, **"Affected" column showing `linkedDocumentCount`,
+  §0 B8a**), empty/loading/error/offline states.
 - **Mobile:** not built — no `m-*.jsx` design; unaffected; `pnpm --filter @kaenal/mobile typecheck` stays
   green.
-- **Shared:** migration `0072` (`ecns`, `EntityKind`/`entity_links` widening); `EcnDto`/`EcnListQuery`/
+- **Shared:** migration `0072` (`ecns` incl. `auto_revise_result`, `EntityKind`/`entity_links` widening);
+  `EcnDto` (incl. `linkedDocumentCount`, `autoReviseResult`)/`EcnListQuery`/
   `CreateEcnBody`/`UpdateEcnBody` + `EcnChangeType`/`EcnChangeRisk`/`EcnStage` enums in `packages/types`;
-  `packages/core/state-machines/ecn.ts` (pure, unit-tested — every legal/illegal transition, the four-eyes
-  guard, the admin/manager-only guard); `ecn:view`/`ecn:manage`/`ecn:approve` in `packages/core/src/rbac.ts`.
+  `packages/core/state-machines/ecn.ts` (pure, unit-tested — every legal/illegal transition, the stricter
+  owner-or-created_by four-eyes guard on both approve and reject, the admin/manager-only guard);
+  `ecn:view`/`ecn:manage`/`ecn:approve` in `packages/core/src/rbac.ts`.
 
 ### E2 — Kanban view
 
@@ -378,29 +517,37 @@ approval" progress-bar concept. **Corrected to 8 columns** (adds "Rejected," §1
 
 UC
 - Happy: Kanban view shows 8 columns (Draft, Feasibility, Risk review, CAB approval, Pilot, Implementation,
-  Closed, Rejected) with real per-column counts and cards; dragging a card to the *immediately next* column
-  performs the same stage-advance as E4's approve action (drag = approve, for a user who already holds
-  `ecn:approve`); dragging to any non-adjacent column, or to "Rejected" without the reject confirmation, is
-  rejected client-side before the API call (the API is the real guard regardless, via `ecnMachine`).
-- Permission: viewing the board needs `ecn:view`; dragging (advancing) needs `ecn:approve` — a viewer/auditor
-  can see the board but cards are not draggable for them (no drag handle rendered, not merely visually
-  disabled — rule 10, no control that looks interactive but silently 403s).
+  Closed, Rejected) with real per-column counts and cards. **Drag action named per column (§0 B1, no column
+  left undefined):** dragging a **Draft** card to **Feasibility** calls `submit` (`ecn:manage`); dragging a
+  **Draft** card to **Rejected** calls `withdraw` (`ecn:manage`); dragging a card from any of the 4 gated
+  columns (**Feasibility/Risk review/CAB approval/Pilot**) to its immediately-next column calls E4's approve
+  action (`ecn:approve`); dragging one of those 4 to **Rejected** (with the reject confirmation, comment
+  required) calls E4's reject action (`ecn:approve`); dragging an **Implementation** card to **Closed** calls
+  `close` (`ecn:manage`); **Closed** and **Rejected** are terminal — no outgoing drag from either. Dragging to
+  any non-adjacent column is rejected client-side before any API call (the API is the real guard regardless,
+  via `ecnMachine`).
+- Permission: viewing the board needs `ecn:view`; dragging out of **Draft** or **Implementation** needs
+  `ecn:manage`; dragging out of any of the 4 gated columns needs `ecn:approve` — a caller lacking the needed
+  capability for a given column sees no drag handle on its cards at all (rule 10, no control that looks
+  interactive but silently 403s), not a visually-disabled one.
 - Empty: a column with zero cards renders its header with `0` and no card list, never omitted entirely (all 8
   columns always render, matching the jsx's own "closed: []" empty-array precedent for its own mock).
 
 AC
-1. No new route — drag-to-advance calls the same `POST /v1/ecns/:id/approvals/:stage` route E4 defines,
-   `lockVersion`-guarded exactly as a click-to-approve would be; a 409 (stale lockVersion — someone else moved
-   it first) snaps the card back to its server-confirmed column with a toast, never leaves it optimistically
-   misplaced.
+1. No new route for the 4 gated columns' drag-to-advance — it calls the same `POST /v1/ecns/:id/approvals/:stage`
+   route E4 defines, `lockVersion`-guarded exactly as a click-to-approve would be. Draft/Implementation drags
+   call E1's new `submit`/`withdraw`/`close` routes (`ecn:manage`, §0 B1), same `lockVersion` guard. Any 409
+   (stale `lockVersion` — someone else moved it first) snaps the card back to its server-confirmed column with a
+   toast, never leaves it optimistically misplaced.
 2. Column counts come from `GET /v1/ecns/summary` (new, `ecn:view`) — `count(*) group by stage`, all 8 values
    always present (0 for an empty stage), mirroring the KPI-summary precedent every prior sprint's module
    uses for the same "cursor list can't total itself" reason.
 
 **Web/Mobile/Shared:** Web (`EcnKanbanPage`, drag-and-drop reusing whatever DnD primitive the codebase already
 uses elsewhere — none currently exists for a kanban board in this app; if no existing DnD library is already a
-dependency, this sprint adds one, capability-gated so a non-approver sees a real, non-interactive board, not a
-broken drag handle). Mobile: unaffected. Shared: `EcnSummaryDto` in `packages/types`.
+dependency, this sprint adds one, capability-gated per column so a caller without that column's capability sees
+a real, non-interactive card, not a broken drag handle). Mobile: unaffected. Shared: `EcnSummaryDto` in
+`packages/types`.
 
 ### E3 — Create an ECN via the CreateWizard
 
@@ -435,58 +582,79 @@ AC
 unaffected. Shared: none beyond E1's types (`WizardType` union lives in `packages/core` but has no mobile
 consumer this sprint).
 
-### E4 — Multi-stage approval: approve, reject, four-eyes
+### E4 — Full lifecycle: submit, multi-stage approval, close, withdraw, four-eyes
 
 **Design:** the "multi-stage approval workflow" the `ECNWorkbench` header text names; the progress bar in
 `ECNList`; the implied but undrawn detail view P19 §3 itself calls for ("ECN detail: multi-stage approval
 tracker, affected-records via entity-links"). **No jsx board exists for this detail view** — flagged §5,
-mirrors C3's exact situation.
+mirrors C3's exact situation. **Revised end to end per §0 B1/B2/S2** — the old version only covered the 4
+gated stages, leaving `draft` and `closed` (and `draft→rejected`) undriveable.
 
 UC
+- **Submit (new, §0 B1):** an ECN's author (`ecn:manage`) submits a `draft` ECN, moving `stage` to
+  `feasibility` — this is the moment every member holding `ecn:approve` (except the ECN's own `owner`/
+  `created_by`, §0 S7) is notified that approval is pending, **not at creation** (X1 AC7's old
+  "at creation" contradiction, closed).
+- **Withdraw (new, §0 B1):** an ECN's author (`ecn:manage`) withdraws a `draft` ECN, moving `stage` to
+  `rejected` — no four-eyes decision applies here (no `ecn_approvals` row exists for `draft`); this is a
+  self-service cancel, not an approval.
 - Happy: an ECN at one of its 4 gated stages (`feasibility`/`risk_review`/`cab_approval`/`pilot`) shows an
   approval tracker (4 rows: stage name, decision, approver, decided-at) in its detail view; an `admin`/
-  `manager` who is not the ECN's `owner` approves the current stage, advancing `stage` to the next one in
-  `ECN_STAGE_ORDER` (§3.2) — reaching `implementation` triggers E5's auto-revise mechanism in the same
-  transaction.
+  `manager` who is not the ECN's `owner` **or `created_by`** approves the current stage, advancing `stage` to
+  the next one in `ECN_STAGE_ORDER` (§3.2) — reaching `implementation` triggers E5's auto-revise mechanism in
+  the same transaction.
 - Reject: any of the 4 gated stages can be rejected instead of approved, moving `stage` to `rejected`
   (terminal) — the ECN's Kanban card lands in the new "Rejected" column (E2's correction).
-- Self-approval blocked: the ECN's own `owner` attempting to approve/reject any stage gets 403 (four-eyes,
-  matches `documentMachine`'s `forbidsSelfApproval` exactly).
+- **Close (new, §0 B1):** an ECN at `implementation` is closed (`ecn:manage`) by anyone with manage access —
+  not a four-eyes decision (closing formalizes that the change is fully rolled out, it isn't a second sign-off).
+- Self-approval/rejection blocked, both, not just approval (§0 B2): the ECN's own `owner` **or `created_by`**
+  attempting to approve **or reject** any of the 4 gated stages gets 403 (four-eyes, deliberately stricter than
+  `documentMachine`'s own approve-only guard, stated as such).
 - Wrong stage: approving/rejecting a stage that isn't the ECN's *current* stage 422s ("stage X is not the
   current pending stage") — you cannot approve stage 3 while the ECN sits at stage 2, and cannot re-approve an
   already-decided stage.
-- Permission: `ecn:approve` required (admin/manager only — mirrors `document:approve`'s exact grant, §1a);
-  `ecn:manage` alone (auditor) can view the tracker but gets 403 attempting to decide, matching how auditor
-  holds `document:view` but not `document:approve` today.
+- Permission: `ecn:approve` required for approve/reject (admin/manager only — mirrors `document:approve`'s
+  exact grant, §1a); `submit`/`withdraw`/`close` need only `ecn:manage`; `ecn:manage` alone (auditor) can view
+  the tracker but gets 403 attempting to approve/reject, matching how auditor holds `document:view` but not
+  `document:approve` today.
 
 AC
 1. `ecn_approvals` (migration `0072`): `tenant_id`, `id`, `ecn_id` composite FK → `ecns(tenant_id, id)` ON
    DELETE CASCADE, `stage` enum (the 4 gated values only — `feasibility\|risk_review\|cab_approval\|pilot`),
-   `role_required` text NOT NULL — **stored as the literal constant `"admin_or_manager"` for every row this
-   sprint** (P19's own open question, "fixed vs configurable" stages, is resolved as **fixed and uniform**
-   this sprint, mirroring `documentMachine`'s own admin/manager-only rule, the closest real precedent this
-   codebase has for "who approves a controlled artifact" — the column exists for a future sprint's per-stage
-   configurability, not yet interpreted beyond this one value), `decision` enum (`pending\|approved\|rejected`)
+   **no `role_required` column (§0 S8 — dead field: no service method anywhere reads a stored value for this;
+   confirmed no other table in this codebase has a `role_required` column at all)** — the fixed, uniform
+   admin/manager-only rule (Q30, unchanged) is enforced entirely in `ecnMachine`'s guard, `decision` enum
+   (`pending\|approved\|rejected`)
    DEFAULT `pending`, `approver` (composite member FK, NULL until decided), `decided_at` timestamptz NULL,
    `comment` text NULL, standard audit columns. Forced RLS, leading `tenant_id` index, unique `(tenant_id,
    ecn_id, stage)`. All 4 rows are pre-created (all `pending`) in the same transaction as `POST /v1/ecns`
    (E3), so "what stage is this ECN on" is always answerable by joining `ecns.stage` to its matching row.
-2. `POST /v1/ecns/:id/approvals/:stage` (`ecn:approve`, `lockVersion` on the parent `ecns` row) body
-   `{ decision: "approve" | "reject", comment? }`. Guards, in order: (a) `:stage` must equal `ecns.stage`
-   (422 otherwise — "not the current stage"); (b) actor ≠ `ecns.owner` (403 — four-eyes); (c) actor role ∈
-   {`admin`,`manager`} (403 otherwise — the `role_required` check). On `approve`: updates the `ecn_approvals`
-   row (`decision='approved'`, `approver`, `decided_at`), advances `ecns.stage` to the next value in
-   `ECN_STAGE_ORDER` (or to `implementation` from `pilot`, triggering E5 in the same transaction). On
-   `reject`: updates the row (`decision='rejected'`, `approver`, `decided_at`, `comment` required — a rejection
-   must carry a reason), sets `ecns.stage = 'rejected'` (terminal). Both audited `status_changed` on the
-   `ecns` row (the stage transition) **and** `updated` on the `ecn_approvals` row (the decision itself) — a
-   real two-entity audit split, not a single ambiguous event.
-3. 409 on a stale `lockVersion` (rule 6); cross-tenant ECN id → 404, not 403 (rule 8).
-4. `GET /v1/ecns/:id/approvals` (`ecn:view`) — the 4-row tracker, read-only, for the detail view.
+2. **Exact statement order (§0 S2):** `POST /v1/ecns/:id/approvals/:stage` (`ecn:approve`) body
+   `{ decision: "approve" | "reject", comment? }`, and `lockVersion`. Guards, in order: (a) actor ≠
+   `ecns.owner` **and** actor ≠ `ecns.created_by` (403 — four-eyes, both directions, §0 B2); (b) actor role ∈
+   {`admin`,`manager`} (403 otherwise). Then, in one statement: `UPDATE ecns SET stage = $next WHERE id = $1 AND
+   lock_version = $lockVersion AND stage = $currentGatedStage` (optimistic concurrency + "is this really the
+   current stage" guard together; no matching row → a follow-up read distinguishes 409 stale-lockVersion from
+   422 wrong-stage). Then: `UPDATE ecn_approvals SET decision=$d, approver=$actor, decided_at=now(), comment=$c
+   WHERE ecn_id=$1 AND stage=$stage AND decision='pending'`. Then, only on the specific `pilot→implementation`
+   transition: E5's auto-revise runs. On `reject`: `comment` is required (a rejection must carry a reason);
+   `ecns.stage` moves to `rejected` (terminal) instead of the next value. Both `status_changed` on the `ecns`
+   row (the stage transition) **and** `updated` on the `ecn_approvals` row (the decision itself) are audited —
+   a real two-entity audit split, not a single ambiguous event.
+3. **New (§0 B1):** `POST /v1/ecns/:id/submit` (`ecn:manage`, `lockVersion`) — `UPDATE ecns SET stage=
+   'feasibility' WHERE id=$1 AND lock_version=$v AND stage='draft'` (422 if not currently `draft`), audited
+   `status_changed`; the same transaction notifies every `ecn:approve` holder except `owner`/`created_by`
+   (§0 S7). `POST /v1/ecns/:id/withdraw` (`ecn:manage`, `lockVersion`) — same shape, `draft→rejected`, audited
+   `status_changed`. `POST /v1/ecns/:id/close` (`ecn:manage`, `lockVersion`) — `implementation→closed`,
+   audited `status_changed`.
+4. 409 on a stale `lockVersion` (rule 6, every route in this story); cross-tenant ECN id → 404, not 403
+   (rule 8).
+5. `GET /v1/ecns/:id/approvals` (`ecn:view`) — the 4-row tracker, read-only, for the detail view.
 
-**Web/Mobile/Shared:** Web (interim ECN detail view w/ approval tracker, flagged §5; approve/reject actions,
-capability-gated visibly not just server-side). Mobile: unaffected. Shared: migration `0072`'s `ecn_approvals`
-table; `EcnApprovalDto`/`DecideEcnApprovalBody` in `packages/types`.
+**Web/Mobile/Shared:** Web (interim ECN detail view w/ approval tracker, flagged §5; submit/approve/reject/
+close/withdraw actions, capability-gated visibly not just server-side). Mobile: unaffected. Shared: migration
+`0072`'s `ecn_approvals` table (no `role_required` column); `EcnApprovalDto`/`DecideEcnApprovalBody` in
+`packages/types`.
 
 ### E5 — Affected documents/suppliers + real auto-revision on implementation
 
@@ -494,50 +662,79 @@ table; `EcnApprovalDto`/`DecideEcnApprovalBody` in `packages/types`.
 docs," etc. — an affected-record count).
 
 UC
-- Happy: an ECN's detail view lets an author (`ecn:manage`, only while `stage` is pre-`implementation`) link
+- Happy: an ECN's detail view lets an author (`ecn:manage`, only while `stage` is `draft` through `pilot`,
+  **tightened from "pre-implementation," §0 S2** — every terminal/post-pilot stage named explicitly) link
   affected documents and suppliers via the existing `entity_links` mechanism (reuses R3's `LinkPicker`
   component from Sprint 04, generic over `kind`, scoped here to `document`/`supplier` — **not** `part`, since
   no `parts` table/`EntityKind` exists anywhere in this codebase, §1a; "affected parts" is not buildable this
   sprint and is not silently faked as a picker that links to nothing real).
+- **Unlink (new, §0 B4):** the same author can remove a link, but only through a dedicated ECN route, gated the
+  same way as adding one (`ecn:manage` + stage `draft`-`pilot`) — the generic `/v1/entity-links/:id/delete`
+  route cannot be used to strip an ECN→document link after `implementation`, closing a real bypass of E5's own
+  stage-freeze.
 - Auto-revise, real mechanism (not hand-waved, CLAUDE.md rule 0/10): the moment E4's approval route advances
   an ECN's `stage` to `implementation` (from `pilot`, the last gated stage), in the **same transaction**, for
-  every `document`-kind `entity_links` row attached to this ECN, the service calls
-  `DocumentsService.newVersion` for real (the existing, confirmed-callable method, §1a) — `fileId: null` (no
-  new file is auto-attached; the revision is a formal version bump, matching P19's own "auto-revise," not a
-  content change nobody wrote), `nextVersion` computed by a new pure `packages/core/src/version-bump.ts`
+  every `document`-kind `entity_links` row attached to this ECN (exact scope, §0 B3e: `WHERE from_kind='ecn'
+  AND to_kind='document' AND from_id=:ecnId`), the service calls `DocumentsService.newVersion` for real (the
+  existing, confirmed-callable method, §1a) — **`fileId: <the document's own current file_id>`, read before the
+  call, never `null` (§0 B3a — the old spec's `fileId: null` would have detached the document's live file)**,
+  **`ownerId: <the document's own current owner_id>`, read before the call, passed via `newVersion`'s new
+  optional `ownerId` parameter (§0 B3b — without it, `newVersion` defaults to `owner_id = actorId`, which would
+  silently hand every revised document's ownership to whichever approver triggered `implementation`; this
+  sprint explicitly preserves the document's existing owner instead)**, `nextVersion` computed by a new pure
+  `packages/core/src/version-bump.ts`
   `bumpMinorVersion(version: string): string` (parses a numeric-dot `"X.Y"` string and increments `Y` by 1 —
   unit-tested, including the malformed-input case below), `changelog: "Auto-revised by ${ecn.code}
   implementation"`.
-- Partial-failure honesty (rule 0/10 — never a silent partial success): `newVersion`'s own guard rejects a
-  document that isn't currently `status: 'approved'` (§1a), and `bumpMinorVersion` rejects a `version` string
-  that isn't in the expected `"X.Y"` numeric-dot format (rare/legacy data). Neither case aborts the whole
-  transaction — the ECN's own `stage` advance to `implementation` still succeeds — but each skipped document
-  is collected into the response and surfaced as a real, visible warning ("2 of 3 affected documents were
-  auto-revised; 1 was skipped — Document DOC-2026-0031 is not currently approved, revise it manually"), never
-  silently dropped.
-- Permission: linking needs `ecn:manage`; the auto-revise itself runs as a side effect of E4's `ecn:approve`
-  action, not a separately callable route.
+- Partial-failure honesty (rule 0/10 — never a silent partial success), **each attempt isolated (§0 B3c)**: for
+  each linked document, "not currently approved" and "version already exists" are **pre-checked by reading the
+  row first** (named skips `not_approved`/`version_exists`, never relying on catching those specific errors);
+  the actual `newVersion` call then runs inside its own `SAVEPOINT` (precedent: `purgeRow` in
+  `apps/api/src/jobs/processors/purge-soft-deleted.ts:152-190`, confirmed real), so a genuine race (the
+  document changed between the pre-check read and the call, surfacing as `newVersion`'s stale-write 409) rolls
+  back only that document's attempt (`ROLLBACK TO SAVEPOINT` + `RELEASE`, skip reason `concurrent_modification`)
+  — never the whole ECN transaction. `bumpMinorVersion` rejecting a malformed `"X.Y"` version string is also a
+  named pre-check skip (`bad_version_format`). The ECN's own `stage` advance to `implementation` **always**
+  commits regardless of any document's outcome; the full revised/skipped list is surfaced as a real, visible
+  warning ("2 of 3 affected documents were auto-revised; 1 was skipped — Document DOC-2026-0031 is not
+  currently approved, revise it manually"), never silently dropped, and **persisted** (below), not just
+  returned once.
+- Permission: linking/unlinking needs `ecn:manage`; the auto-revise itself runs as a side effect of E4's
+  `ecn:approve` action, not a separately callable route.
 
 AC
-1. `POST /v1/ecns/:id/link` (`ecn:manage`) body `{ kind: "document" | "supplier", targetId }` — writes a real
-   `entity_links` row (`from_kind='ecn'`, `to_kind=kind`), audited `linked` (existing action, no new enum
-   value). 422 once `stage` has passed `pilot` (no new links after implementation has already run — the
-   affected-set is frozen at the moment auto-revision fires, so a link added after the fact can't retroactively
-   claim to have been auto-revised).
-2. `GET /v1/ecns/:id/links` (`ecn:view`) — the affected-records list, reusing the existing `entity_links` read
+1. `POST /v1/ecns/:id/link` (`ecn:manage`) body `{ kind: "document" | "supplier", targetId }` — takes
+   `SELECT ... FOR SHARE` on the parent `ecns` row first (§0 S2 — prevents a concurrent approve from advancing
+   the stage mid-link), writes a real `entity_links` row (`from_kind='ecn'`, `to_kind=kind`), audited `linked`
+   (existing action, no new enum value). 422 once `stage` is `implementation`, `closed`, or `rejected`
+   (tightened from "past pilot" to name every terminal/post-pilot stage explicitly, §0 S2) — the affected-set is
+   frozen at the moment auto-revision fires, so a link added after the fact can't retroactively claim to have
+   been auto-revised.
+2. **New (§0 B4):** `POST /v1/ecns/:id/links/:linkId/delete` (`ecn:manage` **and** `stage` ∈ `draft`..`pilot`,
+   else 422) — removes the `entity_links` row, audited `unlinked` (existing action enum value, confirmed
+   `packages/types/src/enums.ts:422`). This is the *only* way to remove an ECN's own link — the generic
+   `/v1/entity-links/:id/delete` route no longer suffices for this stage-freeze guarantee.
+3. `GET /v1/ecns/:id/links` (`ecn:view`) — the affected-records list, reusing the existing `entity_links` read
    pattern + label resolution (Sprint 04 R3's `label` field).
-3. The `implementation`-transition auto-revise logic lives in `EcnService`, calling `DocumentsService.
-   newVersion` directly (real reuse, not a reimplementation) for each linked, currently-`approved` document
-   with a parseable version string; each outcome (revised / skipped-not-approved / skipped-bad-version-format)
-   is collected and returned in the approval response's `autoRevise: { revised: string[]; skipped: {
-   documentId: string; reason: string }[] }` field.
-4. Cross-tenant target id on `POST /v1/ecns/:id/link` → 404, not 403 (rule 8) — the existing `assertEntityVisible`
-   pattern, unchanged.
+4. The `implementation`-transition auto-revise logic lives in `EcnService`, calling `DocumentsService.
+   newVersion` directly (real reuse, not a reimplementation, with its new optional `ownerId` param, §0 B3b) for
+   each linked document, each attempt in its own `SAVEPOINT` (§0 B3c). Each outcome (`revised` /
+   `not_approved` / `version_exists` / `bad_version_format` / `concurrent_modification`) is collected into
+   `autoRevise: { revised: string[]; skipped: { documentId: string; reason: string }[] }`, **written to
+   `ecns.auto_revise_result` (§0 B3d) and into the `status_changed` audit event's `after` payload in the same
+   transaction** — not only returned in the one-time approval HTTP response. `GET /v1/ecns/:id` (`EcnDto.
+   autoReviseResult`) exposes it afterward, so the detail view can show it on any later visit, not just the
+   moment it happened.
+5. Cross-tenant target id on `POST /v1/ecns/:id/link`(`/links/:linkId/delete`) → 404, not 403 (rule 8) — the
+   existing `assertEntityVisible` pattern, unchanged.
 
-**Web/Mobile/Shared:** Web (`LinkPicker` reused at a new ECN call site, scoped to `document`/`supplier`; the
-approval response's `autoRevise` result rendered as a real toast/banner, not swallowed). Mobile: unaffected.
-Shared: `packages/core/version-bump.ts` (pure, unit-tested); `EcnLinkBody`/`AutoReviseResult` in
-`packages/types`.
+**Web/Mobile/Shared:** Web (`LinkPicker` reused at a new ECN call site, scoped to `document`/`supplier`, with a
+real remove affordance calling the new unlink route; the persisted `autoReviseResult` rendered as a real
+banner in the ECN detail view, not swallowed, in addition to the one-time approval toast). Mobile: unaffected.
+Shared: `packages/core/version-bump.ts` (pure, unit-tested); a small, additive, optional `ownerId` parameter on
+`documents.service.ts`'s `NewDocumentVersionBody`/`newVersion` (§0 B3b — every existing caller is unaffected,
+confirmed by reading `documents.controller.ts`'s own route, which never passes it); `EcnLinkBody`/
+`AutoReviseResult` in `packages/types`; `ecns.auto_revise_result jsonb` (migration `0072`).
 
 ### X1 — Cross-cutting wiring (RBAC, nav, search, graph, realtime, notifications)
 
@@ -562,39 +759,63 @@ AC
    `complaints`/`ecn`; inspector's `Set` is **not** changed (deliberate).
 3. `apps/web/src/lib/entity-routes.ts` `entityHref`/`entityIcon`/`entityLabel` gain `complaint` →
    `/complaints?id=` (icon: `MessageSquare`, matching `navigation.ts`'s existing complaints glyph) and `ecn` →
-   `/ecn?id=` (icon: `GitBranch`, matching `navigation.ts`'s existing ECN glyph).
-4. `apps/api/src/collab/entity-ref.ts` `ENTITY_TABLES` gains `complaint: "complaints"`, `ecn: "ecns"`.
-   `apps/api/src/ai/chat.ts` `ENTITY_SPECS` gains both, wired to `complaint:view`/`ecn:view`, `plantScoped:
-   false` (neither table has a `plant_id` column). `apps/web/src/features/graph/graph-kinds.ts` `GRAPH_KINDS`
+   `/ecn?id=` (icon: `GitBranch`, matching `navigation.ts`'s existing ECN glyph). **Also (§0 S3, confirmed
+   missed by the original wiring):** `document-detail.tsx`'s own local `ENTITY_ROUTE`/`ENTITY_LABEL` maps
+   (`document-detail.tsx:53,78`) and `capa-detail.tsx`'s own local `ENTITY_ROUTE`/`ENTITY_LABEL` maps
+   (`capa-detail.tsx:51,69`) — both separate `Record<EntityKind,...>` maps from `entity-routes.ts`'s shared
+   helpers, both force-widened by `EntityKind` gaining two members, both need the same `complaint`/`ecn`
+   route+label entries added by hand.
+4. **`assertEntityVisible` (`apps/api/src/collab/entity-ref.ts`) now also enforces a per-kind capability (§0
+   B4):** `ENTITY_TABLES` becomes `{ table, capability }` per kind (reusing the same capability strings
+   `entity-links.service.ts`'s `LABEL_CONFIG` already carries) — a caller lacking the kind's own `:view`
+   capability 404s (never 403, rule 8), closing the real exposure that opens up the moment `EntityKind` gains
+   `complaint`/`ecn` (the first two kinds a real internal role, inspector, doesn't hold `:view` for — confirmed
+   zero behaviour change for the 11 existing kinds, every internal role already holds all of their `:view`
+   capabilities today). `comments.controller.ts` now passes `membershipOf()` through to `comments.service.ts`'s
+   `list`/`create` (which previously called `assertEntityVisible` with no membership at all, `comments.
+   service.ts:110,135`, confirmed — no plant-scope check either) so comments get both checks entity-links
+   already had. `apps/api/src/collab/entity-ref.ts` `ENTITY_TABLES` gains `complaint: { table: "complaints",
+   capability: "complaint:view" }`, `ecn: { table: "ecns", capability: "ecn:view" }`.
+   `apps/api/src/ai/chat.ts` `ENTITY_SPECS` gains `complaint: { table: "complaints", label: "subject",
+   plantScoped: false, view: "complaint:view" }` (**`label: "subject"`, the real column — §0 S3, matches B5's
+   fix — not `"title"`, which the complaints schema doesn't have**) and `ecn: { table: "ecns", label: "title",
+   plantScoped: false, view: "ecn:view" }`. `apps/web/src/features/graph/graph-kinds.ts` `GRAPH_KINDS`
    gains both (TS-forced total-map completeness) but **neither renders in the graph explorer** —
    `apps/api/src/graph/graph.service.ts`'s own separate literal array is not widened this sprint, mirroring
    Sprint 04's Q27 judgment call exactly (logged §7, not silently claimed as done).
 5. `packages/types/src/dto.ts` `SearchEntityKind` gains `complaint`/`ecn`; `apps/api/src/search/search.
-   service.ts` `KINDS` gains `complaint: { table: "complaints", plantScoped: false }` and `ecn: { table:
-   "ecns", plantScoped: false }`; `AUDIT_HIDDEN_ROLES`-style role exclusion is **not** needed for either (no
-   role holds `:view` but is nav-hidden from the module the way audits' inspector/viewer split required —
-   inspector holds neither capability at all here, so it never reaches `queryKind` for these two kinds in the
-   first place).
+   service.ts`'s `KindConfig` gains two new fields **(§0 B5)**: `capability: Capability` (checked in `search()`
+   before a kind is queried at all — a caller lacking it never reaches `queryKind` for that kind, the same
+   fix-class as item 4 above) and `titleColumn: string` (defaults `"title"` for every existing kind, unchanged);
+   `KINDS` gains `complaint: { table: "complaints", plantScoped: false, capability: "complaint:view",
+   titleColumn: "subject" }` (**`titleColumn: "subject"`, not the hard-coded `"title"` `queryKind` selects
+   today — confirmed complaints has no `title` column, this would have errored at runtime**) and
+   `ecn: { table: "ecns", plantScoped: false, capability: "ecn:view", titleColumn: "title" }`; `queryKind`'s SQL
+   interpolates `titleColumn` (still safe — hard-coded map, never user input) and aliases it back to `title` so
+   `SearchResultDto`'s shape is unchanged. `AUDIT_HIDDEN_ROLES`-style role exclusion is **not** additionally
+   needed for either new kind (the new `capability` check already covers it).
 6. `packages/types/src/realtime.ts` `RealtimeTopic` gains `complaint`/`ecn`; `apps/api/src/realtime/audit-
    signal.ts` `ENTITY_TOPIC` gains `complaint: { topic: "complaint", capability: "complaint:view" }`,
    `complaint_attachment: { topic: "complaint", capability: "complaint:view" }`, `ecn: { topic: "ecn",
    capability: "ecn:view" }`, `ecn_approval: { topic: "ecn", capability: "ecn:view" }`.
-7. Notifications: a new daily job `complaint-sla` (mirrors `document-expiry.ts`/Sprint 05's `calibration-due`
-   job pattern exactly) notifies a complaint's `owner` when `complaintSlaState` crosses into `at_risk` or
-   `breached` for the still-unacknowledged response leg, cycle-tied dedupe key
-   `complaint-sla:<complaintId>:<slaState>` (mirrors Sprint 05 B4's cycle-tied dedupe fix — re-notifies once
-   per state transition, not forever-silent after the first). ECN approval-pending notifications are
-   **synchronous, not a sweep**: the moment `ecns.stage` advances to a new gated stage (E4 AC2's `approve`
-   path, and at creation for the first `feasibility` stage), every member holding `ecn:approve` in the tenant
-   is notified (a broadcast, since "who approves" is role-based, not a named individual — `role_required` is
-   `admin_or_manager`, not a specific person, §1a/E4 AC1) — reuses the existing `NotificationsService`, not a
-   new mechanism.
+7. Notifications: the complaint SLA check **rides the existing `sla.sweep` job (`SLA_SWEEP_CRON`, every 5
+   minutes, `job-types.ts:140`, confirmed) — no new daily job (§0 B7a)** — and notifies a complaint's `owner`
+   when `complaintSlaState` crosses into `at_risk` or `breached` for the still-unacknowledged response leg,
+   cycle-tied dedupe key `complaint-sla:<complaintId>:<slaState>` (mirrors Sprint 05 B4's cycle-tied dedupe fix
+   — re-notifies once per state transition, not forever-silent after the first); a closed complaint's frozen
+   SLA state (§0 B7b) is excluded from the sweep entirely once `closed_at` is set. ECN approval-pending
+   notifications are **synchronous, not a sweep**: the moment `ecns.stage` advances to `feasibility` — **via
+   the new `submit` route (§0 B1), never "at creation"** — every member holding `ecn:approve` in the tenant
+   **except the ECN's own `owner` and `created_by` (§0 S7 — they shouldn't be told their own ECN needs someone
+   else's sign-off)** is notified (a broadcast, since "who approves" is role-based, not a named individual, the
+   fixed admin/manager-only rule, §1a/E4 AC1) — reuses the existing `NotificationsService`, not a new mechanism.
 8. `placeholder-ledger.ts` loses `"planned:complaints"`/`"planned:ecn"`; both removed from `PLANNED_MODULES`.
 
-**Web/Mobile/Shared:** Shared (rbac.ts, entity-ref.ts, chat.ts, graph-kinds.ts, dto.ts, search.service.ts,
-realtime.ts, audit-signal.ts, jobs/worker.ts new `complaint-sla` job) + Web (rbac.ts ROLE_NAV, placeholder
-ledger, planned-modules). Mobile: unaffected; `pnpm --filter @kaenal/mobile typecheck` stays green (every
-touched shared type is additive).
+**Web/Mobile/Shared:** Shared (rbac.ts, entity-ref.ts, entity-links.service.ts, comments.service.ts/
+comments.controller.ts, chat.ts, graph-kinds.ts, dto.ts, search.service.ts, realtime.ts, audit-signal.ts — no
+new job, wired onto the existing `sla.sweep` processor) + Web (rbac.ts ROLE_NAV, entity-routes.ts,
+document-detail.tsx, capa-detail.tsx, placeholder ledger, planned-modules). Mobile: unaffected; `pnpm --filter
+@kaenal/mobile typecheck` stays green (every touched shared type is additive).
 
 ---
 
@@ -636,7 +857,16 @@ The **acknowledge** target drives `complaintSlaState` (C1 AC5) — a plain elaps
 through `computeDueAt`'s business-hours machinery, because the SLA matrix names the acknowledge target in
 plain hours with no stated business-hours qualifier (unlike NCR's `respondHours`, which *is* explicitly
 business-hours-scoped in 03 §10) — a critical field-failure complaint doesn't stop its 1-hour clock overnight.
-The **close** target is a plain calendar-day count (`received_at + N days`), shown as a KvField in the detail
+**Corrected for internal consistency (§0 B7d):** `packages/core/src/sla.ts`'s `computeDueAt` is confirmed, by
+reading the whole file, to be inherently business-hours-aware with no plain-elapsed-hours mode (it always
+routes through `addBusinessHours`) — so the complaint ack-clock correctly never calls it at all; only
+`SlaState` (the `on_track\|at_risk\|breached` **type**, and its general philosophy) is reused from `sla.ts`,
+not its business-hours *machinery*, and this sprint's `complaintSlaState` reuses the same, already-existing
+`AT_RISK_THRESHOLD` constant (**0.8**, confirmed at `sla.ts:163` — not a new, second 75% constant). The
+complaint SLA check runs on the **existing** `sla.sweep` job cadence (`SLA_SWEEP_CRON`, every 5 minutes,
+confirmed `job-types.ts:140`) — a once-daily job cannot serve a 1h/4h acknowledge target — and freezes at
+`closed_at` once a complaint closes (never recomputed against a later `now` for a closed complaint). The
+**close** target is a plain calendar-day count (`received_at + N days`), shown as a KvField in the detail
 panel and used only for display, not a hard block on anything this sprint (P18 names no "auto-escalate on
 close-breach" behavior, so none is invented). The SLA matrix's own "8D required" column is reproduced as
 **informational display copy only** this sprint (e.g., "Critical: 8D suggested within 4h") — not an enforced
@@ -651,12 +881,14 @@ precedent (adding `owner` to risk's undrawn Details step) exactly — a minimal,
 not scope invention.
 
 **What the user is being asked to approve:** the `complaints`/`complaint_attachments` schema (§2 C1 AC1); the
-plain-FK (not composite) convert-link mechanism reusing `audit_findings.ncr_id`/`capa_id`'s exact precedent,
-extended to a third target (8D) via two new, unconstrained `eight_ds.source`/`source_id` columns (§2 C4 AC1);
-manual-only intake this sprint, with the 4 automated channels and the public/portal screens explicitly
-excluded (not built, not faked); the SLA table above (1h/4h/24h/48h ack, 14/21/45/90d close) as fixed config;
-the cohort-based "< 24h response %" formula (§2 C1 AC3); and the `contact`/`channel` fields added to the
-intake dialog.
+**composite-FK** (not plain — corrected §0 S1) convert-link mechanism, extended to a third target (8D) via two
+new, unconstrained `eight_ds.source`/`source_id` columns and a real "link to an existing NCR" capability (§2
+C4 AC1, §0 B8c); manual-only intake this sprint, with the 4 automated channels and the public/portal screens
+explicitly excluded (not built, not faked); the SLA table above (1h/4h/24h/48h ack, 14/21/45/90d close) as
+fixed config, checked on the existing 5-minute SLA sweep (not a new daily job) and using the existing 0.8
+at-risk threshold (§0 B7, corrected from the originally-approved daily-job/75% description); the cohort-based
+"< 24h response %" formula (§2 C1 AC3); the `contact`/`channel` fields added to the intake dialog; and
+`customer_color` computed on read, not stored (§0 S6, corrected from a stored column).
 
 ### 3.2 ECN (P19) — the canonical stage/approval machine, resolving the jsx's own internal conflict
 
@@ -672,7 +904,14 @@ of the two jsx sources (`ECNKanban`'s named, structural column set) as the backb
 **Proposed canonical pipeline** (`packages/core/src/state-machines/ecn.ts`, §2 E1 AC2):
 
 `draft → feasibility → risk_review → cab_approval → pilot → implementation → closed`, with **every** pre-
-`implementation` stage able to move to a terminal `rejected` state instead of advancing.
+`implementation` stage able to move to a terminal `rejected` state instead of advancing. **Every transition now
+has a named, callable route (§0 B1 — the version approved 2026-09-30 only covered the 4 gated transitions;
+`draft→feasibility`, `implementation→closed`, and `draft→rejected` had no route at all):** `draft→feasibility`
+via `POST /v1/ecns/:id/submit` (`ecn:manage`); `draft→rejected` via `POST /v1/ecns/:id/withdraw` (`ecn:manage`
+— an author cancelling their own draft, not a four-eyes decision, since no `ecn_approvals` row exists yet at
+`draft`); the 4 gated stages' approve/reject via `POST /v1/ecns/:id/approvals/:stage` (`ecn:approve`);
+`implementation→closed` via `POST /v1/ecns/:id/close` (`ecn:manage`). The Kanban's drag action is named for
+every one of the 8 columns (E2, revised) — no column is left without a defined drag behavior.
 
 **Reconciling `ECNList`'s "Doc revision" label:** this is **not** a genuine 7th human-approval stage — it is
 `ECNList`'s own inaccurate depiction of what is actually the **auto-revise-documents side effect** (E5) that
@@ -689,8 +928,15 @@ own admin/manager-only rule — the only real precedent this codebase has for "w
 change." A configurable, stage-specific role (e.g., "CAB requires admin only," "Pilot requires the plant
 manager") is a real, named future enhancement (§7), not silently built now with no UI to configure it.
 
-**Four-eyes:** approver ≠ `ecns.owner`, exactly mirroring `documentMachine`'s `forbidsSelfApproval` (no
-stronger "no two stages decided by the same person" rule — not asked for by P19, not built).
+**Four-eyes, made explicitly stricter than documents (§0 B2 — the version approved 2026-09-30 claimed this
+"mirrors `documentMachine`'s `forbidsSelfApproval` exactly," which was inaccurate: reading `document.ts:44-54`
+in full confirms it only blocks self-*approval*, never self-*rejection*):** the approving/rejecting actor must
+be `≠ ecns.owner` **and** `≠ ecns.created_by`, checked for **both** decisions, approve and reject. Also
+corrected: `ecns.owner` is frozen the instant `stage` leaves `draft` — `PATCH /v1/ecns/:id` can no longer
+reassign it at any time, which would otherwise let a creator hand ownership to someone else and then approve
+their own ECN (the exact bypass this stricter rule and the freeze together close). This is a deliberate,
+stated ECN-specific divergence from `documentMachine`, not a claimed exact mirror, and not a stronger "no two
+stages decided by the same person" rule either (not asked for by P19, not built).
 
 **`change_type` widened to 4 values (`design\|process\|tooling\|material`):** P19 §2 proposes only 3, but the
 jsx's own `ECNList` fixture uses a 4th ("Material," `ECN-2026-0180`, a supplier bushing swap) and P19 §5 itself
@@ -703,24 +949,62 @@ a "multi-stage approval workflow" necessarily implies a stage can be *rejected*,
 Kanban simply never drew that column. Flagged for the designer (§5) as a real, evidenced addition to the
 board, not an invented one.
 
-**"Auto-revises affected documents" — the real mechanism (§2 E5), stated plainly for sign-off:** on the
-`pilot → implementation` transition, for every `entity_links` row of kind `document` attached to the ECN, the
-service calls the **existing, confirmed-callable** `DocumentsService.newVersion` (§1a) with `fileId: null` and
+**"Auto-revises affected documents" — the real mechanism (§2 E5), stated plainly for sign-off, corrected (§0
+B3):** on the `pilot → implementation` transition, for every `entity_links` row of kind `document` attached to
+the ECN (`WHERE from_kind='ecn' AND to_kind='document' AND from_id=:ecnId`), the service calls the **existing,
+confirmed-callable** `DocumentsService.newVersion` (`documents.service.ts:358-409`, read in full) with
+**`fileId` set to the document's own current `file_id`** (never `null` — the version approved 2026-09-30 said
+`fileId: null`, which reading `newVersion`'s actual code confirms would detach the document's live file — a
+real defect in the approved design, now fixed) and **`ownerId` set to the document's own current `owner_id`**,
+passed through a new, small, additive optional parameter on `newVersion` (confirmed: without it, `newVersion`
+unconditionally sets `owner_id = actorId`, which would silently hand the approving actor ownership of every
+revised document — not previously stated, now decided explicitly: the document keeps its existing owner), and
 a minor-bumped version string. A document that isn't currently `approved`, or whose version string isn't a
-parseable `"X.Y"` format, is **skipped with a named reason returned in the response**, never silently
-swallowed or silently blocking the ECN's own stage advance. This is proposed as real, working, transactional
-behavior — not a stub, not a "link-only" fallback — resolving P19's own second open question ("is document
-auto-revision in scope for v1, or link-only?") as **yes, in scope, real**.
+parseable `"X.Y"` format, is pre-checked and **skipped with a named reason, persisted (not just returned once)**
+— and each document's actual revision attempt runs inside its own `SAVEPOINT` (the `purgeRow` pattern,
+`purge-soft-deleted.ts:152-190`, confirmed real) so a document-level failure (including a genuine race caught
+as `newVersion`'s own 409) rolls back only that document, never the ECN's own `implementation` transition. This
+is proposed as real, working, transactional behavior — not a stub, not a "link-only" fallback — resolving
+P19's own second open question ("is document auto-revision in scope for v1, or link-only?") as **yes, in
+scope, real**, now with the file-detach and owner-reassignment defects the approved version carried both fixed.
 
 **"Affected parts" is not buildable this sprint:** no `parts` table or `EntityKind` exists anywhere in this
 codebase (§1a) — only `document`/`supplier` linking ships; a parts master table is out-of-scope invention this
 sprint doesn't introduce.
 
-**What the user is being asked to approve:** the `ecns`/`ecn_approvals` schema (§2 E1 AC1, E4 AC1); the
-canonical 6-stage-plus-rejected machine above, replacing both jsx views' own inconsistent numbering; the
-fixed, uniform admin/manager-only approval-role rule; the 4-value `change_type` enum (adding `material`); the
-real `DocumentsService.newVersion`-based auto-revision mechanism with its named partial-failure behavior; and
-the exclusion of "affected parts" linking (no real target exists to link to).
+**What the user is being asked to approve:** the `ecns`/`ecn_approvals` schema (§2 E1 AC1, E4 AC1, now without
+`role_required`, a dead field, §0 S8); the canonical 6-stage-plus-rejected machine above, with the previously-
+missing `submit`/`withdraw`/`close` routes making every transition drivable (§0 B1); the fixed, uniform
+admin/manager-only approval-role rule; the stricter-than-documents four-eyes rule and the `owner`-frozen-after-
+`draft` rule (§0 B2); the 4-value `change_type` enum (adding `material`); the real `DocumentsService.
+newVersion`-based auto-revision mechanism, corrected to preserve the document's file and owner and to isolate
+each document's attempt in its own `SAVEPOINT` (§0 B3); and the exclusion of "affected parts" linking (no real
+target exists to link to).
+
+### 3.2a — jsx-fidelity questions found on a closer re-read, genuinely new, not resolved here (§0 B8b)
+
+Re-reading `ECNList` (`qms-modules.jsx:549-591`) a second time, past what the first pass caught, surfaced two
+more real inconsistencies between the jsx and the canonical machine §3.2 already proposes. Per the architecture
+review's own instruction, these are **not** silently resolved the way the original §3.2 resolved "Doc
+revision" — they go back to the user as explicit questions:
+
+1. **Is "PPAP" a real, distinct stage?** Row `ECN-2026-0180` (`qms-modules.jsx:562`) is shown at
+   `s: 'ppap', stl: 'PPAP', step: 4, of: 6` — a stage name that appears **nowhere** in P19, `ECNKanban`, or the
+   canonical 6-stage machine this sprint proposes. Two readings are both plausible: (a) "PPAP" is a genuine 7th
+   pipeline stage this sprint's machine is missing (relevant given PPAP — Production Part Approval Process — is
+   a real IATF 16949 concept, and this row is specifically the supplier/material-change ECN that justified
+   adding `material` to `change_type` at all); or (b) it's `ECNList`'s own mock error, the same class of defect
+   as "Doc revision" already was, and this row simply meant `cab_approval` (where a supplier-change ECN's
+   sign-off would plausibly include a PPAP review). **The PO does not pick an answer here — the user must.**
+2. **Does documents-before-pilot row ordering mean auto-revise should fire earlier?** `ECNList`'s own row order
+   places `ECN-2026-0182` ("Doc revision," step 5, line 560) **before** `ECN-2026-0181` ("Pilot run," step 6,
+   line 561) — i.e., the mock's own numbering implies document revision happens *before* the pilot run, while
+   the approved §3.2 fires auto-revise **after** pilot, on `pilot→implementation`. Two readings: (a) the jsx's
+   step-ordering is just an artifact of unrelated row sort order in a static fixture, not a real sequencing
+   claim (the same way "Doc revision" itself turned out to be a mislabeled side effect, not a real stage); or
+   (b) it's a genuine signal that documents should be revised earlier in the pipeline (e.g., on
+   `cab_approval→pilot`, so the pilot run itself uses the revised document) rather than at the very end.
+   **Left open for the user, not decided by this amendment.**
 
 ---
 
@@ -728,24 +1012,24 @@ the exclusion of "affected parts" linking (no real target exists to link to).
 
 | Story | Migration | Contract / REST route | Service | Audit events | RBAC | Tenant isolation |
 |---|---|---|---|---|---|---|
-| C1 | `0071_complaints.sql` (`complaints`, `complaint_attachments`, `EntityKind`/`entity_links` widening) | `GET/POST /v1/complaints`, `GET/PATCH /v1/complaints/:id`, `GET /v1/complaints/summary` | `ComplaintsService` + `packages/core/customer-color.ts` + `complaint-sla.ts` (pure) | `created`/`updated`, in-tx | `complaint:view`/`complaint:manage` | forced RLS; cross-tenant id → 404 |
+| C1 | `0071_complaints.sql` (`complaints` incl. **no `customer_color` column**, §0 S6; `complaint_attachments` incl. `UNIQUE(tenant_id,complaint_id,file_id)`, §0 S5; `eight_ds_tenant_id_uq`/`capas_tenant_id_uq`, §0 S1; `EntityKind`/`entity_links` widening) | `GET/POST /v1/complaints`, `GET/PATCH /v1/complaints/:id`, `GET /v1/complaints/summary` | `ComplaintsService` + `packages/core/customer-color.ts` (called on read, §0 S6) + `complaint-sla.ts` (pure, freezes at `closed_at`, uses existing `AT_RISK_THRESHOLD`, §0 B7) | `created`/`updated` (incl. severity-driven SLA re-derivation on `PATCH`, §0 B7c), in-tx | `complaint:view`/`complaint:manage` | forced RLS; cross-tenant id → 404 |
 | C2 | none (uses C1's table) | `POST /v1/complaints` gains `attachmentFileIds` | `ComplaintsService.create`, `FilesService.presign` extended for `entityKind: "complaint"` | `created`, in-tx | `complaint:manage` | file link verified tenant+entity_kind+sha256, mirrors Sprint 05 B7 |
 | C3 | none | `POST /v1/complaints/:id/acknowledge`, `POST /v1/complaints/:id/close` | `ComplaintsService` | `updated` (acknowledge); `status_changed` (close) | `complaint:manage` | forced RLS; 404; 409 on stale lockVersion |
-| C4 | `0071` also (`eight_ds.source`/`source_id`, unconstrained) | `POST /v1/complaints/:id/convert` | `ComplaintsService.convert` reusing `NcrsService.create`/`EightDService.create`/`CapasService.create` + `packages/core/state-machines/complaint.ts` (pure) | `created` (target record); `status_changed` (complaint, only when status moves) | `complaint:manage` (+ redundant target capability, defense-in-depth) | forced RLS; 404; 409 on double-convert race |
-| E1 | `0072_ecn.sql` (`ecns`, `EntityKind`/`entity_links` widening) | `GET/POST /v1/ecns`, `GET/PATCH /v1/ecns/:id` | `EcnService` + `packages/core/state-machines/ecn.ts` (pure) | `created`/`updated`, in-tx | `ecn:view`/`ecn:manage` | forced RLS; cross-tenant id → 404 |
-| E2 | none | reuses E4's approve route; `GET /v1/ecns/summary` (new) | `EcnService.summary` | none (read-only) | `ecn:view` (read); `ecn:approve` (drag/advance) | RLS-scoped |
+| C4 | `0071` also (`eight_ds.source`/`source_id`, unconstrained; **composite FKs** `complaints.ncr_id`/`eight_d_id`/`capa_id`, §0 S1) | `POST /v1/complaints/:id/convert` (discriminated union incl. `existingNcrId`, §0 B8c; `lockVersion` required, §0 B6a) | `ComplaintsService.convert` (`SELECT...FOR UPDATE`, real per-target capability gate, §0 B6a/f) reusing `NcrsService.create`/`EightDService.create`/`CapasService.create` + `packages/core/state-machines/complaint.ts` (pure); **adjacent fix: `audits.service.ts`'s `raiseCapa` link-back moved into `withAudit`, §0 B6e** | `created` (target record); complaint audited on **every** convert — `status_changed` when status moves, `updated` otherwise, §0 B6d | `complaint:manage` + **real, enforced** target capability (`ncr:create`/`ncr:manage`/`capa:manage`, §0 B6f) | forced RLS; 404; 409 on stale `lockVersion`; 422 if already `closed` (§0 B6b) |
+| E1 | `0072_ecn.sql` (`ecns` incl. `auto_revise_result jsonb`, §0 B3d; `EntityKind`/`entity_links` widening) | `GET/POST /v1/ecns`, `GET/PATCH /v1/ecns/:id` (`owner` PATCHable only in `draft`, rejected once `closed`/`rejected`, §0 B2/S4) | `EcnService` + `packages/core/state-machines/ecn.ts` (pure, stricter owner-or-created_by four-eyes on both approve/reject, §0 B2) | `created`/`updated`, in-tx | `ecn:view`/`ecn:manage` | forced RLS; cross-tenant id → 404 |
+| E2 | none | reuses E4's approve route + E1's new `submit`/`withdraw`/`close`; `GET /v1/ecns/summary` (new) | `EcnService.summary` | none (read-only) | `ecn:view` (read); `ecn:manage` (Draft/Implementation drag, §0 B1); `ecn:approve` (gated-stage drag) | RLS-scoped |
 | E3 | none | CreateWizard's existing create route, `"ecn"` type added | `EcnService.create` (shared with E1) | `created` | `ecn:manage` | forced RLS |
-| E4 | `0072` also (`ecn_approvals`) | `POST /v1/ecns/:id/approvals/:stage`, `GET /v1/ecns/:id/approvals` | `EcnService.decideApproval` | `status_changed` (ecn); `updated` (ecn_approvals row) | `ecn:approve` (decide); `ecn:view` (read tracker) | forced RLS; cross-tenant id → 404; 409 on stale lockVersion |
-| E5 | none | `POST /v1/ecns/:id/link`, `GET /v1/ecns/:id/links` | `EcnService.link`, auto-revise call into `DocumentsService.newVersion` (existing) + `packages/core/version-bump.ts` (pure) | `linked` (entity_links row) | `ecn:manage` (link); side-effect of `ecn:approve` (auto-revise) | existing `assertEntityVisible` (rule 8), unchanged |
-| X1 | none | none | `apps/api/src/collab/entity-ref.ts`, `chat.ts`'s `ENTITY_SPECS`, `apps/web/.../graph-kinds.ts`, `search.service.ts`'s `KINDS`, `audit-signal.ts`'s `ENTITY_TOPIC`, new `complaint-sla` daily job (`apps/api/src/jobs/processors/`) | none new | `complaint:view`/`complaint:manage`/`ecn:view`/`ecn:manage`/`ecn:approve` added to `packages/core/src/rbac.ts` per §2 X1 AC1 | n/a |
+| E4 | `0072` also (`ecn_approvals`, **no `role_required` column**, §0 S8) | **New (§0 B1):** `POST /v1/ecns/:id/submit`, `POST /v1/ecns/:id/withdraw`, `POST /v1/ecns/:id/close`; existing `POST /v1/ecns/:id/approvals/:stage` (exact statement order, §0 S2), `GET /v1/ecns/:id/approvals` | `EcnService.decideApproval`/`.submit`/`.withdraw`/`.close` | `status_changed` (ecn, every transition incl. the 3 new routes); `updated` (ecn_approvals row) | `ecn:approve` (decide); `ecn:manage` (submit/withdraw/close); `ecn:view` (read tracker) | forced RLS; cross-tenant id → 404; 409 on stale lockVersion (every route) |
+| E5 | `0072` also (`ecns.auto_revise_result`) | `POST /v1/ecns/:id/link` (`FOR SHARE` lock, §0 S2; stage `draft`-`pilot` only), **new** `POST /v1/ecns/:id/links/:linkId/delete` (§0 B4), `GET /v1/ecns/:id/links` | `EcnService.link`/`.unlink`, auto-revise call into `DocumentsService.newVersion` (existing, **new optional `ownerId` param**, §0 B3b) + `packages/core/version-bump.ts` (pure); each document's attempt in its own `SAVEPOINT` (§0 B3c) | `linked`/`unlinked` (entity_links row); auto-revise result persisted into the ECN's own `status_changed` event `after` payload (§0 B3d) | `ecn:manage` (link/unlink); side-effect of `ecn:approve` (auto-revise) | ECN-specific unlink route closes the generic-route bypass (§0 B4); existing `assertEntityVisible` (rule 8), now also capability-checked |
+| X1 | none | none | `apps/api/src/collab/entity-ref.ts` (`assertEntityVisible` gains a capability check, §0 B4), `comments.service.ts`/`comments.controller.ts` (membership threaded through, §0 B4), `chat.ts`'s `ENTITY_SPECS` (`label: "subject"` for complaint, §0 S3), `document-detail.tsx`/`capa-detail.tsx`'s own local `ENTITY_ROUTE`/`ENTITY_LABEL` maps (§0 S3), `apps/web/.../graph-kinds.ts`, `search.service.ts`'s `KindConfig` (+`capability`/`titleColumn`, §0 B5), `audit-signal.ts`'s `ENTITY_TOPIC` — **no new job; the complaint SLA check rides the existing `sla.sweep` cadence, §0 B7a** | none new | `complaint:view`/`complaint:manage`/`ecn:view`/`ecn:manage`/`ecn:approve` added to `packages/core/src/rbac.ts` per §2 X1 AC1 | n/a |
 
 Every mutation runs inside `withAudit` in the same transaction (rule 3); both list endpoints are cursor-
 paginated (rule 6); all new Zod schemas live in `packages/types` (rule 4); the complaint and ECN state
 machines are `packages/core` pure functions (rule 5), never computed in a controller or a React component.
 Reserved migration range for this sprint: **`0071`-`0072`** (0071 complaints + complaint_attachments + 8D
-source columns + EntityKind/entity_links widening, 0072 ecns + ecn_approvals + EntityKind/entity_links
-widening); `0073` held as buffer for a build-time correction, mirroring Sprints 04/05's own convention —
-Sprint 07 takes `0074` onward.
+source columns + `eight_ds`/`capas` tenant-id-uq prereqs + EntityKind/entity_links widening, 0072 ecns +
+ecn_approvals + `ecns.auto_revise_result` + EntityKind/entity_links widening); `0073` held as buffer for a
+build-time correction, mirroring Sprints 04/05's own convention — Sprint 07 takes `0074` onward.
 
 ## 5. Design needs
 
@@ -775,13 +1059,26 @@ Sprint 07 takes `0074` onward.
    CreateWizard visual language, mirroring risk's R4 precedent board.
 6. **6th CreateWizard Type-step card** — icon `GitBranch` (reuse, already established by `navigation.ts`), a
    color from the existing wizard palette distinct from the other 5 cards.
-7. **Complaint register's convert-target picker** — the jsx's single "Link / Create NCR" button becomes a
-   3-way choice (NCR/8D/CAPA); needs a small dropdown/menu affordance in the existing visual language, not a
-   new full dialog.
-8. **Kanban drag-and-drop visual states** (E2) — a draggable-card affordance for `ecn:approve` holders vs. a
-   static (non-draggable, visibly so, not silently disabled) card for everyone else; no existing drag-and-drop
-   precedent exists anywhere else in this codebase's board views to reference, so this is genuinely new
-   interaction design, not a reskin.
+7. **Complaint register's convert-target picker** (revised, §0 B6/B8c) — the jsx's own button text, "Link /
+   **Create** NCR," becomes a real 4-way choice (create NCR / **link existing NCR** / create 8D / create CAPA),
+   each option shown only if the caller holds its capability (§0 B6f); needs a small dropdown/menu affordance
+   in the existing visual language, not a new full dialog, with the "link existing" option opening a compact
+   NCR-picker (search-by-code, reusing whatever existing NCR-lookup pattern the codebase has).
+8. **Kanban drag-and-drop visual states** (E2) — a draggable-card affordance, capability-gated **per column**
+   (§0 B1 — `ecn:manage` on Draft/Implementation cards, `ecn:approve` on the 4 gated-stage cards) vs. a static
+   (non-draggable, visibly so, not silently disabled) card for everyone else; Closed/Rejected cards are never
+   draggable for anyone. No existing drag-and-drop precedent exists anywhere else in this codebase's board
+   views to reference, so this is genuinely new interaction design, not a reskin.
+9. **ECN detail view's submit/withdraw/close actions** (§0 B1) — three new buttons alongside E4's
+   Approve/Reject, each visible only in the stage it applies to (`draft` → Submit + Withdraw; `implementation`
+   → Close), same visual treatment as the existing action buttons.
+10. **ECN detail view's persisted auto-revise banner** (§0 B3d) — the affected-records panel gains a small
+    status banner showing the last `autoReviseResult` (revised/skipped counts + reasons), visible on any later
+    visit to the detail view, not only right after the transition — a compact variant of the same one-time
+    approval-response toast, reusable as a persistent element.
+11. **ECN affected-records panel's remove affordance** (§0 B4) — a small "×"/remove control per linked
+    document/supplier row, visible only while `ecn:manage` + stage `draft`-`pilot`, calling the new unlink
+    route.
 
 ## 6. Dead-end audit
 
@@ -791,7 +1088,7 @@ Sprint 07 takes `0074` onward.
 | Sidebar "Engineering changes" (`/ecn`) | `PLANNED_MODULES["ecn"]` placeholder | Real List + Kanban (E1/E2) |
 | `CustomerComplaints` "Log complaint" button | Opens `IntakeForm`, which submits nothing | Real create (C2) |
 | `CustomerComplaints` row click (`cursor: pointer`, no `onClick`) | Dead in the mock itself | Real detail panel (C3, flagged §5) |
-| `CustomerComplaints` "Link / Create NCR" button | `kToast` only | Real 3-way convert (C4) |
+| `CustomerComplaints` "Link / Create NCR" button | `kToast` only | Real 4-way convert — create/link NCR, create 8D, create CAPA (C4, §0 B6/B8c) |
 | `CustomerComplaints` "Public intake form" button | `kToast` (fake link-copy) | **Not built** — honestly excluded (§3.1), button removed/replaced with the real manual-intake-only reference card, never left as a fake copy action |
 | `CustomerComplaints` "Intake channels" card's 4 non-manual "Active" channels | Fully fabricated status (no real integration exists, rule 10) | Reproduced as an honest, static, non-interactive reference card describing this tenant's manual-only posture — never a fake "Active"/"Connected" badge |
 | `ECNWorkbench` "New ECN" button | `kToast` only | Real create via CreateWizard (E3) |
@@ -801,6 +1098,9 @@ Sprint 07 takes `0074` onward.
 | ECN "Doc revision" stage (`ECNList` mock) | A mislabeled manual step that never existed as such | Corrected: it is the real, automatic auto-revise side effect (§3.2), not a 5th human stage |
 | ECN reject path | Not drawn anywhere (`ECNKanban` has no "Rejected" column despite claiming "approval workflow") | Real, added: every gated stage can reject (E4), Kanban gains an 8th column (§3.2/§5) |
 | "Affected parts" linking (P19's own text) | No `parts` table/`EntityKind` anywhere | **Not built** — honestly excluded (§1a/§3.2), no picker offers a fake "part" kind |
+| **(§0 B1) ECN Draft/Implementation Kanban columns** | No route existed to drive `draft→feasibility`, `draft→rejected`, or `implementation→closed` — dragging a card in/out of these columns would have had nothing to call | Real `submit`/`withdraw`/`close` routes wired to every drag action in these columns (E2/E4, revised) |
+| **(§0 B4) `POST /v1/entity-links/:id/delete`, applied to an ECN's own document link** | Would have let anyone with generic link-delete access strip an ECN→document link after `implementation`, bypassing E5's stage-freeze | Real ECN-specific `POST /v1/ecns/:id/links/:linkId/delete`, gated `ecn:manage` + stage `draft`-`pilot` (E5, revised) — the generic route no longer suffices for this guarantee |
+| **(§0 B8c) "Link / Create NCR" button's "link" half** | The jsx's own button text always implied linking to an existing NCR too; the original build only wired "create new" | Real "link to an existing NCR" convert variant added (C4, revised; §5 item 7) |
 
 No new "coming soon" text, no new dead button. The two controls this sprint explicitly does **not** wire in
 full (automated intake channels; parts linking) are each either removed/replaced with honest reference content
@@ -819,11 +1119,24 @@ not "never say no."
 - **Q29 (new).** "Affected parts" linking on ECN is not built — no `parts` table or `EntityKind` exists
   anywhere in this codebase (§1a). A future sprint that introduces a real parts/BOM master table can extend
   ECN's `LinkPicker` to a third kind at that point; not invented here.
-- **Q30 (new).** ECN's `role_required` per-stage approval gate is fixed and uniform (`admin`/`manager` at
-  every one of the 4 gates) this sprint, resolving P19's own "fixed vs configurable" question as fixed
-  (§3.2). Per-stage-distinct roles (e.g., "CAB requires admin only," "Pilot requires the plant manager") is a
-  real, named future enhancement once a settings surface exists to configure it (Sprint 07's Workspace/Process
-  settings wave is the natural home) — not silently built now with no UI, and not silently promised either.
+- **Q30 (new, revised §0 S8).** ECN's per-stage approval gate is fixed and uniform (`admin`/`manager` at every
+  one of the 4 gates) this sprint, resolving P19's own "fixed vs configurable" question as fixed (§3.2) —
+  enforced entirely in `ecnMachine`'s guard code, with **no `role_required` column** (removed, §0 S8 — a stored
+  value nothing read). Per-stage-distinct roles (e.g., "CAB requires admin only," "Pilot requires the plant
+  manager") is a real, named future enhancement once a settings surface exists to configure it (Sprint 07's
+  Workspace/Process settings wave is the natural home) — not silently built now with no UI, and not silently
+  promised either.
+- **Q33 (new, §0 S9).** `documentMachine` allows `rejected → draft` (resubmission); the ECN machine treats
+  `rejected` as fully terminal, with no resubmission path. Is this asymmetry intended (an ECN needs a genuinely
+  new record if rejected, since design/process/tooling changes carry more downstream weight than a document
+  revision), or should ECN also allow `rejected → draft`? **Left open for the user/PO to decide — not resolved
+  by this amendment.**
+- **Q34 (new, §0 B8b — see §3.2a for full detail).** Is `ECNList`'s "PPAP" stage (row `ECN-2026-0180`, step 4
+  of 6) a real 7th pipeline stage the canonical machine is missing, or is it the mock's own error, the same
+  class of defect as "Doc revision" already was? Does `ECNList`'s own documents-before-pilot row ordering mean
+  auto-revise should fire earlier in the pipeline (e.g., on `cab_approval→pilot`) rather than on
+  `pilot→implementation` as this file currently proposes? **Both left open for the user — not silently resolved
+  a second time.**
 - **Q31 (new).** `apps/web/src/features/graph/graph-kinds.ts`'s `GRAPH_KINDS` map gains real `complaint`/`ecn`
   entries purely to satisfy TypeScript's exhaustiveness check (widening `EntityKind` forces it), but neither
   kind will actually render in the knowledge-graph explorer this sprint — `apps/api/src/graph/graph.service.ts`
@@ -848,55 +1161,77 @@ not "never say no."
 
 ## 8. Definition of Done
 
-- [ ] **User has explicitly approved §3** (complaints: schema, manual-only intake decision, SLA table, convert
-      mechanism, added contact/channel fields; ECN: schema, the canonical 7-value stage machine replacing both
-      jsx views' own inconsistent numbering, the fixed admin/manager-only approval role, the 4-value
-      `change_type` enum, the real `newVersion`-based auto-revise mechanism and its partial-failure behavior,
-      the "affected parts" exclusion) — build does not start before this.
-- [ ] Migrations `0071_complaints.sql` (`complaints`, `complaint_attachments`, `eight_ds.source`/`source_id`,
-      `EntityKind`/`entity_links` widening) and `0072_ecn.sql` (`ecns`, `ecn_approvals`, `EntityKind`/
-      `entity_links` widening) applied; `pnpm db:check` green; `pnpm test:rls` green including both new
-      tables and the widened `entity_links` kinds.
+- [ ] **User has explicitly re-approved the corrected §3** (see §0's DELTAS block: the 3 new ECN routes, the
+      stricter owner-frozen/owner-or-created_by four-eyes rule, `newVersion`'s new `ownerId` parameter, the
+      SLA cadence/threshold corrections, and the §3.2a jsx-fidelity questions — PPAP stage, auto-revise timing
+      — plus the reinstated "link to an existing NCR" capability) — build does not start before this.
+- [ ] Migrations `0071_complaints.sql` (`complaints` with no `customer_color` column; `complaint_attachments`
+      with its `UNIQUE(tenant_id,complaint_id,file_id)`; `eight_ds.source`/`source_id`; `eight_ds_tenant_id_uq`/
+      `capas_tenant_id_uq`; composite FKs on `complaints.ncr_id`/`eight_d_id`/`capa_id`; `EntityKind`/
+      `entity_links` widening) and `0072_ecn.sql` (`ecns` with `auto_revise_result jsonb`, `ecn_approvals` with
+      no `role_required` column, `EntityKind`/`entity_links` widening) applied; `pnpm db:check` green; `pnpm
+      test:rls` green including both new tables, the composite FKs, and the widened `entity_links` kinds.
 - [ ] `packages/core/customer-color.ts`, `complaint-sla.ts`, `state-machines/complaint.ts`,
-      `state-machines/ecn.ts`, `version-bump.ts` all unit-tested — including `complaintSlaState`'s 75% boundary
-      and "acknowledged late, stays breached forever" rule; `complaintMachine`'s "converts backward, status
-      doesn't move" case; `ecnMachine`'s every legal/illegal transition, the four-eyes guard, the admin/
-      manager-only guard, and every gated stage's ability to reject; `bumpMinorVersion`'s malformed-input case.
+      `state-machines/ecn.ts`, `version-bump.ts` all unit-tested — including `complaintSlaState`'s **0.8**
+      boundary (the existing `AT_RISK_THRESHOLD`) and both the "acknowledged late, stays breached forever" and
+      "frozen at `closed_at`" rules; `complaintMachine`'s "converts backward, status doesn't move" case;
+      `ecnMachine`'s every legal/illegal transition, the stricter owner-**or**-created_by four-eyes guard on
+      **both** approve and reject, the admin/manager-only guard, and every gated stage's ability to reject;
+      `bumpMinorVersion`'s malformed-input case.
 - [ ] `packages/core/src/codes.ts` gains `"complaint"`→`COM` and `"ecn"`→`ECN` `CodeKind` entries, unit-tested;
       created complaints/ECNs get real `COM-YYYY-NNNN`/`ECN-YYYY-NNNN` codes via the `counters` table.
 - [ ] C1's summary formulas (Open, Critical, < 24h response % cohort rule, avg time to close, avg cost, all 4
       tab counts) are unit-tested against seeded fixtures, not eyeballed against the UI — including the
       zero-denominator "—" cases for each.
-- [ ] Contract gains all routes in §4; `complaint:view`/`complaint:manage`/`ecn:view`/`ecn:manage`/
-      `ecn:approve` enforced via `@RequireCapability`; RBAC grant matrix matches §2 X1 AC1 exactly (mobile RBAC
-      config, if any, stays untouched since neither module reaches mobile).
+- [ ] Contract gains all routes in §4 (incl. `submit`/`withdraw`/`close`/`links/:linkId/delete` for ECN);
+      `complaint:view`/`complaint:manage`/`ecn:view`/`ecn:manage`/`ecn:approve` enforced via
+      `@RequireCapability`; RBAC grant matrix matches §2 X1 AC1 exactly (mobile RBAC config, if any, stays
+      untouched since neither module reaches mobile).
 - [ ] C2's attachment presign-then-link flow tested for the exact Sprint-05-precedented bypass case: a
       presign with `entity_kind` omitted must not be linkable via `attachmentFileIds` later (the `entity_kind`
       exact-match + `deleted_at IS NULL` double-check, §2 C2 AC1).
-- [ ] C4's convert route tested for: the double-convert race (409, exactly one winner), the "converts to a
-      chronologically earlier target" case (link created, status does not regress), and the 3-target coverage
-      (NCR/8D/CAPA all real, reusing each module's own `.create()`, not a parallel mechanism).
-- [ ] E4's approval route tested for: wrong-stage 422, self-approval 403, non-admin/manager 403, 409 on stale
-      lockVersion, reject requiring a comment, and the two-entity audit split (ecn `status_changed` + ecn_
-      approvals `updated`).
+- [ ] C4's convert route tested for: the locked-row race (`SELECT...FOR UPDATE`, 409 on stale `lockVersion`,
+      exactly one winner, never a lost-update overwrite), converting an already-`closed` complaint (422), the
+      "converts to a chronologically earlier target" case (link created, status does not regress), the 4-target
+      coverage (NCR create/NCR-link-existing/8D/CAPA all real, reusing each module's own `.create()`, not a
+      parallel mechanism), the real per-target capability gate (an auditor-role test proving 403 on a target
+      they lack, not a silent bypass), the audit-on-every-convert rule (`updated` when status doesn't move), and
+      `audits.service.ts`'s `raiseCapa` fix (its link-back now inside `withAudit`).
+- [ ] E4's submit/withdraw/close/approve/reject routes tested for: wrong-stage 422, self-approval **and**
+      self-rejection 403 for both `owner` and `created_by`, non-admin/manager 403 on approve/reject, 409 on
+      stale lockVersion (every route), reject requiring a comment, and the two-entity audit split (ecn
+      `status_changed` + ecn_approvals `updated`).
 - [ ] E5's auto-revise tested end to end: an ECN with 3 linked documents (one `approved` with a clean "X.Y"
       version, one `approved` with a malformed version string, one not `approved`) reaching `implementation`
-      real-calls `DocumentsService.newVersion` for the clean one only, and the approval response's
-      `autoRevise.skipped` names the other two with their real reasons — browser-verified, not just unit-
-      tested, since this is the sprint's own headline "not hand-waved" claim (CLAUDE.md rule 0).
-- [ ] Web `/complaints` fully real: KPI strip (real formulas), 4 tabs (real counts), register table, intake
-      dialog (incl. added Contact/Channel fields + attachments), detail panel (Acknowledge/Edit/Convert/Close),
-      Intake-channels/SLA-matrix reference cards (honest, non-interactive), all empty/error/offline/permission
-      states — browser-verified side-by-side against `qms-modules.jsx`'s `CustomerComplaints`/`IntakeForm`.
-- [ ] Web `/ecn` fully real: List + Kanban (8 columns incl. Rejected) toggle, ECN detail view w/ approval
-      tracker + affected-records panel, CreateWizard `ecn` type (3-step branch), drag-to-advance for
-      `ecn:approve` holders (static, visibly non-draggable for everyone else), all empty/error/offline/
-      permission states — browser-verified against `qms-modules.jsx`'s `ECNWorkbench`/`ECNList`/`ECNKanban`.
+      real-calls `DocumentsService.newVersion` for the clean one only, **preserving that document's own
+      `file_id` and `owner_id`** (not detaching the file, not reassigning ownership to the approver), each
+      attempt isolated in its own `SAVEPOINT`, and the persisted `ecns.auto_revise_result`/`autoRevise.skipped`
+      names the other two with their real reasons — browser-verified, not just unit-tested, since this is the
+      sprint's own headline "not hand-waved" claim (CLAUDE.md rule 0). Also tested: the new ECN-specific unlink
+      route rejects once `stage` reaches `implementation`, and the generic `/v1/entity-links/:id/delete` route
+      can no longer remove an ECN's own document link at all.
+- [ ] B4's capability fix tested: an inspector (holding neither `complaint:view` nor `ecn:view`) gets 404 from
+      `GET/POST /v1/entity-links` and `GET/POST /v1/comments` against a complaint/ECN id, and a regression test
+      confirms every one of the 11 pre-existing `EntityKind`s' behavior is unchanged for every role that already
+      holds their `:view` capability.
+- [ ] Web `/complaints` fully real: KPI strip (real formulas), 4 tabs (real counts), register table (customer
+      color computed on read, "Linked" column showing the most-advanced record), intake
+      dialog (incl. added Contact/Channel fields + attachments), detail panel (Acknowledge/Edit/Convert/Close,
+      4-way convert picker filtered to the caller's own capabilities), Intake-channels/SLA-matrix reference
+      cards (honest, non-interactive), all empty/error/offline/permission states — browser-verified side-by-side
+      against `qms-modules.jsx`'s `CustomerComplaints`/`IntakeForm`.
+- [ ] Web `/ecn` fully real: List (incl. "Affected" column) + Kanban (8 columns incl. Rejected, every column's
+      drag action wired) toggle, ECN detail view w/ approval tracker + submit/withdraw/close actions +
+      affected-records panel (incl. remove/unlink) + persisted auto-revise banner, CreateWizard `ecn` type
+      (3-step branch), capability-gated drag-to-advance per column (static, visibly non-draggable otherwise),
+      all empty/error/offline/permission states — browser-verified against `qms-modules.jsx`'s
+      `ECNWorkbench`/`ECNList`/`ECNKanban`.
 - [ ] Auditor's/viewer's web nav includes `complaints`/`ecn`; inspector's does not (browser-verified for all
-      three roles, confirming inspector gets a client + server 403, not merely a hidden nav entry).
-- [ ] `complaint`/`ecn` real search hits appear in the command palette for a subject/title keyword match,
-      role-scoped correctly (inspector never sees a hit for either kind, since inspector holds neither
-      capability at all).
+      three roles, confirming inspector gets a client + server 404 on entity-links/comments, not merely a
+      hidden nav entry).
+- [ ] `complaint`/`ecn` real search hits appear in the command palette for a subject/title keyword match
+      (complaint hits resolved from the real `subject` column, not the nonexistent `title`), role-scoped
+      correctly (inspector never sees a hit for either kind, since inspector holds neither capability at all).
 - [ ] A second browser session's ECN Kanban board updates live when the first approves/rejects a stage
       (realtime topic wiring, X1 AC6), browser-verified with two sessions side by side.
 - [ ] Placeholder ledger entries `"planned:complaints"`/`"planned:ecn"` removed; both removed from
@@ -904,11 +1239,14 @@ not "never say no."
 - [ ] Full gate green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
 - [ ] Demo login re-seeded and proven 201 after the suite run (rule 12).
 - [ ] `PROGRESS.md` updated (Current status + Decisions log: manual-only intake exclusion and why, the SLA
-      table values, the canonical 7-value ECN stage machine replacing both jsx views' inconsistent numbering,
-      the `material` change-type addition, the fixed admin/manager-only approval role, the real `newVersion`-
-      based auto-revise mechanism, the "affected parts" exclusion, the `customer_color` hash mechanism, the
-      plain-FK (not composite) convert-link pattern, Q28-Q32) and `progress_mobile.md` gets an explicit
-      "Sprint 06 — mobile unaffected" line.
+      table values and the 5-minute-sweep/0.8-threshold correction, the canonical stage machine plus its
+      previously-missing submit/withdraw/close routes, the `material` change-type addition, the fixed
+      admin/manager-only approval role, the stricter owner-or-created_by four-eyes rule and owner-frozen-after-
+      draft rule, the real `newVersion`-based auto-revise mechanism (with its `fileId`/`ownerId` fixes and
+      per-document `SAVEPOINT` isolation), the "affected parts" exclusion, the `customer_color` computed-on-read
+      mechanism, the composite-FK convert-link pattern, the reinstated link-to-existing-NCR capability, the
+      `assertEntityVisible`/search capability fixes, the `raiseCapa` audit fix, Q28-Q34) and `progress_mobile.md`
+      gets an explicit "Sprint 06 — mobile unaffected" line.
 
 ## 9. Out-of-scope confirmation
 
@@ -919,20 +1257,36 @@ per-sprint config wiring (§2 X1) does not name them. NCR/8D/CAPA gain no new UI
 loose columns (`eight_ds.source`/`source_id`) and a new caller (`ComplaintsService.convert`) into their
 already-existing `.create()` methods, never a new parallel creation path or a reshaped existing route.
 Documents gain no new UI or route either — `DocumentsService.newVersion` is called exactly as it already
-exists, with no signature change. Automated complaint-intake channels (Q28) and ECN "affected parts" (Q29) are
-named, explicit exclusions, not silently dropped scope.
+exists, apart from **one small, additive, optional `ownerId` parameter (§0 B3b)** that every existing caller
+continues to omit with unchanged behavior. Automated complaint-intake channels (Q28) and ECN "affected parts"
+(Q29) are named, explicit exclusions, not silently dropped scope. `assertEntityVisible`'s new capability check
+and `raiseCapa`'s audit fix (§0 B4/B6e) are small, named, adjacent corrections to existing shared code, not new
+scope — both are zero-behavior-change for every role/kind combination that held the relevant capability before
+this sprint.
 
 ---
 
-**PO use-case sign-off: SIGNED.** Every use case (happy/error/empty/permission/offline/cross-tenant) across
-C1-C4 (register/list/KPI, intake+attachments, detail+acknowledge+close, convert), E1-E5 (schema+list, Kanban,
-CreateWizard, approval, affected-docs+auto-revise), and X1 (cross-cutting wiring) — **10 stories in total** —
-maps to a story with testable acceptance criteria and an explicit Web/Mobile/Shared split. The dead-end audit
-(§6) accounts for every control the jsx introduces,
-including the mock's own pre-existing dead affordances (the complaint row's inert `onClick`, the ECN Kanban's
-missing reject column); two designed-but-unbuildable elements (automated intake channels, ECN parts-linking)
-are named and honestly excluded rather than faked. This covers **use-case coverage only** — it does **not**
+**PO use-case sign-off: SIGNED (unchanged by this amendment).** Every use case (happy/error/empty/permission/
+offline/cross-tenant) across C1-C4 (register/list/KPI, intake+attachments, detail+acknowledge+close, convert),
+E1-E5 (schema+list, Kanban, CreateWizard, approval, affected-docs+auto-revise), and X1 (cross-cutting wiring) —
+**10 stories in total, none added or removed by this amendment** — still maps to a story with testable
+acceptance criteria and an explicit Web/Mobile/Shared split; §0's fixes tighten and correct those ACs, they do
+not remove use-case coverage. The dead-end audit (§6) accounts for every control the jsx introduces plus every
+new control this amendment adds (submit/withdraw/close, the ECN unlink route, the reinstated link-to-existing-
+NCR affordance); two designed-but-unbuildable elements (automated intake channels, ECN parts-linking) remain
+named and honestly excluded rather than faked. This covers **use-case coverage only** — it does **not**
 constitute approval to write any code.
 
-**§3 backend design sign-off: APPROVED as proposed (user, 2026-09-30).** Gate 1 (UI Lead Designer audit +
-`planner` architecture review) remains pending before any implementation may begin, per `SCRUM.md`'s ordering.
+**§3 backend design sign-off: PENDING RE-APPROVAL — Ceremony 4 SEND BACK (2026-09-30) amendment issued.** The
+user's 2026-09-30 approval of §3 stands for everything §0 did not change; it does **not** cover §0's DELTAS
+block (new ECN `submit`/`withdraw`/`close` routes; the `owner`-frozen-after-`draft` + owner-or-created_by
+four-eyes rule; `DocumentsService.newVersion`'s new optional `ownerId` parameter; the SLA sweep-cadence/
+threshold corrections; §3.2a's two new jsx-fidelity questions; and the reinstated "link to an existing NCR"
+capability with its required composite-FK schema change) — these need the user's fresh, explicit re-approval
+before build starts. Everything else in §0 (B4-B6's RBAC/search/audit corrections, B7's remaining fixes, S1-S8)
+is a correction within the spirit of what was already approved and does not itself require re-approval, though
+the corrected §3 text should still be shown to the user for visibility. `planner` re-review of this amendment,
+the UI Lead Designer's Gate 1 audit (unchanged boards from §5, plus 3 new small board additions — submit/
+withdraw/close actions, the persisted auto-revise banner, the unlink affordance, and the 4-way convert picker),
+and the user's approval of the DELTAS above all remain pending before any implementation may begin, per
+`SCRUM.md`'s ordering.
