@@ -5,7 +5,9 @@ import {
   FileText,
   Brain,
   FileWarning,
+  GitBranch,
   Grid3x3,
+  MessageSquare,
   Package,
   Shield,
   Truck,
@@ -59,6 +61,12 @@ export function entityHref(kind: string, id: string): string | null {
       return `/training?competencyId=${id}`;
     case "training_record":
       return `/training?recordId=${id}`;
+    // Sprint 06 X1 AC3 — complaints/ECN are select-in-list pages, same
+    // `?id=` deep-link pattern as risk/fmea/calibration/training above.
+    case "complaint":
+      return `/complaints?id=${id}`;
+    case "ecn":
+      return `/ecn?id=${id}`;
     default:
       return null;
   }
@@ -87,6 +95,9 @@ const ICONS: Record<string, LucideIcon> = {
   instrument: Wrench,
   competency: Award,
   training_record: Award,
+  // Matches `navigation.ts`'s existing complaints/ECN nav glyphs (X1 AC3).
+  complaint: MessageSquare,
+  ecn: GitBranch,
 };
 
 export function entityIcon(kind: string): LucideIcon {
@@ -111,6 +122,8 @@ const LABELS: Record<string, string> = {
   instrument: "Instrument",
   competency: "Competency",
   training_record: "Training record",
+  complaint: "Complaint",
+  ecn: "ECN",
 };
 
 export function entityLabel(kind: string): string {
