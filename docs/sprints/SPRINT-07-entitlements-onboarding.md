@@ -3,7 +3,9 @@
 Author: Product Owner. Date: 2026-09-30. Part of the multi-sprint programme in `ROADMAP.md`, **pulled ahead of
 the former Sprint 07 (Settings Workspace + Process), which becomes Sprint 08** (ROADMAP §0 decision Q10).
 Governing rules: CLAUDE.md rules 0-12 and `SCRUM.md`. Design fidelity is a completion gate.
-Builds on Sprints 01-06 (all merged). Migration range pre-assigned to this sprint: **0073-0076**.
+Builds on Sprints 01-06 (all merged). Migration range pre-assigned to this sprint: **0073-0077** ([AM1]: 0073 catalog,
+0074 entitlements + trials, 0075 control plans + workspace requests, 0076 plan requests + settings namespaces +
+exports, 0077 buffer). `SPRINT-07C-staff-console.md` owns **0078-0081**; Sprint 08 starts at **0082**.
 
 **Why this sprint exists (the business case, in one paragraph).** Sprints 01-06 gave Kaenal genuinely
 competitive module depth (inspections, NCR, 8D, CAPA, audits, documents, suppliers/PPAP/SCAR, FMEA, SPC, MSA,
@@ -106,12 +108,14 @@ changing records, never reading or exporting records the tenant already holds** 
 Make Kaenal **sellable, gateable and first-hour-tailored** without a payment provider:
 
 1. **Plans & entitlements (Increment A).** A tenant has a set of active add-on packs (the 9 packs in
-   `addons.jsx`), grouped into the 3 tiers in `pricing.jsx` (Core, Professional, Enterprise). Locked modules
-   render the real page blurred behind the upsell card (04 §5), carry a lock in the sidebar, and are
-   write-blocked server-side. Admins manage the plan on `/pricing`, can start real 14-day trials, and hand off to
-   Kaenal sales through real requests; Kaenal staff set the contracted plan through an audited CLI. The
-   `Billing & plan` settings section shows the plan (payment features hidden per Q6). `Download quote` produces a
-   real PDF.
+   `addons.jsx`), grouped into the 3 tiers in `pricing.jsx` (Core, Professional, Enterprise). **[AM1]** On top of
+   the universal Core floor, every module its **declared compliance frameworks require** is included free (D2);
+   the catalog, framework rules, industry/framework lookups and a versioned price book are control-plane **data**
+   seeded here and edited by staff in 07C. Locked modules render the real page blurred behind the upsell card
+   (04 §5), carry a lock in the sidebar, and are write-blocked server-side. Admins manage the plan on a
+   **tenant-aware** `/pricing`, can start real 14-day trials, and hand off to Kaenal sales through real requests;
+   Kaenal staff fulfil requests and set the contracted plan in the staff console (07C). The `Billing & plan`
+   settings section shows the plan (payment features hidden per Q6). `Download quote` produces a real PDF.
 2. **Industry-aware onboarding (Increment B).** A prospect can request a workspace from the sign-in screen (the
    drawn `request` stage), capturing industry / plant size / frameworks. When the tenant's first admin signs in,
    a short first-run flow confirms those answers and shows a ranked, clause-referenced module recommendation
@@ -119,19 +123,22 @@ Make Kaenal **sellable, gateable and first-hour-tailored** without a payment pro
    whose tasks complete themselves from real data and include setup tasks for the modules the admin chose to
    focus on. Every module stays reachable regardless of any answer.
 
-The two increments are independent enough to ship in order (A then B). The only coupling is that O2/O4 show a
-lock chip on a recommended module the plan does not include, which reads P1's resolver. The architect may split
-them into two build waves (§7 Q-S1).
+**[AM1] Build waves (decided by the PO, Q-S1 closed):** **A → B**, then 07C's **C**. A owns the catalog schema
+and seed (P0) that both B (industry/framework lookups, framework rules for suggestions) and C (editors) read, so
+P0 merges first; after P0 + P1 merge, B and the rest of A may run in parallel worktrees; C starts once A's
+migrations and services are merged. Coupling is now two-way between A and B: O2/O4 show a lock chip or an
+"Included with <framework>" chip from P1's resolver, and P1's resolver reads O1's declared frameworks — so O1's
+**types and storage** (AC1-AC2) are built in wave A alongside P1, and O1's UI-facing routes stay in B.
 
 **Roles served**
 
 | Role | What they get this sprint |
 |---|---|
-| **Workspace admin** (`admin`; holds `billing:manage` and `settings:manage`) | Plans & add-ons page, plan changes (self-service) or requests (request mode), trials, quote PDF, Billing & plan section, first-run flow, onboarding checklist, approving member access requests by acting on them |
-| **Manager** (`settings:manage`, not `billing:manage`) | Onboarding checklist and editing the workspace profile (industry/frameworks), like every other `settings:manage` screen. Not the plan (03 §3: billing/entitlements are admin-only) |
+| **Workspace admin** (`admin`; holds `billing:manage` and `settings:manage`) | Plans & add-ons page, plan changes (self-service) or requests (request mode), trials, quote PDF, Billing & plan section, first-run flow, onboarding checklist, approving member access requests by acting on them; **[AM1] declaring compliance frameworks** (which now changes entitlements, D2) |
+| **Manager** (`settings:manage`, not `billing:manage`) | Onboarding checklist and editing the workspace profile's industry, plant size and focus modules, like every other `settings:manage` screen. **[AM1] Frameworks are read-only for managers** (they change entitlements; 03 §3: billing/entitlements are admin-only) |
 | **Auditor / inspector / viewer** | Sidebar lock icons and the locked-module overlay; a **"Request access"** action that notifies admins (R5). Never a control that would 402 or 403 (04 §6) |
 | **Partner** (supplier portal) | Portal writes are gated by the `supplier` pack like the internal supplier module. No new UI |
-| **Kaenal staff (operator)** | `pnpm tenant-plan` CLI: set bundle/packs, self-service flag, contract and CSM fields, list/fulfil/decline requests, all audited as `support` with a reason. `provision-tenant --bundle` / `--from-request` |
+| **Kaenal staff (operator)** | **[AM1]** In this file: `provision-tenant --bundle` / `--from-request` only. Plan, request, catalog and price-book administration is the staff console — see `SPRINT-07C-staff-console.md` (roles `support`, `sales`, `admin`) |
 | **Prospect (unauthenticated)** | "Request a workspace" form on the sign-in screen, with an honest confirmation state |
 
 **Mobile.** No `m-*.jsx` draws pricing, entitlements, trials or onboarding (§1a). Every module the mobile app uses
@@ -164,7 +171,7 @@ onboarding is out of scope: the first-run flow is a web-admin task and **never b
 | Reusable substrate: `tenant_settings(tenant_id, namespace, doc jsonb, lock_version)` with a namespace CHECK widened per consumer (currently `branding`, `session`, `chargeback` — `0029_cost_centers.sql:84`); audit `action` CHECK already contains `entitlement_changed`, `settings_changed`, `created`, `status_changed` (latest widening `0061_audits_module.sql:73-81`), so this sprint needs **no** new audit action; exports pipeline (`ExportResource` enum + `run-export.ts`); outbox → `send-email` processor over the email provider port; Redis `RateLimiter` used for login; daily job pattern (`calibration-due.ts`, `training-expiry.ts`) | `0025_tenant_settings.sql`, `packages/types/src/enums.ts:322`, `apps/api/src/jobs/processors/`, `apps/api/src/http/rate-limit.ts` |
 | Web: `/pricing` is a planned-module placeholder (`planned:pricing`, ledger sprint 10); settings `billing` (10) and `onboarding` (11) are ledger placeholders; `/pricing` is admin-only in role curation (`PLATFORM_ROOTS`) | `config/planned-modules.ts:28`, `config/placeholder-ledger.ts`, `config/rbac.ts:18-24` |
 | Mobile never calls a module this sprint would gate (grep of `apps/mobile/src` for suppliers/ppap/scar/risk/fmea/spc/msa/ecn/graph/predictions/reports → only NCR's own `risk` field). It **does** call the AI gateway for NCR drafts and already treats 402 as "AI unavailable". Its oversight audit feed maps actions containing `entitlement`/`setting` to the settings category | `apps/mobile/src/features/ncr/ai.ts:74`, `apps/mobile/src/app/(app)/audit.tsx:13` |
-| Migration head is `0072_ecn.sql`; this sprint uses **0073-0076** | `ls packages/db/migrations` |
+| Migration head is `0072_ecn.sql`; this sprint uses **0073-0077** ([AM1]; 07C uses 0078-0081) | `ls packages/db/migrations` |
 
 ---
 
@@ -178,14 +185,89 @@ is written for the **recommended** option and changes only as that decision stat
 Vocabulary used throughout: a **pack** is one of the 9 catalog entries in `addons.jsx` (6 packs + 3 à la carte).
 A **tier** is one of the 3 bundles in `pricing.jsx` (`core`, `pro`, `ent`); a tenant's tier is **derived** from its
 active packs exactly as `tierMatches` does, and is `null` ("Custom") when no bundle matches. A pack is
-**effective** when it is `active`, or when it has an unexpired trial. A **gated module** is a module whose pack
-is not effective.
+**effective** when it is `active`, or when it has an unexpired trial. **[AM1]** The **Core floor** is every module
+no pack claims. A **framework inclusion** is a module that a framework the tenant has declared marks `required`
+(D2). A module is **effective** when it is in the floor, framework-included, or in an effective pack. A **gated
+module** is a module that is not effective (previously: "whose pack is not effective" — no longer sufficient,
+because an IATF tenant's FMEA is effective without the QE pack).
 
 ### Increment A — Plans & entitlements
 
-### P1 — Pack catalog, entitlement store and resolver (Shared foundation)
+### P0 — [AM1, NEW] Catalog data store: packs, pack→module map, framework rules, industry and framework lookups, versioned price book (Shared foundation)
+
+**Design:** none (data). Source values: `addons.jsx:13-199` (packs, includes, prices, route map), `pricing.jsx:88-111`
+(tiers), `auth.jsx:197-209` + `settings.jsx:454-467` (industries, frameworks), the D2 inclusion table and O2's
+requirements table. Decisions U-D2, U-D3, U-D4.
+
+UC
+- Happy: the API, the web and 07C's console read one catalog: pack display data, which module belongs to which
+  pack, which modules each framework requires or supports (with clause), the active industries and frameworks,
+  and the current published price book.
+- Happy (extensibility, U-D4): a staff member adds a 10th framework or a 9th industry through the console (07C
+  C7); it appears in the public request form, the first-run flow and the profile editor on the next fetch, with
+  **no migration and no redeploy**. This story proves the read side by inserting a row in a test and observing it
+  everywhere.
+- Happy (price book, U-D3): prices shown on `/pricing`, in the estimate and in the quote come from the published
+  price-book version; publishing a new version (07C C8) changes them with no redeploy; a quote cites its version.
+- Edge: a retired (inactive) framework or industry still renders its label for tenants that already hold it and
+  keeps its inclusions (D2); it is not offered for new selection.
+- Error: the catalog cannot be read → the API fails closed (every non-floor module gated, 503-class error on
+  catalog-dependent routes, never a hard-coded fallback); the web shows the inline retry card.
+- Permission: authenticated tenant members read the catalog they need (no staff fields); the public request form
+  reads only active industry/framework keys and labels; nothing tenant-side can write it.
+- Cross-tenant: the catalog is global and contains no tenant data; nothing in it is tenant-identifying.
+
+AC
+1. Migration `0073_catalog.sql` creates the §3.1 control tables, the `catalog_meta` version trigger and the
+   grants, and seeds: the 9 packs with every display value from `addons.jsx`; the pack→module map exactly as
+   `addons.jsx`'s `routes[]` (`intelligence` → graph, predictive, ai; `supplier` → suppliers, ppap, scar, portal;
+   `qe` → fmea, spc, msa, risk, ecn; `platform` → report_builder, integrations [non-SMTP only, 09 §1];
+   `security`, `multiplant`, `mobile`, `standards`, `support` → none); the 8 industries and 9 frameworks approved
+   by U-D4 with their `suggested_frameworks` and `module_priors` (from O2 AC3); every `framework_module_rules`
+   row (D2 table for `required`, O2's table for `supports`, each with its clause); price-book version 1
+   (`published`, the jsx list prices, note "placeholder price book (U-D3)").
+2. `packages/types`: `CatalogKey` = `z.string().regex(/^[a-z0-9_]{2,40}$/)` (syntax only — never a literal union
+   for industries or frameworks); `PackId` stays a fixed enum of the 9 ids (packs are a fixed set, U-D2);
+   `ModuleId` stays an enum (a module cannot exist without code); `CatalogDto` `{ version, packs[], packModules,
+   frameworks[], industries[], frameworkRules[], priceBook: { versionId, currency, items[] } }`;
+   `PublicOnboardingCatalogDto` `{ industries: {key,label}[], frameworks: {key,label}[], plantSizes }`; and the
+   **catalog-bound schema factories** `makeWorkspaceProfileSchema(catalog)` and
+   `makeWorkspaceRequestSchema(catalog)`, which accept an **active** catalog key **or** the free-text fallback
+   (`industry.key='other'` + `label` ≤ 80; `frameworks.custom[]` ≤ 5 × ≤ 60 chars), so web and API validate with
+   the same Zod code against the same snapshot (rule 4).
+3. `packages/core/src/entitlements/catalog.ts` holds **no data**: it exports the `Catalog` type, pure accessors
+   (`packForModule`, `frameworkRequired(catalog, key)`, `priceItem`), `CORE_FLOOR_GUARANTEED` (the 8 modules of
+   pricing.jsx:168) and `validateCatalog(catalog)` (every module in ≤ 1 pack; no guaranteed-floor module in a
+   pack; every rule references a known framework and module; the price book has an item for `core_base` and
+   every pack). A unit test runs `validateCatalog` against the seed; a guard test (grep-style, like the
+   placeholder-ledger test) fails if `packages/core/src/entitlements/**`, `packages/core/src/onboarding/**`,
+   `apps/api/src/entitlements/**` or `apps/web/src/features/pricing/**` contains a `$`-amount, a known pack
+   price (2400, 1200, 450, 600, 900, 2000) or a framework/industry key string literal outside test fixtures.
+4. Routes: `GET /v1/catalog` (any authenticated internal member or partner; returns `CatalogDto` minus
+   `updated_by_staff` and other staff fields; ETag = `catalog_meta.version`) and `GET /v1/public/onboarding-catalog`
+   (`@Public`, served by the `kaenal_public` pool; active industries/frameworks + plant sizes only; cacheable
+   60 s). Not paginated (small fixed-size reference data, exempt from rule 6 like `GET /v1/me`; stated in the
+   contract summary).
+5. API catalog snapshot cache keyed on `catalog_meta.version` (§3.2); test: bump the version in a test
+   transaction → the next request sees the new rule; catalog read failure → fail closed.
+6. Explicit grant test (new, beside `control-identity.test.ts`): `kaenal_app` can SELECT and cannot
+   INSERT/UPDATE/DELETE any catalog table; `kaenal_public` can SELECT only the listed columns of
+   `catalog_industries`/`catalog_frameworks` and nothing else in `control`; no role but the migrator (and, from
+   07C, the staff role) can write.
+7. Extensibility test: insert an 11th framework with one `required` rule in a test → it is returned by both
+   catalog routes, accepted by `makeWorkspaceProfileSchema`, and a tenant declaring it gets the module effective
+   (P1) — with no code change.
+
+Web: `useCatalog()` hook (key `['catalog']`) consumed by P2/P4/O4; the sign-in request stage reads the public
+catalog (O3). Mobile: none (additive types; typecheck green). Shared: everything above.
+
+Backend: migration 0073; routes above; no audit in this story (no mutation — writes are 07C's, audited there);
+RBAC: authenticated / public as stated; tenancy: control-plane, not tenant-owned, explicit grant test.
+
+### P1 — Entitlement store and framework-aware resolver (Shared foundation) [AM1]
 
 **Design:** `addons.jsx:13-199` (catalog, route gate map, estimate), `pricing.jsx:88-111` (tiers, `tierMatches`).
+**[AM1]** Reads P0's catalog; implements D2 DECIDED (framework inclusions).
 
 UC
 - Happy: any service or screen asks "is module X usable for this tenant right now?" and gets one consistent
@@ -195,6 +277,13 @@ UC
 - Edge: a tenant whose active set matches no bundle → tier `null`, shown as "Custom" (no tier card marked current).
 - Error: an unknown `pack_id` can never be stored (DB CHECK + Zod enum).
 - Cross-tenant: tenant A's entitlements are invisible to tenant B (forced RLS; foreign ids → 404).
+- **[AM1] Framework inclusion (D2):** an IATF 16949 tenant with no QE pack → FMEA, SPC and MSA are effective
+  (`source: framework`, `frameworkKeys: ['iatf_16949']`), Risk and ECN stay gated; the same tenant removes IATF
+  16949 from its profile → FMEA/SPC/MSA/PPAP/Suppliers become gated on the next request (after P4's confirm).
+- **[AM1] No framework declared:** only the Core floor (plus effective packs) is effective.
+- **[AM1] Custom framework label:** no inclusion. **Retired catalog framework** already declared: inclusion kept.
+- **[AM1] Double source:** a module that is both framework-included and in an active pack reports both reasons;
+  removing the pack leaves it effective (the downgrade-impact count for it is 0).
 
 AC
 1. `packages/types`: `PackId` enum = exactly the 9 ids in `addons.jsx` (`intelligence`, `supplier`, `qe`,
@@ -202,41 +291,51 @@ AC
    `ModuleId` enum covering every nav module (`inspections`, `ncr`, `eight_d`, `capa`, `audits`, `documents`,
    `calibration`, `training`, `complaints`, `ecn`, `risk`, `fmea`, `spc`, `msa`, `suppliers`, `ppap`, `scar`,
    `graph`, `predictive`, `reports`, `report_builder`, `ai`, `integrations`, `portal`); DTOs `EntitlementDto`,
-   `EntitlementsDto`, `TrialDto` (§4).
-2. `packages/core/src/entitlements/catalog.ts` holds the catalog as **data**: per pack its name, tagline, icon,
-   accent, price function, includes list, value line, and `modules: ModuleId[]`, mapping `addons.jsx`'s
-   `routes[]` onto module ids exactly (`intelligence` → graph, predictive, ai; `supplier` → suppliers, ppap,
-   scar, portal; `qe` → fmea, spc, msa, risk, ecn; `platform` → report_builder, integrations [non-SMTP only,
-   09 §1]; `security`, `multiplant`, `mobile`, `standards`, `support` → no gated module [§3.0 D2, §7 Q-C3]).
-   `TIERS` holds the 3 bundles exactly as `pricing.jsx:88-107`. The Core modules (inspections, ncr, eight_d,
-   capa, audits, documents, calibration, training, complaints, reports-read, and every settings screen) map to
-   **no** pack and can never be gated. [D2]
-3. Pure functions, unit-tested with no DB: `effectivePacks(rows, trials, now)`, `tierFor(effective)` (≡
-   `tierMatches`), `isModuleGated(moduleId, effective)`, `packForModule(moduleId)`, `estimateMonthly(effective,
-   orgProfile)` (≡ `billingSummary`: Core base line + one line per effective pack; `hasVariable` when a
-   custom-priced or metered pack is on). Tests cover: all 3 bundles resolve to their tier; a single toggle off a
-   bundle → `null`; a trial ending at `now` is not effective (boundary is exclusive); every `ModuleId` maps to at
-   most one pack; no Core module maps to any pack (a guard test that fails if someone adds one).
-4. Migration `0073_entitlements.sql`: `entitlements` gains `source text NOT NULL DEFAULT 'operator' CHECK
+   `EntitlementsDto`, `TrialDto`, **[AM1]** `ModuleEntitlementDto` `{ id, effective, sources: ({kind:'core'} |
+   {kind:'framework', frameworkKeys} | {kind:'pack', packId} | {kind:'trial', packId, endsAt})[] }` (§4).
+2. **[AM1] Catalog data is P0's control tables, not code.** The pack→module map, framework rules and prices are
+   read from the catalog snapshot. The 3 tiers are data too: `0073` adds `control.catalog_tiers` (`id` fixed
+   `core|pro|ent`, `name`, `blurb`, `features jsonb`, `packs text[]`, `cta` `apply`|`sales`, `sort_order`,
+   `lock_version`), seeded exactly from `pricing.jsx:88-107`; the tier price line comes from the price book.
+3. Pure functions in `packages/core/src/entitlements/resolver.ts`, unit-tested with no DB, all taking the
+   `Catalog` snapshot as an argument: `effectivePacks(rows, trials, now)`, **[AM1]**
+   `frameworkInclusions(catalog, declaredFrameworkKeys)`, `effectiveModules(catalog, declaredFrameworkKeys,
+   rows, trials, now)` → `ModuleEntitlement[]`, `isModuleGated(moduleId, effectiveModules)`, `tierFor(catalog,
+   effectivePacks)` (≡ `tierMatches`), `packCoverage(catalog, packId, declaredFrameworkKeys)` →
+   `{ includedModules, addedModules, fullyIncluded }` (drives P4's pack-card states),
+   `estimateMonthly(catalog.priceBook, effectivePacks, orgProfile)` (≡ `billingSummary`: Core base line + one line
+   per effective pack; `hasVariable` when a custom-priced or metered item is on; carries `priceBookVersionId`).
+   Tests cover: all 3 bundles resolve to their tier; a single toggle off a bundle → `null`; a trial ending at
+   `now` is not effective (boundary is exclusive); **IATF 16949 declared, no packs → exactly floor + fmea, spc,
+   msa, ppap, suppliers effective (seed data); ISO 9001 only → floor only; nothing declared → floor only; a
+   custom label → floor only; IATF + ISO 13485 → union (floor + the IATF five + risk); a `supports` rule never
+   makes a module effective; removing a framework removes exactly its non-overlapping inclusions; property
+   test: adding a framework never makes a module gated (monotonic).** The `CORE_FLOOR_GUARANTEED` guard lives in
+   `validateCatalog` (P0 AC3).
+4. Migration **`0074_entitlements.sql`** ([AM1] renumbered from 0073, which is now P0's catalog): `entitlements` gains `source text NOT NULL DEFAULT 'operator' CHECK
    (source IN ('operator','self_service','bundle','grandfathered'))`, `lock_version int NOT NULL DEFAULT 0` with
    the shared bump trigger, `updated_by` composite member FK (`(tenant_id, updated_by) → memberships`, nullable
    because operator writes have no member), and `CHECK (pack_id IN (<the 9 ids>))`. New table
    `entitlement_trials` (`tenant_id`, `pack_id` same CHECK, `started_at`, `ends_at`, `started_by` composite member
    FK, `created_at`; `PRIMARY KEY (tenant_id, pack_id)` — which *is* the once-per-pack rule), forced RLS,
    leading-`tenant_id` index. Trial state lives only here, so expiry never has to mutate `entitlements`.
-5. **Backfill, so nothing that works today stops working:** for every tenant that exists when `0073` runs, insert
+5. **Backfill, so nothing that works today stops working:** for every tenant that exists when `0074` runs, insert
    all 9 packs `active=true, source='grandfathered'` (`ON CONFLICT (tenant_id, pack_id) DO UPDATE SET
    active=true` — this also covers the demo's existing `intelligence` row). The `supplier_quality` fixture row
-   (`fixtures.ts:237`) is corrected to `supplier` in the same change. New tenants get what P8's provisioning
-   default says (§3.0 D1, §7 Q-C1).
+   (`fixtures.ts:237`) is corrected to `supplier` in the same change. New tenants get the bundle P8's provisioning
+   requires explicitly (`--bundle` is mandatory, [AM1] closing Q-C1) and request mode (D1 DECIDED).
 6. RLS suite covers `entitlements` (now with writes) and `entitlement_trials`; `pnpm db:check` green; mutation
    test: removing the `entitlement_trials` policy makes `test:rls` fail.
+7. **[AM1]** The resolver reads the tenant's declared frameworks from O1's `profile` document (built in wave A,
+   §1 build waves). The API composes `effectiveModules` once per request (memoised on the request context) from:
+   the catalog snapshot (P0), `entitlements` + `entitlement_trials` rows, and `profile.frameworks.keys`.
 
 Web: none directly (consumed by P2/P4). Mobile: none; additive types only, `pnpm --filter @kaenal/mobile
 typecheck` green. Shared: everything above.
 
-Backend: migration 0073; no route (P2 adds the read route); no audit (no mutation in this story); RBAC n/a;
-tenancy: both tables tenant-owned, forced RLS, composite member FKs.
+Backend: migration 0074 (+ `control.catalog_tiers` in 0073); no route (P2 adds the read route); no audit (no
+mutation in this story); RBAC n/a; tenancy: both tenant tables tenant-owned, forced RLS, composite member FKs;
+the catalog is control-plane (P0).
 
 ### P2 — `GET /v1/entitlements` + shell gating: sidebar locks, locked-route overlay, create-surface locks
 
@@ -270,7 +369,10 @@ UC
 AC
 1. `GET /v1/entitlements` (contract + controller) → `EntitlementsDto` `{ packs: [{ id, active, effective, source,
    activatedAt, trial: { startedAt, endsAt } | null, trialAvailable }], tier: TierId | null, selfService:
-   boolean, gatedModules: ModuleId[] }`, computed with P1's resolver. Not paginated (a fixed 9-row catalog,
+   boolean, gatedModules: ModuleId[], modules: ModuleEntitlementDto[] [AM1], declaredFrameworks: CatalogKey[]
+   [AM1], catalogVersion [AM1] }`, computed with P1's `effectiveModules`. **[AM1]** The overlay decides "locked"
+   from `modules`, never from pack state alone (an IATF tenant's `/fmea` is never overlaid), and its copy never
+   mentions framework inclusion (D2). Not paginated (a fixed 9-row catalog,
    exempt from rule 6 like `GET /v1/me`; stated in the contract summary). Cross-tenant: reads only the caller's
    tenant (RLS).
 2. Web `useEntitlements()` hook (TanStack Query, key `['entitlements']`) is the **only** client source; lock
@@ -311,8 +413,11 @@ beyond P1; no audit (read).
 Principle: §0 "regulated-industry principle" and §3.0 D3.
 
 UC
-- Happy: `qe` not effective → `POST /v1/risks` returns **402 `ENTITLEMENT_REQUIRED`** with `details.packId='qe'`;
+- Happy: `qe` not effective → `POST /v1/risks` returns **402 `ENTITLEMENT_REQUIRED`** with `details.moduleId='risk'`,
+  `details.packId='qe'` [AM1];
   `GET /v1/risks`, `GET /v1/risks/:id` and the board-pack export still succeed (the tenant's own records).
+- **[AM1] Framework inclusion:** an IATF 16949 tenant without `qe` → `POST /v1/fmea…`, SPC ingest and MSA writes
+  succeed (framework-included), `POST /v1/risks` and ECN writes return 402. The gate is per **module**.
 - Happy: `intelligence` not effective → `GET /v1/graph/*` and `GET /v1/predictions*` return 402 (derived
   analytics are the product, not the tenant's records, and carry no retention obligation); AI calls return 402
   exactly as today.
@@ -330,29 +435,38 @@ UC
   access" (others), never a generic error.
 
 AC
-1. A `@RequirePack(packId)` decorator evaluated **inside the lifecycle interceptor** after `@RequireCapability`,
-   within the tenant-scoped transaction, reading P1's resolver once per request (memoised on the request
-   context). It is the only mechanism; no service contains its own entitlement `if`.
+1. **[AM1]** A `@RequireModule(moduleId)` decorator (replaces the earlier `@RequirePack(packId)`: with framework
+   inclusions a pack-level check would wrongly 402 an IATF tenant's FMEA) evaluated **inside the lifecycle
+   interceptor** after `@RequireCapability`, within the tenant-scoped transaction, reading P1's `effectiveModules`
+   once per request (memoised on the request context). It is the only mechanism; no service contains its own
+   entitlement `if`. The 402 `details` carry `{ moduleId, packId | null }` (packId = the pack that would unlock it).
 2. Applied, per controller, to every **write** route of: `risk`, `fmea`, `spc` (measurement ingest), `msa`, `ecn`
    (qe); `suppliers`, `ppap`, `scar`, portal respond routes (supplier); `reports` POST/PUT, `integrations`
    POST/PUT/connect/webhook/test for non-SMTP kinds (platform). Applied to **read** routes of `graph` and
    `predictions` (intelligence). The architect produces the exhaustive route list from the controllers as part of
    the slice plan; a test enumerates every route of these controllers and fails if a write route lacks the
-   decorator (a mutation-style guard, like the placeholder-ledger test).
+   decorator (a mutation-style guard, like the placeholder-ledger test). **[AM1]** Because the pack→module map is
+   now data (P0), a module can be moved into a pack by staff (07C C7) — so the decorator is applied to **every**
+   non-floor-guaranteed module's write routes regardless of today's mapping; for a module currently in the floor
+   it is a no-op.
 3. The AI gateway's entitlement read (`gateway.service.ts:218`) is replaced by P1's resolver, so an unexpired
    `intelligence` trial passes and an expired one fails closed; existing AI tests stay green plus two new cases
    (trial active → allowed; trial expired → 402 `ENTITLEMENT_REQUIRED`, `block_reason='entitlement'`).
 4. Tests per pack: 402 on a representative write, 200 on read/export of the same module, 403-before-402 for a
    role lacking the capability, 402 disappears in the same request after the pack becomes effective (no cache
-   staleness across requests), and SMTP integration writes never 402.
+   staleness across requests), and SMTP integration writes never 402. **[AM1]** Plus: IATF declared, no `qe` →
+   FMEA/SPC/MSA writes 2xx and Risk/ECN writes 402; the framework removed → FMEA write 402 on the next request;
+   a catalog edit moving a module into a pack (test transaction bumping `catalog_meta.version`) → gated on the next
+   request.
 5. Existing integration suites for gated modules (risk, msa, fmea, spc, ecn, suppliers, ppap, scar, graph,
    predictions, reports, integrations, portal) seed their tenants with the needed packs via one fixture helper
-   (`grantPacks(tenantId, packs)`), so the suite measures module behaviour, not the default plan. This is
+   (`grantPacks(tenantId, packs)`), so the suite measures module behaviour, not the default plan or the declared
+   frameworks [AM1]. This is
    required work, not optional: without it those suites fail the moment P3 lands.
 
 Web: 402 handling in the shared mutation error mapper (toast + CTA per role). Mobile: the NCR AI draft already
 maps 402 → "AI unavailable"; verified unchanged against an expired trial (X1). Shared: decorator, resolver use,
-error details shape `{ packId }` added to the `ENTITLEMENT_REQUIRED` envelope (additive).
+error details shape `{ moduleId, packId }` [AM1] added to the `ENTITLEMENT_REQUIRED` envelope (additive).
 
 Backend: no migration; interceptor + decorator; no audit (a refused write writes nothing, matching RBAC 403
 precedent); tenancy: resolver runs in the tenant transaction.
@@ -360,7 +474,9 @@ precedent); tenancy: resolver runs in the tenant transaction.
 ### P4 — Plans & add-ons page (`/pricing`) and admin plan changes
 
 **Design:** `pricing.jsx:5-231` in full (binding), `addons.jsx` catalog values. New states (§5): request-mode
-buttons and pending chips, downgrade confirm, non-self-service header note, loading/error.
+buttons and pending chips, downgrade confirm, non-self-service header note, loading/error. **[AM1]** New
+tenant-aware states (§5 D-S12, D-S13): framework inclusions on the Core card, "Included · <framework>" marks on
+pack includes, "Included with your frameworks" pack state, per-tenant guardrail callout, no-framework prompt.
 
 UC
 - Happy (self-service mode, admin): the page shows the 3 tier cards (the derived current tier outlined in accent
@@ -388,18 +504,35 @@ UC
 - Offline: every mutating button disabled with the offline tooltip; the page renders from cache.
 - Trial interplay: a pack on trial shows the P5 trial chip and "Add to plan" (converting the trial to active in
   self-service mode; a request in request mode).
+- **[AM1] Tenant-aware page (D2).** An IATF 16949 + ISO 9001 tenant sees: the Core card listing the floor and a
+  block "Included for <workspace> with IATF 16949: FMEA workbench, SPC charts, MSA / Gauge R&R, PPAP, Suppliers";
+  the Quality Engineering card with FMEA/SPC/MSA marked "Included · IATF 16949" and the line "Adds Risk register
+  and Engineering changes"; the Supplier Network card with Suppliers/PPAP marked included and "Adds SCAR and the
+  supplier portal"; the guardrail callout rendered from the tenant's frameworks ("Everything IATF 16949 and ISO
+  9001 require — <modules> — is included for <workspace> and never gated"). An ISO 9001-only tenant sees no
+  inclusion block and the full QE / Supplier cards. A tenant with no declared framework sees the floor, the
+  callout variant "Declare your compliance frameworks to see what is always included for you" and, for admins,
+  a **Declare frameworks** link to `/onboarding?step=frameworks` (O4 re-entry).
+- **[AM1] Fully covered pack.** If `packCoverage(...).fullyIncluded` (every module of the pack is already
+  framework-included), the card shows "Included with your frameworks" and **no** Add / Request / Trial control —
+  in either D1 mode — so a tenant can never be sold, or ask sales for, what it already has.
+- **[AM1] Estimate.** Unchanged by inclusions (an included module has no price of its own; packs are priced per
+  the published price book, §3.3, §7 Q-C13).
 
 AC
 1. `/pricing` replaces the `planned:pricing` placeholder; ledger entry removed; the page reproduces every element,
    size, colour and copy string of `pricing.jsx` (web-fidelity review side-by-side), with prices and includes
-   read from P1's catalog, never hard-coded in the component.
+   read from **P0's catalog and published price book** [AM1], never hard-coded in the component. The drawn static
+   guardrail sentence and Core tier line are replaced **only** by the approved tenant-aware variants (D-S12);
+   every other element stays pixel-exact.
 2. Estimate: `GET /v1/entitlements/org-profile` (`billing:manage`) returns `{ plants, activeSuppliers,
    inspectors, members, extraStandards, workspaceName }` computed server-side (counts only, no names;
-   `extraStandards` = frameworks in the O1 profile other than IATF 16949 and ISO 9001, per `addons.jsx:120`'s
-   "beyond IATF 16949 & ISO 9001"). The summary lines/total come from `estimateMonthly` (P1); the "*" footnote and
+   `extraStandards` = declared frameworks whose catalog row has `counts_as_extra_standard=true` [AM1] (seeded true
+   for all but IATF 16949 and ISO 9001, reproducing `addons.jsx:120`'s "beyond IATF 16949 & ISO 9001"; custom
+   labels count as extra standards). The summary lines/total come from `estimateMonthly` (P1); the "*" footnote and
    "Annual billing · taxes calculated at checkout" line render as drawn. **The estimate is labelled an estimate
    and is never an invoice or charge** (Q6).
-3. `PUT /v1/entitlements/packs/:packId` `{ active: boolean, lockVersion }` (`billing:manage`, `@RequirePack`
+3. `PUT /v1/entitlements/packs/:packId` `{ active: boolean, lockVersion }` (`billing:manage`, `@RequireModule`
    n/a): allowed only when `selfService` is true, else 403 `FORBIDDEN` with `details.reason='plan_managed_by_
    contract'` (the UI never offers it in that mode). Writes `source='self_service'`, `activated_at` on activation,
    and one `entitlement_changed` audit event `{before:{active}, after:{active, source}}` in the same transaction
@@ -412,10 +545,21 @@ AC
 5. The downgrade confirm's counts come from `GET /v1/entitlements/downgrade-impact?packs=qe,supplier`
    (`billing:manage`) → per module `{ moduleId, openCount }` using each module's own "open" definition (risk
    status ≠ closed, ECN stage not terminal, MSA draft, SCAR open, PPAP not approved/rejected, etc. — the
-   architect lists them per module). Counts only.
+   architect lists them per module). Counts only. **[AM1]** Modules that stay effective through a framework
+   inclusion are excluded from the impact (count 0, not listed). The same endpoint accepts
+   `?removeFrameworks=iatf_16949` for O1's framework-removal confirm.
 6. Header note in request mode (§5 D-S2) explains that plan changes go through Kaenal sales. [D1]
 7. Playwright: self-service add → overlay lifts on `/risk` without reload; remove with confirm → overlay returns;
    apply Professional → tier card flips to "Current plan"; request mode → button shows "Requested".
+8. **[AM1]** The Core card's inclusion block, the per-module "Included · <framework short label>" marks and the
+   per-tenant callout are computed by `frameworkInclusions` / `packCoverage` (P1) from `GET /v1/entitlements` +
+   `GET /v1/catalog` — no inclusion logic in components (rule 5).
+9. **[AM1]** A fully covered pack renders no mutating control; `PUT …/packs/:packId`, `POST …/trials` and `POST
+   …/requests` (`add_pack`) for a fully covered pack return 422 `details.reason='already_included'` (defence in
+   depth; the UI never offers them).
+10. **[AM1]** Playwright: IATF tenant without `qe` → `/pricing` shows the IATF inclusion block and QE "Adds Risk
+   register and Engineering changes", and `/fmea` renders unlocked; ISO 9001-only tenant → no inclusion block,
+   `/fmea` overlaid; no-framework tenant → the declare-frameworks callout and link resolve to the O4 step.
 
 Web: page + dialogs + hooks. Mobile: none (no design; admin plan management is a web task). Shared: routes,
 DTOs, `estimateMonthly`.
@@ -472,7 +616,7 @@ tenancy: RLS on `entitlement_trials`, job runs per tenant through the existing t
 non-admin Request access, admin notification row, "your request was fulfilled/declined".
 
 UC
-- Happy (member → admin, R5): a viewer on a locked `/fmea` taps "Request access" → a `member_access` request for
+- Happy (member → admin, R5): a viewer in an ISO 9001-only tenant [AM1] on a locked `/fmea` taps "Request access" → a `member_access` request for
   `qe`; every admin gets an in-app notification "Priya requested Quality Engineering (FMEA workbench)" linking to
   `/pricing?pack=qe&request=<id>`; the admin adds the pack (self-service) or forwards it (request mode:
   "Request from Kaenal" creates the sales request and links it); when the pack becomes effective, open
@@ -481,8 +625,10 @@ UC
   "Update subscription" open a small dialog (what is being requested, optional note, Send). On Send: an
   `open` request is stored, Kaenal sales receives an email (outbox → `send-email`, to `SALES_NOTIFY_EMAIL`) with
   tenant name/slug, requester, kind, pack/tier, composition snapshot and estimate; the button shows "Requested".
-- Fulfil/decline: Kaenal staff run `pnpm tenant-plan --slug acme --fulfil <id>` (applies the change and marks
-  the request fulfilled) or `--decline <id> --reason "…"` (P8); the requesting admin is notified in-app + email.
+- Fulfil/decline: **[AM1] moved to `SPRINT-07C-staff-console.md` C6** — Kaenal staff fulfil (apply the change and
+  mark the request fulfilled) or decline (with a reason) in the staff console's sales inbox; the requesting admin
+  is notified in-app + email (`plan_request_resolved`, defined here, sent by 07C). This story delivers everything
+  up to and including the open request, the sales email and the outbox event 07C projects.
 - Withdraw: the requester (or any admin) withdraws an open request.
 - Dedupe: one open request per (requester, kind, pack/tier); re-requesting returns the existing request (200),
   not a duplicate email.
@@ -496,7 +642,7 @@ UC
   how a self-service tenant's changes reach billing without a payment provider (true-up). [D1]
 
 AC
-1. Migration `0075`: `plan_requests` (`tenant_id`, `id`, `kind` CHECK in (`member_access`, `add_pack`,
+1. Migration `0076`: `plan_requests` (`tenant_id`, `id`, `kind` CHECK in (`member_access`, `add_pack`,
    `remove_pack`, `apply_bundle`, `enterprise_inquiry`, `contact_sales`, `confirm_subscription`), `pack_id`
    (catalog CHECK, nullable), `tier` (nullable), `composition jsonb` (snapshot of effective packs + estimate at
    request time), `note text` (≤ 1,000 chars), `status` CHECK in (`open`, `fulfilled`, `declined`, `withdrawn`)
@@ -515,13 +661,20 @@ AC
 4. Pricing page and overlay reflect open requests (chip + withdraw) from `GET …/requests?status=open` for admins
    and from `EntitlementsDto.myOpenRequests: PackId[]` (additive field) for non-admins, so the non-admin overlay
    shows "Requested" after a reload.
-5. Tests: dedupe, capability per kind, auto-fulfil on activation (via toggle, trial is **not** fulfilment, CLI),
-   outbox row committed atomically, withdraw state machine, cross-tenant id → 404.
+5. Tests: dedupe, capability per kind, auto-fulfil on activation (via self-service toggle; trial is **not**
+   fulfilment; staff-console activation is tested in 07C), outbox row committed atomically, withdraw state
+   machine, cross-tenant id → 404. **[AM1]** `member_access` / `add_pack` for a module or pack that is
+   framework-included (fully covered) → 422 `already_included`.
+6. **[AM1]** Every insert and status change writes an outbox event `plan_request.changed` `{ tenantId,
+   requestId, kind, status, packId, tier, note, requester: { name, email }, createdAt }` — exactly the content the
+   requester addressed to Kaenal sales, which the sales email already carries, and nothing else from the tenant —
+   in the same transaction — the input to 07C's cross-tenant sales-inbox projection. Only admin→sales kinds
+   emit it (`member_access` stays inside the tenant).
 
 Web: dialogs, chips, notification rows. Mobile: notification list renders the two kinds, tap hands off to web
 (X1). Shared: table, routes, notification kinds, outbox email template.
 
-Backend: migration 0075 (shared with P7/P9/O1); `PlanRequestsService`; audit `created`/`status_changed`; RBAC
+Backend: migration 0076 (shared with P7/P9/O1); `PlanRequestsService`; audit `created`/`status_changed`; RBAC
 per kind; tenancy: RLS, composite FKs; email via existing outbox.
 
 ### P7 — Download quote (PDF)
@@ -537,54 +690,64 @@ UC
 - Permission: `billing:manage`. Offline: disabled.
 
 AC
-1. `ExportResource` gains `plan_quote`; `exports_resource_check` widened in `0075`; `run-export.ts` gains the
+1. `ExportResource` gains `plan_quote`; `exports_resource_check` widened in `0076`; `run-export.ts` gains the
    render branch using P1's `estimateMonthly` and P4's org-profile counts (one source of numbers, so the PDF can
    never disagree with the page).
 2. `ExportsService` requires `billing:manage` for `plan_quote`; audit `exported` (existing).
 3. Test: the PDF's total equals `estimateMonthly` for a fixture composition; non-admin → 403.
+4. **[AM1]** The quote prints the price-book version it was priced from ("Prices: price book v<N>, published
+   <date>") and the tenant's framework inclusions ("Included with IATF 16949 at no charge: …"), both from the same
+   snapshot as the page. A quote regenerated after staff publish a new price book uses the new version; the
+   export row stores `price_book_version_id` so an earlier quote remains attributable.
 
 Web: button wired to the existing export hook. Mobile: none. Shared: enum + renderer.
 
-### P8 — Operator plane: `pnpm tenant-plan` and provisioning defaults
+### P8 — Provisioning defaults: `provision-tenant --bundle` / `--from-request` [AM1 — narrowed]
 
-**Design:** none; CLI (R8). User asked for "an admin UI to view/change a tenant's plan"; §3.0 D5 explains why the
-operator surface is a CLI this sprint and what a staff console would additionally need.
+**Design:** none; provisioning stays a script (R8, TECH_STACK "tenant provisioning is a script, not a project").
+**[AM1]** The `pnpm tenant-plan` CLI that this story used to specify is **removed** (U-D5): every operator write it
+carried (show, bundle, packs, self-service flag, contract and CSM fields, requests list/fulfil/decline, history,
+workspace-request listing) is specified as a staff-console story in `SPRINT-07C-staff-console.md` (C4-C6), so
+there is one operator write path with one audit shape. Provisioning a new tenant (creating databases, roles and
+the registry row) stays in `provision-tenant`; a console "Provision" action is §7 Q-SC4 in 07C.
 
 UC
-- Happy: `pnpm tenant-plan --slug acme --show` prints the tenant's packs (active/effective/source/trial), tier,
-  self-service flag, contract fields, CSM fields and open requests.
-- Happy: `--bundle pro --reason "Order form #1042"` sets the Professional bundle; `--pack qe=on --pack
-  supplier=off --reason "…"` sets individual packs; `--self-service on|off --reason "…"`; `--contract-renews
-  2027-04-01 --contract-value 184000 --currency USD --reason "…"`; `--csm-name "Anand Patel" --csm-email …
-  --csm-booking-url … --csm-chat-url …`; `--requests` lists open requests; `--fulfil <id> [--reason]` applies the
-  requested change and marks it fulfilled; `--decline <id> --reason "…"`; `--history` prints entitlement audit
-  events.
-- Error: missing `--reason` on any write → exit 1 before touching the DB; unknown slug/pack/tier → exit 1 with a
-  clear message; a request id from another tenant → "not found".
+- Happy: `pnpm provision-tenant --slug … --name … --model shared --bundle core|pro|ent` creates the tenant (as
+  today) and seeds the bundle's packs (`source='operator'`) and a `control.tenant_plans` row with
+  `self_service=false` (request mode, D1 DECIDED).
+- Happy: `--from-request <workspaceRequestId>` (O3) additionally pre-fills the O1 profile (industry, plant size,
+  frameworks — so the tenant's framework inclusions apply from its first request) and marks the workspace
+  request `provisioned` with the new tenant id.
+- Error: `--bundle` omitted → exit 1 with usage (no silent default; [AM1] closes Q-C1); unknown bundle → exit 1;
+  unknown or already-provisioned request id → exit 1 with a clear message; a request whose industry/framework
+  keys are no longer in the catalog → provisioned with those keys kept as-is (retired values keep working, D2)
+  and a warning printed.
+- Re-running with the same arguments is idempotent (no duplicate rows, no second audit event).
 - Dedicated (Model B) tenants: tenant-owned rows are written through the same db-router/secret-resolver the
-  provisioning scripts use.
-- Provisioning: `pnpm provision-tenant … --bundle core|pro|ent` seeds the bundle (`source='operator'`) and the
-  `control.tenant_plans` row; `--from-request <workspaceRequestId>` (O3) additionally pre-fills the O1 profile
-  (industry, plant size, frameworks) and marks the request `provisioned`. Re-running stays idempotent.
+  provisioning scripts already use.
 
 AC
-1. Migration `0074_control_plane_plans.sql`: `control.tenant_plans` (`tenant_id` PK FK → `control.tenants`,
-   `self_service boolean NOT NULL DEFAULT false` [D1], `contract_renews_on date`, `contract_value_annual
-   numeric(12,2)`, `contract_currency text DEFAULT 'USD'`, `csm_name`, `csm_email`, `csm_booking_url`,
-   `csm_chat_url` (https-only CHECK on both URLs), `updated_at`, `updated_reason text`). `GRANT SELECT` to
-   `kaenal_app` only (the API can read, never write — the same boundary as `control.tenants`); writes only by
-   the migrator role (the CLI). Not tenant-owned → outside the RLS lint by design; its access is covered by an
-   explicit test like `control-identity.test.ts` (app role cannot INSERT/UPDATE/DELETE).
-2. Every tenant-owned write the CLI makes (entitlements, plan-request status) writes an `audit_events` row with
-   `actor_kind='support'` and the given `reason` in the same transaction (the existing CHECK makes a missing
-   reason impossible at the DB level too), and publishes the realtime `entitlements` event (via the outbox) so
-   open browsers update.
-3. `package.json` script `tenant-plan`; `--help` documents every flag; CLAUDE.md "Commands" gains the line.
-4. Tests (script-level, against the test DB): each flag's effect, reason enforcement, idempotent re-run,
-   fulfil applies exactly the requested change, dedicated-tenant routing path unit-tested with the existing
-   router fake.
+1. Migration `0075_control_plane_plans.sql`: `control.tenant_plans` (`tenant_id` PK FK → `control.tenants`,
+   `self_service boolean NOT NULL DEFAULT false` [D1 DECIDED], `contract_renews_on date`,
+   `contract_value_annual numeric(12,2)`, `contract_currency text DEFAULT 'USD'`, `csm_name`, `csm_email`,
+   `csm_booking_url`, `csm_chat_url` (https-only CHECK on both URLs), `lock_version`, `updated_at`,
+   `updated_reason text`, `updated_by_staff uuid NULL`). `GRANT SELECT` to `kaenal_app` only (the API can read,
+   never write — the same boundary as `control.tenants`); in this file writes are migrator-only
+   (`provision-tenant`); 07C grants its staff role UPDATE. Not tenant-owned → outside the RLS lint by design; its
+   access is covered by an explicit grant test (app role cannot INSERT/UPDATE/DELETE).
+2. The tenant-owned writes this story adds to provisioning (entitlements, the pre-filled profile) each write an
+   audit event (`actor_kind='system'`, `entitlement_changed` / `settings_changed`, `after` = the seeded values) in
+   the same transaction as the rows (rule 3). Verified this session: `provision-tenant` and `scripts/lib/seed.ts`
+   write **no** audit events today for what they already seed (admin membership, SLA config, plant, template) —
+   a pre-existing gap outside this sprint's scope, recorded in §7 (Q-P1) and PROGRESS.md Known issues, not fixed
+   silently here.
+3. `--help` documents both flags; CLAUDE.md "Commands" line for `provision-tenant` is updated.
+4. Tests (script-level, against the test DB): bundle seeding per tier, `--bundle` required, `--from-request`
+   pre-fill + status change, idempotent re-run, dedicated-tenant routing path unit-tested with the existing router
+   fake.
 
-Web/Mobile: none. Shared: the CLI imports P1's catalog/tiers (one source of truth).
+Web/Mobile: none. Shared: the script imports the catalog snapshot from P0 (tiers come from `control.catalog_tiers`,
+one source of truth).
 
 ### P9 — Billing & plan settings section (plan-only, Q6)
 
@@ -613,7 +776,10 @@ AC
    currency } | null }` (reads `control.tenant_plans` + resolver). `GET/PUT /v1/settings/billing` (`billing:
    manage`, `lockVersion`) over `tenant_settings` namespace `billing` (`{ billingEmail: email|null, taxId: string ≤
    32 | null }`, Zod in `packages/types`); audit `settings_changed` (changed fields only, rule 3).
-3. Namespace CHECK widened in `0075` (`billing`, and O1's `profile`, `onboarding`).
+3. Namespace CHECK widened in `0076` (`billing`, and O1's `profile`, `onboarding`).
+4. **[AM1]** The banner's tier name / blurb come from `control.catalog_tiers` and the no-contract price line from
+   the published price book (P0), never from component constants; when the tenant has framework inclusions the
+   banner's feature line appends "+ included with <framework short labels>" (D-S6 variant).
 
 Web: section. Mobile: none (no design; mobile settings has no billing). Shared: routes, schema.
 
@@ -631,34 +797,57 @@ UC
   Organization section (which will render and edit the same document; no second store).
 - Open-ended industry: the industry is a suggested key **or** `other` with a free-text label (≤ 80 chars); an
   unknown industry never blocks anything and simply yields framework-only suggestions (user decision 2).
-- Frameworks: any subset of the catalog plus up to 5 custom labels (≤ 60 chars each), or the explicit
-  "Not certified yet" option (mutually exclusive with the others).
-- Edit later: changing industry/frameworks never resets checklist progress (progress is derived from real data,
-  O5) and never changes entitlements.
+- Frameworks: any subset of the **active catalog frameworks** [AM1] plus up to 5 custom labels (≤ 60 chars each),
+  or the explicit "None of these yet" option (mutually exclusive with the others). [AM1] The question is asked as
+  "Which frameworks are you certified to or working towards?" — a framework being pursued counts as declared (it
+  needs the same tools), "None of these yet" means neither.
+- Edit later: changing industry never resets checklist progress (progress is derived from real data, O5) and
+  never changes entitlements. **[AM1] Changing frameworks does change entitlements (D2 DECIDED):** adding one
+  applies its inclusions on the next request (no request to sales, in either D1 mode); removing one that would
+  make modules ineffective first shows the downgrade confirm (P4 AC5 with `removeFrameworks`) listing the open
+  records that become read-only; Cancel changes nothing.
+- **[AM1] Extensible values (U-D4):** a key staff added to the catalog yesterday is accepted today; a key that
+  was retired stays valid for tenants that already hold it (shown with its label, not re-offered); an unknown key
+  → 422.
 - Error: invalid payload → 422 with Zod issues; concurrent edits → 409 `STALE_WRITE` → reload-and-reapply.
 - Permission: read — every authenticated internal member (industry may inform shell copy later; it is not
-  sensitive); write — `settings:manage` (admin + manager, the same capability as branding).
+  sensitive); write — `settings:manage` (admin + manager, the same capability as branding) for industry, plant
+  size and focus modules; **[AM1] `billing:manage` (admin) for `frameworks`**, because it changes entitlements
+  (03 §3). A manager's PUT that changes `frameworks` → 403 `details.reason='frameworks_require_billing_manage'`;
+  the UI renders frameworks read-only for managers (D-S1 state).
 - Offline: writes disabled.
 
 AC
-1. `packages/types`: `IndustryKey` = `automotive | aerospace_defense | medical_devices | electronics |
-   pharmaceutical | food_beverage | general_manufacturing | other` (the union of the design's list and the brief's
-   list; §7 Q-S2 [USER]); `FrameworkKey` = `iatf_16949 | iso_9001 | iso_13485 | as9100 | iso_14001 | iso_45001 |
-   fda_qmsr | fda_part_11 | haccp` (the design's 6 + ISO 13485 and FDA QMSR from the brief; display labels per the
-   design, e.g. "FDA 21 CFR Part 11"); `PlantSizeBand` = the design's 4 bands `50-200 | 200-1000 | 1000-5000 |
-   5000+` plus `unspecified`; `WorkspaceProfile` = `{ industry: { key, label? } | null, frameworks: { keys:
-   FrameworkKey[], custom: string[], notCertifiedYet: boolean }, plantSize, focusModules: ModuleId[], answeredBy,
+1. `packages/types`: **[AM1] industries and frameworks are catalog keys (`CatalogKey`, P0 AC2), not literal
+   unions** (U-D4). The approved values (8 industries: `automotive`, `aerospace_defense`, `medical_devices`,
+   `electronics`, `pharmaceutical`, `food_beverage`, `general_manufacturing`, `other`; 9 frameworks: `iatf_16949`,
+   `iso_9001`, `iso_13485`, `as9100`, `iso_14001`, `iso_45001`, `fda_qmsr`, `fda_part_11`, `haccp`, display labels
+   per the design, e.g. "FDA 21 CFR Part 11") are **seed rows** in `0073`, not code. The profile body is validated
+   by `makeWorkspaceProfileSchema(catalog)` (P0 AC2) on web and API alike; `PlantSizeBand` = the design's 4 bands `50-200 | 200-1000 | 1000-5000 |
+   5000+` plus `unspecified` (a fixed design list, not extensible — U-D4 names industries and frameworks only);
+   `WorkspaceProfile` = `{ industry: { key: CatalogKey, label? } | null, frameworks: { keys: CatalogKey[], custom:
+   string[], noneYet: boolean }, plantSize, focusModules: ModuleId[], answeredBy,
    answeredAt }`; `OnboardingState` = `{ status: not_started | in_progress | completed | dismissed, startedAt,
    completedAt, dismissedAt, ownerId }`.
-2. Storage: `tenant_settings` namespaces `profile` and `onboarding` (CHECK widened in `0075`), reusing its
+2. Storage: `tenant_settings` namespaces `profile` and `onboarding` (CHECK widened in `0076`), reusing its
    `lock_version`, composite `updated_by` FK and forced RLS — no new table (0025's stated purpose).
 3. Routes: `GET /v1/settings/workspace-profile` (any internal member), `PUT /v1/settings/workspace-profile`
-   (`settings:manage`, `lockVersion`); audit `settings_changed` with changed fields only.
-4. `0075` backfill: every existing tenant gets `onboarding.status='dismissed'` (no forced first-run for existing
+   (`settings:manage`; **`billing:manage` additionally when `frameworks` changes** [AM1]; `lockVersion`); audit
+   `settings_changed` with changed fields only. **[AM1]** A frameworks change also: publishes the realtime
+   `entitlements` event (the effective set may have changed), and writes an outbox email to Kaenal sales
+   ("<workspace> declared/removed <framework>") in the same transaction (D2 abuse visibility).
+4. `0076` backfill: every existing tenant gets `onboarding.status='dismissed'` (no forced first-run for existing
    workspaces, incl. the demo — protects rule 12's sign-in landing) and an empty profile. [§7 Q-S3 USER]
    New tenants start `not_started`, or with the profile pre-filled when provisioned `--from-request` (P8/O3).
+5. **[AM1]** Tests: a catalog key added in a test transaction is accepted; a retired key already held stays
+   valid; an unknown key → 422; manager changing frameworks → 403, manager changing industry → 200; adding IATF
+   16949 makes `/v1/entitlements` report FMEA effective with `source: framework` in the next request; removing it
+   reverses that; the sales outbox row exists iff frameworks changed.
+6. **[AM1] Build wave:** AC1-AC2 and the frameworks read used by P1 ship in wave A (P1 depends on them); AC3-AC5
+   and the UI consumers ship in wave B.
 
-Web: consumed by O4/O5. Mobile: none (additive types). Shared: types, routes, namespace widening.
+Web: consumed by O4/O5 (and P4's declare-frameworks link). Mobile: none (additive types). Shared: types, routes,
+namespace widening.
 
 ### O2 — Module-suggestion engine (`packages/core`, pure)
 
@@ -669,28 +858,41 @@ UC
   a tier (`essential` | `recommended` | `optional`), a score, and machine-readable reasons (`framework` +
   clause, `industry`, `core_loop`, `size`). The UI renders the reasons as copy; nothing is ever omitted from the
   list (user decision 2: suggest and highlight, never hide).
-- Happy: `suggestFrameworks(industry)` returns the frameworks to **pre-select** in O4 step 2 (automotive →
-  IATF 16949 + ISO 9001; aerospace_defense → AS9100; medical_devices → ISO 13485 [+ FDA QMSR offered, not
-  pre-selected]; pharmaceutical → FDA 21 CFR Part 11 + ISO 9001; food_beverage → HACCP + ISO 9001;
-  electronics and general_manufacturing → ISO 9001; other → none). The admin can change every one.
+- Happy: `suggestFrameworks(catalog, industry)` returns the frameworks to **pre-select** in O4 step 2, read from
+  the industry's `suggested_frameworks` catalog row [AM1] (seeded: automotive → IATF 16949 + ISO 9001;
+  aerospace_defense → AS9100; medical_devices → ISO 13485 [+ FDA QMSR offered, not pre-selected];
+  pharmaceutical → FDA 21 CFR Part 11 + ISO 9001; food_beverage → HACCP + ISO 9001; electronics and
+  general_manufacturing → ISO 9001; other → none). The admin can change every one. An industry staff added
+  with no suggestions pre-selects nothing.
 - Skipped / nothing answered: returns the ISO 9001 core-loop baseline (the sensible default for a skipped
   questionnaire, R2).
 - Plan interplay: the engine knows nothing about plans; the UI overlays P1's `isModuleGated` to show a lock chip
-  on a suggested module that is not in the plan. A suggestion is never removed because it is locked.
+  on a suggested module that is not in the plan, **[AM1] or an "Included with <framework>" chip on a module the
+  selected frameworks include free**. A suggestion is never removed because it is locked.
+- **[AM1] Essential ⇔ required.** Because O2 and P1 read the **same** `framework_module_rules` rows, a module is
+  `essential` for a framework reason **iff** a declared framework marks it `required` — and therefore iff it is
+  free for the tenant. `supports` rows lift a module to `recommended` with the clause as reason. The onboarding
+  copy "Required by <framework> §x" can therefore never appear next to a lock chip.
 
 AC
-1. `packages/core/src/onboarding/suggest.ts` exports `suggestModules`, `suggestFrameworks`,
-   `defaultFocusModules(suggestions)` (= essential ∪ recommended), all pure, deterministic, no I/O, no `Date`.
-2. The logic is **table-driven data** in `packages/core/src/onboarding/requirements.ts`, not branching code:
-   (a) `FRAMEWORK_REQUIREMENTS: Record<FrameworkKey, { moduleId, clause, note }[]>` — a module named by a
-   selected framework is `essential`, with that clause as its reason; (b) `INDUSTRY_PRIORS: Record<IndustryKey,
-   Partial<Record<ModuleId, number>>>` — additive boosts that can lift a module to `recommended` but never to
+1. `packages/core/src/onboarding/suggest.ts` exports `suggestModules(catalog, input)`, `suggestFrameworks(catalog,
+   industry)`, `defaultFocusModules(suggestions)` (= essential ∪ recommended), all pure, deterministic, no I/O, no
+   `Date`; **[AM1] the catalog snapshot is an argument** (P0), so the functions stay pure while their data is
+   staff-editable.
+2. The logic is **table-driven data** — **[AM1] now in P0's control tables, not in
+   `packages/core/src/onboarding/requirements.ts`** (that file is not created): (a) `framework_module_rules` —
+   a `required` rule of a selected framework makes the module `essential` with that clause as its reason; a
+   `supports` rule lifts it to `recommended` with the clause; (b) `catalog_industries.module_priors` — additive
+   boosts that can lift a module to `recommended` but never to
    `essential` (only a framework obligation makes a module essential); (c) `CORE_LOOP` (inspections, ncr, capa,
    documents) always `essential` with reason `core_loop`; (d) size: band `50-200` demotes `optional`-scored
    analytics (graph, predictive) and caps `recommended` at the framework set; bands `1000-5000`/`5000+` lift
    `reports` and `predictive` to `recommended`. Ties break by catalog order.
 3. The initial requirements table (indicative; every clause string is reviewed by a QMS subject-matter expert
-   before it ships as user-visible copy — DoD item, §7 Q-S5):
+   before it ships as user-visible copy — DoD item, §7 Q-S5). **[AM1]** This table is the **seed** for
+   `framework_module_rules`: a row is seeded `required` when the module is in the Core floor or in §3.0 D2's
+   "adds free" column for that framework, and `supports` otherwise (e.g. ISO 9001's risk/suppliers/ecn and
+   IATF's scar/ecn/risk are `supports`). The level of every row is part of Q-C11's sign-off:
 
    | Framework | Modules marked essential (clause) |
    |---|---|
@@ -711,7 +913,10 @@ AC
 4. Unit tests: golden output per industry (8) and per framework (9); **coverage** (every `ModuleId` exactly once,
    for random inputs — property test); **monotonicity** (adding a framework never demotes a module); **no hiding**
    (length always equals `ModuleId` count); determinism; baseline on empty input; the IATF row makes FMEA/SPC/
-   MSA/PPAP essential (the question §3.0 D2 depends on).
+   MSA/PPAP essential (the question §3.0 D2 depends on). **[AM1]** Plus: for every framework and every module,
+   `essential-for-a-framework-reason ⇔ frameworkInclusions(...)` contains it (the no-false-claim property, run over
+   the seed catalog and over random catalogs); a staff-added industry with empty priors yields framework-only
+   suggestions; a staff-added framework with one `required` rule makes that module essential.
 
 Web: consumed by O4 (and O5's module tasks). Mobile: none. Shared: `packages/core` only (rule 5).
 
@@ -734,19 +939,31 @@ UC
 - Permission: public (`@Public`, no tenant, no session). Offline: submit disabled with a message.
 - Mobile: `m-auth.jsx` has no request stage; the mobile sign-in is unchanged (§5 notes the gap; not built on
   mobile without a design).
+- **[AM1] Catalog-driven options (U-D4).** The Industry select's options and the Compliance-frameworks chips are
+  the **active** catalog values from `GET /v1/public/onboarding-catalog` (P0 AC4), in catalog order, rendered in
+  exactly the drawn select and chip controls (the drawn option list is the prototype's sample; the approved 8/9
+  are the seed). A value staff add appears here without a deploy. Catalog fetch fails → the form still renders
+  with Industry "Other" + free text and no framework chips, plus a one-line notice, so a prospect is never
+  blocked (the request is still valid: industry `other`, frameworks as custom labels).
+- **[AM1] Triage:** Kaenal staff see and triage these requests (decline / mark spam / open the provisioned
+  tenant) in the staff console (07C C6); provisioning itself stays `provision-tenant --from-request` (P8).
 
 AC
-1. `0074` adds `control.workspace_requests` (`id`, `company_name` ≤ 120, `work_email citext` ≤ 254, `industry`
-   (IndustryKey), `industry_label`, `plant_size` (band), `frameworks text[]` (FrameworkKey subset), `status`
+1. `0075` [AM1] adds `control.workspace_requests` (`id`, `company_name` ≤ 120, `work_email citext` ≤ 254,
+   `industry` (`CatalogKey` text, no CHECK — validated against the active catalog at insert) [AM1],
+   `industry_label`, `plant_size` (band), `frameworks text[]` (catalog keys) + `custom_frameworks text[]` [AM1],
+   `status`
    CHECK in (`new`, `provisioned`, `declined`, `spam`), `provisioned_tenant_id` FK nullable, `created_at`,
    `request_ip_hash` (salted hash, never the raw IP)). `GRANT INSERT` only to the API's public path role — the
    API can add a request but can never read, list or update them (enumeration-proof by grant); the migrator-role
-   CLI reads them. Explicit grant test.
-2. `POST /v1/public/workspace-requests` (`@Public`): Zod body from `packages/types`; honeypot non-empty → 202
+   provisioning script and (07C) the staff role read them. Explicit grant test.
+2. `POST /v1/public/workspace-requests` (`@Public`): Zod body from `makeWorkspaceRequestSchema(catalog)` in
+   `packages/types` [AM1]; honeypot non-empty → 202
    and discard; rate limit → 429 `RATE_LIMITED` with `Retry-After`; success → insert + sales email via the
    `send-email` job in one transaction → 202. No PII in logs (email redacted, per CLAUDE.md "never log PII").
-3. `pnpm tenant-plan --workspace-requests` lists new requests; `provision-tenant --from-request <id>` pre-fills the
-   O1 profile and marks the request `provisioned` with the tenant id (idempotent).
+3. `provision-tenant --from-request <id>` pre-fills the O1 profile and marks the request `provisioned` with the
+   tenant id (idempotent) (P8). [AM1] Listing requests is the staff console's (07C C6); the old `tenant-plan
+   --workspace-requests` flag is removed with the CLI.
 4. Web: the `request` stage added to `sign-in-form.tsx`'s stage machine and the link added to the workspace stage,
    pixel-matched to `auth.jsx`; the auth screens' existing sign-in flow is untouched and **sign-in is re-proved
    end to end (201)** after the change (rule 12).
@@ -764,16 +981,28 @@ UC
 - Trigger: a `settings:manage` holder signs in (web) to a tenant whose onboarding status is `not_started` →
   redirected once to `/onboarding` (a full-page flow inside the authenticated app, not a modal). Members without
   `settings:manage` are never redirected. Mobile sign-in is never redirected or blocked.
+- **[AM1] Catalog-driven steps (U-D4):** Step 1's industries and step 2's frameworks are the active catalog values
+  (`GET /v1/catalog`), so staff additions appear without a deploy.
+- **[AM1] Deep link:** `/onboarding?step=frameworks` opens step 2 directly (P4's "Declare frameworks" link) and
+  returns to the referring page on Finish.
 - Step 1 — Industry: the suggested list (O1) as selectable cards or a select, "Other" reveals a free-text label.
   Pre-filled from the workspace request when provisioned from one.
-- Step 2 — Compliance frameworks: chips, pre-selected by `suggestFrameworks(industry)` (visibly marked "suggested
-  for <industry>"), editable, "+ Add another" (custom label), and "Not certified yet".
+- Step 2 — Compliance frameworks: chips, pre-selected by `suggestFrameworks(catalog, industry)` (visibly marked
+  "suggested for <industry>"), editable, "+ Add another" (custom label), and "None of these yet" [AM1]. The
+  question reads "Which frameworks are you certified to or working towards?". **[AM1]** Under the chips, a live
+  line computed by `frameworkInclusions` states what the selection includes free ("With IATF 16949, FMEA, SPC,
+  MSA, PPAP and Suppliers are included in your plan"), so the commercial effect of the answer is visible before
+  saving. For a manager (no `billing:manage`) the step is read-only with "Only an admin can change compliance
+  frameworks" (D-S1 state); removing a framework that would lock modules opens the P4 downgrade confirm on
+  Next.
 - Step 3 — Size: the design's plant-size bands (+ "Prefer not to say"). One sentence explains why it is asked
   (it tunes how lean the starting set is). [§7 Q-S2 USER — whether to ask at all]
 - Step 4 — Recommended modules: `suggestModules(...)` grouped Essential / Recommended / Optional; each row has
   the module icon/name, the top reason as copy (e.g. "Required by IATF 16949 §7.1.5.1.1"), a checkbox
-  pre-checked per `defaultFocusModules`, and a lock chip ("Not in your plan — try it free for 14 days from Plans &
-  add-ons") when P1 says the module is gated. Unchecking never hides a module anywhere; the copy says so ("Every
+  pre-checked per `defaultFocusModules`, a lock chip ("Not in your plan — try it free for 14 days from Plans &
+  add-ons") when P1 says the module is gated, **[AM1] and an "Included with <framework>" chip when it is
+  framework-included** (by construction every "Required by …" row carries the included chip, never the lock
+  chip — O2 AC4 property). Unchecking never hides a module anywhere; the copy says so ("Every
   module stays available from the sidebar — this just shapes your setup checklist").
 - Finish: saves the profile (O1), sets onboarding `in_progress` (`startedAt=now`, `ownerId`=the admin), lands on
   `/settings/onboarding` (O5).
@@ -802,6 +1031,11 @@ AC
 5. Playwright: fresh tenant admin → redirected → completes 4 steps → lands on checklist with module tasks for the
    chosen modules; skip path → dashboard, no redirect on next sign-in; manager of the same tenant after
    completion → no redirect; viewer → never redirected.
+
+6. **[AM1]** Playwright: an automotive admin accepts the suggested IATF 16949 + ISO 9001 → step 2 shows the
+   inclusion line, step 4 shows FMEA/SPC/MSA/PPAP/Suppliers as "Required by IATF 16949" with the included chip and
+   Risk/ECN with a lock chip (tenant without `qe`), and after Finish `/fmea` is unlocked; a manager re-entering the
+   flow sees step 2 read-only; `?step=frameworks` lands on step 2 and returns to `/pricing`.
 
 Web: the flow. Mobile: none (web-admin task; never blocks mobile). Shared: O1/O2 + onboarding routes.
 
@@ -872,9 +1106,10 @@ Web: section. Mobile: none (no design; checklist is an admin web task). Shared: 
 ### X1 — Cross-cutting wiring
 
 AC
-1. **RBAC:** no new capability. `billing:manage` (admin, existing) gates plan changes, trials, requests other than
-   `member_access`, org-profile, downgrade-impact, quote, billing settings; `settings:manage` gates the profile
-   write and onboarding; `member_access` requests need any internal role. The web capability list from `GET
+1. **RBAC:** no new tenant capability. `billing:manage` (admin, existing) gates plan changes, trials, requests other than
+   `member_access`, org-profile, downgrade-impact, quote, billing settings **and [AM1] the profile's `frameworks`
+   field**; `settings:manage` gates the rest of the profile write and onboarding; (staff roles are 07C's and never
+   appear in the tenant capability list); `member_access` requests need any internal role. The web capability list from `GET
    /v1/me` drives every hidden control (04 §6).
 2. **Placeholder ledger:** remove `planned:pricing`, `settings:billing`, `settings:onboarding`; renumber every
    remaining entry to the new sprint numbers from ROADMAP §3 (the ledger test keys on ids, the numbers must still
@@ -882,7 +1117,9 @@ AC
 3. **`excluded.md`:** add Billing → Payment method and Invoices (Q6), and the four non-existent demo onboarding
    tasks (O5 AC4).
 4. **Audit log UI:** `entitlement_changed` (incl. `support` actor + reason, trials, expiry) and `plan_requests`
-   events render readably in Settings → Audit log (actor "Kaenal support — <reason>" for operator changes).
+   events render readably in Settings → Audit log (actor "Kaenal support — <reason>" for operator changes, which
+   arrive from 07C; the rendering is built here so 07C only has to write the events). **[AM1]** A `settings_changed`
+   event on the `profile` namespace that changes frameworks renders as "Declared IATF 16949" / "Removed AS9100".
 5. **Mobile (small, real):** (a) `apps/mobile/src/app/(app)/audit.tsx` categorises `plan_request` entity events
    with the existing `settings` category (entitlement events already match); (b) the mobile notification list
    renders `trial_ending`, `trial_ended`, `plan_request_created`, `plan_request_resolved` with a sensible icon and
@@ -891,11 +1128,16 @@ AC
    @kaenal/mobile typecheck` and the mobile test suite stay green; `progress_mobile.md` gets a Sprint 07 entry.
 6. **Seed:** `seed-demo.ts` gives `acme` the Enterprise bundle (every pack active, so every existing demo surface
    keeps working), a `control.tenant_plans` row with `self_service=true` and a demo CSM, onboarding `dismissed`,
-   and a profile (automotive, IATF 16949 + ISO 9001). Browser verification of locks/trials/requests is done by
-   toggling packs with `pnpm tenant-plan` and restoring the bundle afterwards; the demo login is re-verified
-   (201) at the end (rule 12).
-7. **Docs:** CLAUDE.md Commands gains `pnpm tenant-plan`; `.env.example` gains `SALES_NOTIFY_EMAIL`,
-   `SUPPORT_EMAIL`; `apps/web/src/config/navigation.ts` unchanged (Plans & add-ons already exists).
+   and a profile (automotive, IATF 16949 + ISO 9001). **[AM1]** It also seeds a second workspace for the same demo
+   user, `globex` (general manufacturing, ISO 9001 only, `core` bundle, `self_service=false`), reachable through
+   the existing workspace picker, so request mode and the lean (no-inclusion) Core are demonstrable without
+   touching `acme`. Browser verification of locks/trials/requests is done in `globex` and by self-service toggles
+   in `acme` from `/pricing`, restoring the Enterprise bundle afterwards ([AM1] the `pnpm tenant-plan` route is
+   gone); the demo login to **both** workspaces is re-verified (201) at the end (rule 12). The catalog seed lives
+   in migration `0073`, so `seed-demo.ts` never writes catalog rows.
+7. **Docs:** [AM1] CLAUDE.md Commands updates the `provision-tenant` line (`--bundle` required, `--from-request`);
+   `.env.example` gains `SALES_NOTIFY_EMAIL`, `SUPPORT_EMAIL`; `apps/web/src/config/navigation.ts` unchanged (Plans
+   & add-ons already exists).
 
 ---
 
@@ -1112,6 +1354,7 @@ union is used for anything a staff member can extend (U-D4).
 | 0073 | `control.framework_module_rules` (`framework_key` → `catalog_frameworks`, `module_id`, `level` CHECK `required`\|`supports`, `clause`, `note`, PK `(framework_key, module_id)`, `lock_version`, audit columns) | control | D2's single source for both onboarding reasons (O2) and free inclusions (P1). Seeded per the D2 table + O2's table |
 | 0073 | `control.price_book_versions` (`id`, `status` CHECK `draft`\|`published`\|`archived`, `currency` (`USD` this sprint), `note`, `published_at`, `published_by_staff`, `created_at`); partial unique index: at most one `published` | control | **Versioned** (U-D3): staff edit a draft and publish it atomically; the previous published version becomes `archived`. A quote or request snapshot cites the version it was priced from, so it stays reproducible after prices change. Seeded with version 1 = the jsx list prices, `published`, note "placeholder price book (U-D3)" |
 | 0073 | `control.price_book_items` (`version_id`, `item_key` (`core_base`, `pack:<id>`, `unit:supplier`, `unit:extra_plant`, `unit:inspector`, `unit:extra_standard`, …), `amount numeric(12,2) NULL` (NULL = custom / "Talk to sales"), `unit` CHECK `month`\|`supplier_month`\|`plant_month`\|`inspector_month`\|`standard_month`\|`custom`, `included_units int`, `label`; PK `(version_id, item_key)`) | control | Everything `estimateMonthly` multiplies comes from here; nothing price-like stays in code |
+| 0073 | `control.catalog_tiers` (`id` fixed `core`\|`pro`\|`ent`, `name`, `blurb`, `features jsonb`, `packs text[]`, `cta` `apply`\|`sales`, `sort_order`, `lock_version`, audit columns) | control | The 3 bundles of `pricing.jsx:88-107` as data; tier price lines come from the price book |
 | 0073 | `control.catalog_meta` (single row: `version bigint`, bumped by trigger on any write to the tables above) | control | Lets every API instance cache the catalog snapshot and revalidate with one PK read per request (§3.2) |
 | 0073 | Grants | — | `kaenal_app`: SELECT on all the above. `kaenal_public`: `USAGE` on schema `control` (today only `kaenal_app` has it, `0000_foundation.sql`) plus SELECT on `catalog_industries` / `catalog_frameworks` (keys, labels, sort order, active only, via column grants) for the public request form — and nothing else in `control` (grant test). Write grants: migrator only in this sprint; **07C grants the staff role INSERT/UPDATE** |
 | 0074 | `entitlements` + `source`, `lock_version`, `updated_by` (composite member FK), `pack_id` CHECK | tenant, forced RLS (existing) | Backfill all 9 packs `grandfathered` for existing tenants (P1 AC5) |
@@ -1240,7 +1483,7 @@ except the small X1 items that use existing mobile patterns.
 | Billing & plan: Manage plan (new) | `/pricing` |
 | Billing & plan: Payment method "Change", Invoices "PDF" | **Not rendered** (Q6), listed in `excluded.md` |
 | Sign-in: Request access → / Back / Request access (submit) | O3 stage / workspace stage / O3 POST |
-| Setup flow: Next / Back / Skip for now / Skip setup / Finish / + Add another / Not certified yet / module checkboxes | O4 (profile PUT, onboarding start/dismiss); all real |
+| Setup flow: Next / Back / Skip for now / Skip setup / Finish / + Add another / None of these yet / module checkboxes | O4 (profile PUT, onboarding start/dismiss); all real |
 | Checklist: Skip onboarding | O4 dismiss → `/dashboard` |
 | Checklist: Schedule kickoff with CSM | CSM booking URL (rendered only when set) |
 | Checklist: Start / Continue per task | Each task's real `href` (catalog test forbids dead links) |
