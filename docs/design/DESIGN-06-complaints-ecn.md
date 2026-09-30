@@ -1,7 +1,52 @@
 # DESIGN-06 — Customer complaints + ECN (web)
 
-Author: UI Lead Designer. Date: 2026-09-30. Sprint: `docs/sprints/SPRINT-06-complaints-ecn.md`
-§2 (C1-C4, E1-E5, X1), §5 (Design needs). Ceremony 2 (Design audit) of `SCRUM.md`.
+Author: UI Lead Designer. Date: 2026-09-30 (touch-up pass same day, after Amendments 1+2). Sprint:
+`docs/sprints/SPRINT-06-complaints-ecn.md` §2 (C1-C4, E1-E5, X1), §5 (Design needs). Ceremony 2
+(Design audit) of `SCRUM.md`.
+
+## 0. Touch-up pass (2026-09-30) — Amendments 1+2 fold-in
+
+The sprint's own two amendment rounds (§0, §0b) changed the ECN backend after this doc's original
+eight boards were drawn and signed off: the machine grew from 4 human gates/6 stages to **5 gates/7
+stages** (a real `ppap` gate inserted `risk_review → ppap → cab_approval`, §0b D1), the Kanban grew
+from 8 to **9 columns**, and a **`resubmit`** action was added (`rejected → draft`, resetting every
+`ecn_approvals` row, §0b D3), alongside three author-driven routes the original boards never showed
+(`submit`/`withdraw`/`close`, §0 B1), a persisted auto-revise result (§0 B3d) and an ECN-specific
+unlink route (§0 B4). This is a **touch-up, not a redraw**: only the two affected boards were edited,
+in place, on the same canvas — no new board, no new colour/radius/font/component style anywhere.
+
+**Board `EcnKanbanDnD.dc.html`** (canvas, same file): the "Rejected" column (already added last pass)
+is unchanged in kind; a 9th column, **PPAP**, is inserted between Risk review and CAB approval, same
+dot/count-header/card visual treatment as the other 8 — its dot uses `--risk-info` (`#6366f1`), an
+existing `tokens.css` token not yet spent elsewhere on this board, never a new colour. The thematically
+fitting ECN-2026-0180 (the supplier/material-change row that already justified `ppap`'s placement,
+§0b D1's own rationale) is shown sitting in the new PPAP column rather than CAB approval. Every
+Rejected card now also carries an explicit **"↻ Resubmit"** button — distinct from, and in addition
+to, the existing Rejected→Draft-only drag affordance — both call the same `resubmit` route; the button
+is the real keyboard-operable equivalent the board's own WCAG note (§4.6 below) already flagged as
+missing for drag generally. State B's caption now also states the two-tier capability split named in
+the sprint's §5 item 8 (`ecn:manage` on Draft/Implementation/Rejected columns, `ecn:approve` on the 5
+gated columns incl. PPAP) rather than treating "no approve capability" as a single on/off toggle.
+
+**Board `EcnDetailApproval.dc.html`** (canvas, same file): the approval tracker (State A) gains its
+**5th row, `ppap`**, in correct stage order between Risk review and CAB approval, same
+stage/decision/approver/decided-at pattern as the other 4; the header chip's "step 4 of 6" is
+corrected to "step 5 of 7" against the now-7-entry `ECN_STAGE_ORDER`. The affected-records panel
+gains a per-row **unlink "×"** control (State A), live only while `ecn:manage` + stage draft-pilot,
+removed entirely (not disabled) once frozen (State F, restated to also name unlink, not just link, as
+frozen). State D (rejected) gains a visible **Resubmit** button plus a caption naming its exact
+mechanics (manage-gated, not owner-restricted, resets all 5 approval rows, unfreezes `owner`). State
+E's caption is restated to describe the auto-revise banner as **persisted** — read from
+`EcnDto.autoRevise` on every visit, not a one-time post-transition toast. Two new states are appended,
+matching the existing states' own visual weight exactly: **State G** (Draft — Submit/Withdraw actions)
+and **State H** (Implementation — Close action), both named in the sprint's own §5 item 9 and not
+previously drawn on this board.
+
+No other board changed. `docs/design/DESIGN-06-complaints-ecn.md`'s §1-§8 below are the *original*
+audit and sign-off, left as written — still accurate for every screen/state they cover; this §0
+records the incremental delta on top of it, per the sprint's own instruction to update the design doc
+in place rather than create a new one. Per the user's standing blanket pre-approval for new visual
+designs, no separate sign-off pause was taken for this touch-up.
 
 **Scope note (mirrors DESIGN-04/05's own scope note):** `CustomerComplaints`, `IntakeForm`, `ECNList`,
 `ECNWorkbench`, `ECNKanban` (`project_brain/project/src/qms-modules.jsx` lines 332-475 and 526-633) are
@@ -297,7 +342,19 @@ boards is mapped to a story with a named target behaviour, no new colour/radius/
 introduced anywhere, and the three flagged items in §7 are non-blocking, already-resolved judgment
 calls, not open gates.
 
-Gate 1 (UI Lead Designer audit + design sign-off) is now satisfied for this sprint. §3's backend design
-was already approved by the user (sprint file's own closing line, 2026-09-30). The `planner` agent's
-architecture-review pass remains the one outstanding step before implementation may begin, per
+**Touch-up pass sign-off (2026-09-30, §0): APPROVED**, unconditionally — the ECN machine's growth to
+5 gates/9 columns (`ppap`) and the new `resubmit` action (Amendments 1+2, §0/§0b) are now fully
+reflected on `EcnKanbanDnD.dc.html` (9th column, Resubmit button on Rejected cards) and
+`EcnDetailApproval.dc.html` (5-row tracker incl. `ppap`, Resubmit/Submit/Withdraw/Close actions, the
+persisted auto-revise banner, the affected-records unlink control) — every screen and state of every
+story on both surfaces is mapped to an existing jsx or an approved board, and every control (incl. the
+newly added `submit`/`withdraw`/`close`/`resubmit`/unlink affordances) has a target behaviour already
+named by the PO in the sprint file's §2/§4. No new colour/radius/font/component style was introduced;
+the one new dot colour on the Kanban's PPAP column (`--risk-info`, `#6366f1`) is an existing
+`tokens.css` token, not a new one. Per the user's blanket pre-approval, no separate sign-off pause was
+taken.
+
+Gate 1 (UI Lead Designer audit + design sign-off) is now satisfied for this sprint, including this
+touch-up. §3's backend design (both amendments) was already approved by the user. The `planner` agent's
+architecture re-review pass remains the one outstanding step before implementation may begin, per
 `SCRUM.md`'s ordering and the sprint file's own DoD §8 first checklist item.
