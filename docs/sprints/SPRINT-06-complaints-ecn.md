@@ -79,6 +79,22 @@ and why.
 
 ---
 
+## 0b. Amendment 2 — the three remaining open deltas, now decided by the user (2026-09-30)
+
+The user has explicitly decided the three items §0 (and §3.2a/§7) left open for them: §3.2a's "PPAP" question,
+§3.2a's auto-revise-timing question, and Q33 (ECN resubmission). Each decision is cascaded through every
+downstream section it touches below (schema, machine, routes, RBAC, design needs, dead-end audit, DoD) — this
+table is the scannable index; §2/§3/§4/§5/§6/§7/§8 are edited in place to carry these through, exactly as §0
+did for the first amendment round.
+
+| # | Decision | What it changes |
+|---|---|---|
+| D1 | **PPAP is a real 7th pipeline stage, not a mock error.** Placed `risk_review → ppap → cab_approval` (the smallest-reasonable slot: PPAP — Production Part Approval Process, a real IATF 16949 production-readiness confirmation — logically precedes the Change Approval Board's own sign-off, and this is specifically the row for the Material/supplier-change ECN that already justified adding `material` to `change_type`, §3.2, so a PPAP checkpoint on exactly that class of change is coherent, not arbitrary). Verified this does not contradict P19 (P19 names no fixed stage count, only asks "fixed vs configurable," §3.2) or the rest of the jsx (`ECNKanban`'s 7 columns already omitted "Doc revision" — a mock gap the same file already got wrong once — so a missing "PPAP" column there is no stronger evidence against PPAP being real than that omission is against auto-revise itself). `ppap` is a 5th human-approval gate — its own `ecn_approvals` row, `admin`/`manager`, four-eyes — treated exactly like the other 4, not a special case. | `ECN_STAGE_ORDER` (7 entries, not 6); `ecns.stage` enum (+`ppap`); `ecn_approvals.stage` enum (+`ppap`, 5 gated values); the approve/reject route's accepted-stage list (5, not 4); the Kanban's column list (9 total, not 8); the approval tracker's row count (5, not 4); §5 design follow-up (Kanban + tracker board need one more column/row); RBAC unchanged (`ecn:approve`, admin/manager, same as every other gate) |
+| D2 | **Auto-revise timing stays exactly as originally approved — fires on `pilot→implementation`, never earlier.** The jsx's documents-before-pilot row ordering (`ECNList`'s "Doc revision" row sorted before its "Pilot run" row) is confirmed to be another instance of the same mock inaccuracy already found and corrected once in this sprint (the "Doc revision" label itself, and now this row-ordering artifact) — not a real sequencing signal. §3.2a's second question is now **resolved, not open**. | No mechanism change (§3.2's `pilot→implementation` trigger is unchanged); §3.2a and §7 Q34 updated from "open" to "resolved, decided (a)" |
+| D3 | **ECN allows `rejected → draft` resubmission**, modelled on `documentMachine`'s own real `rejected → draft` transition (`packages/core/src/state-machines/document.ts:17`, read in full this session — a plain, unguarded transition in the map; `documents.service.ts`'s `transition` method, `document:manage`-gated, carries no owner restriction and no four-eyes guard for this specific `to`, since `requiresApproverRole`/`forbidsSelfApproval` only fire when `to === "approved"` or `"rejected"`, confirmed by reading `document.ts:32-54`). ECN mirrors this shape, not a new one: (a) **who can trigger** — any `ecn:manage` holder (same as create/edit), not owner-restricted — matches documents' own precedent exactly, which is *not* further restricted either. (b) **What resets** — every `ecn_approvals` row for that ECN reverts to `decision='pending'`/`approver=NULL`/`decided_at=NULL`/`comment=NULL` in the same transaction (a resubmitted ECN needs fresh sign-off at every gate; it never keeps a stale approval from before the rejection), audited as the resubmission's own `status_changed` event (the reset is recorded in that event's `after` payload, mirroring E5's established precedent of folding a fan-out side effect into the triggering event's own payload rather than one row-level event per approval row). (c) **`owner` unfreezes on resubmission** — yes: the existing `PATCH` rule ("`owner` PATCHable only while `stage = 'draft'`") is stage-based, not a one-way ratchet, so the moment resubmission returns `stage` to `draft`, `owner` is genuinely editable again, for the same reason it was editable the first time the ECN was in `draft` — stated explicitly here, not left to be inferred from the pre-existing rule's wording. | New `packages/core/src/state-machines/ecn.ts` transition `rejected: ["draft"]` (no additional guard, matching documents' own unguarded precedent); new `POST /v1/ecns/:id/resubmit` route (§2 E4 AC6, §4 E4 row); Q33 closed, decided, in §7 |
+
+---
+
 ## 1. Goal and roles served
 
 Replace the `/complaints` and `/ecn` `ModulePlaceholder`s (served today via `PLANNED_MODULES["complaints"]`/
@@ -90,9 +106,11 @@ quality-system modules:
   `CustomerComplaints`/`IntakeForm` in `qms-modules.jsx` (lines 322-523, read in full) and FEATURES §12/P18
   specify.
 - **Engineering Change Notices (ECN)** (IATF 16949 §8.5.6, change control): a design/process/tooling/material
-  change record with a real multi-stage approval workflow (four-eyes, forward-only, audited) and a genuine
-  "auto-revises affected documents" mechanism on implementation — everything `ECNWorkbench`/`ECNList`/
-  `ECNKanban` in `qms-modules.jsx` (lines 526-635, read in full) and FEATURES §12/P19 specify.
+  change record with a real multi-stage approval workflow (four-eyes, forward-only through its 7 ordered stages
+  including a real PPAP gate, with one explicit, named backward path — `rejected → draft` resubmission, §0b D3
+  — audited) and a genuine "auto-revises affected documents" mechanism on implementation — everything
+  `ECNWorkbench`/`ECNList`/`ECNKanban` in `qms-modules.jsx` (lines 526-635, read in full) and FEATURES §12/P19
+  specify.
 
 Roles served: **admin, manager, auditor** (module administration: log/triage/convert complaints, author and
 manage ECNs); **admin, manager only** additionally hold **ECN approval authority** (`ecn:approve` — mirrors
@@ -442,8 +460,8 @@ other and with P19, and §3.2 resolves the conflict; this is part of what needs 
 
 UC
 - Happy: open `/ecn` (List view, the default) → table of ECNs with type chip, a progress bar reading "step X
-  of 6" against the canonical 6-stage pipeline (§3.2), risk chip, owner avatar, target (effective) date — real
-  data, not the jsx's 5 static rows.
+  of 7" against the canonical 7-stage pipeline, now including the real `ppap` gate (§3.2, §0b D1), risk chip,
+  owner avatar, target (effective) date — real data, not the jsx's 5 static rows.
 - Empty: zero ECNs → "No engineering change notices yet — New ECN."
 - Permission: `ecn:view` required for the page; nav-curated (§4), server-403 for a role without it.
 - Error/offline: list fetch fails → retry; offline banner disables New ECN/approve/reject/link mutations.
@@ -456,9 +474,12 @@ AC
    (`low\|medium\|high` — the jsx's `risk` field; captured at creation, editable via `PATCH` **only while
    `stage = 'draft'`**, frozen once the approval pipeline begins — a change's risk assessment shouldn't shift
    after reviewers have started signing off against it), `stage` enum (`draft\|feasibility\|risk_review\|
-   cab_approval\|pilot\|implementation\|closed\|rejected` — the canonical machine, §3.2) DEFAULT `draft`,
-   `owner` (composite member FK, NOT NULL, defaults to the creating actor, **frozen once `stage` leaves `draft`
-   — §0 B2, no route reassigns it after that**), `effective_date` date NULL, `linkedDocumentCount` (**not a
+   ppap\|cab_approval\|pilot\|implementation\|closed\|rejected` — **9 values, `ppap` added as a real 5th
+   approval gate between `risk_review` and `cab_approval`, §0b D1** — the canonical machine, §3.2) DEFAULT
+   `draft`, `owner` (composite member FK, NOT NULL, defaults to the creating actor, **PATCHable only while
+   `stage = 'draft'` — §0 B2 — which includes a `draft` reached again via resubmission (§0b D3): resubmitting a
+   `rejected` ECN genuinely re-opens `owner` editability, it is not a one-way freeze**), `effective_date` date
+   NULL, `linkedDocumentCount` (**not a
    column — computed on read, §0 B8a**: `count(*)` over `entity_links WHERE from_kind='ecn' AND
    to_kind='document' AND from_id=ecns.id`, the jsx's own "Affected" column, `qms-modules.jsx:576`), **
    `auto_revise_result jsonb NULL` (§0 B3e — set on the `pilot→implementation` transition, persists E5's
@@ -469,32 +490,44 @@ AC
    — an engineering change is tenant-wide, mirrors document/capa precedent). `EntityKind` gains `"ecn"`;
    `entity_links` CHECK constraints widened.
 2. `packages/core/src/state-machines/ecn.ts` (pure): `ECN_STAGE_ORDER = ["draft", "feasibility",
-   "risk_review", "cab_approval", "pilot", "implementation"]` (6 entries — `closed`/`rejected` are terminal,
-   excluded from the "of 6" count, matching the jsx's own `of:6` convention); `ecnStageIndex(stage): number |
-   null` returns 1-6 for the 6 ordered stages, `null` for `closed`/`rejected`. `ecnMachine` (`defineMachine`)
-   transitions: `draft → [feasibility, rejected]`, `feasibility → [risk_review, rejected]`, `risk_review → [
-   cab_approval, rejected]`, `cab_approval → [pilot, rejected]`, `pilot → [implementation, rejected]`,
-   `implementation → [closed]`, `closed → []`, `rejected → []` — every pre-implementation stage can be
-   rejected (closing the jsx's own missing "Rejected" Kanban column, §1a/§3.2). **The three transitions out of
-   `draft` and into a terminal/next-of-6 stage are driven by three different, explicitly named routes, not one
-   generic "approve" call (§0 B1):** `draft→feasibility` by `POST /v1/ecns/:id/submit`; `draft→rejected` by
-   `POST /v1/ecns/:id/withdraw` (an author action — no `ecn_approvals` row exists for `draft`, so there is no
-   four-eyes decision to make here); the 4 gated stages' `→next-or-rejected` by E4's approve/reject route;
-   `implementation→closed` by `POST /v1/ecns/:id/close`. Guards mirror `documentMachine`'s `requiresApproverRole`
-   (only `admin`/`manager` may approve/reject any of the 4 gated stages, §3.2) but **`forbidsSelfApproval` is
-   made explicitly stricter than `documentMachine`'s (§0 B2)**: the actor must be `≠ ecns.owner` **and**
-   `≠ ecns.created_by`, checked for **both** approve and reject (`documentMachine`'s own version, confirmed by
-   reading `document.ts:44-54`, only blocks self-*approval* — this ECN-specific rule is a deliberate,
-   stated divergence, not a claimed exact mirror).
+   "risk_review", "ppap", "cab_approval", "pilot", "implementation"]` (**7 entries, `ppap` added between
+   `risk_review` and `cab_approval`, §0b D1** — `closed`/`rejected` are terminal, excluded from the "of 7"
+   count); `ecnStageIndex(stage): number | null` returns 1-7 for the 7 ordered stages, `null` for
+   `closed`/`rejected`. `ecnMachine` (`defineMachine`) transitions: `draft → [feasibility, rejected]`,
+   `feasibility → [risk_review, rejected]`, `risk_review → [ppap, rejected]`, `ppap → [cab_approval, rejected]`,
+   `cab_approval → [pilot, rejected]`, `pilot → [implementation, rejected]`, `implementation → [closed]`,
+   `closed → []`, **`rejected → [draft]` (§0b D3 — resubmission, modelled on `documentMachine`'s own
+   `rejected → draft` transition, no additional guard, matching that precedent's own unguarded shape)** — every
+   pre-implementation stage can be rejected (closing the jsx's own missing "Rejected" Kanban column, §1a/§3.2),
+   and a `rejected` ECN can be resubmitted back to `draft` exactly once per resubmission (nothing stops a
+   second rejection cycle after that — the loop is real, not one-shot). **The four transitions out of `draft`/
+   `rejected` and into a terminal/next-of-7 stage are driven by four different, explicitly named routes, not one
+   generic "approve" call (§0 B1, §0b D3):** `draft→feasibility` by `POST /v1/ecns/:id/submit`; `draft→rejected`
+   by `POST /v1/ecns/:id/withdraw` (an author action — no `ecn_approvals` row exists for `draft`, so there is no
+   four-eyes decision to make here); **`rejected→draft` by `POST /v1/ecns/:id/resubmit` (§0b D3 — also an
+   author-style action, `ecn:manage`, not owner-restricted, not a four-eyes decision, mirroring `withdraw`'s own
+   "no `ecn_approvals` row is being decided" reasoning)**; the 5 gated stages' `→next-or-rejected` by E4's
+   approve/reject route; `implementation→closed` by `POST /v1/ecns/:id/close`. Guards mirror `documentMachine`'s
+   `requiresApproverRole` (only `admin`/`manager` may approve/reject any of the 5 gated stages, §3.2) but
+   **`forbidsSelfApproval` is made explicitly stricter than `documentMachine`'s (§0 B2)**: the actor must be
+   `≠ ecns.owner` **and** `≠ ecns.created_by`, checked for **both** approve and reject (`documentMachine`'s own
+   version, confirmed by reading `document.ts:44-54`, only blocks self-*approval* — this ECN-specific rule is a
+   deliberate, stated divergence, not a claimed exact mirror). The new `rejected→draft` transition carries **no**
+   four-eyes guard at all (§0b D3a) — matching `documentMachine`'s own precedent exactly (`document.ts:17`'s
+   `rejected: ["draft"]` entry has no guard restricting it either), so any `ecn:manage` holder, including the
+   ECN's own `owner` or `created_by`, may resubmit.
 3. `GET /v1/ecns` (cursor, rule 6; filters `changeType`/`stage`/`changeRisk`/`owner`/`q` over `search_vector`;
    response includes `linkedDocumentCount`/`autoReviseResult`, §0 B8a/B3e), `POST /v1/ecns` (`ecn:manage`,
    `Idempotency-Key`), `GET /v1/ecns/:id` (`ecn:view`), `PATCH /v1/ecns/:id`
    (`lockVersion`, `ecn:manage` — edits `title`/`description`/`effectiveDate` always; `changeType`/
    `changeRisk` only while `stage = 'draft'`, 422 otherwise; **`owner` only while `stage = 'draft'`, 422
-   otherwise (§0 B2, revised from "always")**; **rejected entirely (422) once `stage` is `closed` or
-   `rejected` — fully frozen, §0 S4**; never `stage` directly, which only changes via E4's approval route or
-   the new `submit`/`withdraw`/`close` routes, §0 B1). All mutations `withAudit` in the same transaction
-   (rule 3).
+   otherwise (§0 B2, revised from "always") — including a `draft` reached again via resubmission (§0b D3)**;
+   **rejected entirely (422) once `stage` is `closed` or `rejected` — `closed` is fully and permanently frozen;
+   `rejected` is frozen for `PATCH` purposes specifically, but is not a dead end for the record as a whole — the
+   dedicated `resubmit` route (§0b D3, not `PATCH`) is the one way out of `rejected`, and once it moves `stage`
+   back to `draft`, ordinary `PATCH` editability (incl. `owner`) resumes**; never `stage` directly, which only
+   changes via E4's approval route or the `submit`/`withdraw`/`close`/`resubmit` routes, §0 B1/§0b D3). All
+   mutations `withAudit` in the same transaction (rule 3).
 4. Cross-tenant ECN id → 404, not 403 (rule 8), mutation-tested against RLS.
 
 **Web/Mobile/Shared**
@@ -505,49 +538,54 @@ AC
   green.
 - **Shared:** migration `0072` (`ecns` incl. `auto_revise_result`, `EntityKind`/`entity_links` widening);
   `EcnDto` (incl. `linkedDocumentCount`, `autoReviseResult`)/`EcnListQuery`/
-  `CreateEcnBody`/`UpdateEcnBody` + `EcnChangeType`/`EcnChangeRisk`/`EcnStage` enums in `packages/types`;
-  `packages/core/state-machines/ecn.ts` (pure, unit-tested — every legal/illegal transition, the stricter
-  owner-or-created_by four-eyes guard on both approve and reject, the admin/manager-only guard);
-  `ecn:view`/`ecn:manage`/`ecn:approve` in `packages/core/src/rbac.ts`.
+  `CreateEcnBody`/`UpdateEcnBody` + `EcnChangeType`/`EcnChangeRisk`/`EcnStage` enums in `packages/types`
+  (`EcnStage` now 9 values incl. `ppap`, §0b D1); `packages/core/state-machines/ecn.ts` (pure, unit-tested —
+  every legal/illegal transition incl. the 5 gated stages and the new `rejected→draft` resubmission edge, the
+  stricter owner-or-created_by four-eyes guard on both approve and reject, the admin/manager-only guard);
+  `ecn:view`/`ecn:manage`/`ecn:approve` in `packages/core/src/rbac.ts` (unchanged — no new capability: `ppap`'s
+  gate and `resubmit` both reuse the existing 5, §0b D1/D3).
 
 ### E2 — Kanban view
 
 **Design:** `ECNKanban` (`qms-modules.jsx:593-633`) — 7 columns, drag-to-advance implied by the header's "CAB
-approval" progress-bar concept. **Corrected to 8 columns** (adds "Rejected," §1a/§3.2).
+approval" progress-bar concept. **Corrected to 9 columns** (adds "Rejected," §1a/§3.2, and "PPAP," §0b D1).
 
 UC
-- Happy: Kanban view shows 8 columns (Draft, Feasibility, Risk review, CAB approval, Pilot, Implementation,
-  Closed, Rejected) with real per-column counts and cards. **Drag action named per column (§0 B1, no column
-  left undefined):** dragging a **Draft** card to **Feasibility** calls `submit` (`ecn:manage`); dragging a
-  **Draft** card to **Rejected** calls `withdraw` (`ecn:manage`); dragging a card from any of the 4 gated
-  columns (**Feasibility/Risk review/CAB approval/Pilot**) to its immediately-next column calls E4's approve
-  action (`ecn:approve`); dragging one of those 4 to **Rejected** (with the reject confirmation, comment
-  required) calls E4's reject action (`ecn:approve`); dragging an **Implementation** card to **Closed** calls
-  `close` (`ecn:manage`); **Closed** and **Rejected** are terminal — no outgoing drag from either. Dragging to
-  any non-adjacent column is rejected client-side before any API call (the API is the real guard regardless,
-  via `ecnMachine`).
-- Permission: viewing the board needs `ecn:view`; dragging out of **Draft** or **Implementation** needs
-  `ecn:manage`; dragging out of any of the 4 gated columns needs `ecn:approve` — a caller lacking the needed
-  capability for a given column sees no drag handle on its cards at all (rule 10, no control that looks
+- Happy: Kanban view shows 9 columns (Draft, Feasibility, Risk review, PPAP, CAB approval, Pilot,
+  Implementation, Closed, Rejected) with real per-column counts and cards. **Drag action named per column (§0
+  B1, §0b D3, no column left undefined):** dragging a **Draft** card to **Feasibility** calls `submit`
+  (`ecn:manage`); dragging a **Draft** card to **Rejected** calls `withdraw` (`ecn:manage`); dragging a card
+  from any of the 5 gated columns (**Feasibility/Risk review/PPAP/CAB approval/Pilot**) to its immediately-next
+  column calls E4's approve action (`ecn:approve`); dragging one of those 5 to **Rejected** (with the reject
+  confirmation, comment required) calls E4's reject action (`ecn:approve`); dragging an **Implementation** card
+  to **Closed** calls `close` (`ecn:manage`); **dragging a Rejected card back to Draft calls `resubmit`
+  (`ecn:manage`, §0b D3)** — **Closed** is the board's only fully terminal column, no outgoing drag from it ever;
+  **Rejected** allows exactly this one outgoing drag, back to **Draft**, and none other. Dragging to any
+  non-adjacent column (including any drag out of Rejected other than to Draft) is rejected client-side before
+  any API call (the API is the real guard regardless, via `ecnMachine`).
+- Permission: viewing the board needs `ecn:view`; dragging out of **Draft**, **Implementation**, or **Rejected**
+  needs `ecn:manage`; dragging out of any of the 5 gated columns needs `ecn:approve` — a caller lacking the
+  needed capability for a given column sees no drag handle on its cards at all (rule 10, no control that looks
   interactive but silently 403s), not a visually-disabled one.
-- Empty: a column with zero cards renders its header with `0` and no card list, never omitted entirely (all 8
+- Empty: a column with zero cards renders its header with `0` and no card list, never omitted entirely (all 9
   columns always render, matching the jsx's own "closed: []" empty-array precedent for its own mock).
 
 AC
-1. No new route for the 4 gated columns' drag-to-advance — it calls the same `POST /v1/ecns/:id/approvals/:stage`
+1. No new route for the 5 gated columns' drag-to-advance — it calls the same `POST /v1/ecns/:id/approvals/:stage`
    route E4 defines, `lockVersion`-guarded exactly as a click-to-approve would be. Draft/Implementation drags
-   call E1's new `submit`/`withdraw`/`close` routes (`ecn:manage`, §0 B1), same `lockVersion` guard. Any 409
-   (stale `lockVersion` — someone else moved it first) snaps the card back to its server-confirmed column with a
+   call E1's `submit`/`withdraw`/`close` routes (`ecn:manage`, §0 B1); **a Rejected→Draft drag calls the new
+   `resubmit` route (`ecn:manage`, §0b D3)** — same `lockVersion` guard on every one. Any 409 (stale
+   `lockVersion` — someone else moved it first) snaps the card back to its server-confirmed column with a
    toast, never leaves it optimistically misplaced.
-2. Column counts come from `GET /v1/ecns/summary` (new, `ecn:view`) — `count(*) group by stage`, all 8 values
-   always present (0 for an empty stage), mirroring the KPI-summary precedent every prior sprint's module
-   uses for the same "cursor list can't total itself" reason.
+2. Column counts come from `GET /v1/ecns/summary` (new, `ecn:view`) — `count(*) group by stage`, all 9 values
+   always present (0 for an empty stage, incl. `ppap`), mirroring the KPI-summary precedent every prior sprint's
+   module uses for the same "cursor list can't total itself" reason.
 
 **Web/Mobile/Shared:** Web (`EcnKanbanPage`, drag-and-drop reusing whatever DnD primitive the codebase already
 uses elsewhere — none currently exists for a kanban board in this app; if no existing DnD library is already a
 dependency, this sprint adds one, capability-gated per column so a caller without that column's capability sees
 a real, non-interactive card, not a broken drag handle). Mobile: unaffected. Shared: `EcnSummaryDto` in
-`packages/types`.
+`packages/types` (9 stage keys, incl. `ppap`).
 
 ### E3 — Create an ECN via the CreateWizard
 
@@ -582,53 +620,62 @@ AC
 unaffected. Shared: none beyond E1's types (`WizardType` union lives in `packages/core` but has no mobile
 consumer this sprint).
 
-### E4 — Full lifecycle: submit, multi-stage approval, close, withdraw, four-eyes
+### E4 — Full lifecycle: submit, multi-stage approval, close, withdraw, resubmit, four-eyes
 
 **Design:** the "multi-stage approval workflow" the `ECNWorkbench` header text names; the progress bar in
 `ECNList`; the implied but undrawn detail view P19 §3 itself calls for ("ECN detail: multi-stage approval
 tracker, affected-records via entity-links"). **No jsx board exists for this detail view** — flagged §5,
-mirrors C3's exact situation. **Revised end to end per §0 B1/B2/S2** — the old version only covered the 4
-gated stages, leaving `draft` and `closed` (and `draft→rejected`) undriveable.
+mirrors C3's exact situation. **Revised end to end per §0 B1/B2/S2 and §0b D1/D3** — the pre-amendment version
+only covered 4 gated stages with no `draft`/`closed`/`rejected` routes at all; this version covers 5 gated
+stages (adding `ppap`) and a real `rejected→draft` resubmission loop.
 
 UC
-- **Submit (new, §0 B1):** an ECN's author (`ecn:manage`) submits a `draft` ECN, moving `stage` to
-  `feasibility` — this is the moment every member holding `ecn:approve` (except the ECN's own `owner`/
-  `created_by`, §0 S7) is notified that approval is pending, **not at creation** (X1 AC7's old
-  "at creation" contradiction, closed).
-- **Withdraw (new, §0 B1):** an ECN's author (`ecn:manage`) withdraws a `draft` ECN, moving `stage` to
-  `rejected` — no four-eyes decision applies here (no `ecn_approvals` row exists for `draft`); this is a
-  self-service cancel, not an approval.
-- Happy: an ECN at one of its 4 gated stages (`feasibility`/`risk_review`/`cab_approval`/`pilot`) shows an
-  approval tracker (4 rows: stage name, decision, approver, decided-at) in its detail view; an `admin`/
-  `manager` who is not the ECN's `owner` **or `created_by`** approves the current stage, advancing `stage` to
-  the next one in `ECN_STAGE_ORDER` (§3.2) — reaching `implementation` triggers E5's auto-revise mechanism in
-  the same transaction.
-- Reject: any of the 4 gated stages can be rejected instead of approved, moving `stage` to `rejected`
-  (terminal) — the ECN's Kanban card lands in the new "Rejected" column (E2's correction).
-- **Close (new, §0 B1):** an ECN at `implementation` is closed (`ecn:manage`) by anyone with manage access —
-  not a four-eyes decision (closing formalizes that the change is fully rolled out, it isn't a second sign-off).
+- **Submit (§0 B1):** an ECN's author (`ecn:manage`) submits a `draft` ECN, moving `stage` to `feasibility` —
+  this is the moment every member holding `ecn:approve` (except the ECN's own `owner`/`created_by`, §0 S7) is
+  notified that approval is pending, **not at creation** (X1 AC7's old "at creation" contradiction, closed).
+- **Withdraw (§0 B1):** an ECN's author (`ecn:manage`) withdraws a `draft` ECN, moving `stage` to `rejected` —
+  no four-eyes decision applies here (no `ecn_approvals` row exists for `draft`); this is a self-service cancel,
+  not an approval.
+- Happy: an ECN at one of its 5 gated stages (`feasibility`/`risk_review`/`ppap`/`cab_approval`/`pilot`, §0b
+  D1) shows an approval tracker (5 rows: stage name, decision, approver, decided-at) in its detail view; an
+  `admin`/`manager` who is not the ECN's `owner` **or `created_by`** approves the current stage, advancing
+  `stage` to the next one in `ECN_STAGE_ORDER` (§3.2) — reaching `implementation` (from `pilot`) triggers E5's
+  auto-revise mechanism in the same transaction. (`ppap`'s own gate has no side effect of its own — it is a
+  plain fifth approval like `feasibility`/`risk_review`/`cab_approval`, §0b D1.)
+- Reject: any of the 5 gated stages can be rejected instead of approved, moving `stage` to `rejected` — the
+  ECN's Kanban card lands in the "Rejected" column (E2's correction), from where it can be resubmitted (below).
+- **Close (§0 B1):** an ECN at `implementation` is closed (`ecn:manage`) by anyone with manage access — not a
+  four-eyes decision (closing formalizes that the change is fully rolled out, it isn't a second sign-off).
+- **Resubmit (new, §0b D3):** an ECN's author (`ecn:manage`, not owner-restricted — matches
+  `documentMachine`'s own unrestricted `rejected→draft` precedent) resubmits a `rejected` ECN, moving `stage`
+  back to `draft`. In the same transaction, every one of the ECN's 5 `ecn_approvals` rows resets to
+  `decision='pending'`/`approver=NULL`/`decided_at=NULL`/`comment=NULL` (a resubmitted ECN needs fresh sign-off
+  at every gate — it never carries forward a stale pre-rejection approval), and `owner` becomes `PATCH`able
+  again (E1 AC3) — genuinely back in `draft`, not a partially-reopened state. Not a four-eyes decision (no
+  `ecn_approvals` row exists for `draft`, same reasoning as `withdraw`).
 - Self-approval/rejection blocked, both, not just approval (§0 B2): the ECN's own `owner` **or `created_by`**
-  attempting to approve **or reject** any of the 4 gated stages gets 403 (four-eyes, deliberately stricter than
-  `documentMachine`'s own approve-only guard, stated as such).
+  attempting to approve **or reject** any of the 5 gated stages gets 403 (four-eyes, deliberately stricter than
+  `documentMachine`'s own approve-only guard, stated as such) — this guard does **not** apply to `resubmit`
+  (§0b D3a, matching `documentMachine`'s own unguarded `rejected→draft`).
 - Wrong stage: approving/rejecting a stage that isn't the ECN's *current* stage 422s ("stage X is not the
-  current pending stage") — you cannot approve stage 3 while the ECN sits at stage 2, and cannot re-approve an
-  already-decided stage.
+  current pending stage") — you cannot approve stage 4 while the ECN sits at stage 3, and cannot re-approve an
+  already-decided stage; resubmitting an ECN that isn't currently `rejected` 422s the same way.
 - Permission: `ecn:approve` required for approve/reject (admin/manager only — mirrors `document:approve`'s
-  exact grant, §1a); `submit`/`withdraw`/`close` need only `ecn:manage`; `ecn:manage` alone (auditor) can view
-  the tracker but gets 403 attempting to approve/reject, matching how auditor holds `document:view` but not
-  `document:approve` today.
+  exact grant, §1a); `submit`/`withdraw`/`close`/`resubmit` need only `ecn:manage`; `ecn:manage` alone
+  (auditor) can view the tracker but gets 403 attempting to approve/reject, matching how auditor holds
+  `document:view` but not `document:approve` today.
 
 AC
 1. `ecn_approvals` (migration `0072`): `tenant_id`, `id`, `ecn_id` composite FK → `ecns(tenant_id, id)` ON
-   DELETE CASCADE, `stage` enum (the 4 gated values only — `feasibility\|risk_review\|cab_approval\|pilot`),
-   **no `role_required` column (§0 S8 — dead field: no service method anywhere reads a stored value for this;
-   confirmed no other table in this codebase has a `role_required` column at all)** — the fixed, uniform
-   admin/manager-only rule (Q30, unchanged) is enforced entirely in `ecnMachine`'s guard, `decision` enum
-   (`pending\|approved\|rejected`)
-   DEFAULT `pending`, `approver` (composite member FK, NULL until decided), `decided_at` timestamptz NULL,
-   `comment` text NULL, standard audit columns. Forced RLS, leading `tenant_id` index, unique `(tenant_id,
-   ecn_id, stage)`. All 4 rows are pre-created (all `pending`) in the same transaction as `POST /v1/ecns`
-   (E3), so "what stage is this ECN on" is always answerable by joining `ecns.stage` to its matching row.
+   DELETE CASCADE, `stage` enum (**the 5 gated values — `feasibility\|risk_review\|ppap\|cab_approval\|pilot`,
+   §0b D1**), **no `role_required` column (§0 S8 — dead field: no service method anywhere reads a stored value
+   for this; confirmed no other table in this codebase has a `role_required` column at all)** — the fixed,
+   uniform admin/manager-only rule (Q30, unchanged) is enforced entirely in `ecnMachine`'s guard, `decision`
+   enum (`pending\|approved\|rejected`) DEFAULT `pending`, `approver` (composite member FK, NULL until
+   decided), `decided_at` timestamptz NULL, `comment` text NULL, standard audit columns. Forced RLS, leading
+   `tenant_id` index, unique `(tenant_id, ecn_id, stage)`. All **5** rows are pre-created (all `pending`) in the
+   same transaction as `POST /v1/ecns` (E3), so "what stage is this ECN on" is always answerable by joining
+   `ecns.stage` to its matching row.
 2. **Exact statement order (§0 S2):** `POST /v1/ecns/:id/approvals/:stage` (`ecn:approve`) body
    `{ decision: "approve" | "reject", comment? }`, and `lockVersion`. Guards, in order: (a) actor ≠
    `ecns.owner` **and** actor ≠ `ecns.created_by` (403 — four-eyes, both directions, §0 B2); (b) actor role ∈
@@ -637,29 +684,43 @@ AC
    current stage" guard together; no matching row → a follow-up read distinguishes 409 stale-lockVersion from
    422 wrong-stage). Then: `UPDATE ecn_approvals SET decision=$d, approver=$actor, decided_at=now(), comment=$c
    WHERE ecn_id=$1 AND stage=$stage AND decision='pending'`. Then, only on the specific `pilot→implementation`
-   transition: E5's auto-revise runs. On `reject`: `comment` is required (a rejection must carry a reason);
-   `ecns.stage` moves to `rejected` (terminal) instead of the next value. Both `status_changed` on the `ecns`
-   row (the stage transition) **and** `updated` on the `ecn_approvals` row (the decision itself) are audited —
-   a real two-entity audit split, not a single ambiguous event.
-3. **New (§0 B1):** `POST /v1/ecns/:id/submit` (`ecn:manage`, `lockVersion`) — `UPDATE ecns SET stage=
-   'feasibility' WHERE id=$1 AND lock_version=$v AND stage='draft'` (422 if not currently `draft`), audited
-   `status_changed`; the same transaction notifies every `ecn:approve` holder except `owner`/`created_by`
-   (§0 S7). `POST /v1/ecns/:id/withdraw` (`ecn:manage`, `lockVersion`) — same shape, `draft→rejected`, audited
-   `status_changed`. `POST /v1/ecns/:id/close` (`ecn:manage`, `lockVersion`) — `implementation→closed`,
-   audited `status_changed`.
-4. 409 on a stale `lockVersion` (rule 6, every route in this story); cross-tenant ECN id → 404, not 403
+   transition: E5's auto-revise runs (unaffected by `ppap`'s insertion earlier in the pipeline — `ppap` sits
+   between `risk_review` and `cab_approval`, nowhere near the `pilot→implementation` edge, §0b D2). On `reject`:
+   `comment` is required (a rejection must carry a reason); `ecns.stage` moves to `rejected` instead of the
+   next value. Both `status_changed` on the `ecns` row (the stage transition) **and** `updated` on the
+   `ecn_approvals` row (the decision itself) are audited — a real two-entity audit split, not a single
+   ambiguous event.
+3. `POST /v1/ecns/:id/submit` (`ecn:manage`, `lockVersion`) — `UPDATE ecns SET stage= 'feasibility' WHERE id=$1
+   AND lock_version=$v AND stage='draft'` (422 if not currently `draft`), audited `status_changed`; the same
+   transaction notifies every `ecn:approve` holder except `owner`/`created_by` (§0 S7). `POST
+   /v1/ecns/:id/withdraw` (`ecn:manage`, `lockVersion`) — same shape, `draft→rejected`, audited
+   `status_changed`. `POST /v1/ecns/:id/close` (`ecn:manage`, `lockVersion`) — `implementation→closed`, audited
+   `status_changed`.
+4. **New (§0b D3):** `POST /v1/ecns/:id/resubmit` (`ecn:manage`, `lockVersion`) — in one transaction: `UPDATE
+   ecns SET stage='draft' WHERE id=$1 AND lock_version=$v AND stage='rejected'` (422 if not currently
+   `rejected`, 409 on stale `lockVersion`), then `UPDATE ecn_approvals SET decision='pending', approver=NULL,
+   decided_at=NULL, comment=NULL WHERE ecn_id=$1` (all 5 rows, unconditional — every gate needs fresh sign-off,
+   §0b D3b). Audited as a single `status_changed` event on the `ecns` row, whose `after` payload records the
+   reset (the ids of the 5 `ecn_approvals` rows it cleared) — mirroring E5's own established precedent of
+   folding a fan-out side effect into the triggering event's own payload rather than emitting one audit row per
+   affected child row. No four-eyes guard (§0b D3a) — any `ecn:manage` holder, including the ECN's own `owner`
+   or `created_by`, may call it.
+5. 409 on a stale `lockVersion` (rule 6, every route in this story); cross-tenant ECN id → 404, not 403
    (rule 8).
-5. `GET /v1/ecns/:id/approvals` (`ecn:view`) — the 4-row tracker, read-only, for the detail view.
+6. `GET /v1/ecns/:id/approvals` (`ecn:view`) — the 5-row tracker, read-only, for the detail view.
 
-**Web/Mobile/Shared:** Web (interim ECN detail view w/ approval tracker, flagged §5; submit/approve/reject/
-close/withdraw actions, capability-gated visibly not just server-side). Mobile: unaffected. Shared: migration
-`0072`'s `ecn_approvals` table (no `role_required` column); `EcnApprovalDto`/`DecideEcnApprovalBody` in
-`packages/types`.
+**Web/Mobile/Shared:** Web (interim ECN detail view w/ 5-row approval tracker, flagged §5; submit/approve/
+reject/close/withdraw/resubmit actions, capability-gated visibly not just server-side). Mobile: unaffected.
+Shared: migration `0072`'s `ecn_approvals` table (5 gated `stage` values, no `role_required` column);
+`EcnApprovalDto`/`DecideEcnApprovalBody` in `packages/types`.
 
 ### E5 — Affected documents/suppliers + real auto-revision on implementation
 
 **Design:** `ECNWorkbench` header text, "auto-revises affected documents"; `ECNList`'s `eff` column ("18
-docs," etc. — an affected-record count).
+docs," etc. — an affected-record count). **Timing decided, not open (§0b D2):** auto-revise fires exactly where
+§3.2 originally specified — on `pilot→implementation`, never earlier — the jsx's own documents-before-pilot row
+ordering is confirmed to be another mock inaccuracy, not a real sequencing signal; `ppap`'s insertion elsewhere
+in the pipeline (between `risk_review` and `cab_approval`, §0b D1) has no bearing on this trigger point.
 
 UC
 - Happy: an ECN's detail view lets an author (`ecn:manage`, only while `stage` is `draft` through `pilot`,
@@ -901,17 +962,39 @@ configurable?" as an open sign-off question — this section proposes the resolu
 of the two jsx sources (`ECNKanban`'s named, structural column set) as the backbone, reconciling `ECNList`'s
 "Doc revision" label, and closing the missing reject path.
 
-**Proposed canonical pipeline** (`packages/core/src/state-machines/ecn.ts`, §2 E1 AC2):
+**Proposed canonical pipeline, now including the real `ppap` gate (§0b D1):**
 
-`draft → feasibility → risk_review → cab_approval → pilot → implementation → closed`, with **every** pre-
-`implementation` stage able to move to a terminal `rejected` state instead of advancing. **Every transition now
-has a named, callable route (§0 B1 — the version approved 2026-09-30 only covered the 4 gated transitions;
-`draft→feasibility`, `implementation→closed`, and `draft→rejected` had no route at all):** `draft→feasibility`
-via `POST /v1/ecns/:id/submit` (`ecn:manage`); `draft→rejected` via `POST /v1/ecns/:id/withdraw` (`ecn:manage`
-— an author cancelling their own draft, not a four-eyes decision, since no `ecn_approvals` row exists yet at
-`draft`); the 4 gated stages' approve/reject via `POST /v1/ecns/:id/approvals/:stage` (`ecn:approve`);
-`implementation→closed` via `POST /v1/ecns/:id/close` (`ecn:manage`). The Kanban's drag action is named for
-every one of the 8 columns (E2, revised) — no column is left without a defined drag behavior.
+`draft → feasibility → risk_review → ppap → cab_approval → pilot → implementation → closed`, with **every**
+pre-`implementation` stage able to move to a terminal `rejected` state instead of advancing, and `rejected`
+itself able to move back to `draft` via resubmission (§0b D3, below). **Every transition has a named, callable
+route (§0 B1 — the version approved 2026-09-30 only covered the 4 gated transitions; `draft→feasibility`,
+`implementation→closed`, and `draft→rejected` had no route at all):** `draft→feasibility` via `POST
+/v1/ecns/:id/submit` (`ecn:manage`); `draft→rejected` via `POST /v1/ecns/:id/withdraw` (`ecn:manage` — an
+author cancelling their own draft, not a four-eyes decision, since no `ecn_approvals` row exists yet at
+`draft`); **`rejected→draft` via `POST /v1/ecns/:id/resubmit` (`ecn:manage`, §0b D3, below)**; the 5 gated
+stages' approve/reject via `POST /v1/ecns/:id/approvals/:stage` (`ecn:approve`); `implementation→closed` via
+`POST /v1/ecns/:id/close` (`ecn:manage`). The Kanban's drag action is named for every one of the 9 columns (E2,
+revised) — no column is left without a defined drag behavior.
+
+**PPAP — decided as a real 5th approval gate, not a mock error (§0b D1):** `ECNList`'s row `ECN-2026-0180`
+(`s: 'ppap', stl: 'PPAP', step: 4, of: 6`, §3.2a Q1) is confirmed by the user to be a genuine pipeline stage,
+placed `risk_review → ppap → cab_approval` — PPAP (Production Part Approval Process, a real IATF 16949
+production-readiness confirmation) logically precedes the Change Approval Board's own sign-off, and this
+placement does not contradict P19 (which names no fixed stage count) or the rest of the jsx (`ECNKanban`'s
+column set already omitted one real thing, "Rejected," before this sprint added it back — a missing "PPAP"
+column there carries no more weight against PPAP being real than that omission carried against the reject
+path). `ppap` is backed by its own `ecn_approvals` row and the same `admin`/`manager` four-eyes rule as the
+other 4 gates — not a special case (§2 E4 AC1).
+
+**Resubmission — `rejected → draft`, decided as in scope (§0b D3, closing Q33):** modelled directly on
+`documentMachine`'s own real `rejected → draft` transition (`document.ts:17`, an unguarded transition in the
+map) rather than inventing a new shape. `POST /v1/ecns/:id/resubmit` (`ecn:manage`, not owner-restricted —
+matches documents' own precedent, which restricts this transition no further) moves `stage` back to `draft`
+and, in the same transaction, resets every one of the 5 `ecn_approvals` rows to `pending` (a resubmitted ECN
+needs fresh sign-off at every gate — no stale pre-rejection approval carries forward), audited as the ECN's own
+`status_changed` event. `owner` becomes `PATCH`able again the moment `stage` returns to `draft` — the existing
+"`owner` PATCHable only while `stage='draft'`" rule is stage-based, not a one-way ratchet, so resubmission
+genuinely reopens it, exactly as it was open the first time the ECN was in `draft` (§2 E1 AC1/AC3).
 
 **Reconciling `ECNList`'s "Doc revision" label:** this is **not** a genuine 7th human-approval stage — it is
 `ECNList`'s own inaccurate depiction of what is actually the **auto-revise-documents side effect** (E5) that
@@ -921,8 +1004,9 @@ transaction, the instant the pipeline reaches `implementation`. `ECNList`'s mock
 show it as a 5th of 6 human steps — this is stated here as a found-and-corrected mock defect (same class as
 Sprint 04's `R-NNN` code-format correction), not a silent reproduction of an inaccurate label.
 
-**Human approval gates, exactly 4:** `feasibility`, `risk_review`, `cab_approval`, `pilot` — each backed by
-one `ecn_approvals` row (§2 E4 AC1). **Every gate requires the same role, `admin` or `manager`** (fixed and
+**Human approval gates, exactly 5 (§0b D1 adds `ppap`):** `feasibility`, `risk_review`, `ppap`, `cab_approval`,
+`pilot` — each backed by one `ecn_approvals` row (§2 E4 AC1). **Every gate requires the same role, `admin` or
+`manager`** (fixed and
 uniform this sprint, resolving P19's "fixed vs configurable" question as **fixed**, mirroring `documentMachine`'s
 own admin/manager-only rule — the only real precedent this codebase has for "who signs off a controlled
 change." A configurable, stage-specific role (e.g., "CAB requires admin only," "Pilot requires the plant
@@ -944,10 +1028,11 @@ independently confirms supplier-change ECNs are a real dependency ("Relates to: 
 `linkedEcns`"). Proposed: `material` is added as a genuine 4th value, not silently dropped to match P19's
 narrower list nor silently invented without justification.
 
-**Reject path added (`ECNKanban` corrected to 8 columns, adding "Rejected"):** the header text's own claim of
-a "multi-stage approval workflow" necessarily implies a stage can be *rejected*, not only approved — the jsx's
-Kanban simply never drew that column. Flagged for the designer (§5) as a real, evidenced addition to the
-board, not an invented one.
+**Reject path added (`ECNKanban` corrected to 9 columns, adding "Rejected" and "PPAP"):** the header text's own
+claim of a "multi-stage approval workflow" necessarily implies a stage can be *rejected*, not only approved —
+the jsx's Kanban simply never drew that column; separately, `ppap` (§0b D1) is a genuine 5th gated column the
+board never drew either. Both flagged for the designer (§5) as real, evidenced additions to the board, not
+invented ones.
 
 **"Auto-revises affected documents" — the real mechanism (§2 E5), stated plainly for sign-off, corrected (§0
 B3):** on the `pilot → implementation` transition, for every `entity_links` row of kind `document` attached to
@@ -973,38 +1058,47 @@ codebase (§1a) — only `document`/`supplier` linking ships; a parts master tab
 sprint doesn't introduce.
 
 **What the user is being asked to approve:** the `ecns`/`ecn_approvals` schema (§2 E1 AC1, E4 AC1, now without
-`role_required`, a dead field, §0 S8); the canonical 6-stage-plus-rejected machine above, with the previously-
+`role_required`, a dead field, §0 S8); the canonical 7-stage-plus-rejected machine above, with the previously-
 missing `submit`/`withdraw`/`close` routes making every transition drivable (§0 B1); the fixed, uniform
 admin/manager-only approval-role rule; the stricter-than-documents four-eyes rule and the `owner`-frozen-after-
 `draft` rule (§0 B2); the 4-value `change_type` enum (adding `material`); the real `DocumentsService.
 newVersion`-based auto-revision mechanism, corrected to preserve the document's file and owner and to isolate
 each document's attempt in its own `SAVEPOINT` (§0 B3); and the exclusion of "affected parts" linking (no real
-target exists to link to).
+target exists to link to). **Amendment 2 (§0b), now decided by the user and folded in above:** `ppap` as a real
+5th approval gate placed `risk_review → ppap → cab_approval` (D1); the auto-revise trigger point confirmed
+unchanged at `pilot→implementation` (D2); and `rejected → draft` resubmission via a new `resubmit` route,
+resetting all 5 `ecn_approvals` rows and reopening `owner` (D3).
 
-### 3.2a — jsx-fidelity questions found on a closer re-read, genuinely new, not resolved here (§0 B8b)
+### 3.2a — jsx-fidelity questions found on a closer re-read — BOTH NOW RESOLVED (§0b, Amendment 2)
 
 Re-reading `ECNList` (`qms-modules.jsx:549-591`) a second time, past what the first pass caught, surfaced two
-more real inconsistencies between the jsx and the canonical machine §3.2 already proposes. Per the architecture
-review's own instruction, these are **not** silently resolved the way the original §3.2 resolved "Doc
-revision" — they go back to the user as explicit questions:
+more real inconsistencies between the jsx and the canonical machine §3.2 already proposes. The architecture
+review's own instruction was not to silently resolve these the way the original §3.2 resolved "Doc revision" —
+they went back to the user as explicit questions, and **the user has now decided both (2026-09-30, §0b)**:
 
 1. **Is "PPAP" a real, distinct stage?** Row `ECN-2026-0180` (`qms-modules.jsx:562`) is shown at
-   `s: 'ppap', stl: 'PPAP', step: 4, of: 6` — a stage name that appears **nowhere** in P19, `ECNKanban`, or the
-   canonical 6-stage machine this sprint proposes. Two readings are both plausible: (a) "PPAP" is a genuine 7th
-   pipeline stage this sprint's machine is missing (relevant given PPAP — Production Part Approval Process — is
-   a real IATF 16949 concept, and this row is specifically the supplier/material-change ECN that justified
-   adding `material` to `change_type` at all); or (b) it's `ECNList`'s own mock error, the same class of defect
-   as "Doc revision" already was, and this row simply meant `cab_approval` (where a supplier-change ECN's
-   sign-off would plausibly include a PPAP review). **The PO does not pick an answer here — the user must.**
+   `s: 'ppap', stl: 'PPAP', step: 4, of: 6` — a stage name that appeared nowhere in P19, `ECNKanban`, or the
+   original 6-stage machine this sprint proposed. Two readings were plausible: (a) "PPAP" is a genuine 7th
+   pipeline stage the machine was missing; or (b) it's `ECNList`'s own mock error, the same class of defect as
+   "Doc revision" already was, and this row simply meant `cab_approval`.
+   **RESOLVED (D1): (a).** PPAP is a real, distinct 5th approval gate, placed `risk_review → ppap →
+   cab_approval` — see §3.2's "PPAP — decided as a real 5th approval gate" paragraph above for the full
+   placement rationale and the confirmation that it contradicts nothing else in P19 or the jsx. Cascaded
+   through: `ECN_STAGE_ORDER` (§2 E1 AC2, 7 entries), the `stage`/`ecn_approvals.stage` enums (§2 E1 AC1, E4
+   AC1), the approve/reject route's accepted-stage list (§2 E4 AC2, 5 values), the Kanban's column list (§2 E2,
+   9 total), the approval tracker's row count (§2 E4 AC1/AC6, 5 rows), and the design follow-up naming one more
+   Kanban column and one more tracker row (§5).
 2. **Does documents-before-pilot row ordering mean auto-revise should fire earlier?** `ECNList`'s own row order
    places `ECN-2026-0182` ("Doc revision," step 5, line 560) **before** `ECN-2026-0181` ("Pilot run," step 6,
    line 561) — i.e., the mock's own numbering implies document revision happens *before* the pilot run, while
-   the approved §3.2 fires auto-revise **after** pilot, on `pilot→implementation`. Two readings: (a) the jsx's
-   step-ordering is just an artifact of unrelated row sort order in a static fixture, not a real sequencing
-   claim (the same way "Doc revision" itself turned out to be a mislabeled side effect, not a real stage); or
-   (b) it's a genuine signal that documents should be revised earlier in the pipeline (e.g., on
-   `cab_approval→pilot`, so the pilot run itself uses the revised document) rather than at the very end.
-   **Left open for the user, not decided by this amendment.**
+   §3.2 fires auto-revise **after** pilot, on `pilot→implementation`. Two readings were plausible: (a) the
+   jsx's step-ordering is just an artifact of unrelated row sort order in a static fixture, not a real
+   sequencing claim; or (b) documents should be revised earlier in the pipeline (e.g., on `cab_approval→pilot`).
+   **RESOLVED (D2): (a).** The documents-before-pilot ordering is confirmed to be another instance of the same
+   class of mock inaccuracy as "Doc revision" itself and PPAP's own ambiguous positioning — not a real
+   sequencing claim. Auto-revise timing is **unchanged** from what was originally approved 2026-09-30: it still
+   fires exactly on `pilot→implementation`, nowhere earlier. No mechanism, route, or AC changes as a result of
+   this decision — it closes the question without altering §2 E5's already-approved behavior.
 
 ---
 
@@ -1016,10 +1110,10 @@ revision" — they go back to the user as explicit questions:
 | C2 | none (uses C1's table) | `POST /v1/complaints` gains `attachmentFileIds` | `ComplaintsService.create`, `FilesService.presign` extended for `entityKind: "complaint"` | `created`, in-tx | `complaint:manage` | file link verified tenant+entity_kind+sha256, mirrors Sprint 05 B7 |
 | C3 | none | `POST /v1/complaints/:id/acknowledge`, `POST /v1/complaints/:id/close` | `ComplaintsService` | `updated` (acknowledge); `status_changed` (close) | `complaint:manage` | forced RLS; 404; 409 on stale lockVersion |
 | C4 | `0071` also (`eight_ds.source`/`source_id`, unconstrained; **composite FKs** `complaints.ncr_id`/`eight_d_id`/`capa_id`, §0 S1) | `POST /v1/complaints/:id/convert` (discriminated union incl. `existingNcrId`, §0 B8c; `lockVersion` required, §0 B6a) | `ComplaintsService.convert` (`SELECT...FOR UPDATE`, real per-target capability gate, §0 B6a/f) reusing `NcrsService.create`/`EightDService.create`/`CapasService.create` + `packages/core/state-machines/complaint.ts` (pure); **adjacent fix: `audits.service.ts`'s `raiseCapa` link-back moved into `withAudit`, §0 B6e** | `created` (target record); complaint audited on **every** convert — `status_changed` when status moves, `updated` otherwise, §0 B6d | `complaint:manage` + **real, enforced** target capability (`ncr:create`/`ncr:manage`/`capa:manage`, §0 B6f) | forced RLS; 404; 409 on stale `lockVersion`; 422 if already `closed` (§0 B6b) |
-| E1 | `0072_ecn.sql` (`ecns` incl. `auto_revise_result jsonb`, §0 B3d; `EntityKind`/`entity_links` widening) | `GET/POST /v1/ecns`, `GET/PATCH /v1/ecns/:id` (`owner` PATCHable only in `draft`, rejected once `closed`/`rejected`, §0 B2/S4) | `EcnService` + `packages/core/state-machines/ecn.ts` (pure, stricter owner-or-created_by four-eyes on both approve/reject, §0 B2) | `created`/`updated`, in-tx | `ecn:view`/`ecn:manage` | forced RLS; cross-tenant id → 404 |
-| E2 | none | reuses E4's approve route + E1's new `submit`/`withdraw`/`close`; `GET /v1/ecns/summary` (new) | `EcnService.summary` | none (read-only) | `ecn:view` (read); `ecn:manage` (Draft/Implementation drag, §0 B1); `ecn:approve` (gated-stage drag) | RLS-scoped |
+| E1 | `0072_ecn.sql` (`ecns` incl. `auto_revise_result jsonb`, §0 B3d; `stage`/`ecn_approvals.stage` enums include `ppap`, §0b D1; `EntityKind`/`entity_links` widening) | `GET/POST /v1/ecns`, `GET/PATCH /v1/ecns/:id` (`owner` PATCHable only while `stage='draft'`, incl. a `draft` reached via resubmit, §0 B2/S4/§0b D3) | `EcnService` + `packages/core/state-machines/ecn.ts` (pure, 7-stage `ECN_STAGE_ORDER` incl. `ppap`, `rejected→draft` transition, stricter owner-or-created_by four-eyes on both approve/reject, §0 B2/§0b D1/D3) | `created`/`updated`, in-tx | `ecn:view`/`ecn:manage` (unchanged, §0b D1) | forced RLS; cross-tenant id → 404 |
+| E2 | none | reuses E4's approve route + E1's `submit`/`withdraw`/`close`/`resubmit`; `GET /v1/ecns/summary` (new, 9 stage keys) | `EcnService.summary` | none (read-only) | `ecn:view` (read); `ecn:manage` (Draft/Implementation/Rejected drag, §0 B1/§0b D3); `ecn:approve` (5 gated-stage drags) | RLS-scoped |
 | E3 | none | CreateWizard's existing create route, `"ecn"` type added | `EcnService.create` (shared with E1) | `created` | `ecn:manage` | forced RLS |
-| E4 | `0072` also (`ecn_approvals`, **no `role_required` column**, §0 S8) | **New (§0 B1):** `POST /v1/ecns/:id/submit`, `POST /v1/ecns/:id/withdraw`, `POST /v1/ecns/:id/close`; existing `POST /v1/ecns/:id/approvals/:stage` (exact statement order, §0 S2), `GET /v1/ecns/:id/approvals` | `EcnService.decideApproval`/`.submit`/`.withdraw`/`.close` | `status_changed` (ecn, every transition incl. the 3 new routes); `updated` (ecn_approvals row) | `ecn:approve` (decide); `ecn:manage` (submit/withdraw/close); `ecn:view` (read tracker) | forced RLS; cross-tenant id → 404; 409 on stale lockVersion (every route) |
+| E4 | `0072` also (`ecn_approvals` — 5 gated `stage` values incl. `ppap`, **no `role_required` column**, §0 S8/§0b D1) | **New (§0 B1):** `POST /v1/ecns/:id/submit`, `POST /v1/ecns/:id/withdraw`, `POST /v1/ecns/:id/close`; **new (§0b D3):** `POST /v1/ecns/:id/resubmit`; existing `POST /v1/ecns/:id/approvals/:stage` (5-value stage list, exact statement order, §0 S2/§0b D1), `GET /v1/ecns/:id/approvals` (5-row tracker) | `EcnService.decideApproval`/`.submit`/`.withdraw`/`.close`/`.resubmit` | `status_changed` (ecn, every transition incl. `submit`/`withdraw`/`close`/`resubmit` — `resubmit`'s payload records the `ecn_approvals` reset, §0b D3); `updated` (ecn_approvals row, per-decision) | `ecn:approve` (decide); `ecn:manage` (submit/withdraw/close/resubmit — resubmit **not** owner-restricted, §0b D3a); `ecn:view` (read tracker) | forced RLS; cross-tenant id → 404; 409 on stale lockVersion (every route) |
 | E5 | `0072` also (`ecns.auto_revise_result`) | `POST /v1/ecns/:id/link` (`FOR SHARE` lock, §0 S2; stage `draft`-`pilot` only), **new** `POST /v1/ecns/:id/links/:linkId/delete` (§0 B4), `GET /v1/ecns/:id/links` | `EcnService.link`/`.unlink`, auto-revise call into `DocumentsService.newVersion` (existing, **new optional `ownerId` param**, §0 B3b) + `packages/core/version-bump.ts` (pure); each document's attempt in its own `SAVEPOINT` (§0 B3c) | `linked`/`unlinked` (entity_links row); auto-revise result persisted into the ECN's own `status_changed` event `after` payload (§0 B3d) | `ecn:manage` (link/unlink); side-effect of `ecn:approve` (auto-revise) | ECN-specific unlink route closes the generic-route bypass (§0 B4); existing `assertEntityVisible` (rule 8), now also capability-checked |
 | X1 | none | none | `apps/api/src/collab/entity-ref.ts` (`assertEntityVisible` gains a capability check, §0 B4), `comments.service.ts`/`comments.controller.ts` (membership threaded through, §0 B4), `chat.ts`'s `ENTITY_SPECS` (`label: "subject"` for complaint, §0 S3), `document-detail.tsx`/`capa-detail.tsx`'s own local `ENTITY_ROUTE`/`ENTITY_LABEL` maps (§0 S3), `apps/web/.../graph-kinds.ts`, `search.service.ts`'s `KindConfig` (+`capability`/`titleColumn`, §0 B5), `audit-signal.ts`'s `ENTITY_TOPIC` — **no new job; the complaint SLA check rides the existing `sla.sweep` cadence, §0 B7a** | none new | `complaint:view`/`complaint:manage`/`ecn:view`/`ecn:manage`/`ecn:approve` added to `packages/core/src/rbac.ts` per §2 X1 AC1 | n/a |
 
@@ -1038,8 +1132,10 @@ build-time correction, mirroring Sprints 04/05's own convention — Sprint 07 ta
   modules.jsx` lines 332-475.
 - `IntakeForm` (the drawn create dialog) — `qms-modules.jsx` lines 477-523.
 - `ECNList` (list table) — `qms-modules.jsx` lines 549-591.
-- `ECNKanban` (7-column board) — `qms-modules.jsx` lines 593-633, **with the corrected 8th "Rejected" column
-  the designer must add** (§3.2).
+- `ECNKanban` (7-column board) — `qms-modules.jsx` lines 593-633, **with the corrected 9-column set the
+  designer must add: "Rejected" (§3.2) and "PPAP" (§0b D1, between Risk review and CAB approval) — a required
+  follow-up design touch-up, not yet reflected in `docs/design/DESIGN-06-complaints-ecn.md`'s existing Kanban
+  board**.
 
 **NO existing jsx — designer must draw these, in the existing visual language, before Gate 1:**
 1. **Complaint detail panel** (C3) — no board exists at all; the list rows are clickable but wired to nothing
@@ -1049,11 +1145,14 @@ build-time correction, mirroring Sprints 04/05's own convention — Sprint 07 ta
    `IntakeForm` layout (a 2-column grid already exists; these fit as two more fields, likely alongside
    Customer/Severity at the top).
 3. **ECN detail view w/ approval tracker** (E4) — no board exists at all; P19 §3 calls for one but the jsx
-   never draws it. Needs: field grid, 4-row approval tracker (stage/decision/approver/decided-at), affected-
-   records panel (reusing `LinkPicker`'s existing visual pattern from Sprint 04), Approve/Reject actions
-   (visibly disabled, not merely 403'd, for a non-approver).
-4. **ECN Kanban's 8th "Rejected" column** (§3.2) — a small, evidenced addition to the existing `ECNKanban`
-   board, same visual treatment as the other 7 columns.
+   never draws it. Needs: field grid, **5-row approval tracker** (stage/decision/approver/decided-at, incl.
+   `ppap`, §0b D1), affected-records panel (reusing `LinkPicker`'s existing visual pattern from Sprint 04),
+   Approve/Reject actions (visibly disabled, not merely 403'd, for a non-approver), **and a Resubmit action
+   (§0b D3, item 12 below)**.
+4. **ECN Kanban's 9-column set** (§3.2/§0b D1) — a small, evidenced addition to the existing `ECNKanban`
+   board: the "Rejected" column and the "PPAP" column (placed between Risk review and CAB approval), same
+   visual treatment as the other 7 columns. **This is a required follow-up design touch-up to the existing
+   `docs/design/DESIGN-06-complaints-ecn.md` board — not assumed already covered by it.**
 5. **ECN create-wizard Details step board** — no jsx anywhere shows ECN's Details-step fields (changeType/
    title/description/changeRisk/effectiveDate/owner) or the 3-step branch; a new board in the existing
    CreateWizard visual language, mirroring risk's R4 precedent board.
@@ -1065,10 +1164,11 @@ build-time correction, mirroring Sprints 04/05's own convention — Sprint 07 ta
    in the existing visual language, not a new full dialog, with the "link existing" option opening a compact
    NCR-picker (search-by-code, reusing whatever existing NCR-lookup pattern the codebase has).
 8. **Kanban drag-and-drop visual states** (E2) — a draggable-card affordance, capability-gated **per column**
-   (§0 B1 — `ecn:manage` on Draft/Implementation cards, `ecn:approve` on the 4 gated-stage cards) vs. a static
-   (non-draggable, visibly so, not silently disabled) card for everyone else; Closed/Rejected cards are never
-   draggable for anyone. No existing drag-and-drop precedent exists anywhere else in this codebase's board
-   views to reference, so this is genuinely new interaction design, not a reskin.
+   (§0 B1/§0b D3 — `ecn:manage` on Draft/Implementation/**Rejected** cards, `ecn:approve` on the 5 gated-stage
+   cards incl. PPAP) vs. a static (non-draggable, visibly so, not silently disabled) card for everyone else;
+   Closed cards are never draggable for anyone; **Rejected cards are draggable exactly one way, back to Draft
+   (resubmit), never to any other column**. No existing drag-and-drop precedent exists anywhere else in this
+   codebase's board views to reference, so this is genuinely new interaction design, not a reskin.
 9. **ECN detail view's submit/withdraw/close actions** (§0 B1) — three new buttons alongside E4's
    Approve/Reject, each visible only in the stage it applies to (`draft` → Submit + Withdraw; `implementation`
    → Close), same visual treatment as the existing action buttons.
@@ -1079,6 +1179,10 @@ build-time correction, mirroring Sprints 04/05's own convention — Sprint 07 ta
 11. **ECN affected-records panel's remove affordance** (§0 B4) — a small "×"/remove control per linked
     document/supplier row, visible only while `ecn:manage` + stage `draft`-`pilot`, calling the new unlink
     route.
+12. **ECN detail view's Resubmit action** (new, §0b D3) — a button visible only while `stage = 'rejected'`,
+    same visual treatment as the existing Submit/Withdraw/Close actions (item 9 above), calling the new
+    `resubmit` route; capability-gated `ecn:manage`, not owner-restricted, so visible to any manage-capable
+    viewer, not only the ECN's own author.
 
 ## 6. Dead-end audit
 
@@ -1096,9 +1200,12 @@ build-time correction, mirroring Sprints 04/05's own convention — Sprint 07 ta
 | `ECNKanban` cards | Static, no drag | Real drag-to-advance for `ecn:approve` holders (E2) |
 | ECN "auto-revises affected documents" (header claim) | No mechanism anywhere | Real, transactional, `DocumentsService.newVersion`-based (E5) |
 | ECN "Doc revision" stage (`ECNList` mock) | A mislabeled manual step that never existed as such | Corrected: it is the real, automatic auto-revise side effect (§3.2), not a 5th human stage |
-| ECN reject path | Not drawn anywhere (`ECNKanban` has no "Rejected" column despite claiming "approval workflow") | Real, added: every gated stage can reject (E4), Kanban gains an 8th column (§3.2/§5) |
+| ECN reject path | Not drawn anywhere (`ECNKanban` has no "Rejected" column despite claiming "approval workflow") | Real, added: every gated stage can reject (E4), Kanban gains a "Rejected" column (§3.2/§5) |
+| ECN "PPAP" stage (`ECNList` mock, row `ECN-2026-0180`) | Named nowhere in P19, `ECNKanban`, or the pre-Amendment-2 machine — a stage with no gate, no route, no Kanban column | Real, added: `ppap` is a genuine 5th approval gate (`risk_review → ppap → cab_approval`), its own `ecn_approvals` row, its own Kanban column, its own tracker row (§0b D1) |
+| ECN "Rejected" Kanban column | (new after Amendment 1) had no outgoing drag defined at all — a rejected ECN was a dead end on the board | Real: Rejected → Draft drag calls the new `resubmit` route (§0b D3); Closed remains the board's only true dead end |
 | "Affected parts" linking (P19's own text) | No `parts` table/`EntityKind` anywhere | **Not built** — honestly excluded (§1a/§3.2), no picker offers a fake "part" kind |
 | **(§0 B1) ECN Draft/Implementation Kanban columns** | No route existed to drive `draft→feasibility`, `draft→rejected`, or `implementation→closed` — dragging a card in/out of these columns would have had nothing to call | Real `submit`/`withdraw`/`close` routes wired to every drag action in these columns (E2/E4, revised) |
+| **(§0b D3) ECN Rejected stage / detail view** | No resubmission path existed — a rejected ECN was fully terminal, with no Resubmit button drawn or wired and no route to call | Real `POST /v1/ecns/:id/resubmit` route, wired to a real Resubmit button in the ECN detail view (visible only at `stage='rejected'`) and to the Kanban's Rejected→Draft drag (§0b D3, §5 item 12) |
 | **(§0 B4) `POST /v1/entity-links/:id/delete`, applied to an ECN's own document link** | Would have let anyone with generic link-delete access strip an ECN→document link after `implementation`, bypassing E5's stage-freeze | Real ECN-specific `POST /v1/ecns/:id/links/:linkId/delete`, gated `ecn:manage` + stage `draft`-`pilot` (E5, revised) — the generic route no longer suffices for this guarantee |
 | **(§0 B8c) "Link / Create NCR" button's "link" half** | The jsx's own button text always implied linking to an existing NCR too; the original build only wired "create new" | Real "link to an existing NCR" convert variant added (C4, revised; §5 item 7) |
 
@@ -1119,24 +1226,30 @@ not "never say no."
 - **Q29 (new).** "Affected parts" linking on ECN is not built — no `parts` table or `EntityKind` exists
   anywhere in this codebase (§1a). A future sprint that introduces a real parts/BOM master table can extend
   ECN's `LinkPicker` to a third kind at that point; not invented here.
-- **Q30 (new, revised §0 S8).** ECN's per-stage approval gate is fixed and uniform (`admin`/`manager` at every
-  one of the 4 gates) this sprint, resolving P19's own "fixed vs configurable" question as fixed (§3.2) —
+- **Q30 (new, revised §0 S8, updated §0b D1).** ECN's per-stage approval gate is fixed and uniform
+  (`admin`/`manager` at every one of the 5 gates, now including `ppap`) this sprint, resolving P19's own
+  "fixed vs configurable" question as fixed (§3.2) —
   enforced entirely in `ecnMachine`'s guard code, with **no `role_required` column** (removed, §0 S8 — a stored
   value nothing read). Per-stage-distinct roles (e.g., "CAB requires admin only," "Pilot requires the plant
   manager") is a real, named future enhancement once a settings surface exists to configure it (Sprint 07's
   Workspace/Process settings wave is the natural home) — not silently built now with no UI, and not silently
   promised either.
-- **Q33 (new, §0 S9).** `documentMachine` allows `rejected → draft` (resubmission); the ECN machine treats
-  `rejected` as fully terminal, with no resubmission path. Is this asymmetry intended (an ECN needs a genuinely
-  new record if rejected, since design/process/tooling changes carry more downstream weight than a document
-  revision), or should ECN also allow `rejected → draft`? **Left open for the user/PO to decide — not resolved
-  by this amendment.**
-- **Q34 (new, §0 B8b — see §3.2a for full detail).** Is `ECNList`'s "PPAP" stage (row `ECN-2026-0180`, step 4
-  of 6) a real 7th pipeline stage the canonical machine is missing, or is it the mock's own error, the same
-  class of defect as "Doc revision" already was? Does `ECNList`'s own documents-before-pilot row ordering mean
-  auto-revise should fire earlier in the pipeline (e.g., on `cab_approval→pilot`) rather than on
-  `pilot→implementation` as this file currently proposes? **Both left open for the user — not silently resolved
-  a second time.**
+- **Q33 (new, §0 S9) — RESOLVED (§0b D3, 2026-09-30).** `documentMachine` allows `rejected → draft`
+  (resubmission); the pre-Amendment-2 ECN machine treated `rejected` as fully terminal, with no resubmission
+  path. **Decided: yes, ECN also allows `rejected → draft`**, modelled directly on `documentMachine`'s own
+  precedent — any `ecn:manage` holder may resubmit (not owner-restricted, matching documents), every
+  `ecn_approvals` row resets to `pending` on resubmission (fresh sign-off required at every gate), and `owner`
+  becomes `PATCH`able again since it is genuinely back in `draft`. See §0b D3 and §3.2's "Resubmission" section
+  for the full mechanism, and §2 E1/E4 for the schema/route/AC detail. No longer open.
+- **Q34 (new, §0 B8b — see §3.2a for full detail) — RESOLVED (§0b D1/D2, 2026-09-30).** Is `ECNList`'s "PPAP"
+  stage (row `ECN-2026-0180`, step 4 of 6) a real 7th pipeline stage the canonical machine is missing, or is it
+  the mock's own error, the same class of defect as "Doc revision" already was? Does `ECNList`'s own
+  documents-before-pilot row ordering mean auto-revise should fire earlier in the pipeline (e.g., on
+  `cab_approval→pilot`) rather than on `pilot→implementation`? **Decided: PPAP is real** — a genuine 5th
+  approval gate, placed `risk_review → ppap → cab_approval` (§0b D1). **Auto-revise timing is unchanged** —
+  still fires on `pilot→implementation`; the documents-before-pilot row ordering is confirmed to be another
+  mock inaccuracy, not a real sequencing signal (§0b D2). Both parts closed; see §3.2/§3.2a for the full
+  resolution. No longer open.
 - **Q31 (new).** `apps/web/src/features/graph/graph-kinds.ts`'s `GRAPH_KINDS` map gains real `complaint`/`ecn`
   entries purely to satisfy TypeScript's exhaustiveness check (widening `EntityKind` forces it), but neither
   kind will actually render in the knowledge-graph explorer this sprint — `apps/api/src/graph/graph.service.ts`
@@ -1161,32 +1274,38 @@ not "never say no."
 
 ## 8. Definition of Done
 
-- [ ] **User has explicitly re-approved the corrected §3** (see §0's DELTAS block: the 3 new ECN routes, the
-      stricter owner-frozen/owner-or-created_by four-eyes rule, `newVersion`'s new `ownerId` parameter, the
-      SLA cadence/threshold corrections, and the §3.2a jsx-fidelity questions — PPAP stage, auto-revise timing
-      — plus the reinstated "link to an existing NCR" capability) — build does not start before this.
+- [ ] **User has explicitly re-approved the corrected §3, including Amendment 2 (§0b)** (see §0's DELTAS block:
+      the 3 new ECN routes, the stricter owner-frozen/owner-or-created_by four-eyes rule, `newVersion`'s new
+      `ownerId` parameter, the SLA cadence/threshold corrections, and the reinstated "link to an existing NCR"
+      capability; **plus §0b's three now-decided deltas: `ppap` as a real 5th approval gate, auto-revise timing
+      confirmed unchanged, and `rejected→draft` resubmission via the new `resubmit` route**) — build does not
+      start before this.
 - [ ] Migrations `0071_complaints.sql` (`complaints` with no `customer_color` column; `complaint_attachments`
       with its `UNIQUE(tenant_id,complaint_id,file_id)`; `eight_ds.source`/`source_id`; `eight_ds_tenant_id_uq`/
       `capas_tenant_id_uq`; composite FKs on `complaints.ncr_id`/`eight_d_id`/`capa_id`; `EntityKind`/
-      `entity_links` widening) and `0072_ecn.sql` (`ecns` with `auto_revise_result jsonb`, `ecn_approvals` with
-      no `role_required` column, `EntityKind`/`entity_links` widening) applied; `pnpm db:check` green; `pnpm
-      test:rls` green including both new tables, the composite FKs, and the widened `entity_links` kinds.
+      `entity_links` widening) and `0072_ecn.sql` (`ecns` with `auto_revise_result jsonb`, **`stage` enum with 9
+      values incl. `ppap`**, `ecn_approvals` with **5 gated `stage` values incl. `ppap`** and no `role_required`
+      column, `EntityKind`/`entity_links` widening) applied; `pnpm db:check` green; `pnpm test:rls` green
+      including both new tables, the composite FKs, and the widened `entity_links` kinds.
 - [ ] `packages/core/customer-color.ts`, `complaint-sla.ts`, `state-machines/complaint.ts`,
       `state-machines/ecn.ts`, `version-bump.ts` all unit-tested — including `complaintSlaState`'s **0.8**
       boundary (the existing `AT_RISK_THRESHOLD`) and both the "acknowledged late, stays breached forever" and
       "frozen at `closed_at`" rules; `complaintMachine`'s "converts backward, status doesn't move" case;
-      `ecnMachine`'s every legal/illegal transition, the stricter owner-**or**-created_by four-eyes guard on
-      **both** approve and reject, the admin/manager-only guard, and every gated stage's ability to reject;
-      `bumpMinorVersion`'s malformed-input case.
+      `ecnMachine`'s every legal/illegal transition **across its 7 ordered stages incl. `ppap`**, the stricter
+      owner-**or**-created_by four-eyes guard on **both** approve and reject, the admin/manager-only guard,
+      every one of the 5 gated stages' ability to reject, **and the new `rejected→draft` transition (no
+      four-eyes guard, matching `documentMachine`'s own unguarded precedent)**; `bumpMinorVersion`'s
+      malformed-input case.
 - [ ] `packages/core/src/codes.ts` gains `"complaint"`→`COM` and `"ecn"`→`ECN` `CodeKind` entries, unit-tested;
       created complaints/ECNs get real `COM-YYYY-NNNN`/`ECN-YYYY-NNNN` codes via the `counters` table.
 - [ ] C1's summary formulas (Open, Critical, < 24h response % cohort rule, avg time to close, avg cost, all 4
       tab counts) are unit-tested against seeded fixtures, not eyeballed against the UI — including the
       zero-denominator "—" cases for each.
-- [ ] Contract gains all routes in §4 (incl. `submit`/`withdraw`/`close`/`links/:linkId/delete` for ECN);
-      `complaint:view`/`complaint:manage`/`ecn:view`/`ecn:manage`/`ecn:approve` enforced via
-      `@RequireCapability`; RBAC grant matrix matches §2 X1 AC1 exactly (mobile RBAC config, if any, stays
-      untouched since neither module reaches mobile).
+- [ ] Contract gains all routes in §4 (incl. `submit`/`withdraw`/`close`/`resubmit`/`links/:linkId/delete` for
+      ECN); `complaint:view`/`complaint:manage`/`ecn:view`/`ecn:manage`/`ecn:approve` enforced via
+      `@RequireCapability` (unchanged set — `resubmit` and the `ppap` gate reuse existing capabilities, §0b);
+      RBAC grant matrix matches §2 X1 AC1 exactly (mobile RBAC config, if any, stays untouched since neither
+      module reaches mobile).
 - [ ] C2's attachment presign-then-link flow tested for the exact Sprint-05-precedented bypass case: a
       presign with `entity_kind` omitted must not be linkable via `attachmentFileIds` later (the `entity_kind`
       exact-match + `deleted_at IS NULL` double-check, §2 C2 AC1).
@@ -1197,10 +1316,16 @@ not "never say no."
       parallel mechanism), the real per-target capability gate (an auditor-role test proving 403 on a target
       they lack, not a silent bypass), the audit-on-every-convert rule (`updated` when status doesn't move), and
       `audits.service.ts`'s `raiseCapa` fix (its link-back now inside `withAudit`).
-- [ ] E4's submit/withdraw/close/approve/reject routes tested for: wrong-stage 422, self-approval **and**
-      self-rejection 403 for both `owner` and `created_by`, non-admin/manager 403 on approve/reject, 409 on
-      stale lockVersion (every route), reject requiring a comment, and the two-entity audit split (ecn
-      `status_changed` + ecn_approvals `updated`).
+- [ ] E4's submit/withdraw/close/approve/reject routes tested for: wrong-stage 422 (incl. approving/rejecting
+      `ppap` out of turn), self-approval **and** self-rejection 403 for both `owner` and `created_by`,
+      non-admin/manager 403 on approve/reject, 409 on stale lockVersion (every route), reject requiring a
+      comment, and the two-entity audit split (ecn `status_changed` + ecn_approvals `updated`).
+- [ ] **New (§0b D3):** `resubmit` tested for: 422 when `stage` is not `rejected`, 409 on stale `lockVersion`,
+      success moving `stage` back to `draft`, **all 5 `ecn_approvals` rows reset to `pending`/`approver=NULL`/
+      `decided_at=NULL`/`comment=NULL`** (not just the one that was rejected), `owner` becoming `PATCH`able
+      again immediately after (a follow-up `PATCH` changing `owner` succeeds where it 422'd before resubmission),
+      the ECN's own `owner`/`created_by` successfully calling it themselves (no four-eyes guard applies), and a
+      single `status_changed` audit event whose `after` payload records the approvals reset.
 - [ ] E5's auto-revise tested end to end: an ECN with 3 linked documents (one `approved` with a clean "X.Y"
       version, one `approved` with a malformed version string, one not `approved`) reaching `implementation`
       real-calls `DocumentsService.newVersion` for the clean one only, **preserving that document's own
@@ -1220,8 +1345,9 @@ not "never say no."
       4-way convert picker filtered to the caller's own capabilities), Intake-channels/SLA-matrix reference
       cards (honest, non-interactive), all empty/error/offline/permission states — browser-verified side-by-side
       against `qms-modules.jsx`'s `CustomerComplaints`/`IntakeForm`.
-- [ ] Web `/ecn` fully real: List (incl. "Affected" column) + Kanban (8 columns incl. Rejected, every column's
-      drag action wired) toggle, ECN detail view w/ approval tracker + submit/withdraw/close actions +
+- [ ] Web `/ecn` fully real: List (incl. "Affected" column, "step X of 7" progress bar incl. `ppap`) + Kanban
+      (**9 columns** incl. Rejected and PPAP, every column's drag action wired incl. Rejected→Draft resubmit)
+      toggle, ECN detail view w/ **5-row** approval tracker + submit/withdraw/close/**resubmit** actions +
       affected-records panel (incl. remove/unlink) + persisted auto-revise banner, CreateWizard `ecn` type
       (3-step branch), capability-gated drag-to-advance per column (static, visibly non-draggable otherwise),
       all empty/error/offline/permission states — browser-verified against `qms-modules.jsx`'s
@@ -1239,14 +1365,16 @@ not "never say no."
 - [ ] Full gate green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
 - [ ] Demo login re-seeded and proven 201 after the suite run (rule 12).
 - [ ] `PROGRESS.md` updated (Current status + Decisions log: manual-only intake exclusion and why, the SLA
-      table values and the 5-minute-sweep/0.8-threshold correction, the canonical stage machine plus its
-      previously-missing submit/withdraw/close routes, the `material` change-type addition, the fixed
-      admin/manager-only approval role, the stricter owner-or-created_by four-eyes rule and owner-frozen-after-
-      draft rule, the real `newVersion`-based auto-revise mechanism (with its `fileId`/`ownerId` fixes and
-      per-document `SAVEPOINT` isolation), the "affected parts" exclusion, the `customer_color` computed-on-read
-      mechanism, the composite-FK convert-link pattern, the reinstated link-to-existing-NCR capability, the
-      `assertEntityVisible`/search capability fixes, the `raiseCapa` audit fix, Q28-Q34) and `progress_mobile.md`
-      gets an explicit "Sprint 06 — mobile unaffected" line.
+      table values and the 5-minute-sweep/0.8-threshold correction, the canonical **7-stage** machine (incl.
+      the real `ppap` gate, §0b D1) plus its `submit`/`withdraw`/`close`/**`resubmit`** routes (§0b D3), the
+      `material` change-type addition, the fixed admin/manager-only approval role (now 5 gates), the stricter
+      owner-or-created_by four-eyes rule and owner-frozen-after-draft rule (and its resubmission-reopens-owner
+      corollary, §0b D3c), the real `newVersion`-based auto-revise mechanism (with its `fileId`/`ownerId` fixes,
+      per-document `SAVEPOINT` isolation, and its **confirmed-unchanged `pilot→implementation` timing**, §0b
+      D2), the "affected parts" exclusion, the `customer_color` computed-on-read mechanism, the composite-FK
+      convert-link pattern, the reinstated link-to-existing-NCR capability, the `assertEntityVisible`/search
+      capability fixes, the `raiseCapa` audit fix, Q28-Q32 plus **Q33/Q34 now resolved, not open**) and
+      `progress_mobile.md` gets an explicit "Sprint 06 — mobile unaffected" line.
 
 ## 9. Out-of-scope confirmation
 
@@ -1262,31 +1390,62 @@ continues to omit with unchanged behavior. Automated complaint-intake channels (
 (Q29) are named, explicit exclusions, not silently dropped scope. `assertEntityVisible`'s new capability check
 and `raiseCapa`'s audit fix (§0 B4/B6e) are small, named, adjacent corrections to existing shared code, not new
 scope — both are zero-behavior-change for every role/kind combination that held the relevant capability before
-this sprint.
+this sprint. **Amendment 2 (§0b) introduces no scope beyond P18/P19 either:** `ppap` is a real IATF 16949
+concept already implied by the jsx's own row and consistent with P19's own unresolved "number/identity of
+approval stages" question (§3.2a Q1); it adds one enum value and one `ecn_approvals` stage, reusing every
+existing mechanism (`ecnMachine`'s guard shape, the existing `ecn:approve` capability, the existing approval-
+tracker UI pattern) rather than inventing a new one. `resubmit` is modelled directly on `documentMachine`'s own
+real, already-shipped `rejected → draft` transition (§0b D3) — not a new mechanism either.
 
 ---
 
-**PO use-case sign-off: SIGNED (unchanged by this amendment).** Every use case (happy/error/empty/permission/
-offline/cross-tenant) across C1-C4 (register/list/KPI, intake+attachments, detail+acknowledge+close, convert),
-E1-E5 (schema+list, Kanban, CreateWizard, approval, affected-docs+auto-revise), and X1 (cross-cutting wiring) —
-**10 stories in total, none added or removed by this amendment** — still maps to a story with testable
-acceptance criteria and an explicit Web/Mobile/Shared split; §0's fixes tighten and correct those ACs, they do
-not remove use-case coverage. The dead-end audit (§6) accounts for every control the jsx introduces plus every
-new control this amendment adds (submit/withdraw/close, the ECN unlink route, the reinstated link-to-existing-
-NCR affordance); two designed-but-unbuildable elements (automated intake channels, ECN parts-linking) remain
-named and honestly excluded rather than faked. This covers **use-case coverage only** — it does **not**
-constitute approval to write any code.
+**PO use-case sign-off: SIGNED (unchanged by Amendment 1 or Amendment 2).** Every use case (happy/error/empty/
+permission/offline/cross-tenant) across C1-C4 (register/list/KPI, intake+attachments, detail+acknowledge+close,
+convert), E1-E5 (schema+list, Kanban, CreateWizard, approval, affected-docs+auto-revise), and X1 (cross-cutting
+wiring) — **10 stories in total, none added or removed by either amendment** — still maps to a story with
+testable acceptance criteria and an explicit Web/Mobile/Shared split; §0's and §0b's fixes/decisions tighten
+and extend those ACs (E1/E2/E4 gain the `ppap` gate and the `resubmit` route/AC, §0b D1/D3), they do not remove
+use-case coverage or add a new story. The dead-end audit (§6) accounts for every control the jsx introduces
+plus every new control both amendments add (submit/withdraw/close, resubmit, the ECN unlink route, the
+reinstated link-to-existing-NCR affordance); two designed-but-unbuildable elements (automated intake channels,
+ECN parts-linking) remain named and honestly excluded rather than faked. This covers **use-case coverage
+only** — it does **not** constitute approval to write any code.
 
-**§3 backend design sign-off: PENDING RE-APPROVAL — Ceremony 4 SEND BACK (2026-09-30) amendment issued.** The
-user's 2026-09-30 approval of §3 stands for everything §0 did not change; it does **not** cover §0's DELTAS
-block (new ECN `submit`/`withdraw`/`close` routes; the `owner`-frozen-after-`draft` + owner-or-created_by
-four-eyes rule; `DocumentsService.newVersion`'s new optional `ownerId` parameter; the SLA sweep-cadence/
-threshold corrections; §3.2a's two new jsx-fidelity questions; and the reinstated "link to an existing NCR"
-capability with its required composite-FK schema change) — these need the user's fresh, explicit re-approval
-before build starts. Everything else in §0 (B4-B6's RBAC/search/audit corrections, B7's remaining fixes, S1-S8)
-is a correction within the spirit of what was already approved and does not itself require re-approval, though
-the corrected §3 text should still be shown to the user for visibility. `planner` re-review of this amendment,
-the UI Lead Designer's Gate 1 audit (unchanged boards from §5, plus 3 new small board additions — submit/
-withdraw/close actions, the persisted auto-revise banner, the unlink affordance, and the 4-way convert picker),
-and the user's approval of the DELTAS above all remain pending before any implementation may begin, per
-`SCRUM.md`'s ordering.
+**§3 backend design sign-off: APPROVED, including both amendments (user, 2026-09-30).** The user's original
+2026-09-30 approval of §3, §0's DELTAS block (new ECN `submit`/`withdraw`/`close` routes; the `owner`-frozen-
+after-`draft` + owner-or-created_by four-eyes rule; `DocumentsService.newVersion`'s new optional `ownerId`
+parameter; the SLA sweep-cadence/threshold corrections; and the reinstated "link to an existing NCR" capability
+with its required composite-FK schema change), and §0b's three decisions (the real `ppap` 5th approval gate
+placed `risk_review→ppap→cab_approval`; auto-revise timing confirmed unchanged at `pilot→implementation`; and
+`rejected→draft` resubmission via the new `resubmit` route, resetting all `ecn_approvals` rows and reopening
+`owner`) are all approved as proposed. `planner` re-review of this amendment (including §0b) and the UI Lead
+Designer's Gate 1 touch-up (the board additions named in §5 — submit/withdraw/close/**resubmit** actions, the
+persisted auto-revise banner, the unlink affordance, the 4-way convert picker, the Kanban's **PPAP and Rejected**
+columns, and the tracker's **5th row**) remain pending before implementation may begin, per `SCRUM.md`'s
+ordering — but no further backend-design sign-off is required.
+
+---
+
+## 10. Amendment 2 — interaction check with the prior amendment round
+
+Checked, not assumed: does folding in `ppap` (a 9th Kanban column, a 5th gate), the confirmed-unchanged
+auto-revise timing, or the new `resubmit` route require any adjustment to Amendment 1's own deltas?
+
+- **Complaint SLA/close mechanism (§0 B7):** no interaction — it is entirely a `complaints` table/`sla.sweep`
+  concern; nothing in it references ECN stages, gate counts, or Kanban columns.
+- **Search wiring (§0 B5, X1 AC5):** no interaction — `ecn`'s `KindConfig` (`table`, `capability`,
+  `titleColumn: "title"`) is indifferent to how many `stage` values `ecns.stage` has; a 9th stage value changes
+  nothing about how a title-keyword search matches an `ecns` row.
+- **`EntityKind` widening (§0 B4/X1 AC4, S3):** no interaction — `ppap`/`resubmit` touch `ecns.stage` and a new
+  route, not `EntityKind` or any `Record<EntityKind,...>` map; `entity_links`/`assertEntityVisible`/
+  `comments.service.ts`'s capability fix are unaffected.
+- **`GET /v1/ecns/summary`'s 8-values-always-present shape (E2 AC2, part of Amendment 1's own build):** *does*
+  need its literal value count updated to 9 (incl. `ppap`) — already folded into E2's edit above, not a separate
+  untouched item.
+- **Composite-FK convert-link pattern (§0 S1), `raiseCapa` audit fix (§0 B6e), `customer_color` (§0 S6),
+  `assertEntityVisible` capability check (§0 B4):** all complaint-side or shared-infrastructure fixes with no
+  ECN-stage dependency — no interaction.
+
+No other Amendment 1 delta needs adjustment for a 9-column Kanban or a `resubmit` route; the one place a number
+genuinely had to change (the Kanban summary's stage-count literal) is already corrected in §2 E2 directly, not
+left as a hidden inconsistency.
