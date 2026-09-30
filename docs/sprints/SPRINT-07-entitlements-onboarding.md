@@ -21,6 +21,36 @@ user must approve. It contains **five decisions with real commercial weight (D1-
 spec and "make it possible to charge a customer" pull in different directions. **NO BUILD MAY START until the
 user has explicitly approved §3 and answered §7's strategic questions marked [USER].**
 
+**Amendment 1 — user decisions of 2026-09-30 (recorded by the PO the same day).** The user answered five of the
+open items. They are recorded as **DECIDED** in §3.0 and every affected story, table and gate below is rewritten
+to match (amended text is tagged **[AM1]**):
+
+| # | User decision (2026-09-30) | Where it lands |
+|---|---|---|
+| U-D1 | **D1 confirmed as recommended**: hybrid self-service / request mode, operator-set `self_service` flag per tenant, new tenants default to request mode | §3.0 D1 (DECIDED); P4, P6, P8 |
+| U-D2 | **D2: both proposed options rejected.** "Design the pack depending on the industry and not as a single source. Because one guy needs 4 modules but others need 8 modules." What is included free in Core now **varies by the compliance frameworks the tenant declares**; the free set is admin-editable **data** | §3.0 D2 (DECIDED, redesigned); new P0; P1-P4, O1-O4 |
+| U-D3 | **Price book stays placeholder, but staff-editable** through the staff console, in the same data store as the pack catalog — never a file an engineer edits and redeploys | §3.0 D2/§3.1 (versioned price book); P0, P4, P7; console editor in 07C |
+| U-D4 | **Industry (8) / framework (9) lists approved, but must be extensible** without a migration: admin-editable lookup tables, Zod validates "an active catalog value or a free-text fallback" | P0, O1-O3; console editor in 07C |
+| U-D5 | **Build the real staff web console now**, not the audited-CLI-only interim plan | §3.0 D5 (DECIDED); **new sprint file `SPRINT-07C-staff-console.md`** (Increment C) |
+
+**PO scope call: this sprint is split into two sprint files (Amendment 1).** With U-D5 the work grows from two
+increments to three, and the third is a whole new authenticated surface (a staff identity outside tenant
+memberships, a non-tenant-scoped session path through the lifecycle interceptor, a least-privilege support
+database role, a new app). That increment has a different risk profile (auth and cross-tenant access), a
+different reviewer set (security review is mandatory) and its own design gate. Folding it into this file would
+produce one sprint no one can review or sign off in one pass. So:
+
+- **This file (`SPRINT-07`) = Increments A (plans & entitlements) and B (industry-aware onboarding)**, amended
+  for U-D1…U-D4. It owns the catalog **data model and seed**, which the console later edits.
+- **`SPRINT-07C-staff-console.md` = Increment C (the staff console)**, sequenced after A (it edits A's catalog,
+  price book, plans and requests). It is **not deferred**: it is part of the same Sprint 07 release and **Sprint
+  08 cannot open until 07C closes** (ROADMAP §4). The operator write path that used to be the `pnpm tenant-plan`
+  CLI (old P8) moves there, so there is exactly **one** operator write path, never a CLI and a console that can
+  drift apart.
+- Release coupling, stated so nobody ships half of it: a request-mode tenant (the default for new tenants, U-D1)
+  can raise requests after A, but those requests can only be **fulfilled** once 07C is live. Therefore A, B and C
+  release together; A and B may pass their own Gate 2 first.
+
 **Correction to the brief this sprint was commissioned with.** The brief said there is "NO jsx anywhere" for an
 onboarding wizard, a plan/entitlements screen or an industry picker. That is **not true**, verified this session
 (§1a): `pricing.jsx` + `addons.jsx` are a complete, binding design for plans, add-on packs, the locked-route
@@ -49,7 +79,8 @@ story uses it, so design and engineering know the *why*, not just the *what*.
 | R5 | **Sales-led "request → admin/vendor approves".** Members or admins *request* an upgrade; an approver (workspace admin, or the vendor's sales team) fulfils it; the requester is notified of the decision. Figma's March-2025 billing change moved to admin approval of seat upgrades by default, with email + in-app notification both ways, and optional provisional access while a request is pending. | Figma (seat-upgrade requests), Atlassian (request product access), Slack/Notion (request to upgrade) | Two request loops: **member → workspace admin** ("Request access" on a locked module), and **workspace admin → Kaenal sales** ("Add to plan" / "Talk to sales" / "Contact sales" / "Update subscription" in request mode). Both notify in-app; Kaenal sales by email. | P6 |
 | R6 | **Feature trial / reverse trial.** Time-boxed full access to a premium feature; at expiry the customer drops back to their plan, never locked out of their own data. Term popularised by Kyle Poyar (OpenView). | Notion, Canva, Slack, Loom, Miro (reverse-trial variants); HubSpot in-app hub trials | `addons.jsx` already draws **"Start 14-day trial"**. This sprint makes it real: once per pack per tenant, auto-expiring, T-3-day warning, and at expiry the tenant's records stay readable (§3.0 D3). | P5 |
 | R7 | **Frosted preview paywall.** The locked feature renders blurred behind an upsell card, so the buyer sees what they would get. | Common in PLG products; drawn in `addons.jsx` `UpgradeOverlay` and specified in 04 §5 | Built exactly as drawn (P2). The blur is a **commercial** gate, not a security boundary; the API is the boundary (P3). | P2, P3 |
-| R8 | **Operator plane as scripts before consoles.** Early enterprise SaaS runs tenant/plan administration through audited internal tooling before building a staff console. | Kaenal's own precedent: `provision-tenant`, `offboard-tenant`, `migrate-tenants` (TECH_STACK: "tenant provisioning is a script, not a project") | Kaenal staff set a tenant's contracted plan through an audited CLI (`pnpm tenant-plan`), recorded as `actor_kind='support'` with a mandatory `reason` (the audit table already enforces this). A staff web console has no design, no staff-identity model and is explicitly out of scope in `phases/README.md` — flagged, not faked (§7 Q-S4). | P8 |
+| R8 | **Operator plane as scripts before consoles.** Early enterprise SaaS runs tenant/plan administration through audited internal tooling before building a staff console. | Kaenal's own precedent: `provision-tenant`, `offboard-tenant`, `migrate-tenants` (TECH_STACK: "tenant provisioning is a script, not a project") | **[AM1] Superseded by U-D5 for plan administration.** Provisioning stays a script (P8: `provision-tenant --bundle / --from-request`). Plan, request, catalog and price-book administration is the staff web console in `SPRINT-07C-staff-console.md`, recorded as `actor_kind='support'` with a mandatory `reason` (the audit table already enforces this). | P8, 07C |
+| R9 | **[AM1] Compliance-scoped packaging.** Compliance products price by framework: the controls a declared framework needs come with that framework, and generic depth is sold on top. | Vanta / Drata (framework-based packaging; the frameworks you select determine the control set you receive) | The modules a tenant's **declared** frameworks require are included free for that tenant ("framework inclusions"), keyed by framework in an admin-editable table; everything else is sold as packs. This is what makes the Core promise true per tenant instead of false for some (§3.0 D2). | P0, P1, P4, O1 |
 
 Sources consulted this session: [Vanta — automated compliance](https://www.vanta.com/products/automated-compliance),
 [Vanta — ISO 27001 + SOC 2 together](https://www.vanta.com/resources/how-to-use-iso-27001-and-soc-2-together),
@@ -868,14 +899,24 @@ AC
 
 ---
 
-## 3. Backend + commercial design — PROPOSED, NEEDS EXPLICIT USER SIGN-OFF
+## 3. Backend + commercial design — D1, D2, D5 DECIDED (user, 2026-09-30); D3, D4 still need sign-off
 
 ### 3.0 Five decisions with commercial weight
 
-Each decision states the conflict, the options, the PO's recommendation and why. The stories are written for the
-recommendation; any other choice changes only the ACs marked with that decision's tag.
+Each decision states the conflict, the options and the outcome. **[AM1]** Status after the user's 2026-09-30
+answers:
 
-**D1 — Who can turn a pack on: the customer's admin, or only Kaenal? (the gate's teeth)**
+| Decision | Status |
+|---|---|
+| D1 self-service vs request mode | **DECIDED 2026-09-30** — option (c) as recommended |
+| D2 what is included in Core | **DECIDED 2026-09-30** — both proposed options rejected; redesigned as framework-conditional inclusions (below) |
+| D3 gates block writes, never the tenant's own records | **PROPOSED — still needs explicit user approval** (not covered by the 2026-09-30 answers) |
+| D4 real 14-day trials, once per pack | **PROPOSED — still needs explicit user approval** (not covered by the 2026-09-30 answers) |
+| D5 operator surface | **DECIDED 2026-09-30** — real staff web console, built now, in `SPRINT-07C-staff-console.md` |
+
+**D1 — Who can turn a pack on: the customer's admin, or only Kaenal? (the gate's teeth) — DECIDED 2026-09-30:
+option (c), per-tenant `self_service` flag, new tenants default to request mode.** The analysis that led to it
+is kept below for the record.
 - *Conflict.* The jsx ("Add to plan … changes take effect immediately") and 04 §5 ("toggling in pricing updates
   instantly") let the tenant admin enable any pack instantly. 03 §3 makes entitlements an admin capability. But
   with **no payment provider** (Q6), instant self-enable means any admin can unlock every paid pack for free
@@ -890,9 +931,108 @@ recommendation; any other choice changes only the ACs marked with that decision'
   the design for customers Kaenal trusts (pilots, true-up contracts) *and* gives the plan real teeth for
   everyone else; it costs one boolean and one branch in the service; the request loop (R5) is how Figma,
   Atlassian and Slack run sales-assisted upgrades. **Deviation from 04 §5/jsx in request mode** (buttons create
-  requests instead of toggling) — needs the user's approval.
+  requests instead of toggling) — **approved by the user 2026-09-30 (U-D1).**
+- *Final, as decided.* `control.tenant_plans.self_service boolean NOT NULL DEFAULT false`; only Kaenal staff can
+  change it (staff console, 07C C5); the demo tenant is seeded `true`. **[AM1] Interaction with D2:** the
+  self-service / request split applies **only to packs** (genuinely optional upsells). A module included free by
+  a declared framework (D2) is effective the moment the framework is declared and **never** goes through a
+  request, in either mode. A pack whose every module is already framework-included for the tenant offers no Add
+  / Request button at all (nothing to sell, nothing to ask sales for; P4 AC9).
 
-**D2 — The pack map vs the "What always stays in Core" promise (a compliance-claim conflict inside the design)**
+**D2 — What is included in Core — DECIDED 2026-09-30 (U-D2): framework-conditional inclusions, as admin-editable
+data.**
+
+*The user's decision, verbatim:* "Design the pack depending on the industry and not as a single source. Because
+one guy needs 4 modules but others need 8 modules." Both options the PO proposed — (a) keep the drawn map and
+shrink the Core claim, (b) move the IATF core tools into Core for everyone — are rejected: (a) paywalls what an
+IATF tenant is obliged to run, (b) gives an ISO 9001-only tenant for free what it does not need for compliance
+and destroys the Quality Engineering pack's value for the majority of the market.
+
+*Key chosen: the declared compliance framework, not the industry label.* The O1 profile already captures the two
+separately (`industry: {key,label}` and `frameworks: {keys, custom, notCertifiedYet}`, O1 AC1). The framework is
+the precise, compliance-driving signal (an "electronics" company may run IATF 16949 because it supplies
+automotive; a "general manufacturing" company may be ISO 9001 only), so inclusions are keyed by **framework**.
+Industry keeps its role from O2: it shapes *suggestions*, never *entitlements*. This follows R9 (§0).
+
+*The model (three layers, all data except one safety rail):*
+
+1. **Universal Core floor** — every module that no pack claims in `control.catalog_pack_modules`. Never gated for
+   anyone. Seeded as today's Core: inspections, ncr, eight_d, capa, audits, documents, calibration, training,
+   complaints, reports (read), every settings screen. **Safety rail (code, not data):** the modules pricing.jsx:168
+   names ("Inspections, NCR, CAPA, 8D, Audits, Document control, Calibration and Training") are
+   `CORE_FLOOR_GUARANTEED` in `packages/core`; the catalog service refuses (422) to map any of them to a pack.
+   That public promise is a deliberate code change, never a console slip.
+2. **Framework inclusions** — `control.framework_module_rules (framework_key, module_id, level, clause, note)`
+   with `level ∈ {required, supports}`. For each framework the tenant has declared, every `required` module is
+   **included free regardless of plan**. `supports` rows only feed onboarding suggestions (O2) and have no
+   commercial effect. One table drives both the onboarding copy ("Required by IATF 16949 §7.1.5.1.1") **and** the
+   inclusion, so it is structurally impossible to tell a tenant a framework requires a module while paywalling
+   that module for them — the exact false-claim problem the old D2 exposed.
+3. **Packs** — `control.catalog_packs` + `control.catalog_pack_modules` (the 9 packs of `addons.jsx`, fixed ids,
+   editable display, trialability and module mapping; a module belongs to at most one pack). A pack is effective
+   when active or on an unexpired trial (P1, P5).
+
+`effectiveModules(tenant) = CoreFloor ∪ ⋃_{f ∈ declaredCatalogFrameworks} required(f) ∪ modules(effectivePacks)`,
+and every effective module carries **why** it is effective: `core`, `framework` (+ which framework keys),
+`pack` (+ pack id), `trial` (+ pack id, ends at). The resolver is pure (`packages/core`) and takes the catalog
+snapshot as an argument; nothing about which framework includes what is written in code.
+
+*Answers to the questions the redesign raises:*
+
+- **A tenant that declares no framework** ("None of these yet", or skipped) **gets the universal Core floor only
+  — the leanest set.** Why: an inclusion exists to honour a compliance obligation; with no declared obligation
+  there is nothing to honour. The floor is already a complete ISO 9001-grade QMS (by construction, the seeded
+  ISO 9001 `required` rows are a subset of the floor), every module stays visible and suggestible (soft tagging,
+  Q10), every pack stays trialable, and declaring a framework later applies its inclusions on the very next
+  request, with no sales step. Neither "richest" (gives the paid packs away to anyone who skips a question) nor
+  an arbitrary middle set (a second, framework-less rule set to maintain) is defensible.
+- **A custom (free-text) framework** gets no inclusions — there are no rules for a label the catalog does not
+  know. Staff can promote a recurring custom label into the catalog and give it rules (07C C7), after which it
+  applies to every tenant that declares it.
+- **An inactive (retired) catalog framework** keeps applying its inclusions to tenants that already declared it:
+  deactivation stops it being *offered*, it never silently gates existing tenants.
+- **Interaction with D1:** framework inclusions never require a request, in either mode; only packs do (D1
+  "Final").
+- **Pricing page:** it can no longer be one static table. `/pricing` renders the **viewing tenant's** effective
+  set: the Core card lists the floor plus "Included for <workspace> with IATF 16949: FMEA, SPC, MSA, PPAP,
+  Suppliers"; each pack card marks its modules that are already included ("Included · IATF 16949"); a pack fully
+  covered shows "Included with your frameworks" with no CTA; the guardrail callout is rendered from the tenant's
+  declared frameworks instead of the static IATF sentence (P4 AC8-AC10, design D-S12/D-S13). A tenant with no
+  framework sees the floor and a "Declare your compliance frameworks" link (admins) to the profile step.
+- **Changing frameworks is now a commercial act.** Adding one can unlock modules; removing one can lock them.
+  So (i) the `frameworks` field of the workspace profile requires `billing:manage` (admin, 03 §3 "billing,
+  entitlements = admin"), while industry / size / focus modules keep `settings:manage`; (ii) a removal that
+  would make modules ineffective opens the same downgrade confirm as P4 (open records that become read-only);
+  (iii) every change is audited (`settings_changed`) and emails Kaenal sales (outbox) so a surprising
+  declaration is visible, and the staff console shows the declaration history (07C C4). Whether staff get a
+  remedy beyond that for a false declaration is §7 Q-C12 [USER].
+- **Overlay copy does not advertise framework inclusion** ("declare IATF to get this free") — that would invite
+  false attestations. The overlay sells the pack; the profile explains inclusions.
+- **Everything the redesign introduces is data** in the control plane (§3.1): packs' display fields and module
+  map, framework rules, the industry and framework lookups, the versioned price book. In this sprint the data is
+  seeded by migration `0073` and read by the API; **editing it is the staff console's job (07C C7, C8)**, with no
+  redeploy.
+
+*Initial framework-inclusion seed (proposed; requires the user's commercial sign-off and a QMS SME review before
+it ships — §7 Q-C11 [USER]).* `required` beyond the universal floor, i.e. what each framework adds free:
+
+| Framework | Adds free beyond the floor (`required`) | `supports` only (suggestion, no commercial effect) |
+|---|---|---|
+| ISO 9001:2015 | — (its required set ⊆ floor) | risk (§6.1), suppliers (§8.4), ecn (§8.5.6) |
+| IATF 16949:2016 | **fmea** (§8.3.5.2), **spc** (§9.1.1.1), **msa** (§7.1.5.1.1), **ppap** (§8.3.4.4), **suppliers** (§8.4.2.4, and PPAP cannot run without supplier records) | risk (§6.1.2.1), ecn (§8.5.6.1), scar (§8.4.2.5) |
+| ISO 13485:2016 | **risk** (§7.1, ISO 14971) | ecn (§7.3.9), suppliers (§7.4) |
+| FDA QMSR (21 CFR 820) | **risk** (alias of ISO 13485) | ecn, suppliers |
+| AS9100D | **risk** (§8.1.1 operational risk), **ecn** (§8.1.2 configuration management) | suppliers (§8.4) |
+| FDA 21 CFR Part 11 / HACCP / ISO 14001 / ISO 45001 | — | per O2's table |
+
+This reproduces the user's example: an IATF tenant's free set is floor + 5 (FMEA, SPC, MSA, PPAP, Suppliers); an
+ISO 9001-only tenant's is the floor, and Quality Engineering / Supplier Network remain legitimate paid add-ons
+for it. SCAR, the supplier portal, Risk and ECN stay in their packs for IATF tenants because IATF can be met
+without them in Kaenal (the PO's reading; the SME confirms or corrects each row as data).
+
+*The record of the superseded analysis follows.*
+
+**D2 (superseded record) — The pack map vs the "What always stays in Core" promise**
 - *Conflict.* `pricing.jsx:168` promises: "Anything an IATF 16949 audit requires — Inspections, NCR, CAPA, 8D,
   Audits, Document control, Calibration and Training — is never gated … customers never feel a compliance
   obligation has been paywalled." But `addons.jsx` gates FMEA, SPC, MSA, Risk and ECN (Quality Engineering pack)
@@ -909,10 +1049,11 @@ recommendation; any other choice changes only the ACs marked with that decision'
 - *Recommendation: decide commercially; engineering is neutral.* The pack map is **data** in one file (P1 AC2),
   so (a) or (b) is a data edit plus copy. The PO's product view: (b) matches the design's *stated intent* and the
   primary market (IATF automotive suppliers), while (a) matches the design's *drawn mapping* and protects the QE
-  pack's revenue. Either way (c) must not ship. **[USER decision required before build; §7 Q-C2]** Until
-  answered, the stories assume (a) — the drawn map — with the callout text held for the user's wording.
+  pack's revenue. Either way (c) must not ship. ~~[USER decision required before build; §7 Q-C2]~~ **[AM1]
+  Answered 2026-09-30: neither (a) nor (b); see D2 DECIDED above.** (c) is also ruled out by the redesign: the
+  callout becomes per-tenant and true.
 
-**D3 — What a gate blocks: writes, never the customer's own records**
+**D3 — What a gate blocks: writes, never the customer's own records — PROPOSED, needs user approval**
 - *Conflict.* 04 §5 says a locked route "renders the real page blurred", which needs the page's data; a pure API
   gate would also hide records the customer is obliged to retain (IATF §7.5.3.2.1, ISO 13485 §4.2.5).
 - *Recommendation.* Gated **record** modules (qe, supplier) block create/update/transition (402) but always allow
@@ -924,55 +1065,96 @@ recommendation; any other choice changes only the ACs marked with that decision'
   customer can still do, including that in-flight records (e.g. an open ECN) freeze until the pack returns
   (§7 Q-C5 asks whether "close-out" transitions should stay allowed).
 
-**D4 — Trials: real, time-boxed, once per pack**
+**D4 — Trials: real, time-boxed, once per pack — PROPOSED, needs user approval**
 - *Conflict.* The prototype's "Start 14-day trial" just turns the pack on permanently.
 - *Recommendation.* 14 days, once per pack per tenant (enforced by the table's primary key), admin-started,
   available in both modes, not offered for `security`/`support` (no in-product effect / custom-priced), T-3
   warning, auto-expiry by comparison (no job needed to lock), records readable after expiry (D3). Figma-style
   provisional access for *member* requests is **not** included (§7 Q-C6).
 
-**D5 — The operator surface is an audited CLI this sprint, not a staff web console**
-- *The brief asked for* "an admin UI to view/change a tenant's plan (likely a control-schema or cross-tenant admin
-  capability)". *Verified:* no staff/operator identity, route, role or design exists in this codebase or the
-  design bundle; the only cross-tenant administration is migrator-role scripts; the built "Cross-tenant
-  analytics" is a current-tenant screen; `phases/README.md` puts platform-admin screens out of scope.
-- *Recommendation.* `pnpm tenant-plan` (P8), in the provisioning-script tradition (R8), writing tenant rows as
-  `actor_kind='support'` with a mandatory reason and control-plane rows with `updated_reason`. The customer-side
-  "admin UI" is the tenant admin's `/pricing` + Billing & plan. A staff console would need a staff identity
-  model outside tenant memberships, support-access auditing (07 "support-role access (with reason)"), network
-  restriction and a design — its own sprint (§7 Q-S4).
+**D5 — The operator surface — DECIDED 2026-09-30 (U-D5): a real staff web console, built now.**
+- *The user's decision:* build the staff web console in this release, not the audited-CLI-only interim the PO
+  proposed. Required capabilities named by the user: list/search tenants; view/edit a tenant's plan and
+  entitlements; view/resolve plan requests; edit the pack catalog and the price book (U-D2, U-D3); manage the
+  industry/framework catalogs (U-D4).
+- *Where it is specified:* **`SPRINT-07C-staff-console.md` (Increment C)** — staff identity (outside
+  `control.users` and memberships), staff authentication and sessions (a non-tenant-scoped branch of the one
+  lifecycle interceptor), staff RBAC (`support`, `sales`, `admin`), the spec's support-access model (01 §3.2
+  "dedicated `support` role + explicit `app.support_reason` … never bypasses RLS silently"; 07 §7 "support role
+  path with reason + time-boxed grant (4h), fully audited, visible to the tenant admin"), a least-privilege
+  support database role, a platform audit log, and a separate `apps/staff` app. It is sequenced after Increment A
+  because it edits A's catalog, price book, plans and requests.
+- *Effect on this file:* the `pnpm tenant-plan` CLI (old P8) is **removed**; every operator write it carried
+  (set packs/bundle, self-service flag, contract and CSM fields, list/fulfil/decline requests, history) is a
+  console story in 07C. P8 here keeps only provisioning (`provision-tenant --bundle / --from-request`), which
+  stays a script per TECH_STACK. P6's fulfil/decline half moves to 07C C6.
+- *Superseded record:* the PO had recommended the CLI because no staff identity, route, role or design existed
+  (still true, verified again for 07C) and `phases/README.md` puts platform-admin screens out of scope; the
+  user's decision is the explicit decision to build it.
 
-### 3.1 Data model (migrations 0073-0075; 0076 reserved buffer)
+### 3.1 Data model **[AM1]** (migrations 0073-0076; 0077 reserved buffer; 07C owns 0078-0081)
+
+**Where catalog data lives, and why.** Packs, framework rules, the industry / framework lookups and the price book
+are **global** (not tenant-owned), must be readable by every tenant's requests — including Model B (dedicated)
+tenants whose rows live in another database — and writable only by Kaenal staff. They therefore live in the
+**`control` schema of the control database**, like `control.tenants`: exempt from the RLS lint by design, with
+explicit per-role grants and an explicit grant test (the `control-identity.test.ts` precedent). They are never
+FK targets of tenant tables (a dedicated tenant database cannot reference them); tenant rows store the catalog
+**key** as text and the API validates it against the catalog. No Postgres ENUM type and no TypeScript literal
+union is used for anything a staff member can extend (U-D4).
 
 | Migration | Object | Kind | Notes |
 |---|---|---|---|
-| 0073 | `entitlements` + `source`, `lock_version`, `updated_by` (composite member FK), `pack_id` CHECK | tenant, forced RLS (existing) | Backfill all 9 packs `grandfathered` for existing tenants (P1 AC5) |
-| 0073 | `entitlement_trials` (PK `tenant_id, pack_id`) | tenant, forced RLS | Once-per-pack by PK; expiry by comparison |
-| 0074 | `control.tenant_plans` | control plane | `self_service`, contract fields, CSM fields; app role SELECT only |
-| 0074 | `control.workspace_requests` | control plane | Public intake; the API's public path may INSERT only (never SELECT). Which DB role serves `@Public` routes today (`kaenal_app`, or a `kaenal_public` pool per 02 §1) is confirmed by the architect; the grant is applied to that role only |
-| 0075 | `plan_requests` | tenant, forced RLS | Partial unique open-request index; self composite FK for forwarding |
-| 0075 | `tenant_settings` namespace CHECK + `billing`, `profile`, `onboarding` | tenant (existing) | Backfill onboarding `dismissed` for existing tenants |
-| 0075 | `exports_resource_check` + `plan_quote` | tenant (existing) | Mirrors 0066/0070 widening |
+| 0073 | `control.catalog_packs` (`id` text PK — the 9 fixed ids, CHECK; `kind` `pack`\|`alacarte`; `name`, `tagline`, `icon`, `accent_token`, `includes jsonb` (display list), `value_line`, `trialable bool`, `sort_order`, `lock_version`, `updated_at`, `updated_by_staff uuid NULL`) | control | Fixed set of 9 (as before; adding a pack is a product change). Display, trialability and order are editable data |
+| 0073 | `control.catalog_pack_modules` (`module_id` text PK, `pack_id` → `catalog_packs`) | control | A module belongs to at most one pack (the PK). A module with no row is in the universal Core floor. `CORE_FLOOR_GUARANTEED` modules are refused by the service (and by a CHECK listing them, so a hand-written INSERT fails too) |
+| 0073 | `control.catalog_frameworks` (`key` text PK, `label`, `short_label`, `counts_as_extra_standard bool` (replaces `addons.jsx:120`'s hard-coded "beyond IATF 16949 & ISO 9001"), `sort_order`, `active bool`, `lock_version`, audit columns) | control | Seeded with the approved 9 (U-D4). Keys: `^[a-z0-9_]{2,40}$`. Never deleted (no DELETE grant); `active=false` stops offering it |
+| 0073 | `control.catalog_industries` (`key` text PK, `label`, `suggested_frameworks text[]`, `module_priors jsonb` (`{moduleId: boost}`), `sort_order`, `active`, `lock_version`, audit columns) | control | Seeded with the approved 8 (U-D4). `other` is a reserved key meaning "free-text label" |
+| 0073 | `control.framework_module_rules` (`framework_key` → `catalog_frameworks`, `module_id`, `level` CHECK `required`\|`supports`, `clause`, `note`, PK `(framework_key, module_id)`, `lock_version`, audit columns) | control | D2's single source for both onboarding reasons (O2) and free inclusions (P1). Seeded per the D2 table + O2's table |
+| 0073 | `control.price_book_versions` (`id`, `status` CHECK `draft`\|`published`\|`archived`, `currency` (`USD` this sprint), `note`, `published_at`, `published_by_staff`, `created_at`); partial unique index: at most one `published` | control | **Versioned** (U-D3): staff edit a draft and publish it atomically; the previous published version becomes `archived`. A quote or request snapshot cites the version it was priced from, so it stays reproducible after prices change. Seeded with version 1 = the jsx list prices, `published`, note "placeholder price book (U-D3)" |
+| 0073 | `control.price_book_items` (`version_id`, `item_key` (`core_base`, `pack:<id>`, `unit:supplier`, `unit:extra_plant`, `unit:inspector`, `unit:extra_standard`, …), `amount numeric(12,2) NULL` (NULL = custom / "Talk to sales"), `unit` CHECK `month`\|`supplier_month`\|`plant_month`\|`inspector_month`\|`standard_month`\|`custom`, `included_units int`, `label`; PK `(version_id, item_key)`) | control | Everything `estimateMonthly` multiplies comes from here; nothing price-like stays in code |
+| 0073 | `control.catalog_meta` (single row: `version bigint`, bumped by trigger on any write to the tables above) | control | Lets every API instance cache the catalog snapshot and revalidate with one PK read per request (§3.2) |
+| 0073 | Grants | — | `kaenal_app`: SELECT on all the above. `kaenal_public`: `USAGE` on schema `control` (today only `kaenal_app` has it, `0000_foundation.sql`) plus SELECT on `catalog_industries` / `catalog_frameworks` (keys, labels, sort order, active only, via column grants) for the public request form — and nothing else in `control` (grant test). Write grants: migrator only in this sprint; **07C grants the staff role INSERT/UPDATE** |
+| 0074 | `entitlements` + `source`, `lock_version`, `updated_by` (composite member FK), `pack_id` CHECK | tenant, forced RLS (existing) | Backfill all 9 packs `grandfathered` for existing tenants (P1 AC5) |
+| 0074 | `entitlement_trials` (PK `tenant_id, pack_id`) | tenant, forced RLS | Once-per-pack by PK; expiry by comparison |
+| 0075 | `control.tenant_plans` | control plane | `self_service` (DEFAULT false, D1 DECIDED), contract fields, CSM fields; app role SELECT only; 07C grants the staff role UPDATE |
+| 0075 | `control.workspace_requests` | control plane | Public intake; `industry` / `frameworks` stored as catalog keys (text, no CHECK; validated against the active catalog at insert). The `kaenal_public` role (0000) may INSERT only (never SELECT) |
+| 0076 | `plan_requests` (+ `price_book_version_id` in the composition snapshot) | tenant, forced RLS | Partial unique open-request index; self composite FK for forwarding |
+| 0076 | `tenant_settings` namespace CHECK + `billing`, `profile`, `onboarding` | tenant (existing) | Backfill onboarding `dismissed` for existing tenants |
+| 0076 | `exports_resource_check` + `plan_quote` | tenant (existing) | Mirrors 0066/0070 widening |
+
+Staff identity, staff sessions, support grants, the support database role, the platform audit log and the
+sales-inbox projection are **07C's** migrations (0078-0081), not this file's.
 
 No new audit action (existing `entitlement_changed`, `created`, `status_changed`, `settings_changed`, `exported`
-cover every mutation). New notification kinds: `trial_ending`, `trial_ended`, `plan_request_created`,
-`plan_request_resolved`.
+cover every tenant mutation; `support_accessed` already exists for 07C). New notification kinds: `trial_ending`,
+`trial_ended`, `plan_request_created`, `plan_request_resolved`.
 
-### 3.2 Enforcement architecture
+### 3.2 Enforcement architecture **[AM1]**
 
-One resolver (`packages/core` `effectivePacks`) → read in the API by `@RequirePack` inside the lifecycle
-interceptor (after RBAC, inside the tenant transaction), by the AI gateway, by the trials job, by the CLI; read
-in the web through `GET /v1/entitlements` + `isModuleGated`. Cache: per request only (no cross-request cache, so
-an unlock is visible on the very next request); the web invalidates on mutation and on the realtime
-`entitlements` event. Fail-closed on resolver error everywhere (matches the AI gateway's existing order).
+One resolver (`packages/core` `effectiveModules(catalog, profileFrameworks, entitlementRows, trials, now)`),
+**module-level**, because a module can now be effective without its pack (framework inclusion). It is read in the
+API by **`@RequireModule(moduleId)`** (replaces the old `@RequirePack`) inside the lifecycle interceptor (after
+RBAC, inside the tenant transaction), by the AI gateway (`intelligence` modules), by the trials job, and by 07C's
+staff services; read in the web through `GET /v1/entitlements` + `isModuleGated`.
+
+Caching: tenant entitlement rows and the profile are read **per request** (so an unlock is visible on the very
+next request). The **catalog snapshot** is cached per API process keyed on `control.catalog_meta.version`, which is
+re-read once per request (one PK read), so a staff catalog edit is enforced on the next request on every
+instance. Web clients pick catalog changes up on their next `['entitlements']` / `['catalog']` refetch (staleTime
+≤ 60 s) and immediately on the tenant realtime `entitlements` event for tenant-specific changes. Fail-closed on
+resolver or catalog-read error everywhere (matches the AI gateway's existing order); a failed catalog read never
+falls back to a hard-coded map.
 
 ### 3.3 Commercial boundaries (what this sprint deliberately does not do, Q6)
 
-No payment provider, card capture, invoices, tax calculation, dunning, proration or PCI scope. Prices are the
-catalog's list prices used for an **estimate** and a **quote**; the contract value shown on Billing & plan is
-whatever Kaenal staff recorded. Seat/plant limits ("Up to 500 members · 10 plants") are **not enforced** this
-sprint (§7 Q-C7). All money movement stays outside the product; the product's job is to record what the customer
-may use, what they asked for, and to hand that to sales.
+No payment provider, card capture, invoices, tax calculation, dunning, proration or PCI scope. Prices come from
+the **published price-book version** (U-D3: placeholder values, staff-editable in 07C) and are used for an
+**estimate** and a **quote** only; the contract value shown on Billing & plan is whatever Kaenal staff recorded.
+Pack prices are **not** framework-conditional this sprint (an IATF tenant pays the listed QE price even though
+FMEA/SPC/MSA are already free for it; the pack card shows exactly what the pack adds — §7 Q-C13 [USER]).
+Seat/plant limits ("Up to 500 members · 10 plants") are **not enforced** this sprint (§7 Q-C7). All money movement
+stays outside the product; the product's job is to record what the customer may use, what they asked for, and to
+hand that to sales.
 
 ---
 
