@@ -932,5 +932,7 @@ maps to a story with testable acceptance criteria and an explicit Web/Mobile/Sha
 including the mock's own pre-existing dead affordances (the complaint row's inert `onClick`, the ECN Kanban's
 missing reject column); two designed-but-unbuildable elements (automated intake channels, ECN parts-linking)
 are named and honestly excluded rather than faked. This covers **use-case coverage only** — it does **not**
-constitute approval to write any code. §3's backend design and Gate 1 (UI Lead Designer audit + `planner`
-architecture review) remain pending before any implementation may begin, per `SCRUM.md`'s ordering.
+constitute approval to write any code.
+
+**§3 backend design sign-off: APPROVED as proposed (user, 2026-09-30).** Gate 1 (UI Lead Designer audit +
+`planner` architecture review) remains pending before any implementation may begin, per `SCRUM.md`'s ordering.
