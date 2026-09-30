@@ -1308,8 +1308,11 @@ snapshot as an argument; nothing about which framework includes what is written 
 
 - **A tenant that declares no framework** ("None of these yet", or skipped) **gets the universal Core floor only
   — the leanest set.** Why: an inclusion exists to honour a compliance obligation; with no declared obligation
-  there is nothing to honour. The floor is already a complete ISO 9001-grade QMS (by construction, the seeded
-  ISO 9001 `required` rows are a subset of the floor), every module stays visible and suggestible (soft tagging,
+  there is nothing to honour. The floor is already the everyday QMS core (inspections, NCR, 8D, CAPA, audits,
+  documents, calibration, training, complaints); ~~by construction, the seeded ISO 9001 `required` rows are a
+  subset of the floor~~ **[AM2] under the finalized mapping ISO 9001 additionally requires ECN and Suppliers, so an
+  ISO 9001 shop should declare it — the onboarding flow pre-selects it for most industries (O2)**; every module
+  stays visible and suggestible (soft tagging,
   Q10), every pack stays trialable, and declaring a framework later applies its inclusions on the very next
   request, with no sales step. Neither "richest" (gives the paid packs away to anyone who skips a question) nor
   an arbitrary middle set (a second, framework-less rule set to maintain) is defensible.
