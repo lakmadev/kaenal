@@ -615,6 +615,16 @@ export const NewDocumentVersionBody = z.object({
   version: z.number().int().nonnegative(),
   fileId: z.string().uuid().nullable().optional(),
   changelog: z.string().max(4000).nullable().optional(),
+  /**
+   * Small, additive, optional override (SPRINT-06 §0 B3b): when omitted
+   * (every existing caller, incl. `documents.controller.ts`'s own route),
+   * behaviour is unchanged — `owner_id = actorId`, exactly as before this
+   * field existed. ECN's auto-revise (E5) always passes this explicitly, set
+   * to the document's own CURRENT `owner_id` (read before the call), so a
+   * document's ownership never silently changes as a side effect of an ECN
+   * reaching `implementation`.
+   */
+  ownerId: z.string().uuid().optional(),
 });
 export type NewDocumentVersionBody = z.infer<typeof NewDocumentVersionBody>;
 
@@ -682,7 +692,7 @@ export type DownloadFileResult = z.infer<typeof DownloadFileResult>;
 // --- Search -----------------------------------------------------------------
 
 /** The entity kinds the command palette federates over (03 §1, 04). */
-export const SearchEntityKind = z.enum(["inspection", "ncr", "capa", "document", "audit"]);
+export const SearchEntityKind = z.enum(["inspection", "ncr", "capa", "document", "audit", "complaint", "ecn"]);
 export type SearchEntityKind = z.infer<typeof SearchEntityKind>;
 
 export const SearchResultDto = z.object({
