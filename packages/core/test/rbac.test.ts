@@ -72,6 +72,11 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "calibration:manage",
     "training:view",
     "training:manage",
+    "complaint:view",
+    "complaint:manage",
+    "ecn:view",
+    "ecn:manage",
+    "ecn:approve",
   ],
   manager: [
     "inspection:view",
@@ -112,6 +117,11 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "calibration:manage",
     "training:view",
     "training:manage",
+    "complaint:view",
+    "complaint:manage",
+    "ecn:view",
+    "ecn:manage",
+    "ecn:approve",
   ],
   auditor: [
     "inspection:view",
@@ -143,6 +153,10 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "calibration:manage",
     "training:view",
     "training:manage",
+    "complaint:view",
+    "complaint:manage",
+    "ecn:view",
+    "ecn:manage",
   ],
   inspector: [
     "inspection:view",
@@ -181,6 +195,8 @@ const EXPECTED: Record<string, readonly Capability[]> = {
     "msa:view",
     "calibration:view",
     "training:view",
+    "complaint:view",
+    "ecn:view",
   ],
   partner: ["portal:view", "portal:respond"],
 };
@@ -258,6 +274,49 @@ describe("calibration + training capabilities (Sprint 05 X1 AC1)", () => {
     expect(hasCapability("partner", "calibration:manage")).toBe(false);
     expect(hasCapability("partner", "training:view")).toBe(false);
     expect(hasCapability("partner", "training:manage")).toBe(false);
+  });
+});
+
+describe("customer complaints + ECN capabilities (Sprint 06 X1 AC1)", () => {
+  it("grants admin, manager and auditor full complaint read+write", () => {
+    for (const role of ["admin", "manager", "auditor"] as const) {
+      expect(hasCapability(role, "complaint:view")).toBe(true);
+      expect(hasCapability(role, "complaint:manage")).toBe(true);
+    }
+  });
+
+  it("grants ECN approval authority to admin and manager only, mirroring document:approve", () => {
+    for (const role of ["admin", "manager"] as const) {
+      expect(hasCapability(role, "ecn:view")).toBe(true);
+      expect(hasCapability(role, "ecn:manage")).toBe(true);
+      expect(hasCapability(role, "ecn:approve")).toBe(true);
+    }
+  });
+
+  it("gives auditor ecn:manage but NOT ecn:approve — cannot sign off a gated stage", () => {
+    expect(hasCapability("auditor", "ecn:view")).toBe(true);
+    expect(hasCapability("auditor", "ecn:manage")).toBe(true);
+    expect(hasCapability("auditor", "ecn:approve")).toBe(false);
+  });
+
+  it("gives viewer read-only visibility of both modules", () => {
+    expect(hasCapability("viewer", "complaint:view")).toBe(true);
+    expect(hasCapability("viewer", "complaint:manage")).toBe(false);
+    expect(hasCapability("viewer", "ecn:view")).toBe(true);
+    expect(hasCapability("viewer", "ecn:manage")).toBe(false);
+    expect(hasCapability("viewer", "ecn:approve")).toBe(false);
+  });
+
+  it("gives inspector NEITHER module — a deliberate decision (§1), not an oversight", () => {
+    for (const cap of ["complaint:view", "complaint:manage", "ecn:view", "ecn:manage", "ecn:approve"] as const) {
+      expect(hasCapability("inspector", cap)).toBe(false);
+    }
+  });
+
+  it("gives partner neither module — internal-tenant data, not portal-scoped", () => {
+    for (const cap of ["complaint:view", "complaint:manage", "ecn:view", "ecn:manage", "ecn:approve"] as const) {
+      expect(hasCapability("partner", cap)).toBe(false);
+    }
   });
 });
 

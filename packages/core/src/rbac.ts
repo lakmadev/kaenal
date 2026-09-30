@@ -112,6 +112,23 @@ export const CAPABILITIES = [
   "calibration:manage",
   "training:view",
   "training:manage",
+  // Customer complaints + ECN (Sprint 06 C1/E1, X1 AC1). `complaint:*`
+  // distribution mirrors `risk:view`/`risk:manage` exactly (admin/manager/
+  // auditor full read+write, viewer read-only, inspector none — §1's own
+  // reasoned decision: unlike calibration/training, no jsx or phase doc makes
+  // an inspector an owner/approver/subject of a complaint or ECN, so the
+  // "a notification about you must not 404 for you" forcing function that
+  // justified inspector's calibration/training grant does not apply here).
+  // `ecn:approve` is split out from `ecn:manage` and held by admin/manager
+  // ONLY — mirrors `document:approve`'s admin/manager-only grant exactly;
+  // auditor gets `ecn:manage` (author/triage an ECN) but not `ecn:approve`
+  // (cannot sign off a gated stage), same shape as auditor's existing
+  // `document:view`-without-`document:approve` split.
+  "complaint:view",
+  "complaint:manage",
+  "ecn:view",
+  "ecn:manage",
+  "ecn:approve",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -164,6 +181,11 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "calibration:manage",
     "training:view",
     "training:manage",
+    "complaint:view",
+    "complaint:manage",
+    "ecn:view",
+    "ecn:manage",
+    "ecn:approve",
   ],
 
   auditor: [
@@ -196,6 +218,10 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "calibration:manage",
     "training:view",
     "training:manage",
+    "complaint:view",
+    "complaint:manage",
+    "ecn:view",
+    "ecn:manage",
   ],
 
   inspector: [
@@ -236,6 +262,8 @@ const ROLE_CAPABILITIES: Readonly<Record<Role, readonly Capability[]>> = {
     "msa:view",
     "calibration:view",
     "training:view",
+    "complaint:view",
+    "ecn:view",
   ],
 
   // External supplier contact — the read-only portal, nothing internal. Every

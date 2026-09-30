@@ -388,6 +388,10 @@ export const EntityKind = defineEnum([
   // (`entity_links`'s CHECK gained both in migration 0064).
   "risk",
   "fmea",
+  // Sprint 06 X1 AC — customer complaints + ECN become real graph nodes
+  // (`entity_links`'s CHECK gained both in migrations 0071/0072).
+  "complaint",
+  "ecn",
 ]);
 export type EntityKind = z.infer<typeof EntityKind>;
 
@@ -537,3 +541,92 @@ export type InstrumentLifecycleStatus = z.infer<typeof InstrumentLifecycleStatus
  *  `instruments.last_result`'s CHECKs (migration 0068). */
 export const CalibrationResult = defineEnum(["pass", "adjusted", "fail"]);
 export type CalibrationResult = z.infer<typeof CalibrationResult>;
+
+// --- Customer complaints (Sprint 06 C1/P18) ---------------------------------
+
+/** The jsx's own 5 `via` display values, exactly (`complaints.channel`'s
+ *  CHECK, migration 0071). Only manual entry of the value is in scope this
+ *  sprint — the enum still models all 5 real-world channels (§3.1). */
+export const ComplaintChannel = defineEnum([
+  "portal",
+  "email_parsed",
+  "web_form",
+  "edi",
+  "phone",
+]);
+export type ComplaintChannel = z.infer<typeof ComplaintChannel>;
+
+export const ComplaintSeverity = defineEnum(["critical", "high", "medium", "low"]);
+export type ComplaintSeverity = z.infer<typeof ComplaintSeverity>;
+
+/** `complaints.status`'s CHECK (migration 0071). `"8d"`/`"capa"` are the
+ *  literal DB values — a complaint's own status advances alongside whichever
+ *  record it has been converted to (§2 C4 AC2), never regressing. */
+export const ComplaintStatus = defineEnum([
+  "triage",
+  "investigation",
+  "8d",
+  "capa",
+  "closed",
+]);
+export type ComplaintStatus = z.infer<typeof ComplaintStatus>;
+
+// --- Engineering Change Notices (Sprint 06 E1/P19) --------------------------
+
+/** `ecns.change_type`'s CHECK (migration 0072) — 4 values, `material` added
+ *  beyond P19's originally-proposed 3 (§3.2, §1a). */
+export const EcnChangeType = defineEnum(["design", "process", "tooling", "material"]);
+export type EcnChangeType = z.infer<typeof EcnChangeType>;
+
+export const EcnChangeRisk = defineEnum(["low", "medium", "high"]);
+export type EcnChangeRisk = z.infer<typeof EcnChangeRisk>;
+
+/**
+ * The canonical 7-stage-plus-terminal machine (§3.2, §0b D1 adds `ppap`
+ * between `risk_review` and `cab_approval`) — 9 values total, matching
+ * `ecns.stage`'s CHECK (migration 0072) exactly. See
+ * `packages/core/src/state-machines/ecn.ts` for the transition graph.
+ */
+export const EcnStage = defineEnum([
+  "draft",
+  "feasibility",
+  "risk_review",
+  "ppap",
+  "cab_approval",
+  "pilot",
+  "implementation",
+  "closed",
+  "rejected",
+]);
+export type EcnStage = z.infer<typeof EcnStage>;
+
+/** The 5 human-approval gates — `ecn_approvals.stage`'s CHECK (migration
+ *  0072, §0b D1 adds `ppap`). A strict subset of `EcnStage`. */
+export const EcnApprovalStage = defineEnum([
+  "feasibility",
+  "risk_review",
+  "ppap",
+  "cab_approval",
+  "pilot",
+]);
+export type EcnApprovalStage = z.infer<typeof EcnApprovalStage>;
+
+export const EcnApprovalDecision = defineEnum(["pending", "approved", "rejected"]);
+export type EcnApprovalDecision = z.infer<typeof EcnApprovalDecision>;
+
+/**
+ * Named skip reasons for E5's auto-revise mechanism (§0 B3e) — persisted in
+ * `ecns.auto_revise_result` (migration 0072) and surfaced via `EcnDto.
+ * autoReviseResult`. `not_approved`/`version_exists` are pre-checked by
+ * reading the document row first; `concurrent_modification` is the one
+ * genuine race, caught as `DocumentsService.newVersion`'s own stale-write 409
+ * inside a per-document `SAVEPOINT`; `bad_version_format` covers
+ * `bumpMinorVersion` rejecting a malformed `"X.Y"` version string.
+ */
+export const EcnAutoReviseSkipReason = defineEnum([
+  "not_approved",
+  "version_exists",
+  "bad_version_format",
+  "concurrent_modification",
+]);
+export type EcnAutoReviseSkipReason = z.infer<typeof EcnAutoReviseSkipReason>;

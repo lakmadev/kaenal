@@ -5,6 +5,51 @@
 
 ## Current status
 
+**Sprint 06 — Complaints + ECN, shared-logic slice (2026-09-30), `packages/core` + `packages/types` ONLY
+— no `apps/api`/`apps/web` code yet.** Migrations 0071 (`complaints`/`complaint_attachments`) and 0072
+(`ecns`/`ecn_approvals`) were already built/merged; this slice reads them as ground truth and builds the
+pure logic + shared contract surface `docs/sprints/SPRINT-06-complaints-ecn.md` (§0/§0b amendments, 4
+architecture-review rounds, treated as final) calls for. `packages/core/src/state-machines/ecn.ts` (new):
+the canonical 7-stage/5-gate machine (`draft→feasibility→risk_review→ppap→cab_approval→pilot→
+implementation→closed`, every pre-`implementation` stage can reject, `rejected→draft` resubmission per
+§0b D3) — `defineMachine`, mirrors `document.ts`'s shape but NOT its exact guard: `forbidsSelfDecision` is
+stricter than `documentMachine`'s `forbidsSelfApproval` (blocks self-*rejection* too, checks `owner` OR
+`created_by`), and only applies to the 5 gated-stage decisions (`isEcnGatedStage`), never to submit/
+withdraw/close/resubmit. `packages/core/src/state-machines/complaint.ts` (new): `complaintMachine`
+(any non-closed status → `closed`, terminal), `COMPLAINT_STATUS_RANK`/`advanceComplaintStatus` (rank-max,
+never regresses — the convert mechanic), `complaintSeverityToNcrPriority`/`complaintSeverityToWizardPriority`
+(the exact §0 B6g table). `packages/core/src/complaint-sla.ts` (new): `complaintSlaState` — a PLAIN
+elapsed-hours comparison (never `computeDueAt`'s business-hours machinery, confirmed `computeDueAt` has no
+plain-elapsed mode), reuses `sla.ts`'s own `AT_RISK_THRESHOLD` (0.8, not a second constant), freezes at
+`closedAt` when set (never recomputed against a later `now`), fixed forever at ack-time outcome once
+acknowledged; `COMPLAINT_SLA_MATRIX` (1h/4h/24h/48h ack, 14/21/45/90d close). `packages/core/src/rbac.ts`:
+added `complaint:view`/`complaint:manage`/`ecn:view`/`ecn:manage`/`ecn:approve` — admin/manager get all 5,
+auditor gets everything but `ecn:approve` (mirrors `document:approve`'s admin/manager-only split exactly),
+inspector gets NEITHER module (§1's reasoned decision — no jsx/phase-doc makes inspector an owner/approver/
+subject of either), viewer gets both `:view` only, partner neither. `packages/types/src/enums.ts`: widened
+`EntityKind` (11→13, `complaint`/`ecn`), added `ComplaintChannel`/`ComplaintSeverity`/`ComplaintStatus`,
+`EcnChangeType`/`EcnChangeRisk`/`EcnStage`/`EcnApprovalStage`/`EcnApprovalDecision`/
+`EcnAutoReviseSkipReason` (the 4-value §0 round-3 fix: `not_approved`/`version_exists`/
+`bad_version_format`/`concurrent_modification`). `packages/types/src/dto.ts`+`contract.ts`: full route
+surface per §4 — complaints CRUD + acknowledge/close/convert (discriminated union on `target`, 4 variants
+incl. `existingNcrId` link-to-existing-NCR, §0 B8c), ECN CRUD + submit/withdraw/resubmit/close/approve-
+reject/link/unlink, both list endpoints cursor-paginated (rule 6), `EcnDto.autoReviseResult`/
+`linkedDocumentCount` computed-on-read fields. Tests: 153 new in `packages/core` (full transition-matrix
+coverage for both machines incl. every illegal edge, four-eyes/approver-role guard cases, SLA at-risk-
+threshold boundary + freeze-at-close/freeze-at-ack cases, severity→priority mapping) — `pnpm --filter
+@kaenal/core test` 1148/1148 green, `pnpm --filter @kaenal/types test` 102/102 green. `pnpm --filter
+@kaenal/core typecheck`/`@kaenal/types typecheck` clean. **Known, expected, NOT fixed this slice (explicitly
+out of scope per this task's own instruction):** monorepo-wide `pnpm typecheck` now fails `@kaenal/api`
+with 3 `Record<EntityKind,...>` exhaustiveness errors — `apps/api/src/ai/chat.ts`'s `ENTITY_SPECS`,
+`apps/api/src/collab/entity-links.service.ts`'s `LABEL_CONFIG`, `apps/api/src/collab/entity-ref.ts`'s
+`ENTITY_TABLES` — exactly the 3 maps the sprint's own §1a/§4 X1 row already names as needing `complaint`/
+`ecn` entries added, which is `apps/api` work for the next (service-layer) slice, not this one.
+`apps/web`/`apps/mobile`/`packages/db` typecheck stayed green (unaffected by the additive enum widening).
+No migration, API route, UI, or audit-event wiring exists yet — this is shared-logic-and-contract only;
+the service layer (`ComplaintsService`/`EcnService`, controllers, the 3 apps/api exhaustiveness fixes above,
+`customer-color.ts`/`version-bump.ts` — both named in the sprint but not requested by this slice's own file
+list) and the web UI are follow-up work.
+
 **Sprint 05 — Calibration + Training & competency (2026-09-29), merged to main as PR #35 (b2b9e55).** Closes 14 stories: C1-C6 (calibration register, instrument CRUD, event recording, certificate attach, NCR raise, retire/transfer), T1-T5 (competency archive, matrix, training summary, batch record, history), X1 (RBAC). Migrations 0067-0070: instruments + calibration_events (next_due via immutable `make_interval`, SELECT...FOR UPDATE tie-break ordering), competencies + training_records (member_id composite FK, full history), widened exports_resource_check. `packages/core`: `nextDueDate`, `instrumentDueStatus` (fail-always-overdue rule), `activeCalibrationThreshold` (smallest-threshold-crossed matching document-expiry.ts), `competencyCellState` (ok/warn/overdue/gap/na), RBAC: `calibration:view`/`calibration:manage`/`training:view`/`training:manage` (admin/manager/auditor=all, inspector/viewer=view-only, partner=none). `apps/api/src/instruments/`: full CRUD, calibration-event recording with SELECT FOR UPDATE ordering (performed_at DESC, created_at DESC), certificate attach with entity_kind+sha256 verification (presign-bypass fix). `apps/api/src/training/`: competencies + training services (archive/unarchive, atomic exact-set-match 409 reorder, matrix, summary, batch all-or-nothing submission, training-history scoped routes), daily notification jobs (calibration-due, training-expiry; cycle-tied dedupe). `apps/web`: full calibration module (register page KPI strip/table/legend, instrument detail card, due-status chip, raise-NCR action, record-calibration/attach-certificate/history dialogs, add-instrument form), full training module (matrix, training:view-only cells for other members, member drawer, competency catalog Archive/unarchive, record-training dialog). New hooks: `use-instruments.ts`, `use-training.ts` (use-files.ts modified: entityId optional for calibration_event/training_batch presign flows). DESIGN-05 design doc built + late fix: severity legend added to calibration register page for fidelity. Architecture review (4 rounds pre-code) caught real bugs pre-implementation: (1) Postgres 16 immutability (switched to `make_interval`), (2) IATF rule bug (fail must override next_due to overdue, not advance), (3) training_batch circular dependency (fixed via presign without entityId/with entityKind), (4) audit-trail gaps on fail and cert re-attach (3-way split), (5) same-day tie-break reintroducing IATF bug (explicit ordering + SELECT FOR UPDATE), (6) missing training-history read routes (added), (7) threshold algorithm window matching (fixed), (8) owner-exception inconsistency across routes (resolved per-route), (9) DoD bypass-test backwards happy-path (fixed). Security fix during review: `raiseNcr` in both `instruments.service.ts` and pre-existing `audits.service.ts` wrote bare `tx.query` UPDATE (rule 3 violation) instead of `withAudit`; both fixed. Defensive `assertDetailScope` added to all instrument mutation methods. Bug fixes in build: TanStack Query invalidation missing predicate-based invalidation for parametrized list/history queries (fixed in `use-instruments.ts`); stale `trainingRecordCount` in archive-confirm dialog (fixed: invalidate competencies on recordTraining success); missing severity legend on calibration register vs DESIGN-05 (fixed). `pnpm test`/`pnpm test:rls`/`pnpm db:check` gate run once before merge, all green; demo login re-seeded and confirmed 201. **Process gap (honest log):** no formal PO Close ceremony before merge — PROGRESS.md incremental-updated during sprint by build-slice agents per explicit user instruction prioritizing speed. Follow-up task flagged: `use-risks.ts` query-invalidation pattern (Sprint 04) spot-checked, not confirmed as actual bug; unverified if recurrence exists elsewhere.
 
 **Sprint 04 — Gate 2 confirmation fidelity fixes (2026-09-29), on top of the ACCEPTED Gate 2 below.**
