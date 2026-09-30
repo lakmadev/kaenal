@@ -467,6 +467,37 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
      VALUES ($1, $2, $3, '2026-01-10', 24) RETURNING id`,
     [t, userId, competencyId],
   );
+
+  // Sprint 06 — customer complaints (0071): one triage complaint owned by the
+  // seeded admin member, with SLA targets denormalized as they would be at
+  // creation, plus one attachment linking it to the seeded evidence file
+  // (exercises complaint_attachments' composite FK on both sides).
+  const complaintId = await q(
+    `INSERT INTO complaints (tenant_id, code, customer, contact, channel, severity, subject,
+                             sla_target_hours, sla_close_target_days, owner)
+     VALUES ($1, $2, 'Acme Corp', 'Magnus Eriksson · Quality Manager', 'portal', 'high',
+             'Bracket cracking in the field', 4, 21, $3) RETURNING id`,
+    [t, `COM-${tag}-0001`, userId],
+  );
+  await q(
+    `INSERT INTO complaint_attachments (tenant_id, complaint_id, file_id, created_by)
+     VALUES ($1, $2, $3, $4) RETURNING id`,
+    [t, complaintId, fileId, userId],
+  );
+
+  // Sprint 06 — ECN (0072): one draft ECN owned by the seeded admin member,
+  // plus its 5 pre-created (pending) gated-stage approval rows (E4 AC1).
+  const ecnId = await q(
+    `INSERT INTO ecns (tenant_id, code, title, change_type, change_risk, owner)
+     VALUES ($1, $2, 'Swap bushing supplier', 'material', 'medium', $3) RETURNING id`,
+    [t, `ECN-${tag}-0001`, userId],
+  );
+  for (const stage of ["feasibility", "risk_review", "ppap", "cab_approval", "pilot"]) {
+    await q(
+      `INSERT INTO ecn_approvals (tenant_id, ecn_id, stage) VALUES ($1, $2, $3) RETURNING id`,
+      [t, ecnId, stage],
+    );
+  }
 }
 
 /**
