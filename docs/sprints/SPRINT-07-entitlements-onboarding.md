@@ -827,10 +827,10 @@ AC
    a `*`-subscribed endpoint receives nothing for a plan request; the outbox row contains no email or note.
 
 Web: dialogs, chips, notification rows. Mobile: notification list renders the two kinds, tap hands off to web
-(X1). Shared: table, routes, notification kinds, outbox email template.
+(X1). Shared: table, routes, notification kinds, sales email template (**[AR]** `send-email` job enqueued after commit).
 
 Backend: migration 0076 (shared with P7/P9/O1); `PlanRequestsService`; audit `created`/`status_changed`; RBAC
-per kind; tenancy: RLS, composite FKs; email via existing outbox.
+per kind; tenancy: RLS, composite FKs; **[AR]** email via a `send-email` job enqueued after commit; `plan_request.changed` as an ids-only internal outbox event.
 
 ### P7 — Download quote (PDF)
 
@@ -1440,7 +1440,7 @@ snapshot as an argument; nothing about which framework includes what is written 
   So (i) the `frameworks` field of the workspace profile requires `billing:manage` (admin, 03 §3 "billing,
   entitlements = admin"), while industry / size / focus modules keep `settings:manage`; (ii) a removal that
   would make modules ineffective opens the same downgrade confirm as P4 (open records that become read-only);
-  (iii) every change is audited (`settings_changed`) and emails Kaenal sales (outbox) so a surprising
+  (iii) every change is audited (`settings_changed`) and emails Kaenal sales (**[AR]** enqueued after commit, 07C SD12) so a surprising
   declaration is visible, and the platform console shows the declaration history (07C C4). **[AM2]** No remedy beyond
   that is built: declarations run on the honor system (§7 Q-C12, DECIDED).
 - **Overlay copy does not advertise framework inclusion** ("declare IATF to get this free") — that would invite

@@ -257,7 +257,7 @@ setup routes, Zod bodies in the platform contract.
 Backend: migration 0078; bootstrap script; setup routes; audit → platform audit (C3); RBAC n/a (pre-session);
 tenancy: control plane only, touches no tenant table.
 
-### C2 — Platform authentication, sessions and the platform branch of the request lifecycle (Shared foundation)
+### C2 — Platform authentication, sessions and the platform API process's request lifecycle (Shared foundation)
 
 **Design:** platform sign-in, TOTP step, lockout, expired-session states (D-C1).
 
@@ -1104,7 +1104,7 @@ AC
    (bypassing `SupportViewAuthenticator` entirely) with `app.grant_id` absent, pointing at an expired grant, or
    pointing at an ended grant asserts **zero rows / a permission error** on a representative sample of
    reader-accessible tables — independent of, and even when, the application-layer check is skipped; the same
-   assertion holds for a dedicated-tenant database against its local `support_grant_backstop` mirror; a mutation
+   assertion holds for a dedicated-tenant database against its local `control.support_grant_backstop` mirror; a mutation
    test confirms dropping the RESTRICTIVE policy, or stubbing `support_reader_grant_active()` to always return
    true, makes this test fail. **[AM3]** Plus (SR4): a list-view request made under a content grant records the
    returned entity ids (or `entityIdCount` + a capped 200-id sample with `truncated: true`) in its platform audit
@@ -1120,7 +1120,7 @@ page, banner, audit-log renderer extension). Mobile: unaffected (no support view
 generic row renders the events). Shared: migration 0079 additions, `SupportViewAuthenticator` in the lifecycle
 interceptor, the two tenant-contract routes (`POST /v1/support-view/exchange`, `POST /v1/support-view/end`), the
 platform route `POST /platform/v1/grants/:id/view-link`, the reader role and its schema test, **[AM3]** the
-`support_reader_grant_active()` function/RESTRICTIVE policy and (dedicated tenants) the `support_grant_backstop`
+`support_reader_grant_active()` function/RESTRICTIVE policy and (dedicated tenants) the `control.support_grant_backstop`
 mirror table.
 
 Backend: migration 0079; routes above; audit: tenant `support_accessed` per detail view / attachment + grant start,
@@ -1490,7 +1490,7 @@ adds a second, **RESTRICTIVE** policy `support_reader_grant_active`, scoped `TO 
 every table that role can SELECT, ANDed with `tenant_isolation` — both must pass for a row to be readable. Its
 backing function re-derives validity from the **persisted** `support_grants` row on every check (shared-model
 tenants: a `SECURITY DEFINER` function querying `control.support_grants` directly, same physical database;
-dedicated-model tenants: the same function name checking a local `support_grant_backstop` mirror row, since
+dedicated-model tenants: the same function name checking a local `control.support_grant_backstop` mirror row, since
 Postgres cannot join across physical databases — full mechanism in C10 AC2a), not from a value the request handler
 computed and could get wrong. `app.grant_id` joins `app.tenant_id` / `app.support_reason` / `app.platform_user_id` in
 the `SET LOCAL` context C10 AC4 opens. ~~Every future tenant-table migration must carry this policy the same way it
@@ -1578,7 +1578,7 @@ above are **not** changed by these sprints (they are outside their scope) and ar
 **SD8 — [AM2, amended] Tenant-side changes are limited to what the access model needs.** 07C adds no tenant table.
 It adds two roles (`kaenal_support`, `kaenal_support_reader`), a restrictive policy and audit-attribution triggers,
 **[AM3] a second RESTRICTIVE policy backing the content-scope DB-level backstop (SR1) and, for dedicated tenants
-only, one small local mirror table (`support_grant_backstop`) that carries no tenant business data**, and — for the
+only, one small local mirror table (`control.support_grant_backstop`, [AR]) that carries no tenant business data**, and — for the
 content scope only — two tenant-contract routes (`POST /v1/support-view/exchange`, `POST /v1/support-view/end`), a
 third authenticator inside the ONE lifecycle interceptor, and the tenant web app's support-view mode (C10). Mobile
 is untouched. **[AR]** Updated inventory of tenant-side changes: the tenant API process gains the `support_viewer`
@@ -1640,7 +1640,7 @@ New platform-contract route [AM3]: `POST /platform/v1/auth/step-up` (SR2).
 | C7 | (0080 grants) | `GET /platform/v1/catalog`, `PUT/POST …/catalog/*`, `POST …/catalog/impact-preview` | `CatalogAdminService`, impact preview | platform | `platform:catalog:*` | control plane; reads only `control.tenant_commercial_summary` — no tenant database, no cross-tenant record counts ([AR] AR26) |
 | C8 | (0080 grants) | `GET/POST/PUT/DELETE …/price-book/*`, `POST …/publish`, `POST …/preview` | `PriceBookService` | platform | `platform:pricebook:*` | control plane |
 | C9 | 0079 | `GET /platform/v1/audit`, [AM2] `GET /platform/v1/audit/export.csv`, `GET /platform/v1/me/audit`, `GET /platform/v1/me/audit/export.csv` | audit reader, CSV writer | platform `audit_exported` | `platform:audit:read`; `platform:audit:own` | append-only; own-export forced to the caller |
-| C10 [AM2] | 0079 | `POST /platform/v1/grants/:id/view-link`; tenant contract `POST /v1/support-view/exchange` (`@AllowAnonymous`), `POST /v1/support-view/end` | `SupportViewAuthenticator` in the lifecycle interceptor, reader pool, **[AM3]** `support_reader_grant_active()` | tenant `support_accessed` (grant start, each detail view / attachment) + platform per request (**[AM3]** incl. entity ids on list views) | `platform:tenant:content`; synthetic read-only `support_viewer` | `kaenal_support_reader` (no write privilege), RLS, grant-bound tenant, unsafe methods 403, **[AM3]** RESTRICTIVE-policy DB backstop on `app.grant_id` |
+| C10 [AM2] | 0079 | `POST /platform/v1/grants/:id/view-link`; tenant contract `POST /v1/support-view/exchange` (`@AllowAnonymous`), `POST /v1/support-view/end` | `SupportViewAuthenticator` in the lifecycle interceptor (**[AR]** principal resolved first via `SUPPORT_GATE_POOL`, then the reader pool), **[AM3/AR]** `support_reader_grant_active(scope)` | tenant `support_accessed` with **[AR]** internal kinds `support_grant` / `support_view` (grant start, each detail view / attachment; never outbox or realtime) + platform per request (**[AM3]** incl. entity ids on list views) | `platform:tenant:content`; synthetic read-only `support_viewer` | `kaenal_support_reader` (no write privilege), RLS, grant-bound tenant, unsafe methods 403, **[AM3]** RESTRICTIVE-policy DB backstop on `app.grant_id` |
 | C11 [AM2] | (0078) | `GET/POST /platform/v1/platform-users`, `…/:id/resend-setup`, `PUT …/:id/role`, `POST …/:id/deactivate\|reactivate\|reset` | `PlatformIdentityService`, control-plane email | platform `platform_user_*` | `platform:users:manage` | control only; last-admin and self-change guards |
 | C12 [AR] | — | none new; `@ReadOnlyPost` on `POST /v1/query`, `/metric`, `/series`; route policy table over every tenant route | `packages/core` `Principal`, `accessScopeOf`, `SUPPORT_VIEWER_READ_CAPABILITIES`, `SUPPORT_VIEW_ROUTE_POLICY`; helper change + read-path migration of the 195 member-assuming sites | per C10 AC5 (`support_view` on detail + download) | synthetic read-only `support_viewer`, 20 read capabilities, PO-SC10 settings reads | all-plant, grant-bound tenant; secrets/credentials routes denied |
 | CX | — | — | lint rules, build-manifest test, seed-platform, env, docs | — | — | host/CSP headers |
@@ -1822,7 +1822,7 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
       concurrency on every write (rule 6); cursor pagination on every list. **[AM3]** Content-grant creation is
       rate-limited (5/platform user/rolling hour) and fires exactly one `content_grant_anomaly` event at the 3rd distinct
       tenant in a rolling hour, not before and not again for the same window (C3 AC9).
-- [ ] Interceptor: tenant sign-in re-proved end to end (201) after the platform branch **and [AM2] the support-view
+- [ ] Interceptor: tenant sign-in re-proved end to end (201) after the platform API process (**[AR]** C2) **and [AM2] the support-view
       authenticator** land (rule 12); mobile bearer path unchanged; cross-plane isolation tests green both ways; host
       check and CIDR tests green; [AM2] the contract-enumerating support-view test (every GET 2xx/404 read-only,
       every unsafe route 403, C10 AC6) green. **[AM3]** `content`-grant creation is refused without a valid,
