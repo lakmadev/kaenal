@@ -34,9 +34,9 @@ to match (amended text is tagged **[AM1]**):
 |---|---|---|
 | U-D1 | **D1 confirmed as recommended**: hybrid self-service / request mode, operator-set `self_service` flag per tenant, new tenants default to request mode | §3.0 D1 (DECIDED); P4, P6, P8 |
 | U-D2 | **D2: both proposed options rejected.** "Design the pack depending on the industry and not as a single source. Because one guy needs 4 modules but others need 8 modules." What is included free in Core now **varies by the compliance frameworks the tenant declares**; the free set is admin-editable **data** | §3.0 D2 (DECIDED, redesigned); new P0; P1-P4, O1-O4 |
-| U-D3 | **Price book stays placeholder, but staff-editable** through the staff console, in the same data store as the pack catalog — never a file an engineer edits and redeploys | §3.0 D2/§3.1 (versioned price book); P0, P4, P7; console editor in 07C |
+| U-D3 | **Price book stays placeholder, but platform-editable** through the platform console, in the same data store as the pack catalog — never a file an engineer edits and redeploys | §3.0 D2/§3.1 (versioned price book); P0, P4, P7; console editor in 07C |
 | U-D4 | **Industry (8) / framework (9) lists approved, but must be extensible** without a migration: admin-editable lookup tables, Zod validates "an active catalog value or a free-text fallback" | P0, O1-O3; console editor in 07C |
-| U-D5 | **Build the real staff web console now**, not the audited-CLI-only interim plan | §3.0 D5 (DECIDED); **new sprint file `SPRINT-07C-staff-console.md`** (Increment C) |
+| U-D5 | **Build the real platform web console now**, not the audited-CLI-only interim plan | §3.0 D5 (DECIDED); **new sprint file `SPRINT-07C-staff-console.md`** (Increment C) |
 
 **Amendment 2 — final planning amendment, 2026-09-30 (tagged [AM2]).** The user decided Q-C11 ("use what
 industry standard companies use and think if we can make it better", applying the rule that a framework's
@@ -54,10 +54,10 @@ record it, move on"). Result: **no open decision remains in this file.**
 | PO-3 | Q-S2b keep the plant-size question; Q-S3 existing tenants not force-prompted | PO (as recommended) | O4, O1 AC4 |
 | PO-4 | Q-P1 `provision-tenant` seeding audit gap **fixed in this sprint** | PO (lead instruction; CLAUDE.md rule 3) | P8 AC2, DoD |
 | PO-5 | New gateable unit `supplier_analytics` (weighted scorecards + supplier risk matrix), split out of `suppliers`: without it, U-D6 would give the scorecards the user named as paid depth away for free | PO (consequence of U-D6) | P0, P1, P2, P3, D-S15 |
-| PO-6 | Staff trial reset (07C C5) is the single, audited exception to "once per pack" | PO (standing rule, 07C Q-SC6) | P5 |
+| PO-6 | Platform trial reset (07C C5) is the single, audited exception to "once per pack" | PO (standing rule, 07C Q-SC6) | P5 |
 
 **PO scope call: this sprint is split into two sprint files (Amendment 1).** With U-D5 the work grows from two
-increments to three, and the third is a whole new authenticated surface (a staff identity outside tenant
+increments to three, and the third is a whole new authenticated surface (a platform identity outside tenant
 memberships, a non-tenant-scoped session path through the lifecycle interceptor, a least-privilege support
 database role, a new app). That increment has a different risk profile (auth and cross-tenant access), a
 different reviewer set (security review is mandatory) and its own design gate. Folding it into this file would
@@ -65,7 +65,7 @@ produce one sprint no one can review or sign off in one pass. So:
 
 - **This file (`SPRINT-07`) = Increments A (plans & entitlements) and B (industry-aware onboarding)**, amended
   for U-D1…U-D4. It owns the catalog **data model and seed**, which the console later edits.
-- **`SPRINT-07C-staff-console.md` = Increment C (the staff console)**, sequenced after A (it edits A's catalog,
+- **`SPRINT-07C-staff-console.md` = Increment C (the platform console)**, sequenced after A (it edits A's catalog,
   price book, plans and requests). It is **not deferred**: it is part of the same Sprint 07 release and **Sprint
   08 cannot open until 07C closes** (ROADMAP §4). The operator write path that used to be the `pnpm tenant-plan`
   CLI (old P8) moves there, so there is exactly **one** operator write path, never a CLI and a console that can
@@ -102,7 +102,7 @@ story uses it, so design and engineering know the *why*, not just the *what*.
 | R5 | **Sales-led "request → admin/vendor approves".** Members or admins *request* an upgrade; an approver (workspace admin, or the vendor's sales team) fulfils it; the requester is notified of the decision. Figma's March-2025 billing change moved to admin approval of seat upgrades by default, with email + in-app notification both ways, and optional provisional access while a request is pending. | Figma (seat-upgrade requests), Atlassian (request product access), Slack/Notion (request to upgrade) | Two request loops: **member → workspace admin** ("Request access" on a locked module), and **workspace admin → Kaenal sales** ("Add to plan" / "Talk to sales" / "Contact sales" / "Update subscription" in request mode). Both notify in-app; Kaenal sales by email. | P6 |
 | R6 | **Feature trial / reverse trial.** Time-boxed full access to a premium feature; at expiry the customer drops back to their plan, never locked out of their own data. Term popularised by Kyle Poyar (OpenView). | Notion, Canva, Slack, Loom, Miro (reverse-trial variants); HubSpot in-app hub trials | `addons.jsx` already draws **"Start 14-day trial"**. This sprint makes it real: once per pack per tenant, auto-expiring, T-3-day warning, and at expiry the tenant's records stay readable (§3.0 D3). | P5 |
 | R7 | **Frosted preview paywall.** The locked feature renders blurred behind an upsell card, so the buyer sees what they would get. | Common in PLG products; drawn in `addons.jsx` `UpgradeOverlay` and specified in 04 §5 | Built exactly as drawn (P2). The blur is a **commercial** gate, not a security boundary; the API is the boundary (P3). | P2, P3 |
-| R8 | **Operator plane as scripts before consoles.** Early enterprise SaaS runs tenant/plan administration through audited internal tooling before building a staff console. | Kaenal's own precedent: `provision-tenant`, `offboard-tenant`, `migrate-tenants` (TECH_STACK: "tenant provisioning is a script, not a project") | **[AM1] Superseded by U-D5 for plan administration.** Provisioning stays a script (P8: `provision-tenant --bundle / --from-request`). Plan, request, catalog and price-book administration is the staff web console in `SPRINT-07C-staff-console.md`, recorded as `actor_kind='support'` with a mandatory `reason` (the audit table already enforces this). | P8, 07C |
+| R8 | **Operator plane as scripts before consoles.** Early enterprise SaaS runs tenant/plan administration through audited internal tooling before building a staff console. | Kaenal's own precedent: `provision-tenant`, `offboard-tenant`, `migrate-tenants` (TECH_STACK: "tenant provisioning is a script, not a project") | **[AM1] Superseded by U-D5 for plan administration.** Provisioning stays a script (P8: `provision-tenant --bundle / --from-request`). Plan, request, catalog and price-book administration is the platform web console in `SPRINT-07C-staff-console.md`, recorded as `actor_kind='support'` with a mandatory `reason` (the audit table already enforces this). | P8, 07C |
 | R9 | **[AM1] Compliance-scoped packaging.** Compliance products price by framework: the controls a declared framework needs come with that framework, and generic depth is sold on top. | Vanta / Drata (framework-based packaging; the frameworks you select determine the control set you receive) | The modules a tenant's **declared** frameworks require are included free for that tenant ("framework inclusions"), keyed by framework in an admin-editable table; everything else is sold as packs. This is what makes the Core promise true per tenant instead of false for some (§3.0 D2). | P0, P1, P4, O1 |
 
 Sources consulted this session: [Vanta — automated compliance](https://www.vanta.com/products/automated-compliance),
@@ -135,7 +135,7 @@ Make Kaenal **sellable, gateable and first-hour-tailored** without a payment pro
    seeded here and edited by staff in 07C. Locked modules render the real page blurred behind the upsell card
    (04 §5), carry a lock in the sidebar, and are write-blocked server-side. Admins manage the plan on a
    **tenant-aware** `/pricing`, can start real 14-day trials, and hand off to Kaenal sales through real requests;
-   Kaenal staff fulfil requests and set the contracted plan in the staff console (07C). The `Billing & plan`
+   Kaenal staff fulfil requests and set the contracted plan in the platform console (07C). The `Billing & plan`
    settings section shows the plan (payment features hidden per Q6). `Download quote` produces a real PDF.
 2. **Industry-aware onboarding (Increment B).** A prospect can request a workspace from the sign-in screen (the
    drawn `request` stage), capturing industry / plant size / frameworks. When the tenant's first admin signs in,
@@ -159,7 +159,7 @@ migrations and services are merged. Coupling is now two-way between A and B: O2/
 | **Manager** (`settings:manage`, not `billing:manage`) | Onboarding checklist and editing the workspace profile's industry, plant size and focus modules, like every other `settings:manage` screen. **[AM1] Frameworks are read-only for managers** (they change entitlements; 03 §3: billing/entitlements are admin-only) |
 | **Auditor / inspector / viewer** | Sidebar lock icons and the locked-module overlay; a **"Request access"** action that notifies admins (R5). Never a control that would 402 or 403 (04 §6) |
 | **Partner** (supplier portal) | Portal writes are gated by the `supplier` pack like the internal supplier module. No new UI |
-| **Kaenal staff (operator)** | **[AM1]** In this file: `provision-tenant --bundle` / `--from-request` only. Plan, request, catalog and price-book administration is the staff console — see `SPRINT-07C-staff-console.md` (roles `support`, `sales`, `admin`) |
+| **Kaenal staff (operator)** | **[AM1]** In this file: `provision-tenant --bundle` / `--from-request` only. Plan, request, catalog and price-book administration is the platform console — see `SPRINT-07C-staff-console.md` (roles `platform_support`, `platform_sales`, `platform_admin`) |
 | **Prospect (unauthenticated)** | "Request a workspace" form on the sign-in screen, with an honest confirmation state |
 
 **Mobile.** No `m-*.jsx` draws pricing, entitlements, trials or onboarding (§1a). Every module the mobile app uses
@@ -224,7 +224,7 @@ UC
 - Happy: the API, the web and 07C's console read one catalog: pack display data, which module belongs to which
   pack, which modules each framework requires or supports (with clause), the active industries and frameworks,
   and the current published price book.
-- Happy (extensibility, U-D4): a staff member adds a 10th framework or a 9th industry through the console (07C
+- Happy (extensibility, U-D4): a platform user adds a 10th framework or a 9th industry through the console (07C
   C7); it appears in the public request form, the first-run flow and the profile editor on the next fetch, with
   **no migration and no redeploy**. This story proves the read side by inserting a row in a test and observing it
   everywhere.
@@ -234,7 +234,7 @@ UC
   keeps its inclusions (D2); it is not offered for new selection.
 - Error: the catalog cannot be read → the API fails closed (every non-floor module gated, 503-class error on
   catalog-dependent routes, never a hard-coded fallback); the web shows the inline retry card.
-- Permission: authenticated tenant members read the catalog they need (no staff fields); the public request form
+- Permission: authenticated tenant members read the catalog they need (no platform-user fields); the public request form
   reads only active industry/framework keys and labels; nothing tenant-side can write it.
 - Cross-tenant: the catalog is global and contains no tenant data; nothing in it is tenant-identifying.
 
@@ -268,7 +268,7 @@ AC
    `apps/api/src/entitlements/**` or `apps/web/src/features/pricing/**` contains a `$`-amount, a known pack
    price (2400, 1200, 450, 600, 900, 2000) or a framework/industry key string literal outside test fixtures.
 4. Routes: `GET /v1/catalog` (any authenticated internal member or partner; returns `CatalogDto` minus
-   `updated_by_staff` and other staff fields; ETag = `catalog_meta.version`) and `GET /v1/public/onboarding-catalog`
+   `updated_by_platform_user` and other platform-user fields; ETag = `catalog_meta.version`) and `GET /v1/public/onboarding-catalog`
    (`@Public`, served by the `kaenal_public` pool; active industries/frameworks + plant sizes only; cacheable
    60 s). Not paginated (small fixed-size reference data, exempt from rule 6 like `GET /v1/me`; stated in the
    contract summary).
@@ -277,7 +277,7 @@ AC
 6. Explicit grant test (new, beside `control-identity.test.ts`): `kaenal_app` can SELECT and cannot
    INSERT/UPDATE/DELETE any catalog table; `kaenal_public` can SELECT only the listed columns of
    `catalog_industries`/`catalog_frameworks` and nothing else in `control`; no role but the migrator (and, from
-   07C, the staff role) can write.
+   07C, the platform role) can write.
 7. Extensibility test: insert an 11th framework with one `required` rule in a test → it is returned by both
    catalog routes, accepted by `makeWorkspaceProfileSchema`, and a tenant declaring it gets the module effective
    (P1) — with no code change.
@@ -381,9 +381,9 @@ UC
   that sends a member request to the workspace admins (P6); after sending, the card shows "Requested — your
   admin has been notified" and the action is disabled. No Add to plan / Start trial / Compare plans (they would
   403 or lead to an admin-only page; 04 §6 "never render a button that will 403").
-- Happy: the pack becomes effective (any path: toggle, trial, staff console [AM1], request fulfilled, framework declared [AM1]) → the overlay
+- Happy: the pack becomes effective (any path: toggle, trial, platform console [AM1], request fulfilled, framework declared [AM1]) → the overlay
   lifts and the lock icons disappear **without a reload**: the entitlements query is invalidated by the
-  mutation, and by the realtime `entity.updated {kind:'entitlements'}` event for changes made elsewhere (staff console [AM1],
+  mutation, and by the realtime `entity.updated {kind:'entitlements'}` event for changes made elsewhere (platform console [AM1],
   another admin).
 - Create surfaces: in the CreateWizard type step, the quick-create menu and the command palette's quick actions,
   a type whose module is gated (today: `risk`, `ecn`) shows a lock chip; choosing it shows the inline upsell (§5
@@ -428,7 +428,7 @@ AC
    token, §5).
 7. Create surfaces (CreateWizard type cards, quick-create menu, palette quick actions) consult the same resolver;
    Playwright proves choosing a locked type never reaches a form.
-8. Realtime: P4/P5/P6 and O1 frameworks [AM1] mutations (and 07C's staff writes) emit `entity.updated {kind:'entitlements'}` on the tenant channel; the web
+8. Realtime: P4/P5/P6 and O1 frameworks [AM1] mutations (and 07C's platform writes) emit `entity.updated {kind:'entitlements'}` on the tenant channel; the web
    client invalidates `['entitlements']` on it (04 §7 targeted invalidation).
 9. **[AM2] In-page gates (D-S15).** Where a gated module is a view or tab inside an ungated page: (a) Suppliers →
    **Scorecards** and **Risk matrix** segments (`supplier-list.tsx:24-31`) when `supplier_analytics` is gated —
@@ -663,11 +663,11 @@ AC
    email on for admins), and the web notification centre click-through (`/pricing?pack=`).
 4. Tests: boundary at exactly `ends_at` (not effective), job idempotence, 409/422 cases, the AI gateway honouring
    an active `intelligence` trial (P3 AC3), and `?pack=` highlight in Playwright.
-5. **[AM2] Staff reset exception (D4, PO-6).** The once-per-pack rule has exactly one exception: 07C C5's audited
-   staff reset of an **ended** trial, which removes the `entitlement_trials` row (the history lives in both audit
+5. **[AM2] Platform trial-reset exception (D4, PO-6).** The once-per-pack rule has exactly one exception: 07C C5's audited
+   platform reset of an **ended** trial, which removes the `entitlement_trials` row (the history lives in both audit
    logs). After a reset, `trialAvailable` is true again, the tenant's `/pricing` offers "Start 14-day trial" on the
    next fetch, and a new trial produces new dedupe keys (`…:<ends_at>`) so the job notifies for it normally. Test
-   (in this file's suite, with a direct row delete standing in for the staff path): reset → trial startable once
+   (in this file's suite, with a direct row delete standing in for the platform path): reset → trial startable once
    more → 409 again after that second trial.
 
 Web: trial button/chips/states. Mobile: notification list renders the two kinds and hands off to web (X1).
@@ -693,7 +693,7 @@ UC
   `open` request is stored, Kaenal sales receives an email (outbox → `send-email`, to `SALES_NOTIFY_EMAIL`) with
   tenant name/slug, requester, kind, pack/tier, composition snapshot and estimate; the button shows "Requested".
 - Fulfil/decline: **[AM1] moved to `SPRINT-07C-staff-console.md` C6** — Kaenal staff fulfil (apply the change and
-  mark the request fulfilled) or decline (with a reason) in the staff console's sales inbox; the requesting admin
+  mark the request fulfilled) or decline (with a reason) in the platform console's sales inbox; the requesting admin
   is notified in-app + email (`plan_request_resolved`, defined here, sent by 07C). This story delivers everything
   up to and including the open request, the sales email and the outbox event 07C projects.
 - Withdraw: the requester (or any admin) withdraws an open request.
@@ -729,7 +729,7 @@ AC
    and from `EntitlementsDto.myOpenRequests: PackId[]` (additive field) for non-admins, so the non-admin overlay
    shows "Requested" after a reload.
 5. Tests: dedupe, capability per kind, auto-fulfil on activation (via self-service toggle; trial is **not**
-   fulfilment; staff-console activation is tested in 07C), outbox row committed atomically, withdraw state
+   fulfilment; platform-console activation is tested in 07C), outbox row committed atomically, withdraw state
    machine, cross-tenant id → 404. **[AM1]** `member_access` / `add_pack` for a module or pack that is
    framework-included (fully covered) → 422 `already_included`.
 6. **[AM1]** Every insert and status change writes an outbox event `plan_request.changed` `{ tenantId,
@@ -774,7 +774,7 @@ Web: button wired to the existing export hook. Mobile: none. Shared: enum + rend
 **Design:** none; provisioning stays a script (R8, TECH_STACK "tenant provisioning is a script, not a project").
 **[AM1]** The `pnpm tenant-plan` CLI that this story used to specify is **removed** (U-D5): every operator write it
 carried (show, bundle, packs, self-service flag, contract and CSM fields, requests list/fulfil/decline, history,
-workspace-request listing) is specified as a staff-console story in `SPRINT-07C-staff-console.md` (C4-C6), so
+workspace-request listing) is specified as a platform-console story in `SPRINT-07C-staff-console.md` (C4-C6), so
 there is one operator write path with one audit shape. Provisioning a new tenant (creating databases, roles and
 the registry row) stays in `provision-tenant`; a console "Provision" action is not built ([AM2] 07C Q-SC4,
 DECIDED).
@@ -799,9 +799,9 @@ AC
    `self_service boolean NOT NULL DEFAULT false` [D1 DECIDED], `contract_renews_on date`,
    `contract_value_annual numeric(12,2)`, `contract_currency text DEFAULT 'USD'`, `csm_name`, `csm_email`,
    `csm_booking_url`, `csm_chat_url` (https-only CHECK on both URLs), `lock_version`, `updated_at`,
-   `updated_reason text`, `updated_by_staff uuid NULL`). `GRANT SELECT` to `kaenal_app` only (the API can read,
+   `updated_reason text`, `updated_by_platform_user uuid NULL`). `GRANT SELECT` to `kaenal_app` only (the API can read,
    never write — the same boundary as `control.tenants`); in this file writes are migrator-only
-   (`provision-tenant`); 07C grants its staff role UPDATE. Not tenant-owned → outside the RLS lint by design; its
+   (`provision-tenant`); 07C grants its platform role UPDATE. Not tenant-owned → outside the RLS lint by design; its
    access is covered by an explicit grant test (app role cannot INSERT/UPDATE/DELETE).
 2. The tenant-owned writes this story adds to provisioning (entitlements, the pre-filled profile) each write an
    audit event (`actor_kind='system'`, `entitlement_changed` / `settings_changed`, `after` = the seeded values) in
@@ -952,7 +952,7 @@ AC
 1. `packages/core/src/onboarding/suggest.ts` exports `suggestModules(catalog, input)`, `suggestFrameworks(catalog,
    industry)`, `defaultFocusModules(suggestions)` (= essential ∪ recommended), all pure, deterministic, no I/O, no
    `Date`; **[AM1] the catalog snapshot is an argument** (P0), so the functions stay pure while their data is
-   staff-editable.
+   platform-editable.
 2. The logic is **table-driven data** — **[AM1] now in P0's control tables, not in
    `packages/core/src/onboarding/requirements.ts`** (that file is not created): (a) `framework_module_rules` —
    a `required` rule of a selected framework makes the module `essential` with that clause as its reason; a
@@ -991,8 +991,8 @@ AC
    MSA/PPAP/Risk/ECN/Suppliers essential and SCAR / supplier_analytics recommended ([AM2] finalized mapping); ISO
    9001 makes ECN/Suppliers essential and Risk recommended. **[AM1]** Plus: for every framework and every module,
    `essential-for-a-framework-reason ⇔ frameworkInclusions(...)` contains it (the no-false-claim property, run over
-   the seed catalog and over random catalogs); a staff-added industry with empty priors yields framework-only
-   suggestions; a staff-added framework with one `required` rule makes that module essential.
+   the seed catalog and over random catalogs); a platform-added industry with empty priors yields framework-only
+   suggestions; a platform-added framework with one `required` rule makes that module essential.
 
 Web: consumed by O4 (and O5's module tasks). Mobile: none. Shared: `packages/core` only (rule 5).
 
@@ -1022,7 +1022,7 @@ UC
   with Industry "Other" + free text and no framework chips, plus a one-line notice, so a prospect is never
   blocked (the request is still valid: industry `other`, frameworks as custom labels).
 - **[AM1] Triage:** Kaenal staff see and triage these requests (decline / mark spam / open the provisioned
-  tenant) in the staff console (07C C6); provisioning itself stays `provision-tenant --from-request` (P8).
+  tenant) in the platform console (07C C6); provisioning itself stays `provision-tenant --from-request` (P8).
 
 AC
 1. `0075` [AM1] adds `control.workspace_requests` (`id`, `company_name` ≤ 120, `work_email citext` ≤ 254,
@@ -1032,13 +1032,13 @@ AC
    CHECK in (`new`, `provisioned`, `declined`, `spam`), `provisioned_tenant_id` FK nullable, `created_at`,
    `request_ip_hash` (salted hash, never the raw IP)). `GRANT INSERT` only to the API's public path role — the
    API can add a request but can never read, list or update them (enumeration-proof by grant); the migrator-role
-   provisioning script and (07C) the staff role read them. Explicit grant test.
+   provisioning script and (07C) the platform role read them. Explicit grant test.
 2. `POST /v1/public/workspace-requests` (`@Public`): Zod body from `makeWorkspaceRequestSchema(catalog)` in
    `packages/types` [AM1]; honeypot non-empty → 202
    and discard; rate limit → 429 `RATE_LIMITED` with `Retry-After`; success → insert + sales email via the
    `send-email` job in one transaction → 202. No PII in logs (email redacted, per CLAUDE.md "never log PII").
 3. `provision-tenant --from-request <id>` pre-fills the O1 profile and marks the request `provisioned` with the
-   tenant id (idempotent) (P8). [AM1] Listing requests is the staff console's (07C C6); the old `tenant-plan
+   tenant id (idempotent) (P8). [AM1] Listing requests is the platform console's (07C C6); the old `tenant-plan
    --workspace-requests` flag is removed with the CLI.
 4. Web: the `request` stage added to `sign-in-form.tsx`'s stage machine and the link added to the workspace stage,
    pixel-matched to `auth.jsx`; the auth screens' existing sign-in flow is untouched and **sign-in is re-proved
@@ -1187,7 +1187,7 @@ Web: section. Mobile: none (no design; checklist is an admin web task). Shared: 
 AC
 1. **RBAC:** no new tenant capability. `billing:manage` (admin, existing) gates plan changes, trials, requests other than
    `member_access`, org-profile, downgrade-impact, quote, billing settings **and [AM1] the profile's `frameworks`
-   field**; `settings:manage` gates the rest of the profile write and onboarding; (staff roles are 07C's and never
+   field**; `settings:manage` gates the rest of the profile write and onboarding; (platform roles are 07C's and never
    appear in the tenant capability list); `member_access` requests need any internal role. The web capability list from `GET
    /v1/me` drives every hidden control (04 §6).
 2. **Placeholder ledger:** remove `planned:pricing`, `settings:billing`, `settings:onboarding`; renumber every
@@ -1238,8 +1238,8 @@ answers:
 | D1 self-service vs request mode | **DECIDED 2026-09-30** — option (c) as recommended |
 | D2 what is included in Core | **DECIDED 2026-09-30** — both proposed options rejected; redesigned as framework-conditional inclusions (below). **[AM2] The day-one mapping (Q-C11) is FINALIZED** below ("Finalized framework → module mapping") |
 | D3 gates block writes, never the tenant's own records | **[AM2] CONFIRMED 2026-09-30** — the user did not object to the PO recommendation (relayed by the lead) |
-| D4 real 14-day trials, once per pack | **[AM2] CONFIRMED 2026-09-30** — as D3; the only exception is an audited staff reset (07C C5, PO-6) |
-| D5 operator surface | **DECIDED 2026-09-30** — real staff web console, built now, in `SPRINT-07C-staff-console.md` |
+| D4 real 14-day trials, once per pack | **[AM2] CONFIRMED 2026-09-30** — as D3; the only exception is an audited platform reset (07C C5, PO-6) |
+| D5 operator surface | **DECIDED 2026-09-30** — real platform web console, built now, in `SPRINT-07C-staff-console.md` |
 
 **D1 — Who can turn a pack on: the customer's admin, or only Kaenal? (the gate's teeth) — DECIDED 2026-09-30:
 option (c), per-tenant `self_service` flag, new tenants default to request mode.** The analysis that led to it
@@ -1260,7 +1260,7 @@ is kept below for the record.
   Atlassian and Slack run sales-assisted upgrades. **Deviation from 04 §5/jsx in request mode** (buttons create
   requests instead of toggling) — **approved by the user 2026-09-30 (U-D1).**
 - *Final, as decided.* `control.tenant_plans.self_service boolean NOT NULL DEFAULT false`; only Kaenal staff can
-  change it (staff console, 07C C5); the demo tenant is seeded `true`. **[AM1] Interaction with D2:** the
+  change it (platform console, 07C C5); the demo tenant is seeded `true`. **[AM1] Interaction with D2:** the
   self-service / request split applies **only to packs** (genuinely optional upsells). A module included free by
   a declared framework (D2) is effective the moment the framework is declared and **never** goes through a
   request, in either mode. A pack whose every module is already framework-included for the tenant offers no Add
@@ -1334,13 +1334,13 @@ snapshot as an argument; nothing about which framework includes what is written 
   entitlements = admin"), while industry / size / focus modules keep `settings:manage`; (ii) a removal that
   would make modules ineffective opens the same downgrade confirm as P4 (open records that become read-only);
   (iii) every change is audited (`settings_changed`) and emails Kaenal sales (outbox) so a surprising
-  declaration is visible, and the staff console shows the declaration history (07C C4). **[AM2]** No remedy beyond
+  declaration is visible, and the platform console shows the declaration history (07C C4). **[AM2]** No remedy beyond
   that is built: declarations run on the honor system (§7 Q-C12, DECIDED).
 - **Overlay copy does not advertise framework inclusion** ("declare IATF to get this free") — that would invite
   false attestations. The overlay sells the pack; the profile explains inclusions.
 - **Everything the redesign introduces is data** in the control plane (§3.1): packs' display fields and module
   map, framework rules, the industry and framework lookups, the versioned price book. In this sprint the data is
-  seeded by migration `0073` and read by the API; **editing it is the staff console's job (07C C7, C8)**, with no
+  seeded by migration `0073` and read by the API; **editing it is the platform console's job (07C C7, C8)**, with no
   redeploy.
 
 #### Finalized framework → module mapping (Q-C11, DECIDED 2026-09-30) [AM2]
@@ -1515,27 +1515,27 @@ below; close-out transitions stay blocked per Q-C5, DECIDED)**
   available in both modes, not offered for `security`/`support` (no in-product effect / custom-priced), T-3
   warning, auto-expiry by comparison (no job needed to lock), records readable after expiry (D3). Figma-style
   provisional access for *member* requests is **not** included (§7 Q-C6).
-- **[AM2] One exception:** a Kaenal staff member (`sales`/`admin`) may reset a tenant's **ended** trial of a pack
-  (goodwill re-trial) in the staff console, with a mandatory reason, audited in both logs exactly like a plan change
+- **[AM2] One exception:** a platform user (`platform_sales`/`platform_admin`) may reset a tenant's **ended** trial of a pack
+  (goodwill re-trial) in the platform console, with a mandatory reason, audited in both logs exactly like a plan change
   (07C C5, Q-SC6). A running trial cannot be reset or extended.
 
-**D5 — The operator surface — DECIDED 2026-09-30 (U-D5): a real staff web console, built now.**
-- *The user's decision:* build the staff web console in this release, not the audited-CLI-only interim the PO
+**D5 — The operator surface — DECIDED 2026-09-30 (U-D5): a real platform web console, built now.**
+- *The user's decision:* build the platform web console in this release, not the audited-CLI-only interim the PO
   proposed. Required capabilities named by the user: list/search tenants; view/edit a tenant's plan and
   entitlements; view/resolve plan requests; edit the pack catalog and the price book (U-D2, U-D3); manage the
   industry/framework catalogs (U-D4).
-- *Where it is specified:* **`SPRINT-07C-staff-console.md` (Increment C)** — staff identity (outside
-  `control.users` and memberships), staff authentication and sessions (a non-tenant-scoped branch of the one
-  lifecycle interceptor), staff RBAC (`support`, `sales`, `admin`), the spec's support-access model (01 §3.2
+- *Where it is specified:* **`SPRINT-07C-staff-console.md` (Increment C)** — platform identity (outside
+  `control.users` and memberships), platform authentication and sessions (a non-tenant-scoped branch of the one
+  lifecycle interceptor), platform RBAC (`platform_support`, `platform_sales`, `platform_admin`), the spec's support-access model (01 §3.2
   "dedicated `support` role + explicit `app.support_reason` … never bypasses RLS silently"; 07 §7 "support role
   path with reason + time-boxed grant (4h), fully audited, visible to the tenant admin"), a least-privilege
-  support database role, a platform audit log, and a separate `apps/staff` app. It is sequenced after Increment A
+  support database role, a platform audit log, and a separate `apps/platform` app. It is sequenced after Increment A
   because it edits A's catalog, price book, plans and requests.
 - *Effect on this file:* the `pnpm tenant-plan` CLI (old P8) is **removed**; every operator write it carried
   (set packs/bundle, self-service flag, contract and CSM fields, list/fulfil/decline requests, history) is a
   console story in 07C. P8 here keeps only provisioning (`provision-tenant --bundle / --from-request`), which
   stays a script per TECH_STACK. P6's fulfil/decline half moves to 07C C6.
-- *Superseded record:* the PO had recommended the CLI because no staff identity, route, role or design existed
+- *Superseded record:* the PO had recommended the CLI because no platform identity, route, role or design existed
   (still true, verified again for 07C) and `phases/README.md` puts platform-admin screens out of scope; the
   user's decision is the explicit decision to build it.
 
@@ -1548,29 +1548,29 @@ tenants whose rows live in another database — and writable only by Kaenal staf
 explicit per-role grants and an explicit grant test (the `control-identity.test.ts` precedent). They are never
 FK targets of tenant tables (a dedicated tenant database cannot reference them); tenant rows store the catalog
 **key** as text and the API validates it against the catalog. No Postgres ENUM type and no TypeScript literal
-union is used for anything a staff member can extend (U-D4).
+union is used for anything a platform user can extend (U-D4).
 
 | Migration | Object | Kind | Notes |
 |---|---|---|---|
-| 0073 | `control.catalog_packs` (`id` text PK — the 9 fixed ids, CHECK; `kind` `pack`\|`alacarte`; `name`, `tagline`, `icon`, `accent_token`, `includes jsonb` (display list), `value_line`, `trialable bool`, `sort_order`, `lock_version`, `updated_at`, `updated_by_staff uuid NULL`) | control | Fixed set of 9 (as before; adding a pack is a product change). Display, trialability and order are editable data |
+| 0073 | `control.catalog_packs` (`id` text PK — the 9 fixed ids, CHECK; `kind` `pack`\|`alacarte`; `name`, `tagline`, `icon`, `accent_token`, `includes jsonb` (display list), `value_line`, `trialable bool`, `sort_order`, `lock_version`, `updated_at`, `updated_by_platform_user uuid NULL`) | control | Fixed set of 9 (as before; adding a pack is a product change). Display, trialability and order are editable data |
 | 0073 | `control.catalog_pack_modules` (`module_id` text PK, `pack_id` → `catalog_packs`) | control | A module belongs to at most one pack (the PK). A module with no row is in the universal Core floor. `CORE_FLOOR_GUARANTEED` modules are refused by the service (and by a CHECK listing them, so a hand-written INSERT fails too) |
 | 0073 | `control.catalog_frameworks` (`key` text PK, `label`, `short_label`, `counts_as_extra_standard bool` (replaces `addons.jsx:120`'s hard-coded "beyond IATF 16949 & ISO 9001"), `sort_order`, `active bool`, `lock_version`, audit columns) | control | Seeded with the approved 9 (U-D4). Keys: `^[a-z0-9_]{2,40}$`. Never deleted (no DELETE grant); `active=false` stops offering it |
 | 0073 | `control.catalog_industries` (`key` text PK, `label`, `suggested_frameworks text[]`, `module_priors jsonb` (`{moduleId: boost}`), `sort_order`, `active`, `lock_version`, audit columns) | control | Seeded with the approved 8 (U-D4). `other` is a reserved key meaning "free-text label" |
 | 0073 | `control.framework_module_rules` (`framework_key` → `catalog_frameworks`, `module_id`, `level` CHECK `required`\|`supports`, `clause`, `note`, PK `(framework_key, module_id)`, `lock_version`, audit columns) | control | D2's single source for both onboarding reasons (O2) and free inclusions (P1). Seeded per the D2 table + O2's table |
-| 0073 | `control.price_book_versions` (`id`, `status` CHECK `draft`\|`published`\|`archived`, `currency` (`USD` this sprint), `note`, `published_at`, `published_by_staff`, `created_at`); partial unique index: at most one `published` | control | **Versioned** (U-D3): staff edit a draft and publish it atomically; the previous published version becomes `archived`. A quote or request snapshot cites the version it was priced from, so it stays reproducible after prices change. Seeded with version 1 = the jsx list prices, `published`, note "placeholder price book (U-D3)" |
+| 0073 | `control.price_book_versions` (`id`, `status` CHECK `draft`\|`published`\|`archived`, `currency` (`USD` this sprint), `note`, `published_at`, `published_by_platform_user`, `created_at`); partial unique index: at most one `published` | control | **Versioned** (U-D3): staff edit a draft and publish it atomically; the previous published version becomes `archived`. A quote or request snapshot cites the version it was priced from, so it stays reproducible after prices change. Seeded with version 1 = the jsx list prices, `published`, note "placeholder price book (U-D3)" |
 | 0073 | `control.price_book_items` (`version_id`, `item_key` (`core_base`, `pack:<id>`, `unit:supplier`, `unit:extra_plant`, `unit:inspector`, `unit:extra_standard`, …), `amount numeric(12,2) NULL` (NULL = custom / "Talk to sales"), `unit` CHECK `month`\|`supplier_month`\|`plant_month`\|`inspector_month`\|`standard_month`\|`custom`, `included_units int`, `label`; PK `(version_id, item_key)`) | control | Everything `estimateMonthly` multiplies comes from here; nothing price-like stays in code |
 | 0073 | `control.catalog_tiers` (`id` fixed `core`\|`pro`\|`ent`, `name`, `blurb`, `features jsonb`, `packs text[]`, `cta` `apply`\|`sales`, `sort_order`, `lock_version`, audit columns) | control | The 3 bundles of `pricing.jsx:88-107` as data; tier price lines come from the price book |
 | 0073 | `control.catalog_meta` (single row: `version bigint`, bumped by trigger on any write to the tables above) | control | Lets every API instance cache the catalog snapshot and revalidate with one PK read per request (§3.2) |
-| 0073 | Grants | — | `kaenal_app`: SELECT on all the above. `kaenal_public`: `USAGE` on schema `control` (today only `kaenal_app` has it, `0000_foundation.sql`) plus SELECT on `catalog_industries` / `catalog_frameworks` (keys, labels, sort order, active only, via column grants) for the public request form — and nothing else in `control` (grant test). Write grants: migrator only in this sprint; **07C grants the staff role INSERT/UPDATE** |
+| 0073 | Grants | — | `kaenal_app`: SELECT on all the above. `kaenal_public`: `USAGE` on schema `control` (today only `kaenal_app` has it, `0000_foundation.sql`) plus SELECT on `catalog_industries` / `catalog_frameworks` (keys, labels, sort order, active only, via column grants) for the public request form — and nothing else in `control` (grant test). Write grants: migrator only in this sprint; **07C grants the platform role INSERT/UPDATE** |
 | 0074 | `entitlements` + `source`, `lock_version`, `updated_by` (composite member FK), `pack_id` CHECK | tenant, forced RLS (existing) | Backfill all 9 packs `grandfathered` for existing tenants (P1 AC5) |
 | 0074 | `entitlement_trials` (PK `tenant_id, pack_id`) | tenant, forced RLS | Once-per-pack by PK; expiry by comparison |
-| 0075 | `control.tenant_plans` | control plane | `self_service` (DEFAULT false, D1 DECIDED), contract fields, CSM fields; app role SELECT only; 07C grants the staff role UPDATE |
+| 0075 | `control.tenant_plans` | control plane | `self_service` (DEFAULT false, D1 DECIDED), contract fields, CSM fields; app role SELECT only; 07C grants the platform role UPDATE |
 | 0075 | `control.workspace_requests` | control plane | Public intake; `industry` / `frameworks` stored as catalog keys (text, no CHECK; validated against the active catalog at insert). The `kaenal_public` role (0000) may INSERT only (never SELECT) |
 | 0076 | `plan_requests` (+ `price_book_version_id` in the composition snapshot) | tenant, forced RLS | Partial unique open-request index; self composite FK for forwarding |
 | 0076 | `tenant_settings` namespace CHECK + `billing`, `profile`, `onboarding` | tenant (existing) | Backfill onboarding `dismissed` for existing tenants |
 | 0076 | `exports_resource_check` + `plan_quote` | tenant (existing) | Mirrors 0066/0070 widening |
 
-Staff identity, staff sessions, support grants, the support database role, the platform audit log and the
+Platform identity, platform sessions, support grants, the support database role, the platform audit log and the
 sales-inbox projection are **07C's** migrations (0078-0081), not this file's.
 
 No new audit action (existing `entitlement_changed`, `created`, `status_changed`, `settings_changed`, `exported`
@@ -1583,7 +1583,7 @@ One resolver (`packages/core` `effectiveModules(catalog, profileFrameworks, enti
 **module-level**, because a module can now be effective without its pack (framework inclusion). It is read in the
 API by **`@RequireModule(moduleId)`** (replaces the old `@RequirePack`) inside the lifecycle interceptor (after
 RBAC, inside the tenant transaction), by the AI gateway (`intelligence` modules), by the trials job, and by 07C's
-staff services; read in the web through `GET /v1/entitlements` + `isModuleGated`.
+platform services; read in the web through `GET /v1/entitlements` + `isModuleGated`.
 
 Caching: tenant entitlement rows and the profile are read **per request** (so an unlock is visible on the very
 next request). The **catalog snapshot** is cached per API process keyed on `control.catalog_meta.version`, which is
@@ -1596,7 +1596,7 @@ falls back to a hard-coded map.
 ### 3.3 Commercial boundaries (what this sprint deliberately does not do, Q6)
 
 No payment provider, card capture, invoices, tax calculation, dunning, proration or PCI scope. Prices come from
-the **published price-book version** (U-D3: placeholder values, staff-editable in 07C) and are used for an
+the **published price-book version** (U-D3: placeholder values, platform-editable in 07C) and are used for an
 **estimate** and a **quote** only; the contract value shown on Billing & plan is whatever Kaenal staff recorded.
 Pack prices are **not** framework-conditional this sprint ([AM2] Q-C13 DECIDED): a pack's listed price is what it
 costs. Where some of a pack's modules are already free for the tenant, the card **shows** the overlap ("3 of these
@@ -1635,7 +1635,7 @@ Gap proof for every "new" route: none of them exist in `packages/types/src/contr
 "catalog\|entitle\|price" packages/types/src/contract.ts` and the same over `apps/api/src/**/*.controller.ts`
 return only the unrelated training **competency** catalog (`contract.ts:1438,1486`,
 `training/competencies.controller.ts`) — no pack catalog, price-book or entitlement route). They are all built this sprint (CLAUDE.md rules 0 and 10).
-Staff-side routes (catalog/price-book writes, plan administration, request resolution) are specified in
+Platform-side routes (catalog/price-book writes, plan administration, request resolution) are specified in
 `SPRINT-07C-staff-console.md` §4.
 
 ## 5. Design needs
@@ -1675,7 +1675,7 @@ Staff-side routes (catalog/price-book writes, plan administration, request resol
 Mobile: no `m-*.jsx` for any of this; `m-auth.jsx` has no request stage. Nothing is designed or built on mobile
 except the small X1 items that use existing mobile patterns.
 
-**[AM1] Staff console screens** (sign-in, tenant directory, tenant detail, plan editing, sales inbox, workspace
+**[AM1] Platform console screens** (sign-in, tenant directory, tenant detail, plan editing, sales inbox, workspace
 requests, catalog and price-book editors, platform audit log) have **no jsx anywhere** — verified 2026-09-30 by
 grepping every `project_brain/project/src/*.jsx` and `project_brain/mobile/src/m-*.jsx` for
 `staff|operator|backoffice|superadmin|impersonat|support access|kaenal support`: the only hits are shop-floor
@@ -1724,7 +1724,7 @@ is listed as a design gap in `SPRINT-07C-staff-console.md` §5, not here.
 | [AM1] Setup flow: live inclusion line, "Included with <framework>" chip, manager read-only frameworks | Informational / disabled-with-explanation; the only writer is an admin's Next/Finish (profile PUT) |
 | [AM1] Framework-removal confirm: Cancel / Confirm | No change / profile PUT (frameworks) |
 | [AM1] Request-a-workspace: catalog-driven Industry options and framework chips | Real catalog values; fallback (Other + free text) when the catalog is unavailable |
-| [AM1] Anything a staff member does (fulfil/decline, set plan, edit catalog/price book) | Not a tenant-app control; specified with its own dead-end audit in `SPRINT-07C-staff-console.md` §6 |
+| [AM1] Anything a platform user does (fulfil/decline, set plan, edit catalog/price book) | Not a tenant-app control; specified with its own dead-end audit in `SPRINT-07C-staff-console.md` §6 |
 | Designed demo tasks: Connect SSO, Connect SAP S/4HANA, IATF audit readiness scan, Add plants & areas | **Not rendered** (no real feature yet); `excluded.md` + §7; *Add plants & areas* joins when Sprint 08 ships Sites |
 | Designed "Helpful right now" video tour / articles / starter pack | Replaced by in-product destinations until Sprint 12 (knowledge base, tours) — D-S5 deviation |
 | Placeholders retired | `/pricing` (`planned:pricing`), settings `billing`, settings `onboarding` |
@@ -1740,7 +1740,7 @@ copied to PROGRESS.md "Known issues" at close, per CLAUDE.md "No invented scope"
 **Decided by the user on 2026-09-30.**
 - ~~Q-C2 D2 — IATF core tools in Core or in packs?~~ → **U-D2**: neither; framework-conditional inclusions as data
   (§3.0 D2 DECIDED).
-- ~~Q-C9 Price book~~ → **U-D3**: jsx prices stay as a **placeholder**, held in the versioned, staff-editable price
+- ~~Q-C9 Price book~~ → **U-D3**: jsx prices stay as a **placeholder**, held in the versioned, platform-editable price
   book (P0; editor in 07C C8).
 - ~~Q-S2 (list part) Industry list and framework list~~ → **U-D4**: the 8 industries and 9 frameworks are approved
   and must be extensible without a migration (catalog tables, P0).
@@ -1752,7 +1752,7 @@ copied to PROGRESS.md "Known issues" at close, per CLAUDE.md "No invented scope"
   sets, the "framework-complete, depth-priced" recommendation and its stated commercial cost). Consequence built in:
   `supplier_analytics` (PO-5).
 - ~~Q-D3 Approve D3~~ → **U-D7 [AM2] CONFIRMED** (relayed by the lead: the user did not object to the recommendation).
-- ~~Q-D4 Approve D4~~ → **U-D7 [AM2] CONFIRMED** (as D3), with the single audited staff-reset exception (PO-6).
+- ~~Q-D4 Approve D4~~ → **U-D7 [AM2] CONFIRMED** (as D3), with the single audited platform-reset exception (PO-6).
 
 **Decided by the PO under CLAUDE.md's standing rule (smallest reasonable choice, recorded; revisitable).**
 - ~~Q-C1 default bundle when `--bundle` is omitted~~ → `--bundle` is **required** (no silent default).
@@ -1762,9 +1762,9 @@ copied to PROGRESS.md "Known issues" at close, per CLAUDE.md "No invented scope"
   enforcement needs a certification-body / audit integration that does not exist, and a verification step would
   make the free part sales-gated, contradicting D1 "Final". The declaration is traceable — admin-only field
   (`billing:manage`), `settings_changed` audit event (who declared what, when), sales email on every change, and the
-  declaration history in the staff console (07C C4) — so it can be acted on contractually if it ever matters. A
+  declaration history in the platform console (07C C4) — so it can be acted on contractually if it ever matters. A
   false declaration is not a security issue: it unlocks modules within the tenant's own data, and the more common
-  failure is the opposite (a tenant under-declares and misses modules that would be free for it). No staff
+  failure is the opposite (a tenant under-declares and misses modules that would be free for it). No platform
   "suspend inclusion" override is built.
 - **Q-C13 [AM2] Pack price when some modules are already free → listed price stands, overlap is shown.** No
   dynamic per-tenant repricing while the price book is placeholder data (U-D3); the card states "N of these M
@@ -1805,7 +1805,7 @@ copied to PROGRESS.md "Known issues" at close, per CLAUDE.md "No invented scope"
   scope questions.
 
 **Out of scope (named, not silently dropped).** Payment provider, invoices, tax, proration, dunning (Q6); **the
-staff console itself (in `SPRINT-07C-staff-console.md`, same release)**; Organization settings section, including
+platform console itself (in `SPRINT-07C-staff-console.md`, same release)**; Organization settings section, including
 its Identity card and Plan & usage card (Sprint 08 — it will read and write O1's profile, with the same
 `billing:manage` rule for frameworks); Sites & areas (Sprint 08); product tours, knowledge base, NPS, adoption
 analytics, release notes (adoption.jsx, Sprint 12); mobile onboarding/pricing (no design); SSO/SCIM (Sprint 14);
@@ -1884,14 +1884,14 @@ tiers, framework rules, industry and framework lookups) and the versioned price 
 workspace needed to verify them; **[AM2]** and what U-D6 requires: the finalized framework rules, the
 `supplier_analytics` gateable unit (so the user-named paid depth is not given away by the inclusions), the pack
 overlap line (Q-C13) and the corrected `standards` tagline; plus the Q-P1 provisioning-audit fix the lead
-instructed. The operator CLI is removed (U-D5); the staff console is specified in
+instructed. The operator CLI is removed (U-D5); the platform console is specified in
 `SPRINT-07C-staff-console.md`. Each is justified in its story and in §3.0.
 
 ---
 
 **Decision record [AM1, AM2].** D1 DECIDED (user, 2026-09-30). D2 DECIDED (user, 2026-09-30; redesigned as
-framework-conditional inclusions). Price book: placeholder, staff-editable (user, 2026-09-30). Industry/framework
-lists: approved, extensible (user, 2026-09-30). D5 DECIDED (user, 2026-09-30; staff console now, `SPRINT-07C`).
+framework-conditional inclusions). Price book: placeholder, platform-editable (user, 2026-09-30). Industry/framework
+lists: approved, extensible (user, 2026-09-30). D5 DECIDED (user, 2026-09-30; platform console now, `SPRINT-07C`).
 **D3, D4 CONFIRMED (user, 2026-09-30, relayed by the lead). Q-C11 DECIDED (user rule, PO-applied mapping,
 2026-09-30).** Q-C12, Q-C13, Q-S2b, Q-S3, Q-P1 and every other §7 item: DECIDED by the PO under CLAUDE.md's
 standing rule, 2026-09-30. Split into `SPRINT-07` (A+B) and `SPRINT-07C` (C): PO decision, 2026-09-30.
@@ -1906,7 +1906,7 @@ data or copy change (catalog rules, D-S12/13 copy), not a redesign.
 **PO use-case sign-off: SIGNED (= APPROVED for SCRUM.md Gate 1), 2026-09-30.** Verified, not assumed: **16
 stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
 extensibility, price-book versioning, framework inclusion under the finalized mapping, the `supplier_analytics`
-in-page gates, the Q-C13 overlap line, the staff trial-reset exception and the Q-P1 provisioning audit — maps to at
+in-page gates, the Q-C13 overlap line, the platform trial-reset exception and the Q-P1 provisioning audit — maps to at
 least one objectively testable AC with a Web / Mobile / Shared split, a §4 backend row, a §5 design source or gap
 and a §6 dead-end entry. No AC still depends on an unanswered question (§7 has none).
 
