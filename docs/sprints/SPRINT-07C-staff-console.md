@@ -376,7 +376,11 @@ AC
    honours the recipient's preferences, as the tenant notification service does); column SELECT on `memberships
    (user_id, role, status)` (to address the requester and the tenant's admins — ids and roles only, still no name or
    email column; the email channel resolves addresses in the worker as today); INSERT + UPDATE(`ended_at`) on
-   `control.support_grant_backstop` (C10 AC2a mirror, dedicated databases only). **[AR] Commercial-scope audit read
+   `control.support_grant_backstop` (C10 AC2a mirror, dedicated databases only); **[AR, found while verifying C5]**
+   column SELECT on `(tenant_id, id, <status/stage column>)` of exactly the QMS tables named by the per-module
+   "open record" definitions (SPRINT-07 P4 AC5; the list is DoR re-review item R2), because C5's downgrade confirm
+   computes that tenant's open-record counts inside the commercial grant and the role otherwise holds no QMS-table
+   privilege — never a title, description, name or content column. **[AR] Commercial-scope audit read
    (AR13):** C4's History tab and declaration history need to read `audit_events`, but a plain SELECT would expose every
    before/after payload in the tenant — de facto content access without a content grant. So `kaenal_support` gets
    **column** SELECT on `audit_events` (every column except `ip` and `user_agent`) and a RESTRICTIVE policy
@@ -505,8 +509,11 @@ AC
    cursor-paginated, rule 6) reads `control.tenants` + `control.tenant_plans` + `control.sales_inbox` counts +
    a control-plane **tenant summary** (`control.tenant_commercial_summary`: tier, declared framework keys,
    effective packs, refreshed from Sprint 07's `tenant_commercial.changed` outbox event (Sprint 07 X1 AC8) — no
-   tenant-scoped read needed to list). A summary older than its last event is corrected on the next event; a
-   "Refresh" action on a tenant row re-derives it inside a grant.
+   tenant-scoped read needed to list). **[AR]** That event is an ids-only **internal** event (`audience='internal'`,
+   payload `{ tenantId }`); the worker's `InternalProjectionHandler` re-derives the summary from current tenant state
+   inside the drainer's tenant transaction and writes it through `kaenal_projector` (SD11) — the webhook handler never
+   sees it. A summary older than its last event is corrected on the next event; a "Refresh" action on a tenant row
+   re-derives it inside a grant.
 3. `GET /platform/v1/tenants/:id` (grant required, via `SupportAccess.withTenant`) → `PlatformTenantDetailDto` (plan,
    packs, trials, `modules` with reasons, contract, CSM, profile, declaration history, counts, open requests).
    `GET /platform/v1/tenants/:id/history?cursor=` (grant; cursor). Foreign/unknown id → 404.
@@ -514,6 +521,11 @@ AC
    answerable — but viewing writes nothing to the tenant (only the grant did).
 5. Playwright (platform): sign in → search "acme" → open → reason dialog → Plan tab shows the same effective modules as
    the tenant's `/v1/entitlements`; a `platform_support` user sees no write controls.
+6. **[AR] Client hygiene on grant end (AR8).** When a commercial grant ends (End access, countdown reaching zero, or
+   any `401`/`403` carrying the grant-ended code), `apps/platform` removes every query keyed under that tenant
+   (`queryClient.removeQueries({ queryKey: ['tenant', tenantId] })`) before rendering the expired state; responses
+   carry `Cache-Control: no-store`; the query cache is never persisted. Playwright: after End access, no tenant-detail
+   query remains in the cache and Back shows the access dialog, not the old data.
 
 Web (`apps/platform`): shell (nav: Tenants, Sales inbox, Workspace requests, Catalog, Price book, Audit log;
 header with platform user name/role, environment badge, account menu), directory, detail tabs. Mobile: unaffected. Shared:
@@ -610,7 +622,14 @@ AC
 1. `0080` adds `control.sales_inbox` (PK `(tenant_id, request_id)`, `kind`, `status`, `pack_id`, `tier`, `note`,
    `requester_name`, `requester_email`, `created_at`, `updated_at`) and an idempotent outbox consumer that upserts
    it from `plan_request.changed` (Sprint 07 P6 AC6), tolerant of out-of-order delivery (last `updated_at` wins).
-   Grants: `kaenal_platform` SELECT; the consumer's role INSERT/UPDATE; `kaenal_app` none.
+   **[AR] How it is actually written (AR22):** the drainer runs as `kaenal_app` in a tenant transaction and cannot
+   touch `control.*`, and `plan_request.changed` is an ids-only internal event (`{ tenantId, requestId }` — the
+   requester's name and email are **not** in the outbox). The consumer is SD11's `InternalProjectionHandler`: it
+   re-reads the plan request and resolves the requester's name and email inside the drainer's tenant transaction
+   (as the P6 sales email does) and upserts `control.sales_inbox` through the **`kaenal_projector`** pool on the
+   primary database. Grants: `kaenal_platform` SELECT; **`kaenal_projector` INSERT/UPDATE** (and on
+   `control.tenant_commercial_summary`), nothing else; `kaenal_app` none. Tests: a `*`-subscribed customer webhook
+   receives no `plan_request.changed`; the projection holds the requester's email while the outbox row does not.
 2. Routes: `GET /platform/v1/sales-inbox?status=&kind=&cursor=` (`platform:tenants:read`), `POST
    /platform/v1/tenants/:id/requests/:requestId/fulfil` and `…/decline` (`platform:requests:resolve`, grant, reason /
    resolution note, `lockVersion`) — state machine `open → fulfilled|declined`, non-open → 409
@@ -618,8 +637,15 @@ AC
    :id/decline|spam` (`platform:workspace_requests:manage`, reason; `kaenal_platform` SELECT + UPDATE(`status`) on
    `control.workspace_requests`).
 3. Fulfil applies the change through `PlatformPlanService` (C5) in the same tenant tx as the status change; audit
-   `status_changed` + `entitlement_changed` (support, reason) + platform event; notification `plan_request_resolved`
-   (kind defined in Sprint 07) enqueued in the same tx.
+   `status_changed` + `entitlement_changed` (support, reason) + platform event (SD5 intent/outcome); notification row
+   `plan_request_resolved` (kind defined in Sprint 07) **inserted** in the same tx (`kaenal_support` INSERT on
+   `notifications`, C3 AC3) and its email-channel job **enqueued after commit** (SD12). **[AR] Double-fulfilment guard
+   (AR20):** the guarded transition `UPDATE plan_requests SET status = 'fulfilled' | 'declined', … WHERE id = $id AND
+   status = 'open' AND lock_version = $v` runs **first** in the tenant transaction, **before** any entitlement change;
+   if it affects zero rows the transaction rolls back and returns 409 (`INVALID_TRANSITION` if no longer open,
+   `STALE_WRITE` otherwise). So two platform users resolving the same request concurrently cannot both succeed, and
+   the loser never applies an entitlement change. Test: two concurrent fulfils → exactly one 200, one 409, one set of
+   entitlement rows changed, one audit pair.
 4. Tests: projection idempotence and ordering; fulfil applies exactly the requested change and nothing else; decline
    notifies with the reason; withdrawn-meanwhile → 409; workspace-request status transitions; `platform_support` role → 403
    on resolve; the Sprint 07 journey "request mode (`globex`) → sales email → platform user fulfils → tenant unlocks without
@@ -662,7 +688,8 @@ AC
    :moduleId` `{ packId | null }`, `POST /platform/v1/catalog/frameworks`, `PUT /platform/v1/catalog/frameworks/:key`,
    `POST /platform/v1/catalog/industries`, `PUT /platform/v1/catalog/industries/:key`, `PUT /platform/v1/catalog/
    framework-rules/:frameworkKey/:moduleId` `{ level | null, clause, note }`, `POST /platform/v1/catalog/
-   impact-preview` (body = the proposed change; returns gained/lost tenants with open-record counts).
+   impact-preview` (body = the proposed change; returns the gained/lost tenant lists — **[AR] no open-record counts**:
+   AC3/SD7 forbid cross-tenant counts, and the earlier "with open-record counts" wording contradicted them, AR26).
 2. Validation reuses `validateCatalog` (Sprint 07 P0 AC3) on the proposed catalog before writing; keys match
    `CatalogKey`; `0080` grants `kaenal_platform` INSERT/UPDATE (never DELETE) on the catalog tables; every write bumps
    `catalog_meta.version` (trigger from 0073) and writes a platform audit event with before/after in the same tx.
@@ -937,32 +964,59 @@ AC
    independently of this authenticator on every statement: the authenticator governs the request's outcome
    (401/403/200) and its messages; the RESTRICTIVE policy is the fail-safe that still holds if the authenticator is
    buggy or bypassed.
-5. **Audit:** grant start writes the tenant "opened read-only access" event (C3 AC6). Every GET whose route has an
-   entity-id path parameter, and every attachment download, writes one tenant `support_accessed` event
-   `{ entity_kind, entity_id, route }` with the grant's reason, in the request's transaction (the reader role's only
-   write); list/aggregate GETs are recorded in the platform log with route, status, grant id **[AM3] and,
-   additionally, the returned entity ids** — `entityIds: string[]`, up to **200** ids in the response's own order
-   (comfortably covers one full page of any paginated tenant list endpoint at its current page-size ceiling — rule
-   6's cursor pagination already keeps a single page well under this). A result larger than 200 rows (an aggregate
-   or an unusually large page) records `entityIdCount` plus the first 200 ids and `truncated: true`, so a tenant
-   asking "exactly what did you see" can reconstruct every record-level read from list views too, not only detail
-   views — the cap is stated here and is revisitable if a list endpoint's page size ever exceeds it. Tenant web
-   Settings → Audit log renders the per-record rows as "Kaenal support viewed <entity label>" and the grant-start
-   row as "Kaenal support opened read-only access — <reason> (<reference>) — until <time>" (small extension of
-   Sprint 07 X1 AC4's renderer); the list-view platform events are platform-log-only (not shown in the tenant's own
-   audit log, same as today), reconstructable by Kaenal on request.
+5. **Audit [AR-revised].** Grant start writes the tenant "opened read-only access" event (C3 AC6,
+   `entity_kind='support_grant'`). Coverage is decided by an explicit **route classification table** in the API (one
+   entry per route the support viewer can reach; a test fails if a reachable route is unclassified), not by "does the
+   path have a parameter" (which misfiles e.g. `GET /v1/graph/query/:queryId`, whose parameter is not an entity id):
+   - **Detail routes** (the path parameter is a record id) and **every attachment download** → one tenant audit row
+     per request, in the request's transaction (the reader role's only write): `actor_kind='support'`,
+     `action='support_accessed'`, **`entity_kind='support_view'`**, `entity_id` = the viewed record's (or file's) id,
+     `after = { viewedKind, route }`, `reason` = the grant's reason. **Why `support_view` and not the record's own
+     kind (AR10, verified against the code):** the audit writer awaits the transactional outbox observer unguarded
+     inside the same transaction (`packages/db/src/audit.ts:201-203`), and `outboxEventFor`
+     (`apps/api/src/outbox/outbox-event.ts`) maps any event whose `entityKind` is in `OUTBOX_ENTITIES` (`ncr`,
+     `capa`, `document`, `supplier`, …) and whose action is anything but created/deleted to `<kind>.updated`. So
+     `support_accessed` on `entity_kind='ncr'` would (1) try to INSERT an `ncr.updated` outbox row — which the reader
+     role has no privilege for, throwing and **failing every detail read under a content grant** — and, had it been
+     granted, (2) deliver that webhook to the customer's own endpoints (an empty or `*` subscription receives
+     everything, `webhook-signing.ts:58`), announcing Kaenal's access to any third-party consumer; the realtime
+     bridge would likewise push `entity.updated {ncr}` to every member (`realtime/audit-signal.ts:33-34`).
+     `support_view` is in neither map, and SD11 makes both bridges skip it explicitly as well.
+   - **Collection routes** — lists, `GET /v1/search` (`contract.ts:345`), the graph explorer (`GET /v1/graph/seeds`,
+     `/v1/graph/expand`, `/v1/graph/query/:queryId`, `contract.ts:1956-1975`), dashboards, and the `@ReadOnlyPost`
+     query routes (`POST /v1/query`, `/metric`, `/series`) — are recorded in the **platform** log (through
+     `SUPPORT_GATE_POOL`, AC1) with route, status, grant id and **[AM3]** the returned entity ids: `entityIds`, up to
+     **200** in response order, else `entityIdCount` + the first 200 + `truncated: true`. **[AR] Widened (AR9):**
+     AM3's wording named "list/aggregate GETs", which missed the three POST query routes and left search and graph to
+     interpretation; they are now named. Responses that carry no record ids (metric values, series buckets,
+     aggregates) record the **query definition** instead (`sourceId`, filters, grouping, row count), so "what did you
+     see" is still reconstructable. The platform-log write is part of the request: if it fails, the response is
+     not sent (500) — a read never happens without its record.
+   Tenant web Settings → Audit log renders `support_view` rows as "Kaenal support viewed <entity label>" (label
+   resolved from `after.viewedKind` + `entity_id`) and the `support_grant` row as "Kaenal support opened read-only
+   access — <reason> (<reference>) — until <time>" (small extension of Sprint 07 X1 AC4's renderer); collection-route
+   events are platform-log-only (not shown in the tenant's own audit log, same as today), reconstructable by Kaenal on
+   request.
 6. **Every tenant GET works read-only:** a contract-enumerating test calls every GET route of the tenant contract
-   (and every plain-REST GET controller route) in a support-view session against a seeded tenant and asserts 2xx /
-   404 — never a 5xx from a write side effect. Any GET that writes as a side effect (known example: Sprint 07 O5's
-   "status → completed on read") skips that write for support viewers. Every unsafe route returns 403 (same test,
-   inverse).
+   (and every plain-REST GET controller route) **[AR] and every `@ReadOnlyPost` route** in a support-view session
+   against a seeded tenant and asserts 2xx / 403 (`SUPPORT_VIEW_NOT_AVAILABLE` / `SUPPORT_VIEW_NO_STREAM` only for the
+   routes C10 AC4 and C12 name) / 404 — never a 5xx from a write side effect. GETs that write as a side effect are
+   handled per **C12 AC5** (known: `files.service.ts:261` `file_downloaded`, Sprint 07 O5's completion-on-read, the
+   SSE stream). Every other unsafe route returns 403 (same test, inverse).
 7. **Web (`apps/web`) support-view mode (D-C12):** the `/support-view` exchange page; the banner (reason, reference,
    live countdown announced politely, **End support view** → `POST /v1/support-view/end` → ended state); every
    mutating control hidden because the viewer holds no write capability (04 §6) — a Playwright sweep over the main
    screen of every module and every settings section asserts **no enabled mutating control is rendered**, and any
    control found that is not capability-gated is fixed to be (that is a latent 04 §6 defect, not a support-view
    special case); personal account-menu items hidden; ended / expired states. `apps/web` never imports the platform
-   contract (CX AC1 still holds: the exchange and end routes are tenant-contract routes).
+   contract (CX AC1 still holds: the exchange and end routes are tenant-contract routes). **[AR] Client hygiene on
+   grant end (AR8):** the moment the support view ends — End support view, the banner countdown reaching zero, or any
+   response `401` carrying the ended code — the web app calls `queryClient.clear()` (TanStack Query) and drops every
+   in-memory record before rendering the ended state, so no tenant record stays readable in the tab, the back/forward
+   cache or devtools after access ends; support-view responses carry `Cache-Control: no-store`; support-view mode never
+   opens the `EventSource` for `/v1/events` (the API refuses it anyway, AC4) and never persists the query cache.
+   Playwright: after End, the ended state renders, `queryClient.getQueryCache().getAll()` is empty and navigating back
+   shows the ended state, not a record.
 8. Tests: exchange single-use and 60 s expiry; fragment token never reaches server logs (the exchange is a POST
    body); cookie flags; both-cookies → 401; member-session present → 409; expiry at 4 h, End, console end and platform-user
    deactivation each → 401 on the next request; write attempts → 403 and, with the interceptor check bypassed in a
@@ -977,7 +1031,12 @@ AC
    test confirms dropping the RESTRICTIVE policy, or stubbing `support_reader_grant_active()` to always return
    true, makes this test fail. **[AM3]** Plus (SR4): a list-view request made under a content grant records the
    returned entity ids (or `entityIdCount` + a capped 200-id sample with `truncated: true`) in its platform audit
-   event, verified against the endpoint's actual response body.
+   event, verified against the endpoint's actual response body. **[AR]** Plus: a detail view under a content grant writes exactly one
+   `support_view` audit row and **no** outbox row and no realtime signal (a webhook endpoint subscribed to `*` receives
+   nothing; the detail read succeeds even though the reader role has no `outbox` privilege); `POST /v1/query` and
+   `/v1/search` and one graph route record their platform events (ids or query definition); the platform-log write
+   failing makes the request 500; `GET /v1/events` → 403; `SELECT current_user` = `kaenal_support_reader` in a
+   support-view handler; an invalid support-view cookie opens no transaction; the gate role's grant test (AC1).
 
 Web: `apps/platform` (View workspace action, content dialog variant) and **`apps/web`** (support-view mode, exchange
 page, banner, audit-log renderer extension). Mobile: unaffected (no support view on mobile; the oversight feed's
@@ -1170,10 +1229,19 @@ repository), not blocking (→ Known issues).
 **SD5 — Two audit trails, one ordering rule.** Tenant-side: `audit_events` with `actor_kind='support'` + reason,
 written atomically with the tenant change (rule 3), visible to the tenant admin (07 §7). Platform-side:
 `control.platform_audit_events`, append-only, for everything (including actions with no tenant). The two live in
-different transactions (and, for dedicated tenants, different databases), so the rule is: **write the platform
-event first (`outcome` pending), run the tenant transaction, then mark the platform event `ok` or `failed`** — a
-tenant change can therefore never exist without a platform record; a platform record with `failed` means nothing
-changed in the tenant.
+different transactions (and, for dedicated tenants, different databases), so the rule is: ~~write the platform
+event first (`outcome` pending), run the tenant transaction, then mark the platform event `ok` or `failed`~~ **[AR,
+corrected — AR24]** the earlier wording updated an audit row's `outcome` from pending to ok/failed, which contradicts
+the table's own append-only trigger (C3 AC2). The rule is now **two appended rows**: (1) commit an **intent** row
+(`phase='intent'`, `outcome` NULL, the intended change and reason) in the control transaction; (2) run the tenant
+transaction; (3) append an **outcome** row (`phase='outcome'`, `intent_id` = the intent row's id, `outcome` `ok` |
+`failed`, error code if failed). Nothing is ever updated. A tenant change therefore never exists without a platform
+intent record; an intent with a `failed` outcome means nothing changed in the tenant; an intent with **no** outcome
+row after 5 minutes (a crash between steps 2 and 3) is surfaced in the platform audit log's **Flagged** filter as
+"outcome not recorded" so an admin reconciles it against the tenant's own audit log (which, being written in the
+tenant transaction, is authoritative for whether the change happened). Actions with no tenant side write one
+`phase='single'` row. Test: failure injection between (1)/(2) and (2)/(3) yields, respectively, an intent + `failed`
+outcome with no tenant change, and a flagged outcome-less intent with the tenant change present.
 
 **SD6 — Least-privilege database roles; RLS never bypassed.** `kaenal_platform` (control plane: platform tables,
 tenants read, commercial control tables write) and `kaenal_support` (tenant plane: commercial tables only,
@@ -1204,6 +1272,15 @@ this SD excluded content access entirely; that exclusion is withdrawn. What the 
   setting is a future candidate (→ Known issues).
 - **No bulk export in support view** (export jobs are writes and bulk exfiltration); single attachments only, each
   audited.
+- **[AR] No live stream in support view (AR6).** `GET /v1/events` is refused (403 `SUPPORT_VIEW_NO_STREAM`) for a
+  support viewer rather than re-checked per event. Why: the stream deliberately commits and releases its transaction
+  after the handshake and then touches no database (`realtime.controller.ts:14-24`), so neither the grant check nor
+  the RESTRICTIVE policy would ever run again on that socket — it would outlive expiry by design (and, being a GET, it
+  passes any "unsafe methods only" rule). Re-checking the grant on every emitted event would add a control-table read
+  per event per viewer to the fan-out path and still reveal the timing of tenant activity between checks. The support
+  view does not need push: it refetches on navigation. Refusal is simpler, cheaper and has no expiry window.
+- **[AR] Presigned downloads are capped to the grant (AR7):** `min(60 s, time left on the grant)` instead of the
+  global 900 s (`S3_URL_TTL_SECONDS`), so an attachment link cannot outlive the grant by up to 15 minutes (C12 AC4).
 
 **[AM3] DB-level backstop for content-scope reads — finalized mechanism (pre-build security review, 2026-09-30,
 High finding SR1).** The application check (`SupportViewAuthenticator` verifying the grant once per request, C10
@@ -1248,6 +1325,61 @@ many tenants is impractical within the window) and a flagged `content_grant_anom
 time a platform user's rolling-hour window reaches 3 distinct tenants, surfaced to admins via the platform audit
 log's Flagged filter (C9/D-C10). A push/email alert is a future enhancement (→ Known issues); the flagged, queryable
 event is the floor this finding requires.
+
+**[AR] SD11 — Internal events are not webhooks; support audit rows never reach the outbox or realtime
+(AR10, AR22).** Verified against the code: the customer-webhook outbox is **not** a generic event bus. Its rows carry
+ids only (`outbox.payload = { entityId, at }`, `0041_outbox.sql`), its `action` is CHECK-limited to
+created/updated/deleted, it is written by the transactional audit observer for any `entityKind` in
+`OUTBOX_ENTITIES` (`outbox-event.ts`), and the webhook handler delivers each row to every endpoint whose subscription
+matches — where an empty or `*` subscription means **everything** (`webhook-signing.ts:45-58`). The drainer runs as
+`kaenal_app` inside a **tenant** transaction (`drain-outbox.ts`), so it cannot write any control-plane table. Four
+consequences are designed here, once, for both sprint files:
+1. **Support audit kinds are internal.** `support_grant` and `support_view` are internal entity kinds; they are not in
+   the tenant `EntityKind` enum's customer-facing set and not in `OUTBOX_ENTITIES` or the realtime `ENTITY_TOPIC`
+   map. Belt and braces: both bridges (`outbox-event.ts` `outboxEventFor`, `realtime/audit-signal.ts`
+   `signalForAuditEvent`) return `null` first for **any** event with `action = 'support_accessed'` or an internal
+   entity kind (`INTERNAL_ENTITY_KINDS` in `packages/types`), regardless of any future edit to their allow-lists.
+   Unit tests: `support_accessed` on `entity_kind='ncr'` yields no outbox record and no realtime signal; a
+   mutation that adds `support_view` to `OUTBOX_ENTITIES` still yields none.
+2. **Internal events are a separate audience.** SPRINT-07's migration `0076` (not 07C's — Sprint 07 is what first
+   emits these events) adds `outbox.audience text NOT NULL DEFAULT 'webhook' CHECK (audience IN
+   ('webhook','internal'))`, the webhook skip below, and drainer routing of `internal` rows to a registry of internal
+   handlers; a row whose event type has no registered handler yet stays `pending` **without** consuming an attempt
+   (held, never dead-lettered), so events emitted by Sprint 07 before 07C's projector is deployed are projected when it
+   is (the release coupling means this window is test-only in practice). Internal event types — `plan_request.changed` and
+   `tenant_commercial.changed` (SPRINT-07 P6 AC6, X1 AC8) — are written with `audience='internal'` and an **ids-only**
+   payload (`{ tenantId, requestId }` / `{ tenantId }` — never names, emails, notes or composition). The webhook
+   handler skips every `internal` row explicitly (and a wildcard subscription can never match one); a test with a
+   `*`-subscribed endpoint proves no internal event and no requester email ever leaves. (Before this fix,
+   `plan_request.changed` as drafted — carrying `requester: { name, email }` and the note — would have been delivered
+   to any wildcard webhook: a PII leak to third-party consumers.)
+3. **An internal-projection handler, with its own narrow role.** The drainer dispatches `audience='internal'` rows to
+   `InternalProjectionHandler` instead of the webhook handler. It reads the current source rows **through the
+   drainer's tenant transaction** (the plan request, its requester's name and email resolved the way the P6 sales
+   email resolves them, the tenant's effective commercial state via the resolver) and writes the result to
+   `control.sales_inbox` / `control.tenant_commercial_summary` through a new **`kaenal_projector`** pool on the
+   **primary** database (`NOLOGIN` in the migration, AR29; INSERT/UPDATE on those two tables only; nothing else;
+   `DATABASE_PROJECTOR_URL`, worker process only; 07C migration `0080`). Upserts are idempotent and ordered by the source row's
+   `updated_at` (last write wins), so a re-delivered or out-of-order event converges. Because the payload is ids only
+   and the projector re-reads current state, a stale event can never write stale PII.
+4. **Nothing else changes for customer webhooks:** existing `OUTBOX_ENTITIES` events keep flowing exactly as today.
+
+**[AR] SD12 — Email is enqueued after commit; no AC claims "same transaction" (AR23).** Verified against the code:
+email is an asynchronous BullMQ job (`jobs/producer.ts:82`), and today's call sites enqueue it from inside the request
+handler (`auth.controller.ts:221`, `:255`, `suppliers.controller.ts:186`) — i.e. **before** the interceptor's tenant
+transaction commits and not atomically with it (the reviewer described it as after-commit; it is actually earlier,
+which is worse: a rolled-back request can still send its email). Of the two options offered, the PO chooses the
+honest, simpler one and applies it everywhere in both sprint files: **every email these sprints add is enqueued only
+after its originating transaction commits**, and no AC says "same transaction". Mechanism: the request context gains
+an after-commit job buffer next to the existing realtime one (`context.ts:66`), flushed by each app's lifecycle
+interceptor after commit and discarded on rollback; control-plane paths (O3 intake, C1/C11 setup emails) enqueue after
+their control transaction commits; job processors enqueue after their per-tenant transaction commits. Delivery is
+retried by BullMQ; the window between commit and enqueue is at-most-once, which is acceptable because **no business
+hand-off depends on an email**: the plan request row and the `sales_inbox` projection (durable, via the internal
+outbox event), the `workspace_requests` row, and the platform account's "Resend setup email" are the durable records.
+Emails that notify a tenant user go through the existing notification row + `deliverNotification` job, whose row is
+written in the transaction and whose delivery job is enqueued after commit. The pre-existing in-handler enqueues named
+above are **not** changed by these sprints (they are outside their scope) and are recorded as a Known issue.
 
 **SD8 — [AM2, amended] Tenant-side changes are limited to what the access model needs.** 07C adds no tenant table.
 It adds two roles (`kaenal_support`, `kaenal_support_reader`), a restrictive policy and audit-attribution triggers,
@@ -1306,7 +1438,7 @@ New platform-contract route [AM3]: `POST /platform/v1/auth/step-up` (SR2).
 | C4 | 0080 | `GET /platform/v1/tenants`, `GET /platform/v1/tenants/:id`, `GET …/:id/history` | directory + detail services, summary projector | platform `tenant_viewed` | `platform:tenants:read`, grant for detail | directory from control plane only |
 | C5 | (0080 grants; 0079 trials DELETE) | `PUT …/tenants/:id/packs/:packId`, `POST …/apply-bundle`, `PUT …/tenants/:id/plan`, [AM2] `POST …/tenants/:id/trials/:packId/reset` | `PlatformPlanService` | tenant `entitlement_changed` (support) + platform | `platform:plans:write` | via grant; realtime after commit |
 | C6 | 0080 | `GET /platform/v1/sales-inbox`, `POST …/requests/:requestId/fulfil|decline`, `GET /platform/v1/workspace-requests`, `POST …/:id/decline|spam` | inbox projector, `PlatformPlanService` | tenant `status_changed` + `entitlement_changed` + platform | `platform:requests:resolve`, `platform:workspace_requests:manage` | resolution via grant |
-| C7 | (0080 grants) | `GET /platform/v1/catalog`, `PUT/POST …/catalog/*`, `POST …/catalog/impact-preview` | `CatalogAdminService`, impact preview | platform | `platform:catalog:*` | control plane; counts-only system job |
+| C7 | (0080 grants) | `GET /platform/v1/catalog`, `PUT/POST …/catalog/*`, `POST …/catalog/impact-preview` | `CatalogAdminService`, impact preview | platform | `platform:catalog:*` | control plane; reads only `control.tenant_commercial_summary` — no tenant database, no cross-tenant record counts ([AR] AR26) |
 | C8 | (0080 grants) | `GET/POST/PUT/DELETE …/price-book/*`, `POST …/publish`, `POST …/preview` | `PriceBookService` | platform | `platform:pricebook:*` | control plane |
 | C9 | 0079 | `GET /platform/v1/audit`, [AM2] `GET /platform/v1/audit/export.csv`, `GET /platform/v1/me/audit`, `GET /platform/v1/me/audit/export.csv` | audit reader, CSV writer | platform `audit_exported` | `platform:audit:read`; `platform:audit:own` | append-only; own-export forced to the caller |
 | C10 [AM2] | 0079 | `POST /platform/v1/grants/:id/view-link`; tenant contract `POST /v1/support-view/exchange` (`@AllowAnonymous`), `POST /v1/support-view/end` | `SupportViewAuthenticator` in the lifecycle interceptor, reader pool, **[AM3]** `support_reader_grant_active()` | tenant `support_accessed` (grant start, each detail view / attachment) + platform per request (**[AM3]** incl. entity ids on list views) | `platform:tenant:content`; synthetic read-only `support_viewer` | `kaenal_support_reader` (no write privilege), RLS, grant-bound tenant, unsafe methods 403, **[AM3]** RESTRICTIVE-policy DB backstop on `app.grant_id` |
