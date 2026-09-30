@@ -37,7 +37,7 @@ removed entirely (not disabled) once frozen (State F, restated to also name unli
 frozen). State D (rejected) gains a visible **Resubmit** button plus a caption naming its exact
 mechanics (manage-gated, not owner-restricted, resets all 5 approval rows, unfreezes `owner`). State
 E's caption is restated to describe the auto-revise banner as **persisted** — read from
-`EcnDto.autoRevise` on every visit, not a one-time post-transition toast. Two new states are appended,
+`EcnDto.autoReviseResult` on every visit, not a one-time post-transition toast. Two new states are appended,
 matching the existing states' own visual weight exactly: **State G** (Draft — Submit/Withdraw actions)
 and **State H** (Implementation — Close action), both named in the sprint's own §5 item 9 and not
 previously drawn on this board.
@@ -87,8 +87,8 @@ prior sprint's own Ceremony-2 audit.
 | jsx element (lines) | Story | Built today? | Notes |
 |---|---|---|---|
 | Header + List/Kanban segmented toggle + "New ECN" button (532-540) | E1/E2/E3 | Not built — `/ecn` is `PLANNED_MODULES["ecn"]` (confirmed) | "New ECN" is `kToast` only, dead — becomes the real CreateWizard `ecn` type (Board `EcnCreateWizard.dc.html`, §4.7) |
-| `ECNList` table (549-591) | E1 | Not built | ID/Title/Type/Stage(progress bar)/Affected/Risk/Owner/Target — direct 1:1, **with the "of 6" progress-bar convention corrected to the canonical machine's 6 ordered stages** (§3.2, already approved) rather than the mock's own inconsistent per-row `of:6` with a 5th "Doc revision" label that never was a real human stage |
-| `ECNKanban` 7 columns (593-633) | E2 | Not built | Draft/Feasibility/Risk review/CAB approval/Pilot/Implementation/Closed reproduced 1:1, **plus the approved 8th "Rejected" column** (§3.2's correction — the header's own "multi-stage approval workflow" claim implies a reject path the mock never draws) — Board `EcnKanbanDnD.dc.html`, §4.6 |
+| `ECNList` table (549-591) | E1 | Not built | ID/Title/Type/Stage(progress bar)/Affected/Risk/Owner/Target — direct 1:1, **with the "of 6" progress-bar convention corrected to the canonical machine's 7 ordered stages** (§3.2, already approved; further corrected by §0 above to 7 stages/5 gates incl. `ppap`) rather than the mock's own inconsistent per-row `of:6` with a 5th "Doc revision" label that never was a real human stage |
+| `ECNKanban` 7 columns (593-633) | E2 | Not built | Draft/Feasibility/Risk review/CAB approval/Pilot/Implementation/Closed reproduced 1:1, **plus the approved "Rejected" column** (§3.2's correction — the header's own "multi-stage approval workflow" claim implies a reject path the mock never draws) **— now the board's 9th column overall following §0 above's later `ppap` insertion, not the 8th** — Board `EcnKanbanDnD.dc.html`, §4.6 |
 | `ECNKanban` cards (603-611) | E2 | Static, no drag anywhere | Real drag-to-advance for `ecn:approve` holders; visibly non-draggable (no grab handle at all, not merely disabled) for everyone else — genuinely new interaction, no precedent anywhere else in this app's board views (Board `EcnKanbanDnD.dc.html`, §4.6) |
 | ECN detail / approval tracker (header text's own "multi-stage approval workflow" claim; P19 §3's own call for one) | E4 | **No board drawn anywhere in the jsx** | New (Board `EcnDetailApproval.dc.html`, §4.5) |
 | "Auto-revises affected documents" (header text, 534) | E5 | No mechanism anywhere | Real, transactional `DocumentsService.newVersion`-based mechanism (§3.2, already approved); its partial-failure result is a real, visible banner on the ECN detail board (State E), never silently swallowed |
@@ -215,11 +215,12 @@ Pilot (E5 AC1's 422, "Link a record" rendered disabled with the reason stated, n
 - *Heuristic — visibility of system status:* every stage row shows decision + approver + decided-at
   together, so nobody has to infer why the ECN sits where it does.
 
-### 4.6 ECN Kanban's 8th "Rejected" column + drag-and-drop visual states (E2, §3.2) — Board `EcnKanbanDnD.dc.html`
+### 4.6 ECN Kanban's "Rejected" column + drag-and-drop visual states (E2, §3.2) — Board `EcnKanbanDnD.dc.html`
 
 Two items from the sprint's own §5 list, drawn on one board since both compose onto the same audited
 `ECNKanban` layout. The Rejected column gets the exact same dot/count-header/card treatment as the
-other 7 (§3.2's correction) — no different visual weight for a terminal-failure column than for
+other columns (§3.2's correction; the board's `ppap` column, added by §0 above, is a separate later
+addition to the same set) — no different visual weight for a terminal-failure column than for
 "Closed," which is also terminal. Drag-and-drop has **no existing precedent anywhere else in this
 app's board views** — genuinely new interaction design, not a reskin, per the sprint's own note. Three
 states: **A** the full 8-column board for an `ecn:approve` holder (every card shows a `⠿` grab handle
