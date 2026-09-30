@@ -584,7 +584,8 @@ AC
    `SupportAccess.withTenant` (commercial grant, `platform:plans:write`) only when `ends_at <= now()` and `ends_at =
    expectedEndsAt` (else 409 `TRIAL_ACTIVE` / `STALE_WRITE`; the DB trigger of C3 AC3 is the backstop); writes one
    tenant `entitlement_changed` event `{ before: { trial: { startedAt, endsAt } }, after: { trial: null, reason:
-   'trial_reset' } }` (`actor_kind='support'`, reason) in the same tenant tx and a platform event (SD5 ordering);
+   'trial_reset' } }` (`actor_kind='support'`, reason, **[AR]** `entity_kind='entitlement_trial'`, `entity_id` = the
+   deleted row's `id`, SPRINT-07 P1 AC4) in the same tenant tx and a platform event (SD5 ordering);
    emits the tenant realtime `entitlements` signal and the Sprint 07 `tenant_commercial.changed` outbox event. No
    new notification kind (the tenant sees "Start 14-day trial" again on `/pricing`). Tests: reset of an ended trial
    → tenant can start one more trial → a second reset is possible only after that one ends; running trial → 409;
@@ -850,7 +851,7 @@ AC
    explicit grant test asserts each privilege and its absence everywhere else (e.g. the gate cannot SELECT
    `platform_users.password_hash` or `mfa_secret_enc`, cannot UPDATE `support_grants`, cannot SELECT any tenant
    table).
-2. `0079` creates DB role **`kaenal_support_reader`** (LOGIN, no BYPASSRLS; the existing `tenant_isolation` policy
+2. `0079` creates DB role **`kaenal_support_reader`** (**[AR] `NOLOGIN`**, AR29; no BYPASSRLS; the existing `tenant_isolation` policy
    applies unchanged): SELECT on **every tenant-owned table** except a named credential/secret denylist (at minimum
    `sessions`, API-key secret material, integration secrets, MFA material, idempotency records — the architect
    finalizes the list **[AM3] — and, when finalizing it, must also check every included table for column-level
@@ -1375,6 +1376,17 @@ existing `tenant_isolation` policy applies to both. For **dedicated** tenants, p
 `kaenal_support` in the tenant database and store a **support secret ref** alongside the app secret ref;
 `provision-tenant` and `migrate-tenants` gain that step, and existing dedicated tenants get it via a one-off
 `migrate-tenants` run (dev has none; tested with the router fake + `dedicated-provision.test.ts`).
+**[AR] Role inventory and credentials (AR29).** Five new roles, each for exactly one process: `kaenal_platform` and
+`kaenal_support` (platform API), `kaenal_support_reader` and `kaenal_support_gate` (tenant API), `kaenal_projector`
+(worker). **Every one is created `NOLOGIN` by its migration.** Why: `0000_foundation.sql:49-52` creates the existing
+app roles `LOGIN PASSWORD 'kaenal_local_pw'`, and `migrate-tenants` replays every migration on every dedicated
+database — a new role created the same way would exist with a well-known password on every customer's dedicated
+database. Instead, `LOGIN` and a per-environment secret are set outside migrations: by `provision-tenant` /
+`migrate-tenants` (from the secret manager, for dedicated databases — they already store the app secret ref, SD6) and
+by ops for the primary; locally by a dev-only `pnpm db:dev-roles` that refuses to run when `NODE_ENV=production` or
+the host is not local. Tests connect with `SET ROLE` from the migrator connection and need no LOGIN. Grant test: each
+new role is `rolcanlogin = false` right after `pnpm db:migrate` on a fresh database. (The two pre-existing roles'
+local password is unchanged by these sprints; it is already documented as docker-only in `0000_foundation.sql`.)
 
 **SD7 — [AM2, rewritten] The support grant is the spec's "time-boxed grant (4h)", with two scopes.** One tenant,
 one platform user, one reason, 4 hours, ends early on demand. **Scope `commercial`** — commercial reads and (per

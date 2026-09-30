@@ -189,7 +189,7 @@ onboarding is out of scope: the first-run flow is a web-admin task and **never b
 | **A fixture uses a pack id that is not in the catalog:** `packages/db/test/fixtures.ts:237` inserts `pack_id='supplier_quality'`; the design's id is `supplier` | fixtures.ts:237 |
 | **No operator / staff surface exists.** The API role only `SELECT`s `control.tenants` ("it never writes it"); tenant administration is done by migrator-role scripts (`provision-tenant`, `offboard-tenant`, `migrate-tenants`). The built "Cross-tenant analytics" settings section is current-tenant KPIs via `/v1/query/metric`, **not** an operator feature. `audit_events.actor_kind` already allows `support`, and a CHECK requires `reason` whenever it is used | `0000_foundation.sql:68-93`, `packages/db/scripts/`, `settings/sections/cross-tenant.tsx:10-14`, `0001_core.sql:707,727` |
 | `provision-tenant.ts` seeds SLA config, a default plant, an example inspection template and an admin membership; it seeds **no** entitlements and **no** profile | `packages/db/scripts/provision-tenant.ts`, `scripts/lib/seed.ts` |
-| Reusable substrate: `tenant_settings(tenant_id, namespace, doc jsonb, lock_version)` with a namespace CHECK widened per consumer (currently `branding`, `session`, `chargeback` — `0029_cost_centers.sql:84`); audit `action` CHECK already contains `entitlement_changed`, `settings_changed`, `created`, `status_changed` (latest widening `0061_audits_module.sql:73-81`), so this sprint needs **no** new audit action; exports pipeline (`ExportResource` enum + `run-export.ts`); outbox → `send-email` processor over the email provider port; Redis `RateLimiter` used for login; daily job pattern (`calibration-due.ts`, `training-expiry.ts`) | `0025_tenant_settings.sql`, `packages/types/src/enums.ts:322`, `apps/api/src/jobs/processors/`, `apps/api/src/http/rate-limit.ts` |
+| Reusable substrate: `tenant_settings(tenant_id, namespace, doc jsonb, lock_version)` with a namespace CHECK widened per consumer (currently `branding`, `session`, `chargeback` — `0029_cost_centers.sql:84`); audit `action` CHECK already contains `entitlement_changed`, `settings_changed`, `created`, `status_changed` (latest widening `0061_audits_module.sql:73-81`), so this sprint needs **no** new audit action; exports pipeline (`ExportResource` enum + `run-export.ts`); a `send-email` BullMQ job over the email provider port (**[AR] correction:** it is a direct job (`jobs/producer.ts:82`), not an outbox consumer — the outbox carries ids-only customer-webhook events; see 07C SD11/SD12); Redis `RateLimiter` used for login; daily job pattern (`calibration-due.ts`, `training-expiry.ts`) | `0025_tenant_settings.sql`, `packages/types/src/enums.ts:322`, `apps/api/src/jobs/processors/`, `apps/api/src/http/rate-limit.ts` |
 | Web: `/pricing` is a planned-module placeholder (`planned:pricing`, ledger sprint 10); settings `billing` (10) and `onboarding` (11) are ledger placeholders; `/pricing` is admin-only in role curation (`PLATFORM_ROOTS`) | `config/planned-modules.ts:28`, `config/placeholder-ledger.ts`, `config/rbac.ts:18-24` |
 | Mobile never calls a module this sprint would gate (grep of `apps/mobile/src` for suppliers/ppap/scar/risk/fmea/spc/msa/ecn/graph/predictions/reports → only NCR's own `risk` field). It **does** call the AI gateway for NCR drafts and already treats 402 as "AI unavailable". Its oversight audit feed maps actions containing `entitlement`/`setting` to the settings category | `apps/mobile/src/features/ncr/ai.ts:74`, `apps/mobile/src/app/(app)/audit.tsx:13` |
 | Migration head is `0072_ecn.sql`; this sprint uses **0073-0077** ([AM1]; 07C uses 0078-0081) | `ls packages/db/migrations` |
@@ -356,10 +356,17 @@ AC
    lives in `validateCatalog` (P0 AC3).
 4. Migration **`0074_entitlements.sql`** ([AM1] renumbered from 0073, which is now P0's catalog): `entitlements` gains `source text NOT NULL DEFAULT 'operator' CHECK
    (source IN ('operator','self_service','bundle','grandfathered'))`, `lock_version int NOT NULL DEFAULT 0` with
-   the shared bump trigger, `updated_by` composite member FK (`(tenant_id, updated_by) → memberships`, nullable
-   because operator writes have no member), and `CHECK (pack_id IN (<the 9 ids>))`. New table
-   `entitlement_trials` (`tenant_id`, `pack_id` same CHECK, `started_at`, `ends_at`, `started_by` composite member
-   FK, `created_at`; `PRIMARY KEY (tenant_id, pack_id)` — which *is* the once-per-pack rule), forced RLS,
+   the shared bump trigger, ~~`updated_by` composite member FK~~ **[AR, AR28] composite member FKs added by `ALTER TABLE
+   … ADD CONSTRAINT` on the columns that already exist — `created_by` and `updated_by` are bare `uuid` columns since
+   `0001_core.sql:627-628` (table at `:618`), so they are not re-added: `(tenant_id, created_by) → memberships
+   (tenant_id, user_id)` and `(tenant_id, updated_by) → memberships (tenant_id, user_id)`, both nullable because
+   operator and system writes have no member (existing values are verified to reference a membership or are set NULL
+   by the migration, reported in its output)**, and `CHECK (pack_id IN (<the 9 ids>))`. New table
+   `entitlement_trials` (**[AR]** `id uuid NOT NULL DEFAULT uuidv7() UNIQUE` — the `entity_id` of every trial audit
+   event, since `audit_events.entity_id` is `uuid NOT NULL`; `tenant_id`, `pack_id` same CHECK, `started_at`,
+   `ends_at`, `started_by` composite member FK, **[AR]** `expiry_processed_at timestamptz NULL` — set once by the
+   trials job (P5 AC2) so the expiry event is written exactly once; `created_at`; `PRIMARY KEY (tenant_id, pack_id)` —
+   which *is* the once-per-pack rule), forced RLS,
    leading-`tenant_id` index. Trial state lives only here, so expiry never has to mutate `entitlements`.
 5. **Backfill, so nothing that works today stops working:** for every tenant that exists when `0074` runs, insert
    all 9 packs `active=true, source='grandfathered'` (`ON CONFLICT (tenant_id, pack_id) DO UPDATE SET
@@ -408,7 +415,8 @@ UC
   mutation, and by the realtime `entity.updated {kind:'entitlements'}` event for changes made elsewhere (platform console [AM1],
   another admin).
 - Create surfaces: in the CreateWizard type step, the quick-create menu and the command palette's quick actions,
-  a type whose module is gated (today: `risk`, `ecn`) shows a lock chip; choosing it shows the inline upsell (§5
+  a type whose module is gated (today, with the seed: `risk`, `ecn`; **[AR]** decided by the resolver for every
+  non-guaranteed module, so a catalog edit changes it without a deploy) shows a lock chip; choosing it shows the inline upsell (§5
   D-S4) instead of proceeding to a form that would 402.
 - Empty/first load: while entitlements load, nav renders without lock icons and gated routes render a skeleton,
   never a flash of the unlocked page followed by an overlay.
@@ -431,10 +439,22 @@ AC
    decisions call `packages/core` `isModuleGated`, never a UI-local list (rule 5).
 3. Sidebar: lock icon on each gated root item and child, matching `shell.jsx` (12px, stroke 2, the drawn muted
    colour, title text as drawn); collapsed rail shows no lock (as drawn).
-4. `LockedRoute` wrapper applied to every route of a gated module that exists today: `/graph`, `/predictive`,
-   `/suppliers` + `/suppliers/[id]` (module `suppliers`; [AM2] the Scorecards / Risk matrix views and the detail's
-   PPAP / Portal tabs are gated in-page per AC9), `/ppap`, `/ppap/[id]`, `/scars`, `/fmea`,
-   `/spc`, `/msa`, `/risk`, `/ecn`, and the report-builder authoring surface. It renders the real page
+4. `LockedRoute` wrapper ~~applied to every route of a gated module that exists today~~ **[AR, AR27] applied to every
+   route of every module that is not in `CORE_FLOOR_GUARANTEED`, whether or not the seeded catalog gates it today.**
+   Reason: the pack→module map is data platform admins can edit (07C C7 — e.g. moving `complaints` or `reports` into
+   a pack), so a hard-coded list of "today's gated routes" goes stale the moment the catalog changes, and a newly
+   gated module would render unlocked in the web while the API returns 402. Mechanism: one web route map
+   `MODULE_ROUTES: Record<ModuleId, RoutePattern[]>` (in `packages/core`, covering every `ModuleId`); the app layout
+   wraps any route matched to a non-guaranteed module in `LockedRoute`, which renders the page normally when the
+   resolver says the module is effective and the overlay when it is not — so a catalog edit changes what is locked on
+   the next `['entitlements']` refetch with no deploy. Guaranteed-floor modules (the 8 of pricing.jsx:168) are never
+   wrapped, because they can never be gated (`validateCatalog`). Today, with the seed, this locks: `/graph`,
+   `/predictive`, `/suppliers` + `/suppliers/[id]` (module `suppliers`; [AM2] the Scorecards / Risk matrix views and
+   the detail's PPAP / Portal tabs are gated in-page per AC9), `/ppap`, `/ppap/[id]`, `/scars`, `/fmea`, `/spc`,
+   `/msa`, `/risk`, `/ecn`, and the report-builder authoring surface — and wraps, but does not lock, `/complaints`
+   and `/reports`. A test enumerates the web route list and fails if a route that belongs to a non-guaranteed module
+   is missing from `MODULE_ROUTES`, and a test moving `complaints` into a pack (test catalog) shows `/complaints`
+   overlaid for a tenant without that pack. It renders the real page
    `aria-hidden`, `inert`, blurred 3.5px, saturate 0.92, opacity 0.5, scale 1.02, under a
    `color-mix(var(--bg) 64%)` scrim, with the upsell card (max-width 560, pack-accent banner, overline "Add-on ·
    locked", chip "Not in your plan", h2 pack name, tagline, price row + note chip, "What unlocks" 2-column list,
@@ -448,7 +468,8 @@ AC
    Tab and by screen readers (`inert` + `aria-hidden`); the card's buttons meet the 36-38px heights drawn and
    WCAG AA contrast on every pack accent (designer verifies the 9 accents; any failing accent gets a darker
    token, §5).
-7. Create surfaces (CreateWizard type cards, quick-create menu, palette quick actions) consult the same resolver;
+7. Create surfaces (CreateWizard type cards, quick-create menu, palette quick actions) consult the same resolver
+   **[AR]** for every type whose module is not floor-guaranteed (not a fixed "`risk`, `ecn`" list, AC4 reasoning);
    Playwright proves choosing a locked type never reaches a form.
 8. Realtime: P4/P5/P6 and O1 frameworks [AM1] mutations (and 07C's platform writes) emit `entity.updated {kind:'entitlements'}` on the tenant channel; the web
    client invalidates `['entitlements']` on it (04 §7 targeted invalidation).
@@ -680,13 +701,21 @@ UC
 
 AC
 1. `POST /v1/entitlements/trials` `{ packId }` (`billing:manage`, `Idempotency-Key`) inserts `entitlement_trials`
-   (`ends_at = started_at + interval '14 days'`); PK violation → 409; `active=true` pack → 422; `security` and
+   (`ends_at = started_at + interval '14 days'`; **[AR]** the audit event's `entity_kind='entitlement_trial'`,
+   `entity_id` = the new row's `id`); PK violation → 409; `active=true` pack → 422; `security` and
    `support` packs are not trialable (no in-product effect; custom-priced) → 422 with the reason. Audit
    `entitlement_changed` `{after:{trial:{endsAt}}}`.
 2. Daily job `entitlement-trials` (existing BullMQ cadence pattern): notifies at T-3 days (dedupe key
    `trial_ending:<tenant>:<pack>:<ends_at>`) and after expiry (`trial_ended:<…>`), and writes one `system`
    `entitlement_changed` event `{before:{effective:true}, after:{effective:false, reason:'trial_expired'}}` per
-   expired trial, exactly once (idempotent on re-run). It never updates `entitlements`.
+   expired trial, exactly once (idempotent on re-run). It never updates `entitlements`. **[AR] Exactly-once mechanism
+   (AR28):** per tenant, one transaction runs `UPDATE entitlement_trials SET expiry_processed_at = now() WHERE ends_at
+   <= now() AND expiry_processed_at IS NULL RETURNING id, pack_id, ends_at` and writes the audit event
+   (`entity_kind='entitlement_trial'`, `entity_id` = the trial's `id`), the notification rows and the internal
+   `tenant_commercial.changed` event for exactly the returned rows; emails are enqueued after commit (07C SD12). A
+   re-run or a concurrent worker finds no unprocessed row. (Effectiveness never depends on this job — the resolver
+   compares `ends_at` to `now()`, P1.) A platform trial reset (07C C5 AC6) deletes the row, so a new trial starts with
+   `expiry_processed_at` NULL.
 3. Notification kinds `trial_ending`, `trial_ended` added to the enum, the preferences matrix defaults (in-app +
    email on for admins), and the web notification centre click-through (`/pricing?pack=`).
 4. Tests: boundary at exactly `ends_at` (not effective), job idempotence, 409/422 cases, the AI gateway honouring
@@ -718,7 +747,8 @@ UC
   `member_access` requests for it are auto-fulfilled and the requester is notified.
 - Happy (admin → sales, request mode): "Add to plan"/"Remove"/"Apply bundle"/"Talk to sales"/"Contact sales"/
   "Update subscription" open a small dialog (what is being requested, optional note, Send). On Send: an
-  `open` request is stored, Kaenal sales receives an email (outbox → `send-email`, to `SALES_NOTIFY_EMAIL`) with
+  `open` request is stored, Kaenal sales receives an email (**[AR]** a `send-email` job enqueued after commit — 07C
+  SD12 — to `SALES_NOTIFY_EMAIL`) with
   tenant name/slug, requester, kind, pack/tier, composition snapshot and estimate; the button shows "Requested".
 - Fulfil/decline: **[AM1] moved to `SPRINT-07C-staff-console.md` C6** — Kaenal staff fulfil (apply the change and
   mark the request fulfilled) or decline (with a reason) in the platform console's sales inbox; the requesting admin
@@ -727,7 +757,9 @@ UC
 - Withdraw: the requester (or any admin) withdraws an open request.
 - Dedupe: one open request per (requester, kind, pack/tier); re-requesting returns the existing request (200),
   not a duplicate email.
-- Error: email transport failure never loses the request (outbox retries); the UI shows "Requested" once the row
+- Error: email transport failure never loses the request (**[AR]** the row is committed before the email is
+  enqueued, and BullMQ retries the send; the request also reaches the platform sales inbox through the internal
+  outbox event, AC6); the UI shows "Requested" once the row
   is committed.
 - Permission: `member_access` — any internal role (not partner), only for a gated pack; all other kinds —
   `billing:manage`. Listing requests — `billing:manage`.
@@ -751,7 +783,10 @@ AC
    Audit: `created` on insert, `status_changed` on withdraw/fulfil/decline/auto-fulfil.
 3. Notifications `plan_request_created` (to admins, member requests only — admin→sales requests notify the other
    admins too, excluding the requester) and `plan_request_resolved` (to the requester). Email to Kaenal sales
-   via the outbox in the same transaction as the insert (never on rollback). `SALES_NOTIFY_EMAIL` added to
+   ~~via the outbox in the same transaction as the insert (never on rollback)~~ **[AR, AR23]** is a `send-email` job
+   **enqueued after the insert's transaction commits** (never on rollback; at-most-once in the window between commit
+   and enqueue, retried by BullMQ on transport failure) — see 07C SD12. The durable hand-off to sales is the
+   `plan_requests` row and 07C's sales-inbox projection (AC6), not the email. `SALES_NOTIFY_EMAIL` added to
    `.env.example`; when unset in dev the email is written to the dev mail sink like every other email.
 4. Pricing page and overlay reflect open requests (chip + withdraw) from `GET …/requests?status=open` for admins
    and from `EntitlementsDto.myOpenRequests: PackId[]` (additive field) for non-admins, so the non-admin overlay
@@ -760,11 +795,16 @@ AC
    fulfilment; platform-console activation is tested in 07C), outbox row committed atomically, withdraw state
    machine, cross-tenant id → 404. **[AM1]** `member_access` / `add_pack` for a module or pack that is
    framework-included (fully covered) → 422 `already_included`.
-6. **[AM1]** Every insert and status change writes an outbox event `plan_request.changed` `{ tenantId,
-   requestId, kind, status, packId, tier, note, requester: { name, email }, createdAt }` — exactly the content the
-   requester addressed to Kaenal sales, which the sales email already carries, and nothing else from the tenant —
-   in the same transaction — the input to 07C's cross-tenant sales-inbox projection. Only admin→sales kinds
-   emit it (`member_access` stays inside the tenant).
+6. **[AM1, corrected AR]** Every insert and status change writes an outbox event `plan_request.changed` in the same
+   transaction — the input to 07C's cross-tenant sales-inbox projection. Only admin→sales kinds emit it
+   (`member_access` stays inside the tenant). ~~`{ tenantId, requestId, kind, status, packId, tier, note, requester:
+   { name, email }, createdAt }`~~ **[AR, AR22] It is an internal event with an ids-only payload `{ tenantId,
+   requestId }` and `outbox.audience = 'internal'`** (column added in `0076`, 07C SD11). Why: the outbox is the
+   customer-webhook channel — ids only, delivered to every endpoint whose subscription matches, and an empty or `*`
+   subscription matches everything (`webhook-signing.ts:58`) — so the drafted payload would have sent requester names,
+   emails and notes to any customer webhook consumer. The webhook handler skips every `internal` row; 07C's projector
+   re-reads the request (and resolves the requester's name and email) inside the drainer's tenant transaction. Tests:
+   a `*`-subscribed endpoint receives nothing for a plan request; the outbox row contains no email or note.
 
 Web: dialogs, chips, notification rows. Mobile: notification list renders the two kinds, tap hands off to web
 (X1). Shared: table, routes, notification kinds, outbox email template.
@@ -879,7 +919,9 @@ AC
 2. `GET /v1/billing/plan` (`billing:manage`) → `{ tier, tierName, packs, contract: { renewsOn, annualValue,
    currency } | null }` (reads `control.tenant_plans` + resolver). `GET/PUT /v1/settings/billing` (`billing:
    manage`, `lockVersion`) over `tenant_settings` namespace `billing` (`{ billingEmail: email|null, taxId: string ≤
-   32 | null }`, Zod in `packages/types`); audit `settings_changed` (changed fields only, rule 3).
+   32 | null }`, Zod in `packages/types`); audit `settings_changed` (changed fields only, rule 3) **[AR] with
+   `entity_kind='billing_settings'`** (not the generic `settings` kind other namespaces use), so 07C's commercial-scope
+   audit policy can admit exactly these rows (07C C3 AC3, AR13).
 3. Namespace CHECK widened in `0076` (`billing`, and O1's `profile`, `onboarding`).
 4. **[AM1]** The banner's tier name / blurb come from `control.catalog_tiers` and the no-contract price line from
    the published price book (P0), never from component constants; when the tenant has framework inclusions the
@@ -937,9 +979,11 @@ AC
    `lock_version`, composite `updated_by` FK and forced RLS — no new table (0025's stated purpose).
 3. Routes: `GET /v1/settings/workspace-profile` (any internal member), `PUT /v1/settings/workspace-profile`
    (`settings:manage`; **`billing:manage` additionally when `frameworks` changes** [AM1]; `lockVersion`); audit
-   `settings_changed` with changed fields only. **[AM1]** A frameworks change also: publishes the realtime
-   `entitlements` event (the effective set may have changed), and writes an outbox email to Kaenal sales
-   ("<workspace> declared/removed <framework>") in the same transaction (D2 abuse visibility).
+   `settings_changed` with changed fields only **[AR] and `entity_kind='workspace_profile'`** (07C C3 AC3, AR13).
+   **[AM1]** A frameworks change also: publishes the realtime `entitlements` event (the effective set may have
+   changed), writes the internal `tenant_commercial.changed` event (X1 AC8), and emails Kaenal sales ("<workspace>
+   declared/removed <framework>") — **[AR, AR23]** a `send-email` job enqueued **after** the transaction commits, not
+   "an outbox email in the same transaction" as drafted (07C SD12) (D2 abuse visibility).
 4. `0076` backfill: every existing tenant gets `onboarding.status='dismissed'` (no forced first-run for existing
    workspaces, incl. the demo — protects rule 12's sign-in landing) and an empty profile. [AM2 Q-S3 DECIDED: not
    force-prompted; the checklist is available under Settings → Onboarding with "Start setup"]
@@ -1066,8 +1110,10 @@ AC
    provisioning script and (07C) the platform role read them. Explicit grant test.
 2. `POST /v1/public/workspace-requests` (`@Public`): Zod body from `makeWorkspaceRequestSchema(catalog)` in
    `packages/types` [AM1]; honeypot non-empty → 202
-   and discard; rate limit → 429 `RATE_LIMITED` with `Retry-After`; success → insert + sales email via the
-   `send-email` job in one transaction → 202. No PII in logs (email redacted, per CLAUDE.md "never log PII").
+   and discard; rate limit → 429 `RATE_LIMITED` with `Retry-After`; success → insert, then **[AR, AR23]** the sales
+   email is enqueued as a `send-email` job **after the insert commits** (there is no tenant transaction or outbox on
+   this public, control-plane path; the drafted "in one transaction" is struck) → 202. The durable record is the
+   `workspace_requests` row, triaged in 07C C6. No PII in logs (email redacted, per CLAUDE.md "never log PII").
 3. `provision-tenant --from-request <id>` pre-fills the O1 profile and marks the request `provisioned` with the
    tenant id (idempotent) (P8). [AM1] Listing requests is the platform console's (07C C6); the old `tenant-plan
    --workspace-requests` flag is removed with the CLI.
@@ -1134,7 +1180,7 @@ AC
 3. `POST /v1/onboarding/start` (`settings:manage`; sets `in_progress`, `startedAt`, `ownerId`; idempotent: a
    second call when already started returns the current state), `POST /v1/onboarding/dismiss`, `POST
    /v1/onboarding/resume` (dismissed → in_progress, keeps the original `startedAt` if any). Audit
-   `settings_changed` (namespace `onboarding`).
+   `settings_changed` (namespace `onboarding`, **[AR] `entity_kind='onboarding_state'`**, 07C C3 AC3).
 4. Suggestions and pre-selections are computed by calling O2 in the browser (pure shared code), never
    duplicated in components.
 5. Playwright: fresh tenant admin → redirected → completes 4 steps → lands on checklist with module tasks for the
@@ -1182,7 +1228,10 @@ UC
 - Helpful right now: up to 4 **in-product** destinations ranked for the tenant's industry from a catalog in
   `packages/core` (e.g. automotive: PPAP submissions, FMEA workbench, Inspection templates, Members & roles) —
   no external articles or video tours until Sprint 12's knowledge base / tours exist.
-- Completion: when every task is done, status → `completed` (server, on read) and the page shows the §5 completed
+- Completion: when every task is done, status → `completed` (server, on read — **[AR]** a GET that writes: it is
+  skipped for a 07C support viewer (07C C12 AC6), and the write is a conditional `UPDATE … WHERE status <>
+  'completed'` with its `settings_changed` audit event so concurrent reads complete it once; listed for the next
+  architecture review, DoR) and the page shows the §5 completed
   state; the section stays available.
 - Skip onboarding: confirm → `dismissed` → `/dashboard`; the section then shows a "Resume setup" state (§5) with
   the checklist still visible and live.
@@ -1229,7 +1278,11 @@ AC
 4. **Audit log UI:** `entitlement_changed` (incl. `support` actor + reason, trials, expiry) and `plan_requests`
    events render readably in Settings → Audit log (actor "Kaenal support — <reason>" for operator changes, which
    arrive from 07C; the rendering is built here so 07C only has to write the events). **[AM1]** A `settings_changed`
-   event on the `profile` namespace that changes frameworks renders as "Declared IATF 16949" / "Removed AS9100".
+   event on the `profile` namespace that changes frameworks renders as "Declared IATF 16949" / "Removed AS9100". **[AR]** The
+   profile / onboarding / billing events now carry their own entity kinds (`workspace_profile`, `onboarding_state`,
+   `billing_settings`; O1 AC3, O4 AC3, P9 AC2) and trial events carry `entity_kind='entitlement_trial'` with the trial's
+   `id` (P1 AC4); the renderer maps them to the same readable rows (and the mobile oversight feed's existing
+   action-based `settings` category still matches `settings_changed`, `audit.tsx:13`).
 5. **Mobile (small, real):** (a) `apps/mobile/src/app/(app)/audit.tsx` categorises `plan_request` entity events
    with the existing `settings` category (entitlement events already match); (b) the mobile notification list
    renders `trial_ending`, `trial_ended`, `plan_request_created`, `plan_request_resolved` with a sensible icon and
@@ -1251,9 +1304,12 @@ AC
    & add-ons already exists).
 8. **[AM1] Commercial-state outbox event (input to 07C's directory and impact preview).** Every change to a tenant's
    effective commercial state — pack toggle / bundle (P4), trial start (P5) and the trials job's expiry event
-   (P5 AC2), frameworks change (O1), provisioning (P8) — writes an outbox event `tenant_commercial.changed`
-   `{ tenantId, tier, effectivePacks, declaredFrameworkKeys, at }` in the same transaction (identifiers and
-   catalog keys only; no names, no content). Test: each path emits exactly one event; rollback emits none.
+   (P5 AC2), frameworks change (O1), provisioning (P8) — writes an outbox event `tenant_commercial.changed` in the
+   same transaction. ~~`{ tenantId, tier, effectivePacks, declaredFrameworkKeys, at }`~~ **[AR, AR22]** It is an
+   **internal** event (`outbox.audience='internal'`) with payload `{ tenantId }` only: the customer webhook handler
+   skips it, and 07C's projector re-derives tier, effective packs and declared frameworks from current state when it
+   drains the event (07C SD11). Test: each path emits exactly one event; rollback emits none; a `*`-subscribed
+   webhook endpoint receives none.
 
 ---
 
@@ -1594,12 +1650,14 @@ union is used for anything a platform user can extend (U-D4).
 | 0073 | `control.catalog_meta` (single row: `version bigint`, bumped by trigger on any write to the tables above) | control | Lets every API instance cache the catalog snapshot and revalidate with one PK read per request (§3.2) |
 | 0073 | Grants | — | `kaenal_app`: SELECT on all the above. `kaenal_public`: `USAGE` on schema `control` (today only `kaenal_app` has it, `0000_foundation.sql`) plus SELECT on `catalog_industries` / `catalog_frameworks` (keys, labels, sort order, active only, via column grants) for the public request form — and nothing else in `control` (grant test). Write grants: migrator only in this sprint; **07C grants the platform role INSERT/UPDATE** |
 | 0074 | `entitlements` + `source`, `lock_version`, `updated_by` (composite member FK), `pack_id` CHECK | tenant, forced RLS (existing) | Backfill all 9 packs `grandfathered` for existing tenants (P1 AC5) |
-| 0074 | `entitlement_trials` (PK `tenant_id, pack_id`) | tenant, forced RLS | Once-per-pack by PK; expiry by comparison |
+| 0074 | **[AR]** `entitlements` composite member FKs on the existing `created_by` / `updated_by` columns (`ALTER TABLE … ADD CONSTRAINT`, no column re-added) | tenant (existing) | AR28 |
+| 0074 | `entitlement_trials` (PK `tenant_id, pack_id`; **[AR]** + `id uuid UNIQUE` for audit `entity_id`, + `expiry_processed_at` for exactly-once expiry) | tenant, forced RLS | Once-per-pack by PK; expiry by comparison |
 | 0075 | `control.tenant_plans` | control plane | `self_service` (DEFAULT false, D1 DECIDED), contract fields, CSM fields; app role SELECT only; 07C grants the platform role UPDATE |
 | 0075 | `control.workspace_requests` | control plane | Public intake; `industry` / `frameworks` stored as catalog keys (text, no CHECK; validated against the active catalog at insert). The `kaenal_public` role (0000) may INSERT only (never SELECT) |
 | 0076 | `plan_requests` (+ `price_book_version_id` in the composition snapshot) | tenant, forced RLS | Partial unique open-request index; self composite FK for forwarding |
 | 0076 | `tenant_settings` namespace CHECK + `billing`, `profile`, `onboarding` | tenant (existing) | Backfill onboarding `dismissed` for existing tenants |
 | 0076 | `exports_resource_check` + `plan_quote` | tenant (existing) | Mirrors 0066/0070 widening |
+| 0076 | **[AR]** `outbox.audience text NOT NULL DEFAULT 'webhook' CHECK (audience IN ('webhook','internal'))`; webhook handler skips `internal`; drainer holds internal rows with no registered handler without consuming attempts | tenant (existing, ALTER) | AR22 — internal events (`plan_request.changed`, `tenant_commercial.changed`) never reach customer webhooks (07C SD11) |
 
 Platform identity, platform sessions, support grants, the support database role, the platform audit log and the
 sales-inbox projection are **07C's** migrations (0078-0081), not this file's.
