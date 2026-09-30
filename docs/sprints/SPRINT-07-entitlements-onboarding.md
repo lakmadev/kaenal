@@ -996,7 +996,7 @@ UC
   frameworks" (D-S1 state); removing a framework that would lock modules opens the P4 downgrade confirm on
   Next.
 - Step 3 — Size: the design's plant-size bands (+ "Prefer not to say"). One sentence explains why it is asked
-  (it tunes how lean the starting set is). [§7 Q-S2 USER — whether to ask at all]
+  (it tunes how lean the starting set is). [§7 Q-S2b USER — whether to ask at all; assumed kept]
 - Step 4 — Recommended modules: `suggestModules(...)` grouped Essential / Recommended / Optional; each row has
   the module icon/name, the top reason as copy (e.g. "Required by IATF 16949 §7.1.5.1.1"), a checkbox
   pre-checked per `defaultFocusModules`, a lock chip ("Not in your plan — try it free for 14 days from Plans &
