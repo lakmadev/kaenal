@@ -568,7 +568,11 @@ AC
 2. Tenant rows (`entitlements`) are written through `SupportAccess.withTenant` with `source='operator'` and one
    `entitlement_changed` event per changed row (`actor_kind='support'`, reason) in the same tx (rule 3); the
    `control.tenant_plans` row is written in the control tx with `updated_reason`, `updated_by_platform_user` and a platform
-   audit event. Ordering per §3 SD5.
+   audit event. Ordering per §3 SD5 (intent row, tenant tx, outcome row). **[AR] Concurrency (AR18):** `apply-bundle`
+   locks all 9 `entitlements` rows (`… ORDER BY pack_id FOR UPDATE`, SPRINT-07 P1 AC5 invariant) and compares
+   `expectedPacks` **inside** the tenant transaction, exactly as SPRINT-07 P4 AC4 [AR]; single-pack writes are guarded
+   by `lock_version`; the `control.tenant_plans` write is `UPDATE … WHERE tenant_id = $t AND lock_version = $v`. A
+   platform write racing a tenant admin's self-service write resolves to one 409, never a merged state.
 3. Any activation auto-fulfils the tenant's open `member_access` requests for that pack (Sprint 07 P6 rule) and
    sends `plan_request_resolved` to those requesters.
 4. Realtime `entitlements` signal published to the tenant after commit (C3 AC5); the tenant-side overlay lifts
@@ -693,11 +697,20 @@ AC
 2. Validation reuses `validateCatalog` (Sprint 07 P0 AC3) on the proposed catalog before writing; keys match
    `CatalogKey`; `0080` grants `kaenal_platform` INSERT/UPDATE (never DELETE) on the catalog tables; every write bumps
    `catalog_meta.version` (trigger from 0073) and writes a platform audit event with before/after in the same tx.
+   **[AR] Serialized, with the confirmation recomputed inside the transaction (AR19):** every catalog and price-book
+   write transaction starts with `SELECT version FROM control.catalog_meta FOR UPDATE`, so catalog writes are strictly
+   serialized and each gets its own version. For an edit that can remove access, the lost-tenant set is **recomputed
+   after that lock, inside the transaction**, from the proposed catalog and `control.tenant_commercial_summary`; if its
+   count differs from the request's typed `confirm`, the transaction rolls back and returns **409 `IMPACT_CHANGED`**
+   with the fresh preview — the typed number the admin saw is never trusted after the fact. (The summary is itself an
+   eventually consistent projection, SD11; the recompute makes the confirm consistent with what the server knows at
+   commit, which is the strongest guarantee available without reading tenant databases.)
 3. The impact preview evaluates `effectiveModules` for each tenant from `control.tenant_commercial_summary` (C4 AC2
    — declared frameworks + effective packs), so it needs no per-tenant grant and reads no tenant database; it
    returns the gained/lost tenant lists only (no cross-tenant record counts, by design — SD7).
 4. Tests: each editor write + audit; floor-guaranteed guard; typed-count confirm enforced server-side (`confirm`
-   field must equal the lost-tenant count); a rule change makes a test tenant's module effective/gated on its next
+   field must equal the lost-tenant count; **[AR]** a summary change between preview and apply → 409
+   `IMPACT_CHANGED`; two concurrent catalog writes get distinct consecutive versions); a rule change makes a test tenant's module effective/gated on its next
    tenant API request; a new framework/industry appears in `GET /v1/public/onboarding-catalog`; retire keeps
    existing tenants' inclusions (Sprint 07 D2).
 
@@ -731,7 +744,13 @@ AC
    /platform/v1/price-book/preview` `{ versionId, composition }` → `estimateMonthly` output.
 2. Publish is one control-plane transaction: draft → `published`, previous → `archived`, `catalog_meta.version`
    bump, platform audit event with the item diff. The partial unique index (Sprint 07 §3.1) makes two published
-   versions impossible.
+   versions impossible. **[AR] (AR19)** A second partial unique index (`WHERE status = 'draft'`, SPRINT-07 §3.1) makes
+   two drafts impossible — a concurrent "New draft" gets 409 `DRAFT_EXISTS` with the existing draft's id. Publish
+   takes the `catalog_meta` lock first (C7 AC2), then runs `UPDATE price_book_versions SET status = 'published', …
+   WHERE id = $id AND status = 'draft'` and proceeds only if exactly one row changed (else 409 — already published or
+   discarded); item edits and discard are likewise conditional on `status = 'draft'`. Tests: concurrent "New draft" →
+   one 201, one 409; concurrent publish of the same draft → one 200, one 409, one archive; editing an item of a just
+   published version → 409.
 3. Currency stays `USD` this sprint (a CHECK); multi-currency is §7 Q-SC7.
 4. Tests: draft lifecycle; publish atomicity and archive; validation 422; the tenant estimate and a newly generated
    quote use the new version on the next request; an earlier quote export still references its version.

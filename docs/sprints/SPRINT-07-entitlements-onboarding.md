@@ -273,7 +273,19 @@ AC
    60 s). Not paginated (small fixed-size reference data, exempt from rule 6 like `GET /v1/me`; stated in the
    contract summary).
 5. API catalog snapshot cache keyed on `catalog_meta.version` (§3.2); test: bump the version in a test
-   transaction → the next request sees the new rule; catalog read failure → fail closed.
+   transaction → the next request sees the new rule; catalog read failure → fail closed. **[AR] Always the primary
+   database (AR16).** `migrate-tenants` runs every migration in every dedicated (Model B) database, so `0073`'s seed —
+   and every `control.*` table — also exists there as a stale, never-updated copy. `CatalogService`, and every read of
+   `control.tenant_plans` / `control.catalog_meta` (the self-service flag, P4 AC3; Billing & plan, P9 AC2; the
+   resolver, P1 AC7), therefore reads through a **primary-database pool** (the app pool on the primary, as the API
+   already does for `control.tenants`), **never** through the request's tenant transaction, which for a dedicated
+   tenant is bound to that tenant's database. Test (router fake from `dedicated-provision.test.ts`): a dedicated
+   tenant whose database holds a doctored copy of `control.catalog_*` / `control.tenant_plans` still gets the
+   primary's catalog, rules and self-service flag. **[AR] Consistent snapshot (AR17):** the catalog snapshot (all
+   catalog tables + the price book + `catalog_meta.version`) is read inside **one `REPEATABLE READ`, read-only
+   transaction** on that pool, and the cache stores it under the version read in that same transaction, so a
+   version number can never be cached against a mixed, half-edited snapshot. Test: a catalog write committed between
+   two of the snapshot's SELECTs is either wholly in or wholly out of the cached snapshot.
 6. Explicit grant test (new, beside `control-identity.test.ts`): `kaenal_app` can SELECT and cannot
    INSERT/UPDATE/DELETE any catalog table; `kaenal_public` can SELECT only the listed columns of
    `catalog_industries`/`catalog_frameworks` and nothing else in `control`; no role but the migrator (and, from
@@ -353,12 +365,22 @@ AC
    all 9 packs `active=true, source='grandfathered'` (`ON CONFLICT (tenant_id, pack_id) DO UPDATE SET
    active=true` — this also covers the demo's existing `intelligence` row). The `supplier_quality` fixture row
    (`fixtures.ts:237`) is corrected to `supplier` in the same change. New tenants get the bundle P8's provisioning
-   requires explicitly (`--bundle` is mandatory, [AM1] closing Q-C1) and request mode (D1 DECIDED).
+   requires explicitly (`--bundle` is mandatory, [AM1] closing Q-C1) and request mode (D1 DECIDED). **[AR] Invariant:
+   every tenant has exactly one `entitlements` row for each of the 9 packs (AR18)** — the backfill guarantees it for
+   existing tenants, P8 (UC + AC4) for new ones (all 9 rows, `active` per bundle, the rest `active=false`), and no code path
+   deletes an `entitlements` row. `apply-bundle` (P4 AC4, 07C C5) depends on it: it locks all 9 rows. Tests: after
+   `0074` every existing tenant has 9 rows; after provisioning every new tenant has 9 rows; the service fails loudly
+   (500, logged) rather than silently inserting if a tenant ever has ≠ 9.
 6. RLS suite covers `entitlements` (now with writes) and `entitlement_trials`; `pnpm db:check` green; mutation
    test: removing the `entitlement_trials` policy makes `test:rls` fail.
 7. **[AM1]** The resolver reads the tenant's declared frameworks from O1's `profile` document (built in wave A,
    §1 build waves). The API composes `effectiveModules` once per request (memoised on the request context) from:
-   the catalog snapshot (P0), `entitlements` + `entitlement_trials` rows, and `profile.frameworks.keys`.
+   the catalog snapshot (P0), `entitlements` + `entitlement_trials` rows, and `profile.frameworks.keys`. **[AR]** The
+   tenant-side inputs (profile frameworks, entitlement rows, trial rows) are read by **one SQL statement** in the
+   request's tenant transaction (one snapshot even under READ COMMITTED); the catalog side comes from P0 AC5's
+   primary-database `REPEATABLE READ` snapshot. They cannot share one transaction, because for a dedicated tenant they
+   live in two physical databases; what must never be mixed — a catalog version with another version's content, or a
+   trial row with a different moment's entitlement rows — is protected on each side (§3.2).
 
 Web: none directly (consumed by P2/P4). Mobile: none; additive types only, `pnpm --filter @kaenal/mobile
 typecheck` green. Shared: everything above.
@@ -597,7 +619,13 @@ AC
    (`billing:manage`, self-service only): if the tenant's current active set ≠ `expectedPacks` → 409
    `STALE_WRITE` with the current set; else sets all 9 rows to the bundle in one transaction, one
    `entitlement_changed` event per changed row with `source='bundle'`. `ent` is rejected 422 (Enterprise is
-   "Talk to sales", never self-applied).
+   "Talk to sales", never self-applied). **[AR] No check-then-write race (AR18):** the transaction first runs `SELECT
+   … FROM entitlements WHERE tenant_id = $t ORDER BY pack_id FOR UPDATE` (all 9 rows — P1 AC5's invariant — in a
+   fixed order so two bundle applies cannot deadlock), compares the locked rows to `expectedPacks` **inside** the
+   transaction, then updates and bumps each changed row's `lock_version`. A concurrent single-pack toggle (AC3, which
+   updates `WHERE id = $id AND lock_version = $v`) either commits before the lock (and the bundle apply returns 409
+   with the new set) or waits and then gets 409 `STALE_WRITE` itself. Test: a toggle and a bundle apply racing on the
+   same tenant never both succeed, and the final state equals exactly one of them.
 5. The downgrade confirm's counts come from `GET /v1/entitlements/downgrade-impact?packs=qe,supplier`
    (`billing:manage`) → per module `{ moduleId, openCount }` using each module's own "open" definition (risk
    status ≠ closed, ECN stage not terminal, MSA draft, SCAR open, PPAP not approved/rejected, etc. — the
@@ -781,8 +809,10 @@ DECIDED).
 
 UC
 - Happy: `pnpm provision-tenant --slug … --name … --model shared --bundle core|pro|ent` creates the tenant (as
-  today) and seeds the bundle's packs (`source='operator'`) and a `control.tenant_plans` row with
-  `self_service=false` (request mode, D1 DECIDED).
+  today) and seeds **all 9 `entitlements` rows** — the bundle's packs `active=true`, every other pack `active=false`,
+  all `source='operator'` — **[AR]** (the earlier "seeds the bundle's packs" left it ambiguous whether the other rows
+  exist; P1 AC5's 9-row invariant requires that they do) and a `control.tenant_plans` row with `self_service=false`
+  (request mode, D1 DECIDED).
 - Happy: `--from-request <workspaceRequestId>` (O3) additionally pre-fills the O1 profile (industry, plant size,
   frameworks — so the tenant's framework inclusions apply from its first request) and marks the workspace
   request `provisioned` with the new tenant id.
@@ -815,7 +845,8 @@ AC
    records its own insert/delete or runs where nothing is committed (architect's choice). Test: a fresh
    provisioning produces exactly one `created` event per seeded row; a re-run produces none.
 3. `--help` documents both flags; CLAUDE.md "Commands" line for `provision-tenant` is updated.
-4. Tests (script-level, against the test DB): bundle seeding per tier, `--bundle` required, `--from-request`
+4. Tests (script-level, against the test DB): bundle seeding per tier (**[AR]** exactly 9 `entitlements` rows per new
+   tenant, `active` matching the bundle), `--bundle` required, `--from-request`
    pre-fill + status change, idempotent re-run, dedicated-tenant routing path unit-tested with the existing router
    fake.
 
@@ -1557,7 +1588,7 @@ union is used for anything a platform user can extend (U-D4).
 | 0073 | `control.catalog_frameworks` (`key` text PK, `label`, `short_label`, `counts_as_extra_standard bool` (replaces `addons.jsx:120`'s hard-coded "beyond IATF 16949 & ISO 9001"), `sort_order`, `active bool`, `lock_version`, audit columns) | control | Seeded with the approved 9 (U-D4). Keys: `^[a-z0-9_]{2,40}$`. Never deleted (no DELETE grant); `active=false` stops offering it |
 | 0073 | `control.catalog_industries` (`key` text PK, `label`, `suggested_frameworks text[]`, `module_priors jsonb` (`{moduleId: boost}`), `sort_order`, `active`, `lock_version`, audit columns) | control | Seeded with the approved 8 (U-D4). `other` is a reserved key meaning "free-text label" |
 | 0073 | `control.framework_module_rules` (`framework_key` → `catalog_frameworks`, `module_id`, `level` CHECK `required`\|`supports`, `clause`, `note`, PK `(framework_key, module_id)`, `lock_version`, audit columns) | control | D2's single source for both onboarding reasons (O2) and free inclusions (P1). Seeded per the D2 table + O2's table |
-| 0073 | `control.price_book_versions` (`id`, `status` CHECK `draft`\|`published`\|`archived`, `currency` (`USD` this sprint), `note`, `published_at`, `published_by_platform_user`, `created_at`); partial unique index: at most one `published` | control | **Versioned** (U-D3): staff edit a draft and publish it atomically; the previous published version becomes `archived`. A quote or request snapshot cites the version it was priced from, so it stays reproducible after prices change. Seeded with version 1 = the jsx list prices, `published`, note "placeholder price book (U-D3)" |
+| 0073 | `control.price_book_versions` (`id`, `status` CHECK `draft`\|`published`\|`archived`, `currency` (`USD` this sprint), `note`, `published_at`, `published_by_platform_user`, `created_at`); partial unique index: at most one `published` | control | **[AR]** Plus a second partial unique index: at most one `draft` (`WHERE status = 'draft'`), so two platform admins cannot each open a draft (07C C8 AC2). **Versioned** (U-D3): staff edit a draft and publish it atomically; the previous published version becomes `archived`. A quote or request snapshot cites the version it was priced from, so it stays reproducible after prices change. Seeded with version 1 = the jsx list prices, `published`, note "placeholder price book (U-D3)" |
 | 0073 | `control.price_book_items` (`version_id`, `item_key` (`core_base`, `pack:<id>`, `unit:supplier`, `unit:extra_plant`, `unit:inspector`, `unit:extra_standard`, …), `amount numeric(12,2) NULL` (NULL = custom / "Talk to sales"), `unit` CHECK `month`\|`supplier_month`\|`plant_month`\|`inspector_month`\|`standard_month`\|`custom`, `included_units int`, `label`; PK `(version_id, item_key)`) | control | Everything `estimateMonthly` multiplies comes from here; nothing price-like stays in code |
 | 0073 | `control.catalog_tiers` (`id` fixed `core`\|`pro`\|`ent`, `name`, `blurb`, `features jsonb`, `packs text[]`, `cta` `apply`\|`sales`, `sort_order`, `lock_version`, audit columns) | control | The 3 bundles of `pricing.jsx:88-107` as data; tier price lines come from the price book |
 | 0073 | `control.catalog_meta` (single row: `version bigint`, bumped by trigger on any write to the tables above) | control | Lets every API instance cache the catalog snapshot and revalidate with one PK read per request (§3.2) |
@@ -1588,7 +1619,11 @@ platform services; read in the web through `GET /v1/entitlements` + `isModuleGat
 Caching: tenant entitlement rows and the profile are read **per request** (so an unlock is visible on the very
 next request). The **catalog snapshot** is cached per API process keyed on `control.catalog_meta.version`, which is
 re-read once per request (one PK read), so a staff catalog edit is enforced on the next request on every
-instance. Web clients pick catalog changes up on their next `['entitlements']` / `['catalog']` refetch (staleTime
+instance. **[AR]** Both the version probe and a snapshot reload run on a **primary-database** pool, never the
+request's (possibly dedicated-tenant) transaction, and a reload reads every catalog table and the version inside one
+`REPEATABLE READ` read-only transaction (P0 AC5, AR16/AR17). Tenant-side inputs are read by one statement in the
+request transaction (P1 AC7). Catalog **writes** (07C C7/C8) serialize on `SELECT … FROM control.catalog_meta FOR
+UPDATE`, so versions are strictly ordered and never skipped or shared. Web clients pick catalog changes up on their next `['entitlements']` / `['catalog']` refetch (staleTime
 ≤ 60 s) and immediately on the tenant realtime `entitlements` event for tenant-specific changes. Fail-closed on
 resolver or catalog-read error everywhere (matches the AI gateway's existing order); a failed catalog read never
 falls back to a hard-coded map.
