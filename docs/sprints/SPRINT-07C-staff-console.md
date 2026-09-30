@@ -951,8 +951,8 @@ AC
      "not available" in-shell state for these screens).
    - **Long-lived and write-on-read routes (AR6, AR7).** `GET /v1/events` (SSE, `realtime.controller.ts:30`) → **403
      `SUPPORT_VIEW_NO_STREAM`** for a support viewer; see SD7 for why refusal is chosen over per-event re-checking.
-     Attachment downloads presign with `min(60 s, seconds remaining on the grant)` (C12 AC4). Every other GET that
-     writes as a side effect is handled per C12 AC5.
+     Attachment downloads presign with `min(60 s, seconds remaining on the grant)` (C12 AC6). Every other GET that
+     writes as a side effect is handled per C12 AC6.
    - Otherwise the handler runs in a tenant transaction opened on the **`kaenal_support_reader`** pool with
      `app.tenant_id`, `app.support_reason`, `app.platform_user_id`, **[AM3]** `app.grant_id` (SET LOCAL). A test
      asserts `SELECT current_user` inside a support-view handler returns **`kaenal_support_reader`**, inside a member
@@ -1001,7 +1001,7 @@ AC
    (and every plain-REST GET controller route) **[AR] and every `@ReadOnlyPost` route** in a support-view session
    against a seeded tenant and asserts 2xx / 403 (`SUPPORT_VIEW_NOT_AVAILABLE` / `SUPPORT_VIEW_NO_STREAM` only for the
    routes C10 AC4 and C12 name) / 404 — never a 5xx from a write side effect. GETs that write as a side effect are
-   handled per **C12 AC5** (known: `files.service.ts:261` `file_downloaded`, Sprint 07 O5's completion-on-read, the
+   handled per **C12 AC6** (known: `files.service.ts:261` `file_downloaded`, Sprint 07 O5's completion-on-read, the
    SSE stream). Every other unsafe route returns 403 (same test, inverse).
 7. **Web (`apps/web`) support-view mode (D-C12):** the `/support-view` exchange page; the banner (reason, reference,
    live countdown announced politely, **End support view** → `POST /v1/support-view/end` → ended state); every
@@ -1096,6 +1096,112 @@ C1's setup routes).
 
 Backend: no new migration (0078 tables); routes above; platform audit; RBAC `platform:users:manage`; tenancy: control
 plane only.
+
+### C12 — [AR, NEW] The `support_viewer` principal: a defined request context for a non-member reader
+
+**Design:** no new screen; its visible effects are states on D-C12 (the "not available in support view" state for the
+Settings sections PO-SC10 excludes). Split out of C10 by the architecture review (finding 7): C10 decided *that* a
+content grant yields a read-only viewer; nothing defined *what that principal is* to the ~200 places in the API that
+assume a real tenant member. That is its own vertical slice, not something C10 can absorb silently.
+
+**Verified current state.** `membershipOf()` / `actorIdOf()` / `currentActorId()` are called at **195 sites in 38
+files** under `apps/api/src` (grep, 2026-09-30, excluding tests), and each throws `UNAUTHENTICATED` when there is no
+member (`apps/api/src/ncr/handler-ctx.ts:13-23`); further code reads `currentContext().membership` directly (e.g.
+`query.controller.ts` `requireMembership()`, `realtime.controller.ts:35`). Read handlers use the membership for
+capability filtering and plant scoping (e.g. `GET /v1/query/sources` filters by `hasCapability(membership.role, …)`),
+so today a principal with no membership would fail every one of them with 401. Settings GETs are gated by the
+**manage** capabilities (`settings:manage` on `/v1/settings/legal-holds`, `/dlp-policies`, `/cost-centers`,
+`/cost-centers/assignments`, `/chargeback`, `/chargeback/report` — `settings.controller.ts:129-249`;
+`integration:manage` on the whole integrations controller — `integrations.controller.ts:34`); there is no separate
+"settings read" capability to hand a read-only viewer.
+
+UC
+- Happy: Ana, in a support view of Acme (C10), opens NCR, PPAP, FMEA, calibration and supplier screens and every
+  plant's records; lists, filters, search, dashboards and the report viewer work exactly as for an all-plant auditor.
+- Happy: she opens Settings → Organization-level sections (branding, session policy values, NCR validation rules,
+  legal holds, DLP policies, cost centers and chargeback, members / plants / areas, plan and billing details, the
+  workspace profile, onboarding, the tenant audit log) read-only.
+- Permission: Settings → Integrations (incl. webhook endpoints and their delivery logs), API keys, and any
+  credential-bearing screen render the existing "not available" in-shell state with the copy "Not available in
+  support view" — never a dead control, never a 500.
+- Error: a code path that tries to act as a member (a write, or a read that records a per-user side effect) returns
+  **403 `SUPPORT_VIEW_READ_ONLY`**, never 401, 500 or a fabricated actor id.
+- Offline: n/a (online-only).
+
+AC
+1. **Principal type.** `packages/types`: `PrincipalKind = 'member' | 'support_viewer'`. `packages/core/src/principal.ts`:
+   `Principal = { kind: 'member'; userId; membership } | { kind: 'support_viewer'; platformUserId; grantId; tenantId }`
+   and `accessScopeOf(principal): AccessScope` = `{ capabilities: ReadonlySet<Capability>; plantIds: readonly string[]
+   /* empty = all */; supplierScope: null }`. The tenant request context carries `principal` (C10 AC4 sets it); the
+   member path is unchanged in behaviour.
+2. **The read capabilities, as an explicit list in `packages/core` (not "every read").**
+   `SUPPORT_VIEWER_READ_CAPABILITIES` = `inspection:view`, `ncr:view`, `capa:view`, `audit:view`, `prediction:view`,
+   `document:view`, `supplier:view`, `ppap:view`, `scar:view`, `fmea:view`, `spc:view`, `report:view`, `graph:view`,
+   `risk:view`, `msa:view`, `calibration:view`, `training:view`, `complaint:view`, `ecn:view`, `auditlog:read` —
+   20 of the 50 capabilities in `rbac.ts`. **Never granted:** every `:manage`, `:create`, `:perform`, `:verify`,
+   `:approve`, `:respond` capability, `import:run`, `billing:manage`, `settings:manage`, `members:manage`,
+   `apikeys:manage`, `integration:manage`, `portal:*` (supplier-scoped by design), and `ai:use` (a model call sends
+   tenant content to a provider under Kaenal's name, costs money and writes usage rows — not "reading"). A unit test
+   pins the list and fails if a capability is added to `CAPABILITIES` without being classified here as granted or
+   never-granted (so a future capability cannot be silently readable or silently broken).
+3. **All-plant scope, stated.** `accessScopeOf` returns `plantIds: []` (no restriction) for a support viewer. Why:
+   the user's decision (U-SC3) is read access to *every* record in the workspace; plant scoping in Kaenal restricts
+   what a member may see, it is not a data partition, and a support engineer reproducing a customer's problem must see
+   what any member might see — choosing one plant would be arbitrary. Tenant isolation is untouched (RLS +
+   C10 AC2a).
+4. **PO-SC10 — Settings sections a support viewer may read (named decision, smallest reasonable choice).** Because
+   Settings GETs are gated by manage capabilities, the viewer is **not** given those capabilities; instead one
+   **route policy table** in `packages/core` (`SUPPORT_VIEW_ROUTE_POLICY`, the same table C10 AC5 uses for audit
+   classification) marks each tenant route `detail` | `collection` | `settings_read` | `denied`, and the support-view
+   RBAC check is: safe method (GET or `@ReadOnlyPost`) **and** (route capability ∈ AC2's list **or** route is
+   `settings_read`) **and** route is not `denied`. An unclassified route is `denied` (fail closed); a test fails if any
+   tenant route is unclassified.
+   - **Readable (`settings_read`):** `GET /v1/settings/branding`, `/session-policy` (the policy values — not anyone's
+     sessions), `/ncr-validation-rules`, `/legal-holds`, `/dlp-policies`, `/cost-centers`, `/cost-centers/assignments`,
+     `/chargeback`, `/chargeback/report`; `GET /v1/members`, `/v1/plants`, `/v1/areas`, `/v1/members/workload`
+     (who holds which role and plant scope — the RBAC-assignment context most "I can't see X" tickets need); the
+     tenant audit log `GET /v1/audit-log`, `/v1/audit-events`; and Sprint 07's `GET /v1/settings/workspace-profile`,
+     `/v1/onboarding`, `/v1/billing/plan`, `/v1/settings/billing`, `/v1/entitlements`, `/v1/entitlements/org-profile`,
+     `/v1/entitlements/downgrade-impact`, `/v1/entitlements/requests`. Billing email and tax ID are business contact
+     data, not credentials.
+   - **Denied (`denied`), even read-only:** the whole integrations surface (`/v1/integrations*` incl.
+     `webhook-policy`, endpoint config, credential references and delivery logs whose payloads can embed tokens), any
+     API-key route (none exists today; `apikeys:manage` is reserved), any SSO/SCIM configuration (future, ROADMAP
+     Sprint 14), invitation tokens, every per-user route (own sessions, MFA, password, recovery codes, push tokens,
+     notification preferences), `GET /v1/audit-log/export` and every export download (bulk export, SD7), and
+     `GET /v1/events` (SSE, SD7).
+   - **Reasoning.** A support engineer needs the organisation's configuration to reproduce a problem, so
+     configuration is readable. A secret or credential is different in kind: holding it lets the holder *act as the
+     tenant outside Kaenal* (sign webhook deliveries, call the API, federate sign-in) — a read of it is an escalation
+     from "read" to "act", which a read-only content grant must never provide. Integration *health* without config
+     would help support; a config-free projection is a future candidate (→ Known issues), not built this sprint.
+5. **Member-assuming call sites (the slice's bulk).** The three helpers keep their signatures for write paths and now
+   throw **`ApiError('SUPPORT_VIEW_READ_ONLY')` (403)** — not `UNAUTHENTICATED` — when the principal is a support viewer,
+   so any write path a support viewer somehow reaches fails as a clean 403 and can never run with a fabricated actor
+   id. Every **read** path among the 195 sites and the direct `currentContext().membership` / `.userId` reads moves to
+   `accessScopeOf(currentPrincipal())` for capability and plant decisions. The architect's slice plan classifies all
+   sites (read → migrate; write → keep) — DoR re-review item R8. Unit tests: the helpers throw 403 for a support viewer
+   and behave unchanged for a member; C10 AC6's contract-enumerating test is the integration proof that every read
+   route works.
+6. **GETs that write (C10 AC6, DoR R7).** (a) Attachment download (`files.service.ts:261`, which today writes a
+   `user` `file_downloaded` audit event with the member's id) writes C10 AC5's `support_view` row instead, and presigns
+   with **TTL = `min(60 s, seconds until the grant's expires_at)`** (the global `S3_URL_TTL_SECONDS` is 900 s,
+   `env.ts:67`); with under 5 s left the request is refused as ended (401). (b) Sprint 07 O5's completion-on-read
+   (`GET /v1/onboarding` setting `status='completed'`) skips its write for a support viewer and returns the computed
+   state. (c) `GET /v1/events` is refused (SD7). Any further write-on-read found by the architect's enumeration gets
+   the same treatment (skip the write, or record `support_view`), never a grant of write privilege to the reader role.
+   Tests for (a)-(c), including a download link that stops working when the grant has under 60 s left.
+7. **Tenant web.** `GET /v1/me`'s `kind` drives the shell (C10 AC7); denied Settings sections render the existing
+   "not available" in-shell state with the support-view copy (D-C12). No new screen.
+
+Web (`apps/web`): the support-view variants of the "not available" state; `useMe()` consumers treat `kind:
+'support_viewer'` as holding exactly AC2's capabilities. Mobile: unaffected (no support view on mobile; the mobile app
+never receives a `support_viewer` principal — the support-view cookie is web-only and bearer requests never resolve to
+one). Shared: `packages/types` (`PrincipalKind`), `packages/core` (`Principal`, `accessScopeOf`,
+`SUPPORT_VIEWER_READ_CAPABILITIES`, `SUPPORT_VIEW_ROUTE_POLICY`), the API helpers and read-path migration.
+
+Backend: no migration; no new route; audit per C10 AC5; RBAC as above; tenancy: grant-bound tenant, RLS + C10 AC2a
+unchanged.
 
 ### CX — Cross-cutting: isolation, deployment, seeds, docs, security review
 
@@ -1280,7 +1386,7 @@ this SD excluded content access entirely; that exclusion is withdrawn. What the 
   per event per viewer to the fan-out path and still reveal the timing of tenant activity between checks. The support
   view does not need push: it refetches on navigation. Refusal is simpler, cheaper and has no expiry window.
 - **[AR] Presigned downloads are capped to the grant (AR7):** `min(60 s, time left on the grant)` instead of the
-  global 900 s (`S3_URL_TTL_SECONDS`), so an attachment link cannot outlive the grant by up to 15 minutes (C12 AC4).
+  global 900 s (`S3_URL_TTL_SECONDS`), so an attachment link cannot outlive the grant by up to 15 minutes (C12 AC6).
 
 **[AM3] DB-level backstop for content-scope reads — finalized mechanism (pre-build security review, 2026-09-30,
 High finding SR1).** The application check (`SupportViewAuthenticator` verifying the grant once per request, C10
@@ -1443,6 +1549,7 @@ New platform-contract route [AM3]: `POST /platform/v1/auth/step-up` (SR2).
 | C9 | 0079 | `GET /platform/v1/audit`, [AM2] `GET /platform/v1/audit/export.csv`, `GET /platform/v1/me/audit`, `GET /platform/v1/me/audit/export.csv` | audit reader, CSV writer | platform `audit_exported` | `platform:audit:read`; `platform:audit:own` | append-only; own-export forced to the caller |
 | C10 [AM2] | 0079 | `POST /platform/v1/grants/:id/view-link`; tenant contract `POST /v1/support-view/exchange` (`@AllowAnonymous`), `POST /v1/support-view/end` | `SupportViewAuthenticator` in the lifecycle interceptor, reader pool, **[AM3]** `support_reader_grant_active()` | tenant `support_accessed` (grant start, each detail view / attachment) + platform per request (**[AM3]** incl. entity ids on list views) | `platform:tenant:content`; synthetic read-only `support_viewer` | `kaenal_support_reader` (no write privilege), RLS, grant-bound tenant, unsafe methods 403, **[AM3]** RESTRICTIVE-policy DB backstop on `app.grant_id` |
 | C11 [AM2] | (0078) | `GET/POST /platform/v1/platform-users`, `…/:id/resend-setup`, `PUT …/:id/role`, `POST …/:id/deactivate\|reactivate\|reset` | `PlatformIdentityService`, control-plane email | platform `platform_user_*` | `platform:users:manage` | control only; last-admin and self-change guards |
+| C12 [AR] | — | none new; `@ReadOnlyPost` on `POST /v1/query`, `/metric`, `/series`; route policy table over every tenant route | `packages/core` `Principal`, `accessScopeOf`, `SUPPORT_VIEWER_READ_CAPABILITIES`, `SUPPORT_VIEW_ROUTE_POLICY`; helper change + read-path migration of the 195 member-assuming sites | per C10 AC5 (`support_view` on detail + download) | synthetic read-only `support_viewer`, 20 read capabilities, PO-SC10 settings reads | all-plant, grant-bound tenant; secrets/credentials routes denied |
 | CX | — | — | lint rules, build-manifest test, seed-platform, env, docs | — | — | host/CSP headers |
 
 [AM2] Gap proof for the added routes: `grep -n -i "support.view\|support_view\|platform-users\|view-link\|audit/export" packages/types/src/contract.ts` and the same over `apps/api/src/**/*.controller.ts` return nothing (2026-09-30); all are built here.
@@ -1473,7 +1580,7 @@ without the capability: read-only, no dead buttons), expired-grant and 409 state
 | D-C9 | **Price book**: versions list (published / draft / archived), draft editor (items table), estimate preview (sample profile / tenant composition), publish confirm with diff, discard draft | C8 |
 | D-C10 | **Platform audit log** (filters, table, row detail, [AM2] Export CSV incl. the over-cap message) and **My sessions / My active grants / [AM2] My activity (+ Export CSV)** panels | C9, C2, C3 |
 | D-C11 | **[AM2] Platform users section**: platform user list (role, status, MFA, last sign-in), Invite platform user dialog, Resend setup email, Change role, Deactivate / Reactivate / Reset credentials with reason confirm, last-admin and self-change refusals, empty (bootstrap admin only) | C11 |
-| D-C12 | **[AM2] Tenant web app — support-view mode** (`apps/web`, the tenant's visual language): `/support-view` exchange page (loading, expired/reused link, member-session-present refusal), the persistent read-only banner (reason, reference, countdown, End support view), how read-only screens look with mutating controls absent (no visual "disabled" noise), hidden personal account items, ended/expired full-page state; the tenant audit-log rows "Kaenal support opened read-only access …" and "Kaenal support viewed <record>". Desktop 1280 / 1024 | C10 |
+| D-C12 | **[AM2] Tenant web app — support-view mode** (`apps/web`, the tenant's visual language): `/support-view` exchange page (loading, expired/reused link, member-session-present refusal), the persistent read-only banner (reason, reference, countdown, End support view), how read-only screens look with mutating controls absent (no visual "disabled" noise), hidden personal account items, ended/expired full-page state; the tenant audit-log rows "Kaenal support opened read-only access …" and "Kaenal support viewed <record>". Desktop 1280 / 1024. **[AR]** Plus: the "Not available in support view" variant of the existing in-shell not-available state (Settings → Integrations, API keys, per-user screens — PO-SC10); the expired/ended state after the query cache is cleared (C10 AC7) | C10, C12 |
 
 Accessibility (WCAG 2.2 AA): keyboard-complete tables and dialogs, visible focus, the typed-count confirm is a
 labelled input (not a colour-only cue), countdowns are announced politely (`aria-live="polite"`), contrast on the
@@ -1509,6 +1616,9 @@ env badge colours verified.
 | [AM2] Tenant app (support view): End support view | `POST /v1/support-view/end` → ended state |
 | [AM2] Tenant app (support view): every module screen | Read-only real data; mutating controls not rendered (C10 AC7 sweep); single-attachment open works and is audited |
 | [AM2] Tenant app: `/support-view` page | Real exchange (C10 AC3) with expired / member-session states — not a placeholder |
+| [AR] Tenant app (support view): Settings → Integrations / API keys / per-user screens | "Not available in support view" in-shell state (C12 AC4, PO-SC10) — a real permission state, not a dead control |
+| [AR] Tenant app (support view): report builder / dashboards (query routes) | Work read-only via `@ReadOnlyPost` (C10 AC4); authoring controls not rendered (no `report:manage`) |
+| [AR] Tenant app (support view): attachment open | Real download, link valid `min(60 s, grant remaining)` (C12 AC6), audited as `support_view` |
 
 No "coming soon", no placeholder route, no control without a backend.
 
@@ -1549,6 +1659,15 @@ issues" at close; none blocks Gate 1, the architecture review or the security re
 - Q-SC11 The tenant sees "Kaenal support" and the reason, not the platform user's name (07 §7 wording "Kaenal support
   accessed…"); the name is in Kaenal's platform audit log. Revisit if customers ask to see names.
 - Q-SC12 Support-grant duration is fixed at 4 h (07 §7); extending means opening a new grant with a new reason.
+- **[AR] PO-SC10 — Settings read scope for the support viewer** (architecture-review finding 7; the reviewer asked the
+  PO to decide). Readable: organisational and RBAC-assignment configuration (branding, session-policy values, NCR
+  validation rules, legal holds, DLP policies, cost centers and chargeback, members / plants / areas, plan, billing
+  details, workspace profile, onboarding, the tenant audit log). Excluded even read-only: anything holding a secret or
+  credential (the integrations / webhook-endpoint surface, API keys, any future SSO/SCIM config, invitation tokens),
+  every per-user screen, bulk exports and the live stream. Reason: configuration is what support needs to reproduce a
+  problem; a credential lets its holder act as the tenant outside Kaenal, which turns a read-only grant into an
+  ability to act. Full list and mechanism in C12 AC4. A config-free integration-health view for support is a future
+  candidate (→ Known issues).
 - **[AM3] PO-SC9** (arising from the pre-build security review's SR3 finding, 2026-09-30). `content`-grant creation
   is rate-limited to **5 per platform user per rolling hour**, and a `content_grant_anomaly` platform audit event is
   flagged the first time a platform user's rolling-hour window reaches **3 distinct tenants** (C3 AC9, SD10). Both
