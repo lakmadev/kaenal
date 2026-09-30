@@ -585,3 +585,283 @@ AC
 3. Namespace CHECK widened in `0075` (`billing`, and O1's `profile`, `onboarding`).
 
 Web: section. Mobile: none (no design; mobile settings has no billing). Shared: routes, schema.
+
+### Increment B — Industry-aware onboarding
+
+### O1 — Workspace profile: industry, frameworks, size, focus modules, onboarding state (Shared foundation)
+
+**Design:** the fields drawn in `auth.jsx:197-209` (request form) and `settings.jsx:454-467` (Organization →
+Identity): Industry select, Plant size select, Compliance-frameworks chips. `adoption.jsx:10` "Confirm company
+details — Name, industry, compliance frameworks".
+
+UC
+- Happy: the admin's answers from the first-run flow (O4) are stored once per tenant and read by the suggestion
+  engine (O2), the checklist (O5), the estimate's "extra standards" count (P4) and, later, Sprint 08's
+  Organization section (which will render and edit the same document; no second store).
+- Open-ended industry: the industry is a suggested key **or** `other` with a free-text label (≤ 80 chars); an
+  unknown industry never blocks anything and simply yields framework-only suggestions (user decision 2).
+- Frameworks: any subset of the catalog plus up to 5 custom labels (≤ 60 chars each), or the explicit
+  "Not certified yet" option (mutually exclusive with the others).
+- Edit later: changing industry/frameworks never resets checklist progress (progress is derived from real data,
+  O5) and never changes entitlements.
+- Error: invalid payload → 422 with Zod issues; concurrent edits → 409 `STALE_WRITE` → reload-and-reapply.
+- Permission: read — every authenticated internal member (industry may inform shell copy later; it is not
+  sensitive); write — `settings:manage` (admin + manager, the same capability as branding).
+- Offline: writes disabled.
+
+AC
+1. `packages/types`: `IndustryKey` = `automotive | aerospace_defense | medical_devices | electronics |
+   pharmaceutical | food_beverage | general_manufacturing | other` (the union of the design's list and the brief's
+   list; §7 Q-S2 [USER]); `FrameworkKey` = `iatf_16949 | iso_9001 | iso_13485 | as9100 | iso_14001 | iso_45001 |
+   fda_qmsr | fda_part_11 | haccp` (the design's 6 + ISO 13485 and FDA QMSR from the brief; display labels per the
+   design, e.g. "FDA 21 CFR Part 11"); `PlantSizeBand` = the design's 4 bands `50-200 | 200-1000 | 1000-5000 |
+   5000+` plus `unspecified`; `WorkspaceProfile` = `{ industry: { key, label? } | null, frameworks: { keys:
+   FrameworkKey[], custom: string[], notCertifiedYet: boolean }, plantSize, focusModules: ModuleId[], answeredBy,
+   answeredAt }`; `OnboardingState` = `{ status: not_started | in_progress | completed | dismissed, startedAt,
+   completedAt, dismissedAt, ownerId }`.
+2. Storage: `tenant_settings` namespaces `profile` and `onboarding` (CHECK widened in `0075`), reusing its
+   `lock_version`, composite `updated_by` FK and forced RLS — no new table (0025's stated purpose).
+3. Routes: `GET /v1/settings/workspace-profile` (any internal member), `PUT /v1/settings/workspace-profile`
+   (`settings:manage`, `lockVersion`); audit `settings_changed` with changed fields only.
+4. `0075` backfill: every existing tenant gets `onboarding.status='dismissed'` (no forced first-run for existing
+   workspaces, incl. the demo — protects rule 12's sign-in landing) and an empty profile. [§7 Q-S3 USER]
+   New tenants start `not_started`, or with the profile pre-filled when provisioned `--from-request` (P8/O3).
+
+Web: consumed by O4/O5. Mobile: none (additive types). Shared: types, routes, namespace widening.
+
+### O2 — Module-suggestion engine (`packages/core`, pure)
+
+**Design:** none (logic). Pattern R1 (framework-first) + R2 (shape, never lock).
+
+UC
+- Happy: `suggestModules({ industry, frameworks, plantSize })` returns **every** `ModuleId` exactly once, each with
+  a tier (`essential` | `recommended` | `optional`), a score, and machine-readable reasons (`framework` +
+  clause, `industry`, `core_loop`, `size`). The UI renders the reasons as copy; nothing is ever omitted from the
+  list (user decision 2: suggest and highlight, never hide).
+- Happy: `suggestFrameworks(industry)` returns the frameworks to **pre-select** in O4 step 2 (automotive →
+  IATF 16949 + ISO 9001; aerospace_defense → AS9100; medical_devices → ISO 13485 [+ FDA QMSR offered, not
+  pre-selected]; pharmaceutical → FDA 21 CFR Part 11 + ISO 9001; food_beverage → HACCP + ISO 9001;
+  electronics and general_manufacturing → ISO 9001; other → none). The admin can change every one.
+- Skipped / nothing answered: returns the ISO 9001 core-loop baseline (the sensible default for a skipped
+  questionnaire, R2).
+- Plan interplay: the engine knows nothing about plans; the UI overlays P1's `isModuleGated` to show a lock chip
+  on a suggested module that is not in the plan. A suggestion is never removed because it is locked.
+
+AC
+1. `packages/core/src/onboarding/suggest.ts` exports `suggestModules`, `suggestFrameworks`,
+   `defaultFocusModules(suggestions)` (= essential ∪ recommended), all pure, deterministic, no I/O, no `Date`.
+2. The logic is **table-driven data** in `packages/core/src/onboarding/requirements.ts`, not branching code:
+   (a) `FRAMEWORK_REQUIREMENTS: Record<FrameworkKey, { moduleId, clause, note }[]>` — a module named by a
+   selected framework is `essential`, with that clause as its reason; (b) `INDUSTRY_PRIORS: Record<IndustryKey,
+   Partial<Record<ModuleId, number>>>` — additive boosts that can lift a module to `recommended` but never to
+   `essential` (only a framework obligation makes a module essential); (c) `CORE_LOOP` (inspections, ncr, capa,
+   documents) always `essential` with reason `core_loop`; (d) size: band `50-200` demotes `optional`-scored
+   analytics (graph, predictive) and caps `recommended` at the framework set; bands `1000-5000`/`5000+` lift
+   `reports` and `predictive` to `recommended`. Ties break by catalog order.
+3. The initial requirements table (indicative; every clause string is reviewed by a QMS subject-matter expert
+   before it ships as user-visible copy — DoD item, §7 Q-S5):
+
+   | Framework | Modules marked essential (clause) |
+   |---|---|
+   | IATF 16949:2016 | fmea (§8.3.5.2 PFMEA as process-design output), spc (§9.1.1.1), msa (§7.1.5.1.1), calibration (§7.1.5.2.1), training (§7.2.1-7.2.2), ppap + suppliers (§8.3.4.4, §8.4.2.4), scar (§8.4.2.5 supplier development), ecn (§8.5.6.1), risk (§6.1.2.1), complaints (§10.2.6), eight_d (§10.2.3), audits (§9.2.2), ncr (§8.7.1), capa (§10.2), documents (§7.5), inspections (§8.6) |
+   | ISO 9001:2015 | documents (§7.5), training (§7.2), calibration (§7.1.5.2), audits (§9.2), ncr (§8.7), capa (§10.2), risk (§6.1), complaints (§9.1.2), suppliers (§8.4), ecn (§8.5.6), inspections (§8.6) |
+   | ISO 13485:2016 | documents (§4.2.4), training (§6.2), calibration (§7.6), audits (§8.2.4), ncr (§8.3), capa (§8.5.2), complaints (§8.2.2), risk (§7.1, ISO 14971), ecn (§7.3.9), suppliers (§7.4), inspections (§8.2.6) |
+   | FDA QMSR (21 CFR 820, incorporating ISO 13485 by reference from 2 Feb 2026) | same as ISO 13485 (alias entry, reason text names the QMSR) |
+   | AS9100D | risk (§8.1.1 operational risk), ecn (§8.1.2 configuration management), suppliers (§8.4), audits (§9.2), calibration (§7.1.5.2), training (§7.2), ncr (§8.7), capa (§10.2), documents (§7.5), inspections (§8.6) |
+   | FDA 21 CFR Part 11 | documents (§11.10 controls for closed systems), training (§11.10(i)), audits (§11.10(e) audit trails) |
+   | HACCP | inspections (CCP monitoring), ncr + capa (corrective actions), calibration (verification), training, documents (records) |
+   | ISO 14001 / ISO 45001 | audits (§9.2), documents (§7.5), capa (§10.2), training (§7.2), inspections (§9.1) |
+
+   Industry priors (boosts only): automotive → fmea, spc, msa, ppap, suppliers, scar, eight_d, complaints, ecn;
+   aerospace_defense → risk, ecn, audits, suppliers, calibration; medical_devices → complaints, capa, documents,
+   training, risk, ecn; electronics → spc, suppliers, inspections, eight_d; pharmaceutical → documents,
+   training, capa, complaints, audits; food_beverage → inspections, ncr, calibration, training;
+   general_manufacturing → core loop only; other → none.
+4. Unit tests: golden output per industry (8) and per framework (9); **coverage** (every `ModuleId` exactly once,
+   for random inputs — property test); **monotonicity** (adding a framework never demotes a module); **no hiding**
+   (length always equals `ModuleId` count); determinism; baseline on empty input; the IATF row makes FMEA/SPC/
+   MSA/PPAP essential (the question §3.0 D2 depends on).
+
+Web: consumed by O4 (and O5's module tasks). Mobile: none. Shared: `packages/core` only (rule 5).
+
+### O3 — "Request a workspace" (public intake) and provision-from-request
+
+**Design:** `auth.jsx:117-119` link, `:190-213` form (binding). New state (§5): submitted confirmation, error
+states, honeypot (invisible).
+
+UC
+- Happy: on the sign-in workspace stage, "Don't have a workspace? Request access →" opens the form (Back link,
+  "Request a workspace", subtitle, Company name, Work email, Industry, Plant size, Compliance frameworks chips,
+  Request access). Submit → confirmation state ("Thanks — we'll be in touch within one business day" or as
+  designed), Kaenal sales receives an email, and the request is stored for provisioning.
+- Provision: staff run `pnpm provision-tenant --slug … --name … --bundle … --from-request <id>`; the new tenant's
+  profile is pre-filled, so its first admin **confirms** rather than re-answers (O4).
+- Error: invalid email / missing company → inline field errors (no submit); server 429 (rate limit) → "Too many
+  requests, try again in a few minutes"; server error → retry message. The response is always 202 with no
+  indication of whether that email/company already requested (no enumeration).
+- Abuse: honeypot field, per-IP rate limit (Redis `RateLimiter`, e.g. 5/hour), max field lengths, no HTML.
+- Permission: public (`@Public`, no tenant, no session). Offline: submit disabled with a message.
+- Mobile: `m-auth.jsx` has no request stage; the mobile sign-in is unchanged (§5 notes the gap; not built on
+  mobile without a design).
+
+AC
+1. `0074` adds `control.workspace_requests` (`id`, `company_name` ≤ 120, `work_email citext` ≤ 254, `industry`
+   (IndustryKey), `industry_label`, `plant_size` (band), `frameworks text[]` (FrameworkKey subset), `status`
+   CHECK in (`new`, `provisioned`, `declined`, `spam`), `provisioned_tenant_id` FK nullable, `created_at`,
+   `request_ip_hash` (salted hash, never the raw IP)). `GRANT INSERT` only to the API's public path role — the
+   API can add a request but can never read, list or update them (enumeration-proof by grant); the migrator-role
+   CLI reads them. Explicit grant test.
+2. `POST /v1/public/workspace-requests` (`@Public`): Zod body from `packages/types`; honeypot non-empty → 202
+   and discard; rate limit → 429 `RATE_LIMITED` with `Retry-After`; success → insert + sales email via the
+   `send-email` job in one transaction → 202. No PII in logs (email redacted, per CLAUDE.md "never log PII").
+3. `pnpm tenant-plan --workspace-requests` lists new requests; `provision-tenant --from-request <id>` pre-fills the
+   O1 profile and marks the request `provisioned` with the tenant id (idempotent).
+4. Web: the `request` stage added to `sign-in-form.tsx`'s stage machine and the link added to the workspace stage,
+   pixel-matched to `auth.jsx`; the auth screens' existing sign-in flow is untouched and **sign-in is re-proved
+   end to end (201)** after the change (rule 12).
+5. Tests: 202 happy, honeypot, 429 after the limit, 422 on invalid body, app role cannot SELECT
+   `control.workspace_requests`, no raw IP stored.
+
+Web: sign-in stage + link + confirmation. Mobile: unaffected (no design). Shared: route, types, control table.
+
+### O4 — First-run setup flow (NEW DESIGN required)
+
+**Design:** **no jsx exists**; the UI Lead Designer designs it in the existing visual language (§5 D-S1), reusing
+the Industry/Plant-size/Frameworks controls exactly as drawn in `auth.jsx`/`settings.jsx`. Patterns R1, R2.
+
+UC
+- Trigger: a `settings:manage` holder signs in (web) to a tenant whose onboarding status is `not_started` →
+  redirected once to `/onboarding` (a full-page flow inside the authenticated app, not a modal). Members without
+  `settings:manage` are never redirected. Mobile sign-in is never redirected or blocked.
+- Step 1 — Industry: the suggested list (O1) as selectable cards or a select, "Other" reveals a free-text label.
+  Pre-filled from the workspace request when provisioned from one.
+- Step 2 — Compliance frameworks: chips, pre-selected by `suggestFrameworks(industry)` (visibly marked "suggested
+  for <industry>"), editable, "+ Add another" (custom label), and "Not certified yet".
+- Step 3 — Size: the design's plant-size bands (+ "Prefer not to say"). One sentence explains why it is asked
+  (it tunes how lean the starting set is). [§7 Q-S2 USER — whether to ask at all]
+- Step 4 — Recommended modules: `suggestModules(...)` grouped Essential / Recommended / Optional; each row has
+  the module icon/name, the top reason as copy (e.g. "Required by IATF 16949 §7.1.5.1.1"), a checkbox
+  pre-checked per `defaultFocusModules`, and a lock chip ("Not in your plan — try it free for 14 days from Plans &
+  add-ons") when P1 says the module is gated. Unchecking never hides a module anywhere; the copy says so ("Every
+  module stays available from the sidebar — this just shapes your setup checklist").
+- Finish: saves the profile (O1), sets onboarding `in_progress` (`startedAt=now`, `ownerId`=the admin), lands on
+  `/settings/onboarding` (O5).
+- Progress & navigation: a step indicator ("Step 2 of 4"), Back/Next, "Skip for now" on every step (saves what has
+  been answered so far), and "Skip setup" (whole flow) → onboarding `dismissed`, lands on `/dashboard`; defaults
+  apply (O2 baseline). The flow is re-enterable any time from the checklist's "Confirm company details" task,
+  pre-filled, returning to the checklist on finish.
+- Error: save fails → inline error on the step with retry; answers are kept in component state (nothing typed is
+  lost); 409 (another admin finished first) → "Setup was just completed by <name>" with "View checklist".
+- Offline: Next/Finish disabled with the offline banner; answers kept.
+- A11y: each step is a labelled `fieldset`; focus moves to the step heading on step change; chips are real
+  checkboxes; the flow works at 375px width.
+
+AC
+1. `/onboarding` route with the 4 steps and states above, built to the approved D-S1 boards; every string
+   i18n-keyed (ROADMAP §8 rule 4).
+2. The redirect lives in the authenticated app layout, fires only when `GET /v1/onboarding` says `status =
+   not_started` and the caller holds `settings:manage`, and only once per session; it never runs on `(auth)`
+   routes (sign-in untouched, rule 12).
+3. `POST /v1/onboarding/start` (`settings:manage`; sets `in_progress`, `startedAt`, `ownerId`; idempotent: a
+   second call when already started returns the current state), `POST /v1/onboarding/dismiss`, `POST
+   /v1/onboarding/resume` (dismissed → in_progress, keeps the original `startedAt` if any). Audit
+   `settings_changed` (namespace `onboarding`).
+4. Suggestions and pre-selections are computed by calling O2 in the browser (pure shared code), never
+   duplicated in components.
+5. Playwright: fresh tenant admin → redirected → completes 4 steps → lands on checklist with module tasks for the
+   chosen modules; skip path → dashboard, no redirect on next sign-in; manager of the same tenant after
+   completion → no redirect; viewer → never redirected.
+
+Web: the flow. Mobile: none (web-admin task; never blocks mobile). Shared: O1/O2 + onboarding routes.
+
+### O5 — Onboarding checklist (`OnboardingWizard`) with self-completing tasks
+
+**Design:** `adoption.jsx:7-139` (binding) as the `onboarding` section of Settings → Adoption
+(`settings.jsx:62,145`). Pattern R3. Named deviations (§5 D-S5): demo tasks for features that do not exist are
+not shown; CSM and "Helpful right now" content is real data.
+
+UC
+- Happy: `/settings/onboarding` shows the header (Welcome to Kaenal, Skip onboarding, Schedule kickoff with
+  CSM), the hero (Day N of 7 since `startedAt`; "You're X% of the way to first inspection"; "k tasks done · m to
+  go"; EST TIME LEFT = sum of remaining task estimates; progress bar), the Setup checklist, the Your CSM card and
+  the Helpful right now card.
+- Tasks (catalog in `packages/core/src/onboarding/tasks.ts`, completion computed **server-side from real data**):
+  base tasks for every tenant — *Confirm company details* (done when the O4 flow has been finished; Start →
+  `/onboarding`), *Invite your team* (progress = accepted/total invitations; done when at least one invited member
+  is active; Continue → `/settings/members`), *Set up inspection templates* (done when a member has published a
+  template, not counting the seeded example; → `/inspections/templates`), *Run a pilot inspection* (done when an
+  inspection is completed; → `/inspections`); plus one task per **focus module** that has a real destination
+  (e.g. calibration → *Register your first instrument*, training → *Define your competency matrix*, fmea → *Start a
+  PFMEA*, spc → *Start monitoring a characteristic*, msa → *Run a Gauge R&R study*, risk → *Log your first risk*,
+  suppliers → *Add your suppliers*, ppap → *Open a PPAP submission*, complaints → *Log a customer complaint*,
+  ecn → *Raise an engineering change*, audits → *Schedule an internal audit*, documents → *Upload your quality
+  manual*). A task for a gated module shows the lock chip and its Start leads to the module (which shows the P2
+  overlay) — consistent, never a dead end.
+- Done rows show DONE BY / the member who did the qualifying action / relative time, derived from the first
+  qualifying audit event; pending rows show the drawn progress bar where a ratio exists, the estimate, and
+  Start/Continue.
+- Your CSM: name, and Book 30 min (booking URL, new tab), Slack message (chat URL), Email (`mailto:`) — each button
+  rendered only when the operator recorded that field (P8). No CSM recorded → the card shows the §5 D-S5 empty
+  state (e.g. "Kaenal support" + Email support via `SUPPORT_EMAIL`). "Schedule kickoff with CSM" (header) is
+  rendered only when a booking URL exists.
+- Helpful right now: up to 4 **in-product** destinations ranked for the tenant's industry from a catalog in
+  `packages/core` (e.g. automotive: PPAP submissions, FMEA workbench, Inspection templates, Members & roles) —
+  no external articles or video tours until Sprint 12's knowledge base / tours exist.
+- Completion: when every task is done, status → `completed` (server, on read) and the page shows the §5 completed
+  state; the section stays available.
+- Skip onboarding: confirm → `dismissed` → `/dashboard`; the section then shows a "Resume setup" state (§5) with
+  the checklist still visible and live.
+- Not started (e.g. an existing tenant or a skipped flow): the page shows the checklist with *Confirm company
+  details* first and a primary "Start setup" → `/onboarding`.
+- Error: fetch fails → inline retry card with requestId; Offline: Start/Continue still navigate (they are links),
+  Skip/Resume disabled.
+- Permission: `settings:manage`; others don't see the rail entry (existing pattern); a direct link renders the
+  existing "not available for your role" state.
+
+AC
+1. `settings:onboarding` ledger entry removed; the section renders every designed element with real data;
+   deviations limited to §5 D-S5.
+2. `GET /v1/onboarding` (`settings:manage`) → `{ state, profileAnswered, tasks: [{ id, moduleId?, title,
+   description, status: done|pending, progress?: {done,total}, estimateMinutes, href, gated, doneBy?:{id,name},
+   doneAt? }], csm: {...} | null, helpful: [{ title, subtitle, href }] }`. Each task's completion query is a
+   tenant-scoped `EXISTS`/count on indexed columns (no full scans; the architect confirms the index for each),
+   evaluated in one request.
+3. Task and helpful catalogs are data in `packages/core`, unit-tested: only tasks whose `href` is a real, built
+   route are in the catalog (a test cross-checks every `href` against the web route list, failing on a dead
+   link); focus-module tasks appear only for focus modules.
+4. The designed demo tasks with no real feature — *Connect SSO* (deferred, ROADMAP Q5), *Connect SAP S/4HANA* (09
+   says no point connectors), *IATF audit readiness scan* (no such feature), *Add plants & areas* (the Sites
+   settings screen is Sprint 08) — are **not** rendered and are recorded in §6/§7, with *Add plants & areas*
+   scheduled to join the catalog when Sprint 08 ships Sites.
+5. Playwright: register an instrument in a tenant with calibration as a focus module → the checklist task flips
+   to done with the right DONE BY on reload; skip → resume round trip.
+
+Web: section. Mobile: none (no design; checklist is an admin web task). Shared: route, catalogs.
+
+### X1 — Cross-cutting wiring
+
+AC
+1. **RBAC:** no new capability. `billing:manage` (admin, existing) gates plan changes, trials, requests other than
+   `member_access`, org-profile, downgrade-impact, quote, billing settings; `settings:manage` gates the profile
+   write and onboarding; `member_access` requests need any internal role. The web capability list from `GET
+   /v1/me` drives every hidden control (04 §6).
+2. **Placeholder ledger:** remove `planned:pricing`, `settings:billing`, `settings:onboarding`; renumber every
+   remaining entry to the new sprint numbers from ROADMAP §3 (the ledger test keys on ids, the numbers must still
+   be truthful).
+3. **`excluded.md`:** add Billing → Payment method and Invoices (Q6), and the four non-existent demo onboarding
+   tasks (O5 AC4).
+4. **Audit log UI:** `entitlement_changed` (incl. `support` actor + reason, trials, expiry) and `plan_requests`
+   events render readably in Settings → Audit log (actor "Kaenal support — <reason>" for operator changes).
+5. **Mobile (small, real):** (a) `apps/mobile/src/app/(app)/audit.tsx` categorises `plan_request` entity events
+   with the existing `settings` category (entitlement events already match); (b) the mobile notification list
+   renders `trial_ending`, `trial_ended`, `plan_request_created`, `plan_request_resolved` with a sensible icon and
+   hands off to the web `/pricing` via `lib/web-links.ts` (the existing manage-on-web pattern); (c) the NCR AI
+   draft's existing 402 handling is re-verified against an expired `intelligence` trial; (d) `pnpm --filter
+   @kaenal/mobile typecheck` and the mobile test suite stay green; `progress_mobile.md` gets a Sprint 07 entry.
+6. **Seed:** `seed-demo.ts` gives `acme` the Enterprise bundle (every pack active, so every existing demo surface
+   keeps working), a `control.tenant_plans` row with `self_service=true` and a demo CSM, onboarding `dismissed`,
+   and a profile (automotive, IATF 16949 + ISO 9001). Browser verification of locks/trials/requests is done by
+   toggling packs with `pnpm tenant-plan` and restoring the bundle afterwards; the demo login is re-verified
+   (201) at the end (rule 12).
+7. **Docs:** CLAUDE.md Commands gains `pnpm tenant-plan`; `.env.example` gains `SALES_NOTIFY_EMAIL`,
+   `SUPPORT_EMAIL`; `apps/web/src/config/navigation.ts` unchanged (Plans & add-ons already exists).
