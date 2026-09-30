@@ -1921,12 +1921,23 @@ existing stories C2, C3, C10 and §3).
    SIGN OFF with the slice plan, the reader-role table denylist (C10 AC2 — **[AM3] including the column-level-secret
    check this amendment adds to that AC**), the per-user route denylist (C10 AC4) and the list of GET routes with
    write side effects (C10 AC6).
-3. **Security review.** `security-reviewer` signs off **this revised** §3 (SD1-SD12 [AM3/AR]) before any 07C code is
-   written — specifically confirming SR1-SR5 are actually closed by the rewrite, not merely asserted closed by the
-   PO — and reviews the built code again before Gate 2 (CX AC6), where SR1-SR5 are checked against what actually
-   shipped (the DB-level backstop genuinely blocks an expired/absent grant even with the app check bypassed; the
-   step-up token is genuinely required and consumed; the rate limit and anomaly event genuinely fire at 5/hour and
-   3 tenants/hour; list-view audit events genuinely carry entity ids) rather than taken on trust.
+3. **Security review — CLOSED (design level), 2026-09-30.** `security-reviewer` signed off §3 (SD1-SD12 [AM3/AR]) as
+   **passing, conditionally**: all 4 prior findings (SR1 High, SR2-SR4 Medium) confirmed genuinely resolved, not
+   merely asserted — `support_reader_grant_active()`'s checks (tenant/scope/`ended_at`/`clock_timestamp() <
+   expires_at`/platform-user status+role), the two RESTRICTIVE policies wired into `apply_tenant_rls()` (auto-
+   inherited by future tables), step-up re-auth's single-use 5-minute token, the 5-grants/hour + 3-tenants/hour
+   rate-limit/anomaly numbers, and list-view audit coverage of `/v1/query*`/`/v1/search`/graph-explorer routes were
+   each independently verified against the actual spec text. The [AR] pipeline-separation and `support_viewer`
+   additions were reviewed as new surface and found to be a net security improvement (narrower blast radius, no new
+   static inter-process secret) with no unaddressed new risk. Two non-blocking follow-ups carried to Gate 2, not
+   blocking build start: (a) no SLA/alert on stalled dedicated-tenant `support_grant_backstop` mirror propagation
+   (a defense-in-depth degradation, not a live hole, since the app-layer check still reads `control.platform_users`
+   directly); (b) the trial-reset DELETE guard trigger (C5 AC6) should use `clock_timestamp()` not `now()` for
+   consistency with SR1's fix elsewhere (narrow, single-tenant, low-stakes). Also confirmed as correctly disclosed,
+   not silently dropped: 3 pre-existing before-commit email sites (`auth.controller.ts:221,255`,
+   `suppliers.controller.ts:186`) remain unfixed, out of this sprint's scope, logged as a Known issue. The code
+   review already required by CX AC6 / Definition of Ready before Gate 2 still applies — this closes the pre-build
+   design gate only, not the post-build one.
 4. **[AR] Architecture re-review checklist** (the reviewer's theme 15, plus what the [AR] resolutions leave for the
    architect to confirm). Each item is a named deliverable of the `planner` re-review; none is silently dropped, and
    items marked *PO* would come back to the PO only if the architect finds they need a product decision.
