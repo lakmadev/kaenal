@@ -47,6 +47,25 @@ A note on labels: the lead's message filed the content-access decision under "Q-
 content access and **Q-SC4 is provisioning from the console**, a different question; it is recorded as PO-SC4
 above, not as part of the user's decision.
 
+**Amendment 3 — pre-build security review, 2026-09-30 (tagged [AM3]).** A `security-reviewer` pass on §3 (still
+fully planning-stage — no code exists) returned **1 High and 3 Medium findings**, plus one prerequisite flagged for
+when the architect finalizes C10 AC2's denylist. All four findings are resolved in this amendment; the flagged
+prerequisite is recorded as an explicit requirement on that future step. **This amendment closes the findings at
+the design level only** — it is a spec fix, not a re-run of the review: the `security-reviewer`'s sign-off on this
+revised §3, and a second pass on the built code (already required by CX AC6 and Definition of Ready #3), both still
+stand between this file and Gate 2. Nothing here should be read as the security gate being closed by a doc edit.
+
+| # | Finding | Severity | Resolution |
+|---|---|---|---|
+| SR1 | `content`-scope grant validity was checked only at the application layer (`SupportViewAuthenticator`), never backstopped by the database, unlike the write path's DB-enforced 403 (C10 AC8) | High | SD7 gets a finalized DB-level backstop: a RESTRICTIVE policy + `support_reader_grant_active()` function on every `kaenal_support_reader`-reachable table, mirroring the existing `tenant_isolation` pattern (C10 AC2, AC4, AC8) |
+| SR2 | No step-up re-authentication when opening a `content` grant — the highest-privilege action gated only by an hours-old session + free-text reason | Medium | New `POST /staff/v1/auth/step-up` (C2 AC5); required on `content`-scope grant creation only (C3 new AC, UC) |
+| SR3 | No rate limit or anomaly detection on `content`-grant creation — unbounded blast radius from one phished-but-past-MFA credential | Medium | Per-staff rate limit (5/rolling hour) + a flagged `content_grant_anomaly` platform audit event at 3+ distinct tenants/rolling hour (PO-SC9; C3 new AC) |
+| SR4 | List/aggregate reads under a `content` grant logged only route+status+grant id — no record-level reconstruction from list views | Medium | Platform audit event for list/search endpoints under a content grant also captures returned entity ids (capped at 200, with a truncation flag) (C10 AC5) |
+| SR5 (flagged, not yet a defect) | The `kaenal_support_reader` denylist is correctly unfinished pending the architect (Definition of Ready), but a table-level denylist alone misses column-level secrets mixed into an otherwise-needed table | Prerequisite | Explicit requirement added to C10 AC2: the architect must also check for column-level secrets when finalizing the list |
+
+New decision from this pass: **PO-SC9** (§7) — the two concrete numbers in SR3's fix (5 grants/hour, 3-tenant
+anomaly threshold), decided by the PO under CLAUDE.md's standing rule (smallest reasonable choice, revisitable).
+
 ---
 
 ## 0. Research grounding — the patterns this increment borrows
@@ -187,8 +206,10 @@ UC
 
 AC
 1. `0078` adds `control.staff_sessions` (`id`, `token_hash` UNIQUE, `staff_user_id`, `created_at`, `last_seen_at`,
-   `idle_expires_at`, `absolute_expires_at`, `revoked_at`, `ip inet`, `user_agent`), and the DB role
-   **`kaenal_staff`** (LOGIN; no BYPASSRLS; `USAGE` on `control`; SELECT/INSERT/UPDATE on `control.staff_*`
+   `idle_expires_at`, `absolute_expires_at`, `revoked_at`, `ip inet`, `user_agent`) and **[AM3]** `control.
+   staff_step_up_tokens` (`token_hash` PK, `staff_user_id`, `expires_at` = issue + 5 min, `used_at`) — the re-auth
+   artifact `POST /staff/v1/auth/step-up` issues (AC5) and `content`-scope grant creation (C3) consumes — and the DB
+   role **`kaenal_staff`** (LOGIN; no BYPASSRLS; `USAGE` on `control`; SELECT/INSERT/UPDATE on `control.staff_*`
    (no DELETE); SELECT on `control.tenants`; the commercial control-plane write grants of C5-C8). New env
    `DATABASE_STAFF_URL` (+ `.env.example`), a dedicated `STAFF_POOL` provider. **The staff surface never uses
    `CONTROL_POOL`** (the migrator superuser, a tracked Known issue).
@@ -210,15 +231,23 @@ AC
 5. Routes: `POST /staff/v1/auth/sign-in` (email + password → `mfa_required` challenge token, 5-min TTL), `POST
    /staff/v1/auth/mfa` (TOTP or recovery code → session), `POST /staff/v1/auth/sign-out`, `GET /staff/v1/me`
    (`{ id, name, email, role, capabilities }`), `GET /staff/v1/me/sessions`, `POST /staff/v1/me/sessions/:id/
-   revoke`. Sign-in success/failure and sign-out write platform audit events (C3).
+   revoke`, **[AM3]** `POST /staff/v1/auth/step-up` (body `{ password }` or `{ code }`; the caller's existing
+   session must already be active — this re-proves the second factor, it does not sign in) → a single-use
+   `stepUpToken` valid 5 minutes, scoped to the calling staff member; wrong password/code → the same generic
+   sign-in failure message and counts toward the same lockout counter (C2 AC's existing 5-failure lockout applies
+   here too, so step-up cannot be used to brute-force TOTP separately from sign-in). Its only consumer this sprint
+   is `content`-scope grant creation (C3). Sign-in success/failure, sign-out and step-up success/failure write
+   platform audit events (C3).
 6. The staff contract is a **separate ts-rest contract** `packages/types/src/staff/contract.ts`, exported only from
    the `@kaenal/types/staff` entry point, with its own OpenAPI document served only on the staff host. The tenant
    OpenAPI document and `packages/types/src/contract.ts` gain nothing.
 7. Tests: sign-in happy path (password → TOTP → session); generic failures; lockout at 5; rate limit; idle expiry at
    30 min and absolute at 8 h (clock helper); CSRF required on unsafe methods; host check 404; CIDR 404 when
    configured; cross-plane cookie/bearer isolation both ways; deactivation revokes a live session on its next
-   request. **The tenant sign-in is re-proved end to end (201) for `demo@acme.test`** — the interceptor is shared
-   (rule 12).
+   request. **[AM3]** step-up: correct password or TOTP issues a token; wrong credential → generic failure and
+   counts toward lockout; the token is single-use (a second use → 422), expires at 5 min, and is rejected if
+   presented by a different staff member than the one who requested it. **The tenant sign-in is re-proved end to
+   end (201) for `demo@acme.test`** — the interceptor is shared (rule 12).
 
 Web (`apps/staff`): sign-in, TOTP, expired/locked states, sign-out, "My sessions" in the account menu (D-C1).
 Mobile: unaffected (the tenant bearer path is unchanged; proved by its tests). Shared: migration, interceptor
@@ -247,6 +276,14 @@ UC
   personal data; it writes the tenant audit event "Kaenal support opened read-only access to your workspace —
   <reason> (<reference>) — until <time>" and is used through the support view (C10). A staff member may hold one
   grant of each scope for the same tenant at once; each has its own 4 h clock and reason.
+- **[AM3] Step-up for content access.** Choosing *Workspace content (read-only)* requires a fresh re-auth first: Ana
+  gets a `stepUpToken` from `POST /staff/v1/auth/step-up` (current password or a new TOTP code, C2 AC5) and it
+  travels with the grant-creation call. This mirrors 07-SECURITY-COMPLIANCE.md §2's e-signature step-up principle,
+  applied to the single highest-privilege action in the console; a `commercial` grant never asks for it — it
+  exposes no tenant content, so the existing session is enough.
+- **[AM3] Throttled and watched.** `content`-grant creation is rate-limited per staff member, and opening grants
+  across several tenants in a short window is flagged in the platform audit log for an admin to find (PO-SC9) — a
+  single phished-but-past-MFA credential cannot quietly walk every tenant.
 - Least privilege: a **commercial** grant reaches only commercial data — entitlements, trials, plan requests, the
   profile / onboarding / billing settings documents, tenant plan, counts — through `kaenal_support`, which cannot
   read QMS content. A **content** grant reaches every tenant record **read-only** through a separate role
@@ -289,26 +326,52 @@ AC
 6. Grant creation writes, atomically in the tenant tx, a tenant `audit_events` row (`actor_kind='support'`,
    `action='support_accessed'`, `entity_kind='tenant'`, `reason`) and, in the control tx, a platform audit event;
    the ordering rule of §3 SD5 guarantees no tenant change can exist without a platform record.
-7. Routes: `POST /staff/v1/tenants/:tenantId/grants` (body `scope`, reason, reference; `staff:tenant:access` for
-   `commercial`, **`staff:tenant:content` for `content`** [AM2]; content without reference → 422), `POST
-   /staff/v1/grants/:id/end`, `GET /staff/v1/me/grants` (active grants, with scope). `SupportAccess.withTenant`
-   accepts only a `commercial` grant (a content grant there → 403); the content path is C10's.
-8. Tests: grant happy path + tenant audit row visible via the tenant `GET /v1/audit…` as "support"; expiry at 4 h
-   (clock helper); ended grant refuses; wrong staff user refuses; tenant mismatch → 404; `kaenal_support` **cannot**
-   SELECT `ncrs`, `documents`, `suppliers.name`, `control.users.email` or any tenant_settings namespace outside the
-   three (explicit grant tests, and a mutation test: widening the RESTRICTIVE policy makes a test fail); the audit
-   trigger rejects a support-role insert with a missing/mismatched reason; RLS still isolates `kaenal_support`
-   across tenants (`test:rls` extended with this role). **[AM2]** Plus: `sales` → 403 on a content grant; content
-   grant without reference → 422; a content grant cannot be used for a commercial write (and vice versa: a
-   commercial grant cannot open the support view).
+7. Routes: `POST /staff/v1/tenants/:tenantId/grants` (body `scope`, reason, reference, **[AM3]** `stepUpToken`
+   required when `scope='content'`; `staff:tenant:access` for `commercial`, **`staff:tenant:content` for
+   `content`** [AM2]; content without reference → 422), `POST /staff/v1/grants/:id/end`, `GET /staff/v1/me/grants`
+   (active grants, with scope). `SupportAccess.withTenant` accepts only a `commercial` grant (a content grant there
+   → 403); the content path is C10's.
+8. **[AM3] Step-up re-auth for content-scope grants (SR2).** `POST /staff/v1/tenants/:tenantId/grants` with
+   `scope: 'content'` requires a `stepUpToken` (from C2 AC5's `POST /staff/v1/auth/step-up`) in the body: valid,
+   unexpired (5 min), unused, and issued to the same `staff_user_id` making this call. Missing, expired, reused or
+   staff-mismatched → 422 `STEP_UP_REQUIRED`, and the grant is not created. The token is consumed (marked `used_at`)
+   in the same transaction as the grant row, so it cannot be replayed for a second grant. `commercial`-scope
+   creation never checks for or consumes a `stepUpToken`.
+9. **[AM3] Rate limit and anomaly signal on content-grant creation (SR3, PO-SC9).** A per-staff-member Redis
+   `RateLimiter` (the same primitive C2's sign-in lockout uses) caps `content`-scope grant creation at **5 per
+   rolling hour**; the 6th attempt in the window → 429 with `Retry-After` (chosen because a legitimate support case
+   rarely needs more than one or two tenants open at once, while 5/hour still covers a genuinely busy shift without
+   making a fast sweep across many tenants practical). Independently of the rate limit, when a staff member's
+   `content` grants opened in the trailing rolling hour span **3 or more distinct tenants**, the grant-creation
+   write also inserts a platform audit event `content_grant_anomaly` (`staff_user_id`, the distinct tenant ids and
+   count, the window) in the same control transaction as the grant — fired once, on the write that crosses the
+   threshold, not on every subsequent grant in the same window. C9's platform audit log surfaces it via a
+   **Flagged** filter/badge (D-C10) so an admin can find it without reading every row. A push/email alert to staff
+   admins is a future enhancement, not built this sprint (→ Known issues); a flagged, queryable audit event is the
+   minimum this finding requires.
+10. Tests: grant happy path + tenant audit row visible via the tenant `GET /v1/audit…` as "support"; expiry at 4 h
+    (clock helper); ended grant refuses; wrong staff user refuses; tenant mismatch → 404; `kaenal_support` **cannot**
+    SELECT `ncrs`, `documents`, `suppliers.name`, `control.users.email` or any tenant_settings namespace outside the
+    three (explicit grant tests, and a mutation test: widening the RESTRICTIVE policy makes a test fail); the audit
+    trigger rejects a support-role insert with a missing/mismatched reason; RLS still isolates `kaenal_support`
+    across tenants (`test:rls` extended with this role). **[AM2]** Plus: `sales` → 403 on a content grant; content
+    grant without reference → 422; a content grant cannot be used for a commercial write (and vice versa: a
+    commercial grant cannot open the support view). **[AM3]** Plus: content-grant creation without a `stepUpToken`,
+    with an expired one, a reused one, or one issued to a different staff member → 422 `STEP_UP_REQUIRED` (and is
+    never required for `commercial`); a 6th content grant inside the rolling hour → 429; the write that opens the
+    3rd distinct tenant within the rolling hour (and only that write) inserts one `content_grant_anomaly` event,
+    visible via the Flagged filter.
 
-Web (`apps/staff`): access dialog, grant banner/countdown, expiry state. Mobile: unaffected. Shared: migration,
-core RBAC, `SupportAccess`, platform audit writer. **Tenant web (`apps/web`):** no code change for commercial
-grants — Sprint 07 X1 AC4 already renders support events ("Kaenal support — <reason>"); the content scope's tenant-web
-changes are C10's.
+Web (`apps/staff`): access dialog (**[AM3]** incl. the step-up prompt for the content scope), grant banner/countdown,
+expiry state, **[AM3]** the audit log's Flagged filter/badge (C9/D-C10) surfacing `content_grant_anomaly`. Mobile:
+unaffected. Shared: migration, core RBAC, `SupportAccess`, platform audit writer. **Tenant web (`apps/web`):** no
+code change for commercial grants — Sprint 07 X1 AC4 already renders support events ("Kaenal support — <reason>");
+the content scope's tenant-web changes are C10's.
 
-Backend: migration 0079; routes above; audit: tenant `support_accessed` + platform events; RBAC matrix; tenancy:
-RLS enforced for the support role, restrictive namespace policy, column-level grants.
+Backend: migration 0079; routes above; audit: tenant `support_accessed` + platform events (incl. **[AM3]**
+`content_grant_anomaly`); RBAC matrix; tenancy: RLS enforced for the support role, restrictive namespace policy,
+column-level grants. **[AM3]** Plus: the step-up route (C2, `control.staff_step_up_tokens` in 0078) and a Redis
+rate limiter for content-grant creation.
 
 ### C4 — `apps/staff` shell, tenant directory and tenant detail (read)
 
@@ -635,13 +698,47 @@ AC
 2. `0079` creates DB role **`kaenal_support_reader`** (LOGIN, no BYPASSRLS; the existing `tenant_isolation` policy
    applies unchanged): SELECT on **every tenant-owned table** except a named credential/secret denylist (at minimum
    `sessions`, API-key secret material, integration secrets, MFA material, idempotency records — the architect
-   finalizes the list); INSERT on `audit_events` only (the C3 AC4 attribution trigger extended: rows from this role
-   must be `actor_kind='support'`, `action='support_accessed'`, `reason = current_setting('app.support_reason')`);
-   **no INSERT/UPDATE/DELETE on any other table**. A schema test enumerates every tenant-owned table and fails if one
-   lacks reader SELECT without being on the denylist, or if the role holds any other write privilege — so every
-   future migration must grant it (mutation test: revoking one grant or adding one write privilege fails the
-   test). Dedicated tenants: provisioning / `migrate-tenants` create the role and a **support-reader secret ref**
-   (SD6). New env `DATABASE_SUPPORT_READER_URL` (+ `.env.example`).
+   finalizes the list **[AM3] — and, when finalizing it, must also check every included table for column-level
+   secrets: a table that is otherwise legitimate content but mixes in a secret/credential column (e.g. a webhook
+   signing secret or an API key stored alongside a supplier or integration record) needs a column-privilege grant
+   or a masking view instead of a blanket table grant, so the reader never gets column access to a secret through
+   an otherwise-needed table — a table-level denylist alone is not a complete answer (flagged in the pre-build
+   security review, 2026-09-30; not yet a defect because the denylist itself is correctly gated behind Definition
+   of Ready #2, but this check must not be missed when it is finalized)**); INSERT on `audit_events` only (the C3
+   AC4 attribution trigger extended: rows from this role must be `actor_kind='support'`,
+   `action='support_accessed'`, `reason = current_setting('app.support_reason')`); **no INSERT/UPDATE/DELETE on any
+   other table**. A schema test enumerates every tenant-owned table and fails if one lacks reader SELECT without
+   being on the denylist, or if the role holds any other write privilege — so every future migration must grant it
+   (mutation test: revoking one grant or adding one write privilege fails the test). Dedicated tenants: provisioning
+   / `migrate-tenants` create the role and a **support-reader secret ref** (SD6). New env
+   `DATABASE_SUPPORT_READER_URL` (+ `.env.example`).
+2a. **[AM3] DB-level backstop for grant validity (SR1/High finding, finalized mechanism — SD7).** In the same
+    migration, every table in AC2's SELECT set also gets a second, **RESTRICTIVE** policy `support_reader_grant_active`,
+    `TO kaenal_support_reader` only, ANDed with the existing permissive `tenant_isolation` policy — so a row is
+    readable by this role only when *both* pass. It calls a SQL function `support_reader_grant_active()` that
+    mirrors exactly how `current_tenant_id()` already works (`packages/db/migrations/0000_foundation.sql:104-155`:
+    a `STABLE` function reading a session-scoped `current_setting()`, single-argument form so it throws rather than
+    silently passing when unset), except this one re-derives validity from the **persisted grant row**, not from a
+    value the request handler computed, so a bug or omission in `SupportViewAuthenticator` (AC4) cannot by itself
+    make an expired or ended grant readable:
+    - **Shared-model tenants** (control schema and tenant tables share one physical database — 01 §3.2, today's
+      default): `support_reader_grant_active()` is `SECURITY DEFINER` (owned by the migrator, so
+      `kaenal_support_reader` itself is granted no access to `control.support_grants` — its own privilege set stays
+      exactly as small as AC2 requires) and evaluates `EXISTS (SELECT 1 FROM control.support_grants WHERE id =
+      current_setting('app.grant_id')::uuid AND scope = 'content' AND expires_at > now() AND ended_at IS NULL)`.
+    - **Dedicated-model tenants** (a separate physical database — Postgres cannot join across databases): the same
+      function name instead checks a single-row-per-open-grant local mirror table `support_grant_backstop`
+      **inside that tenant's own database** (`grant_id`, `expires_at`, `ended_at`), written by `SupportAccess` /
+      `SupportViewAuthenticator` in the same request that opens or ends the control-plane grant — the control-plane
+      row stays the source of truth (SD5's ordering rule: control-plane write first), the mirror is a same-request,
+      best-effort local copy that exists only so the RESTRICTIVE policy has something local to check. Provisioning
+      (`provision-tenant`, `migrate-tenants`) creates this table alongside the `kaenal_support_reader` role and its
+      secret ref (SD6).
+    `app.grant_id` is added to the `SET LOCAL` context AC4 already opens (alongside `app.tenant_id`,
+    `app.support_reason`, `app.staff_user_id`). The AC2 schema test is extended to also enumerate this RESTRICTIVE
+    policy per table (not just the SELECT grant): a mutation test fails if the policy is dropped, if
+    `support_reader_grant_active()` is stubbed to always return true, or if a table carries the SELECT grant
+    without the policy.
 3. Hand-off (SD9): `POST /staff/v1/grants/:id/view-link` (`staff:tenant:content`, own active content grant) returns
    a tenant-host URL carrying a single-use exchange token **in the URL fragment** (never sent to servers or
    `Referer`); the tenant web route `/support-view` posts it to `POST /v1/support-view/exchange`
@@ -655,18 +752,29 @@ AC
    staff deactivated → 401), then: unsafe methods → **403 `SUPPORT_VIEW_READ_ONLY`** before any handler (except
    `POST /v1/support-view/end`); a per-user route denylist (own sessions, MFA, password, recovery codes, push
    tokens, notification preferences, API-key management) → 403; otherwise the handler runs in a tenant transaction
-   opened on the **`kaenal_support_reader`** pool with `app.tenant_id`, `app.support_reason`, `app.staff_user_id`
-   (SET LOCAL). RBAC treats the caller as a synthetic `support_viewer` holding every tenant **read** capability and
-   no write capability; plant scope = all plants. `GET /v1/me` returns `{ kind: 'support_viewer', displayName:
-   'Kaenal support', capabilities, grant: { expiresAt, reason, reference } }`. No realtime subscription and no
-   notifications for the viewer (lists are refetched on navigation).
+   opened on the **`kaenal_support_reader`** pool with `app.tenant_id`, `app.support_reason`, `app.staff_user_id`,
+   **[AM3]** `app.grant_id` (SET LOCAL). RBAC treats the caller as a synthetic `support_viewer` holding every tenant
+   **read** capability and no write capability; plant scope = all plants. `GET /v1/me` returns `{ kind:
+   'support_viewer', displayName: 'Kaenal support', capabilities, grant: { expiresAt, reason, reference } }`. No
+   realtime subscription and no notifications for the viewer (lists are refetched on navigation). **[AM3]**
+   `app.grant_id` exists specifically so AC2a's RESTRICTIVE policy can re-verify the grant independently of this
+   authenticator's own per-request check on every row read: this authenticator governs the request's outcome
+   (401/403/200) and error messages; the RESTRICTIVE policy is the fail-safe that still holds even if this
+   authenticator is buggy or bypassed.
 5. **Audit:** grant start writes the tenant "opened read-only access" event (C3 AC6). Every GET whose route has an
    entity-id path parameter, and every attachment download, writes one tenant `support_accessed` event
    `{ entity_kind, entity_id, route }` with the grant's reason, in the request's transaction (the reader role's only
-   write); list/aggregate GETs are recorded in the platform log only (one platform event per request: route,
-   status, grant id). Tenant web Settings → Audit log renders these rows as "Kaenal support viewed <entity label>"
-   and the grant-start row as "Kaenal support opened read-only access — <reason> (<reference>) — until <time>"
-   (small extension of Sprint 07 X1 AC4's renderer).
+   write); list/aggregate GETs are recorded in the platform log with route, status, grant id **[AM3] and,
+   additionally, the returned entity ids** — `entityIds: string[]`, up to **200** ids in the response's own order
+   (comfortably covers one full page of any paginated tenant list endpoint at its current page-size ceiling — rule
+   6's cursor pagination already keeps a single page well under this). A result larger than 200 rows (an aggregate
+   or an unusually large page) records `entityIdCount` plus the first 200 ids and `truncated: true`, so a tenant
+   asking "exactly what did you see" can reconstruct every record-level read from list views too, not only detail
+   views — the cap is stated here and is revisitable if a list endpoint's page size ever exceeds it. Tenant web
+   Settings → Audit log renders the per-record rows as "Kaenal support viewed <entity label>" and the grant-start
+   row as "Kaenal support opened read-only access — <reason> (<reference>) — until <time>" (small extension of
+   Sprint 07 X1 AC4's renderer); the list-view platform events are platform-log-only (not shown in the tenant's own
+   audit log, same as today), reconstructable by Kaenal on request.
 6. **Every tenant GET works read-only:** a contract-enumerating test calls every GET route of the tenant contract
    (and every plain-REST GET controller route) in a support-view session against a seeded tenant and asserts 2xx /
    404 — never a 5xx from a write side effect. Any GET that writes as a side effect (known example: Sprint 07 O5's
@@ -685,16 +793,27 @@ AC
    test, → a database permission error (defence in depth proven); per-user denylist → 403; `sales` → 403 on
    view-link; cross-tenant host with a valid cookie → 404; tenant audit rows for detail views and attachments;
    **tenant sign-in re-proved end to end (201)** after the interceptor change (rule 12) and the mobile bearer path
-   unchanged.
+   unchanged. **[AM3]** Plus (SR1/High finding, DB-level backstop): connecting directly as `kaenal_support_reader`
+   (bypassing `SupportViewAuthenticator` entirely) with `app.grant_id` absent, pointing at an expired grant, or
+   pointing at an ended grant asserts **zero rows / a permission error** on a representative sample of
+   reader-accessible tables — independent of, and even when, the application-layer check is skipped; the same
+   assertion holds for a dedicated-tenant database against its local `support_grant_backstop` mirror; a mutation
+   test confirms dropping the RESTRICTIVE policy, or stubbing `support_reader_grant_active()` to always return
+   true, makes this test fail. **[AM3]** Plus (SR4): a list-view request made under a content grant records the
+   returned entity ids (or `entityIdCount` + a capped 200-id sample with `truncated: true`) in its platform audit
+   event, verified against the endpoint's actual response body.
 
 Web: `apps/staff` (View workspace action, content dialog variant) and **`apps/web`** (support-view mode, exchange
 page, banner, audit-log renderer extension). Mobile: unaffected (no support view on mobile; the oversight feed's
 generic row renders the events). Shared: migration 0079 additions, `SupportViewAuthenticator` in the lifecycle
 interceptor, the two tenant-contract routes (`POST /v1/support-view/exchange`, `POST /v1/support-view/end`), the
-staff route `POST /staff/v1/grants/:id/view-link`, the reader role and its schema test.
+staff route `POST /staff/v1/grants/:id/view-link`, the reader role and its schema test, **[AM3]** the
+`support_reader_grant_active()` function/RESTRICTIVE policy and (dedicated tenants) the `support_grant_backstop`
+mirror table.
 
 Backend: migration 0079; routes above; audit: tenant `support_accessed` per detail view / attachment + grant start,
-platform event per request; RBAC `staff:tenant:content` + synthetic read-only `support_viewer`; tenancy: RLS enforced
+platform event per request (**[AM3]** incl. entity ids on list views); RBAC `staff:tenant:content` + synthetic
+read-only `support_viewer`; tenancy: RLS enforced
 for the reader role, grant-bound tenant, no write privilege.
 
 ### C11 — [AM2, NEW] Staff account management in the console
@@ -765,12 +884,22 @@ AC
 
 ---
 
-## 3. Security + architecture design — DECIDED [AM2] (security-reviewer pass still required before build)
+## 3. Security + architecture design — DECIDED [AM2/AM3] (security-reviewer pass still required before build)
 
 **[AM2] Status.** SD1-SD6 and SD8 stand as the PO's decisions under CLAUDE.md's standing rule (the user was asked
 no further questions, per the lead's instruction); SD7 is **rewritten** for the user's Q-SC3 decision; SD9 is new.
 A design decision is not a security sign-off: the `security-reviewer` pass (CX AC6) reviews this section before
 any build starts and may send changes back.
+
+**[AM3] Status update.** A pre-build `security-reviewer` pass on this section (SD1-SD9, still design-only — no code
+existed to review) returned 1 High and 3 Medium findings, resolved in this amendment: SD7 gains the finalized
+DB-level backstop for content-scope reads (High, SR1); a new SD10 covers step-up re-auth and the rate
+limit/anomaly signal on content-grant creation (Medium, SR2/SR3); C10 AC5 gains list-view audit completeness
+(Medium, SR4); C10 AC2 gains an explicit column-secret check requirement for when the architect finalizes the
+reader denylist (flagged prerequisite, SR5, not yet a defect). **Resolving these findings in the document is not
+the same as the security gate closing:** the `security-reviewer` still owes (1) a sign-off on this revised §3
+before build starts, and (2) the code review already required by CX AC6 / Definition of Ready #3 once 07C is
+built — both stand as before.
 
 **SD1 — A separate app (`apps/staff`) on a separate host, one API process with a separate module and contract.**
 - *Options.* (a) A `/staff` area inside `apps/web`. (b) A new `apps/staff` Next.js app; API routes in the existing
@@ -857,11 +986,51 @@ this SD excluded content access entirely; that exclusion is withdrawn. What the 
 - **No bulk export in support view** (export jobs are writes and bulk exfiltration); single attachments only, each
   audited.
 
+**[AM3] DB-level backstop for content-scope reads — finalized mechanism (pre-build security review, 2026-09-30,
+High finding SR1).** The application check (`SupportViewAuthenticator` verifying the grant once per request, C10
+AC4) is necessary but, on its own, not the same rigor the write path already has: any tenant write under a grant is
+refused by the database even if the interceptor check is bypassed (C10 AC8's mutation test), because `kaenal_support`
+and `kaenal_support_reader` simply hold no write privilege — but before this amendment nothing re-verified *grant
+validity itself* below the application layer, so an expired or ended grant would still be readable if
+`SupportViewAuthenticator` had a bug or was skipped. The fix mirrors, deliberately and exactly, how tenant isolation
+already works: `current_tenant_id()` / the permissive `tenant_isolation` policy
+(`packages/db/migrations/0000_foundation.sql:104-155`) trusts a session-scoped `current_setting()` value, applied to
+every role with no `TO` clause, and throws (single-argument form) rather than silently passing when unset. C10 AC2a
+adds a second, **RESTRICTIVE** policy `support_reader_grant_active`, scoped `TO kaenal_support_reader` only, on
+every table that role can SELECT, ANDed with `tenant_isolation` — both must pass for a row to be readable. Its
+backing function re-derives validity from the **persisted** `support_grants` row on every check (shared-model
+tenants: a `SECURITY DEFINER` function querying `control.support_grants` directly, same physical database;
+dedicated-model tenants: the same function name checking a local `support_grant_backstop` mirror row, since
+Postgres cannot join across physical databases — full mechanism in C10 AC2a), not from a value the request handler
+computed and could get wrong. `app.grant_id` joins `app.tenant_id` / `app.support_reason` / `app.staff_user_id` in
+the `SET LOCAL` context C10 AC4 opens. Every future tenant-table migration must carry this policy the same way it
+must carry `apply_tenant_rls()` — the AC2 schema test enumerates both, and the mutation test proves the RESTRICTIVE
+policy is load-bearing (dropping it, or stubbing the function to always return true, must fail a test).
+
+**[AM3] SD10 — Content-grant creation hardening: step-up re-auth, rate limit, anomaly signal (pre-build security
+review, Medium findings SR2/SR3).** Opening a `content` grant is the single highest-privilege action in the
+console (SD7 above), currently gated only by the staff member's existing session plus a free-text reason — a bar no
+higher than a routine `commercial` grant, despite exposing all of a tenant's workspace. Two independent guards close
+this: (1) **step-up re-authentication** — 07-SECURITY-COMPLIANCE.md §2 requires re-auth at the moment of a sensitive
+action (e-signatures); the same principle now applies here: `content`-grant creation requires a short-lived
+`stepUpToken` from a fresh password or TOTP re-entry (`POST /staff/v1/auth/step-up`, C2 AC5), checked and consumed
+server-side on the grant-creation call (C3 AC8); `commercial` grants are unaffected — they expose no tenant content,
+so the existing session remains sufficient. (2) **Rate limit and anomaly signal** — nothing today throttles how many
+tenants one staff member can open in sequence, so a single phished-but-past-MFA credential could otherwise walk
+every tenant with no friction or alert; C3 AC9 adds a per-staff-member cap of 5 `content`-grant creations per
+rolling hour (PO-SC9, a judgment call: generous enough for a busy support shift, tight enough that a sweep across
+many tenants is impractical within the window) and a flagged `content_grant_anomaly` platform audit event the first
+time a staff member's rolling-hour window reaches 3 distinct tenants, surfaced to admins via the platform audit
+log's Flagged filter (C9/D-C10). A push/email alert is a future enhancement (→ Known issues); the flagged, queryable
+event is the floor this finding requires.
+
 **SD8 — [AM2, amended] Tenant-side changes are limited to what the access model needs.** 07C adds no tenant table.
 It adds two roles (`kaenal_support`, `kaenal_support_reader`), a restrictive policy and audit-attribution triggers,
-and — for the content scope only — two tenant-contract routes (`POST /v1/support-view/exchange`, `POST
-/v1/support-view/end`), a third authenticator inside the ONE lifecycle interceptor, and the tenant web app's
-support-view mode (C10). Mobile is untouched.
+**[AM3] a second RESTRICTIVE policy backing the content-scope DB-level backstop (SR1) and, for dedicated tenants
+only, one small local mirror table (`support_grant_backstop`) that carries no tenant business data**, and — for the
+content scope only — two tenant-contract routes (`POST /v1/support-view/exchange`, `POST /v1/support-view/end`), a
+third authenticator inside the ONE lifecycle interceptor, and the tenant web app's support-view mode (C10). Mobile
+is untouched.
 
 **SD9 — [AM2, NEW] Support-view hand-off across hosts.** The staff console and the tenant app live on different
 hosts with host-only cookies (SD1, SD3), so a content grant reaches the tenant host through a **single-use, 60-second
@@ -879,10 +1048,12 @@ sees — which is also what support needs to reproduce a customer's problem.
 | Migration | Object | Kind | Notes |
 |---|---|---|---|
 | 0078 | `control.staff_users`, `control.staff_setup_tokens`, `control.staff_mfa_recovery_codes`, `control.staff_sessions` | control | MFA-required-when-active CHECK; hashed tokens; no DELETE grant |
+| 0078 | **[AM3]** `control.staff_step_up_tokens` (hashed, 5-min expiry, single-use) | control | Backs `POST /staff/v1/auth/step-up`; consumed by content-grant creation (C3) |
 | 0078 | Role `kaenal_staff` + grants on staff tables and `control.tenants` (SELECT) | role | Replaces any temptation to use `CONTROL_POOL` |
 | 0079 | `control.support_grants` (4 h CHECK, scope `commercial` \| `content` [AM2], reference required for content) | control | One tenant per grant |
 | 0079 | **[AM2]** `control.support_view_sessions`, `control.support_view_exchange_tokens` | control | Hashed tokens; never readable by `kaenal_app` / `kaenal_public` |
-| 0079 | **[AM2]** Role `kaenal_support_reader`: SELECT on every tenant-owned table except the credential/secret denylist; INSERT on `audit_events` only; attribution trigger extended; schema test enumerating tenant tables | role / tenant tables (grants + trigger only) | RLS applies; no write privilege; every future tenant table must grant it SELECT |
+| 0079 | **[AM2]** Role `kaenal_support_reader`: SELECT on every tenant-owned table except the credential/secret denylist ([AM3] denylist finalization must also check for column-level secrets); INSERT on `audit_events` only; attribution trigger extended; schema test enumerating tenant tables | role / tenant tables (grants + trigger only) | RLS applies; no write privilege; every future tenant table must grant it SELECT |
+| 0079 | **[AM3]** Second, RESTRICTIVE policy `support_reader_grant_active` (`TO kaenal_support_reader`) on every table in the row above, backed by `support_reader_grant_active()` (SECURITY DEFINER against `control.support_grants` for shared tenants; against a local `support_grant_backstop` mirror row for dedicated tenants) | policy / function (+ one small mirror table, dedicated tenants only) | DB-level backstop for grant validity, independent of the application check (SR1/High); schema test extended |
 | 0079 | `control.staff_audit_events` (append-only trigger; `outcome`) | control | Platform audit log |
 | 0079 | Role `kaenal_support` + table/column grants on tenant commercial tables ([AM2] + DELETE on ended `entitlement_trials` rows, trigger-guarded); RESTRICTIVE `tenant_settings` namespace policy `TO kaenal_support`; `audit_events` support-attribution trigger | role / tenant tables (policy + trigger only) | RLS still applies; `pnpm db:check` must stay green (no new tenant table) |
 | 0080 | `control.sales_inbox` (projection), `control.tenant_commercial_summary` (projection: tier, declared frameworks, effective packs) + their outbox consumers | control | Eventually consistent, idempotent upserts |
@@ -891,8 +1062,9 @@ sees — which is also what support needs to reproduce a customer's problem.
 New notification kinds: none (Sprint 07 defined `plan_request_resolved`). New tenant audit actions: none
 (`support_accessed`, `entitlement_changed`, `status_changed` exist; [AM2] content views reuse `support_accessed`
 with `entity_kind` / `entity_id`). New platform audit actions include `tenant_content_viewed`, `audit_exported`,
-`trial_reset`, `staff_user_*` and `staff_bootstrap` [AM2]. New tenant-contract routes [AM2]: `POST
-/v1/support-view/exchange`, `POST /v1/support-view/end` (content scope only).
+`trial_reset`, `staff_user_*`, `staff_bootstrap` [AM2] and **[AM3]** `content_grant_anomaly` (SR3). New
+tenant-contract routes [AM2]: `POST /v1/support-view/exchange`, `POST /v1/support-view/end` (content scope only).
+New staff-contract route [AM3]: `POST /staff/v1/auth/step-up` (SR2).
 
 ---
 
@@ -901,15 +1073,15 @@ with `entity_kind` / `entity_id`). New platform audit actions include `tenant_co
 | Story | Migration | Routes (staff contract + controller) | Service / job | Audit | RBAC | Isolation notes |
 |---|---|---|---|---|---|---|
 | C1 | 0078 | `GET /staff/v1/setup/:token`, `POST …/setup/:token/password`, `…/mfa/enrol`, `…/mfa/activate`; script `staff-bootstrap` [AM2] | `StaffIdentityService`, `staff-bootstrap.ts` | platform | pre-session; script migrator | control only |
-| C2 | 0078 | `POST /staff/v1/auth/sign-in`, `…/auth/mfa`, `…/auth/sign-out`, `GET /staff/v1/me`, `GET/POST /staff/v1/me/sessions[/:id/revoke]` | `StaffAuthenticator`, interceptor staff branch, `STAFF_POOL` | platform (sign-in/out/fail) | session | host check, CIDR, host-only cookies, CSRF; no tenant scope |
-| C3 | 0079 | `POST /staff/v1/tenants/:id/grants`, `POST /staff/v1/grants/:id/end`, `GET /staff/v1/me/grants` | `SupportAccess.withTenant`, `packages/core/staff-rbac.ts` | tenant `support_accessed` + platform | `staff:tenant:access` | `kaenal_support`, RLS, restrictive policy, audit trigger |
+| C2 | 0078 | `POST /staff/v1/auth/sign-in`, `…/auth/mfa`, `…/auth/sign-out`, `GET /staff/v1/me`, `GET/POST /staff/v1/me/sessions[/:id/revoke]`, **[AM3]** `POST /staff/v1/auth/step-up` | `StaffAuthenticator`, interceptor staff branch, `STAFF_POOL` | platform (sign-in/out/fail/step-up) | session | host check, CIDR, host-only cookies, CSRF; no tenant scope |
+| C3 | 0079 (0078 for step-up tokens) | `POST /staff/v1/tenants/:id/grants` (**[AM3]** `stepUpToken` required for `content`, rate-limited, anomaly-flagged), `POST /staff/v1/grants/:id/end`, `GET /staff/v1/me/grants` | `SupportAccess.withTenant`, `packages/core/staff-rbac.ts`, **[AM3]** Redis `RateLimiter` | tenant `support_accessed` + platform (**[AM3]** incl. `content_grant_anomaly`) | `staff:tenant:access` | `kaenal_support`, RLS, restrictive policy, audit trigger |
 | C4 | 0080 | `GET /staff/v1/tenants`, `GET /staff/v1/tenants/:id`, `GET …/:id/history` | directory + detail services, summary projector | platform `tenant_viewed` | `staff:tenants:read`, grant for detail | directory from control plane only |
 | C5 | (0080 grants; 0079 trials DELETE) | `PUT …/tenants/:id/packs/:packId`, `POST …/apply-bundle`, `PUT …/tenants/:id/plan`, [AM2] `POST …/tenants/:id/trials/:packId/reset` | `StaffPlanService` | tenant `entitlement_changed` (support) + platform | `staff:plans:write` | via grant; realtime after commit |
 | C6 | 0080 | `GET /staff/v1/sales-inbox`, `POST …/requests/:requestId/fulfil|decline`, `GET /staff/v1/workspace-requests`, `POST …/:id/decline|spam` | inbox projector, `StaffPlanService` | tenant `status_changed` + `entitlement_changed` + platform | `staff:requests:resolve`, `staff:workspace_requests:manage` | resolution via grant |
 | C7 | (0080 grants) | `GET /staff/v1/catalog`, `PUT/POST …/catalog/*`, `POST …/catalog/impact-preview` | `CatalogAdminService`, impact preview | platform | `staff:catalog:*` | control plane; counts-only system job |
 | C8 | (0080 grants) | `GET/POST/PUT/DELETE …/price-book/*`, `POST …/publish`, `POST …/preview` | `PriceBookService` | platform | `staff:pricebook:*` | control plane |
 | C9 | 0079 | `GET /staff/v1/audit`, [AM2] `GET /staff/v1/audit/export.csv`, `GET /staff/v1/me/audit`, `GET /staff/v1/me/audit/export.csv` | audit reader, CSV writer | platform `audit_exported` | `staff:audit:read`; `staff:audit:own` | append-only; own-export forced to the caller |
-| C10 [AM2] | 0079 | `POST /staff/v1/grants/:id/view-link`; tenant contract `POST /v1/support-view/exchange` (`@AllowAnonymous`), `POST /v1/support-view/end` | `SupportViewAuthenticator` in the lifecycle interceptor, reader pool | tenant `support_accessed` (grant start, each detail view / attachment) + platform per request | `staff:tenant:content`; synthetic read-only `support_viewer` | `kaenal_support_reader` (no write privilege), RLS, grant-bound tenant, unsafe methods 403 |
+| C10 [AM2] | 0079 | `POST /staff/v1/grants/:id/view-link`; tenant contract `POST /v1/support-view/exchange` (`@AllowAnonymous`), `POST /v1/support-view/end` | `SupportViewAuthenticator` in the lifecycle interceptor, reader pool, **[AM3]** `support_reader_grant_active()` | tenant `support_accessed` (grant start, each detail view / attachment) + platform per request (**[AM3]** incl. entity ids on list views) | `staff:tenant:content`; synthetic read-only `support_viewer` | `kaenal_support_reader` (no write privilege), RLS, grant-bound tenant, unsafe methods 403, **[AM3]** RESTRICTIVE-policy DB backstop on `app.grant_id` |
 | C11 [AM2] | (0078) | `GET/POST /staff/v1/staff-users`, `…/:id/resend-setup`, `PUT …/:id/role`, `POST …/:id/deactivate\|reactivate\|reset` | `StaffIdentityService`, control-plane email | platform `staff_user_*` | `staff:staff:manage` | control only; last-admin and self-change guards |
 | CX | — | — | lint rules, build-manifest test, seed-staff, env, docs | — | — | host/CSP headers |
 
@@ -1017,6 +1189,11 @@ issues" at close; none blocks Gate 1, the architecture review or the security re
 - Q-SC11 The tenant sees "Kaenal support" and the reason, not the staff member's name (07 §7 wording "Kaenal support
   accessed…"); the name is in Kaenal's platform audit log. Revisit if customers ask to see names.
 - Q-SC12 Support-grant duration is fixed at 4 h (07 §7); extending means opening a new grant with a new reason.
+- **[AM3] PO-SC9** (arising from the pre-build security review's SR3 finding, 2026-09-30). `content`-grant creation
+  is rate-limited to **5 per staff member per rolling hour**, and a `content_grant_anomaly` platform audit event is
+  flagged the first time a staff member's rolling-hour window reaches **3 distinct tenants** (C3 AC9, SD10). Both
+  numbers are the PO's smallest-reasonable-choice call, not the user's or the security reviewer's; revisitable if
+  real usage shows either threshold is too tight or too loose.
 
 **Out of scope (named).** Staff writes to tenant QMS records; "log in as" a specific tenant member; bulk export in
 support view; a tenant consent setting for staff access; staff SSO; staff account self-registration;
@@ -1026,27 +1203,43 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
 ## 8. Definition of Done
 
 - [x] [AM2] Every §3 design decision and §7 item DECIDED (U-SC3 by the user; the rest by the PO under the standing
-      rule) — no decision gates the build.
-- [ ] UI Lead Designer's boards D-C1…D-C12 [AM2] approved by the user (Gate 1); `planner` architecture review
-      (shared with Sprint 07's) and **`security-reviewer`** both SIGN OFF on §3 before build.
+      rule, [AM3] incl. PO-SC9) — no decision gates the build.
+- [x] [AM3] The pre-build security review's 1 High + 3 Medium findings + 1 flagged prerequisite (SR1-SR5) are
+      resolved in this document (SD7's finalized DB backstop, new SD10, C10 AC2/AC2a/AC5/AC8, C3 AC8/AC9/AC10). This
+      is a **document fix, not a re-run of the review** — see the next line.
+- [ ] `security-reviewer` **SIGN OFF on this revised §3** (confirming SR1-SR5 are actually closed by the rewrite,
+      not just claimed closed), UI Lead Designer's boards D-C1…D-C12 [AM2] approved by the user (Gate 1), and
+      `planner` architecture review (shared with Sprint 07's) — all three before build starts. **A second
+      `security-reviewer` pass on the built code (CX AC6) is still required before Gate 2**, specifically to verify
+      SR1-SR5's fixes landed in code exactly as specified here (the RESTRICTIVE policy + backstop function actually
+      block an expired/absent grant at the DB layer; step-up is actually enforced and consumed; the rate limit and
+      anomaly event actually fire at the stated thresholds; list-view audit events actually carry entity ids) — not
+      taken on the implementer's word.
 - [ ] Sprint 07 Increment A merged (catalog, price book, plans, requests, `plan_request.changed` outbox event).
 - [ ] Migrations 0078-0080 applied (0081 buffer); `pnpm db:migrate` clean on fresh and existing DBs; `pnpm db:check`
       green; `pnpm test:rls` green **including the `kaenal_support` and [AM2] `kaenal_support_reader` roles**;
-      explicit grant tests for every `control.staff_*` table, the support-view tables, `kaenal_staff`,
-      `kaenal_support` (cannot read QMS content, restrictive namespace policy holds), **`kaenal_support_reader`
-      (SELECT on every tenant table except the denylist, no write privilege but its audit rows — the enumerating
-      schema test, C10 AC2)** and `kaenal_app`/`kaenal_public` (cannot read staff or support-view tables);
-      **mutation tests**: widening the restrictive policy, dropping an audit-attribution trigger, removing a `@Staff`
-      decorator, or [AM2] granting the reader role one write privilege / revoking one of its SELECTs each make a test
-      fail — run and recorded.
+      explicit grant tests for every `control.staff_*` table (**[AM3]** incl. `staff_step_up_tokens`), the
+      support-view tables, `kaenal_staff`, `kaenal_support` (cannot read QMS content, restrictive namespace policy
+      holds), **`kaenal_support_reader` (SELECT on every tenant table except the denylist, no write privilege but
+      its audit rows — the enumerating schema test, C10 AC2)** and `kaenal_app`/`kaenal_public` (cannot read staff
+      or support-view tables); **mutation tests**: widening the restrictive policy, dropping an audit-attribution
+      trigger, removing a `@Staff` decorator, or [AM2] granting the reader role one write privilege / revoking one
+      of its SELECTs each make a test fail — run and recorded. **[AM3]** Plus: `kaenal_support_reader` reading with
+      `app.grant_id` absent, expired or ended returns zero rows / a permission error even with the application
+      check bypassed (SR1, C10 AC2a/AC8), and a mutation test proves dropping the RESTRICTIVE policy or stubbing
+      `support_reader_grant_active()` makes that test fail.
 - [ ] Every staff mutation writes a platform audit event, and every tenant-touching one also the tenant
       `actor_kind='support'` event with reason in the same tenant transaction (rule 3, SD5 ordering proven by a
       failure-injection test) — [AM2] including trial reset, and every support-view detail view / attachment
-      download (C10 AC5); optimistic concurrency on every write (rule 6); cursor pagination on every list.
+      download (C10 AC5, **[AM3]** now including entity ids on list-view reads under a content grant); optimistic
+      concurrency on every write (rule 6); cursor pagination on every list. **[AM3]** Content-grant creation is
+      rate-limited (5/staff/rolling hour) and fires exactly one `content_grant_anomaly` event at the 3rd distinct
+      tenant in a rolling hour, not before and not again for the same window (C3 AC9).
 - [ ] Interceptor: tenant sign-in re-proved end to end (201) after the staff branch **and [AM2] the support-view
       authenticator** land (rule 12); mobile bearer path unchanged; cross-plane isolation tests green both ways; host
       check and CIDR tests green; [AM2] the contract-enumerating support-view test (every GET 2xx/404 read-only,
-      every unsafe route 403, C10 AC6) green.
+      every unsafe route 403, C10 AC6) green. **[AM3]** `content`-grant creation is refused without a valid,
+      unexpired, single-use, staff-matched `stepUpToken` (C3 AC8), and never requires one for `commercial` grants.
 - [ ] `apps/staff`: every screen browser-verified against the approved D-C boards (there is no jsx), including all
       states, at 1280 and 1024 px; WCAG AA checks recorded. **[AM2] `apps/web` support-view mode** browser-verified
       against D-C12, and the Playwright no-enabled-mutating-control sweep (C10 AC7) green.
@@ -1054,11 +1247,11 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
       grant with reason → fulfil → tenant `/risk` unlocks without reload → tenant audit log shows "Kaenal support —
       <reason>"; staff admin edits an IATF rule (impact preview + typed confirm) → a test tenant's module gating
       changes on its next request; staff admin publishes a new price book → tenant `/pricing` estimate changes.
-      **[AM2]** Second journey: staff `support` opens a content grant with reason + reference → View workspace →
-      Acme's NCR and PPAP pages render read-only with the banner → the tenant admin's audit log shows "opened
-      read-only access" and "viewed <record>" → End support view → next request 401. Third: staff `sales` resets an
-      ended trial → tenant admin starts a new trial. Fourth: bootstrap admin invites a staff member → setup email →
-      setup → the new member exports their own activity CSV.
+      **[AM2]** Second journey: staff `support` completes step-up (**[AM3]**), opens a content grant with reason +
+      reference → View workspace → Acme's NCR and PPAP pages render read-only with the banner → the tenant admin's
+      audit log shows "opened read-only access" and "viewed <record>" → End support view → next request 401. Third:
+      staff `sales` resets an ended trial → tenant admin starts a new trial. Fourth: bootstrap admin invites a staff
+      member → setup email → setup → the new member exports their own activity CSV.
 - [ ] `apps/web` build contains no staff route or staff contract symbol (CX AC1); lint isolation rules green.
 - [ ] Mobile: `pnpm --filter @kaenal/mobile typecheck` + tests green; `progress_mobile.md` notes "07C: no mobile
       change (internal web tool; support view is web-only; support audit events render in the existing oversight
@@ -1068,30 +1261,46 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
       sign-in (password + TOTP) succeed**.
 - [ ] CLAUDE.md Commands (`pnpm staff-bootstrap`, `pnpm --filter @kaenal/staff dev`), `.env.example`,
       `apps/staff/README.md` (incl. the PO-SC2 production network runbook line), PROGRESS.md ("Current status",
-      Decisions log: U-D5, U-SC3, PO-SC1…PO-SC8 and SD1-SD9 outcomes; Known issues: every "→ Known issues" item of §7
-      and the updated `CONTROL_POOL` note) updated in the same commit as the work.
+      Decisions log: U-D5, U-SC3, PO-SC1…PO-SC9 [AM3] and SD1-SD10 [AM3] outcomes; Known issues: every "→ Known
+      issues" item of §7, the updated `CONTROL_POOL` note, and [AM3] the pre-build security review's SR1-SR5
+      findings and how each was resolved) updated in the same commit as the work.
 - [ ] PO verifies every AC against code, tests and browser evidence at Gate 2; release of Sprint 07 (A+B+C)
       happens only after this passes.
 
 ---
 
 **§3 security + architecture design: DECIDED (PO under the standing rule; SD7 widened per the user's U-SC3 decision
-of 2026-09-30). Security review: PENDING (`security-reviewer`) — a pre-build gate, not an open decision.**
+of 2026-09-30; [AM3] SD7 further finalized and SD10 added per the 2026-09-30 pre-build security review — see the
+findings table under Amendment 3). Security review: PENDING (`security-reviewer`) — a pre-build gate, not an open
+decision. [AM3] The review that produced SR1-SR5 was itself that pre-build pass on the prior draft of §3; its
+findings are resolved in this text, but the reviewer has not yet re-read and signed off THIS revised §3 — that
+sign-off, and the separate post-build code review (CX AC6), both remain outstanding. Nothing in this amendment
+should be read as the security gate being closed.**
 
-**PO use-case sign-off: SIGNED (= APPROVED for SCRUM.md Gate 1), 2026-09-30.** Verified, not assumed: **12 stories**
-(C1-C11, CX). Every use case — staff bootstrap and console staff management, sign-in / MFA / sessions, commercial
-and content grants (4 h, reason, reference for content, expiry, end, deactivation), the read-only support view of
-all tenant records with per-record tenant audit, plan administration incl. trial reset, sales inbox and workspace
-requests, catalog and price-book editing with impact preview, the platform audit log with own-activity and admin CSV
-export, and cross-plane / cross-tenant isolation — maps to at least one objectively testable AC with a Web
-(`apps/staff`, and `apps/web` for C10) / Mobile / Shared split, a §4 backend row, a §5 design gap and a §6 dead-end
-entry. No AC depends on an unanswered question (§7 has none).
+**PO use-case sign-off: SIGNED (= APPROVED for SCRUM.md Gate 1), 2026-09-30; reaffirmed after Amendment 3,
+2026-09-30.** Verified, not assumed: **12 stories** (C1-C11, CX). Every use case — staff bootstrap and console
+staff management, sign-in / MFA / sessions / **[AM3] step-up re-auth**, commercial and content grants (4 h, reason,
+reference for content, **[AM3]** rate limit + anomaly flag, expiry, end, deactivation), the read-only support view
+of all tenant records with per-record **and [AM3] per-list-view** tenant/platform audit, **[AM3]** a DB-level
+backstop on every content-scope read independent of the application check, plan administration incl. trial reset,
+sales inbox and workspace requests, catalog and price-book editing with impact preview, the platform audit log with
+own-activity and admin CSV export, and cross-plane / cross-tenant isolation — maps to at least one objectively
+testable AC with a Web (`apps/staff`, and `apps/web` for C10) / Mobile / Shared split, a §4 backend row, a §5 design
+gap (unchanged by Amendment 3 — no new screen was introduced, only new states on D-C4) and a §6 dead-end entry. No
+AC depends on an unanswered question (§7 has none). **[AM3]** Story count is unchanged (no new story; SR1-SR5 amend
+existing stories C2, C3, C10 and §3).
 
 **Definition of Ready — what remains before build (process gates, no decisions):**
 1. **Gate 1 — design.** `ui-lead-designer` produces D-C1…D-C12 in `docs/design/` (no jsx exists for any of them;
-   D-C12 is in the tenant app's visual language); the user approves them.
+   D-C12 is in the tenant app's visual language; **[AM3]** D-C4 additionally covers the step-up prompt for the
+   content scope); the user approves them.
 2. **Architecture review.** `planner` reviews 07C together with `SPRINT-07-entitlements-onboarding.md` and returns
-   SIGN OFF with the slice plan, the reader-role table denylist (C10 AC2), the per-user route denylist (C10 AC4) and
-   the list of GET routes with write side effects (C10 AC6).
-3. **Security review.** `security-reviewer` signs off §3 (SD1-SD9) before any 07C code is written, and reviews the
-   code again before Gate 2 (CX AC6).
+   SIGN OFF with the slice plan, the reader-role table denylist (C10 AC2 — **[AM3] including the column-level-secret
+   check this amendment adds to that AC**), the per-user route denylist (C10 AC4) and the list of GET routes with
+   write side effects (C10 AC6).
+3. **Security review.** `security-reviewer` signs off **this revised** §3 (SD1-SD10 [AM3]) before any 07C code is
+   written — specifically confirming SR1-SR5 are actually closed by the rewrite, not merely asserted closed by the
+   PO — and reviews the built code again before Gate 2 (CX AC6), where SR1-SR5 are checked against what actually
+   shipped (the DB-level backstop genuinely blocks an expired/absent grant even with the app check bypassed; the
+   step-up token is genuinely required and consumed; the rate limit and anomaly event genuinely fire at 5/hour and
+   3 tenants/hour; list-view audit events genuinely carry entity ids) rather than taken on trust.
