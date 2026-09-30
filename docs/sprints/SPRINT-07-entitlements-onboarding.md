@@ -865,3 +865,111 @@ AC
    (201) at the end (rule 12).
 7. **Docs:** CLAUDE.md Commands gains `pnpm tenant-plan`; `.env.example` gains `SALES_NOTIFY_EMAIL`,
    `SUPPORT_EMAIL`; `apps/web/src/config/navigation.ts` unchanged (Plans & add-ons already exists).
+
+---
+
+## 3. Backend + commercial design — PROPOSED, NEEDS EXPLICIT USER SIGN-OFF
+
+### 3.0 Five decisions with commercial weight
+
+Each decision states the conflict, the options, the PO's recommendation and why. The stories are written for the
+recommendation; any other choice changes only the ACs marked with that decision's tag.
+
+**D1 — Who can turn a pack on: the customer's admin, or only Kaenal? (the gate's teeth)**
+- *Conflict.* The jsx ("Add to plan … changes take effect immediately") and 04 §5 ("toggling in pricing updates
+  instantly") let the tenant admin enable any pack instantly. 03 §3 makes entitlements an admin capability. But
+  with **no payment provider** (Q6), instant self-enable means any admin can unlock every paid pack for free
+  forever, so the gate would not support charging anyone — the exact problem this sprint exists to fix.
+- *Options.* (a) **Self-service** everywhere, as drawn, and reconcile commercially by "true-up" (the customer's
+  changes are audited and sent to sales for invoicing — the Atlassian/Microsoft-EA true-up model). (b) **Request
+  mode** everywhere: the admin's Add/Remove/Apply become requests to Kaenal sales, fulfilled by staff; trials
+  stay instant. (c) **Both, per tenant**: an operator-set `self_service` flag in the control plane (the tenant
+  cannot change it) chooses (a) or (b) per customer.
+- *Recommendation: (c), with new tenants defaulting to request mode* (`self_service=false`), and the demo tenant
+  on self-service so the drawn instant behaviour is demonstrable. Why: it is the only option that is faithful to
+  the design for customers Kaenal trusts (pilots, true-up contracts) *and* gives the plan real teeth for
+  everyone else; it costs one boolean and one branch in the service; the request loop (R5) is how Figma,
+  Atlassian and Slack run sales-assisted upgrades. **Deviation from 04 §5/jsx in request mode** (buttons create
+  requests instead of toggling) — needs the user's approval.
+
+**D2 — The pack map vs the "What always stays in Core" promise (a compliance-claim conflict inside the design)**
+- *Conflict.* `pricing.jsx:168` promises: "Anything an IATF 16949 audit requires — Inspections, NCR, CAPA, 8D,
+  Audits, Document control, Calibration and Training — is never gated … customers never feel a compliance
+  obligation has been paywalled." But `addons.jsx` gates FMEA, SPC, MSA, Risk and ECN (Quality Engineering pack)
+  and PPAP/SCAR/supplier monitoring (Supplier Network pack) — and IATF 16949 **requires** all of these (PFMEA
+  §8.3.5.2, SPC §9.1.1.1, MSA §7.1.5.1.1, risk analysis §6.1.2.1, change control §8.5.6.1, PPAP §8.3.4.4,
+  supplier monitoring §8.4.2.4; O2's table). An automotive customer on "Core — Everything IATF 16949 requires"
+  would find the AIAG core tools locked. That is a false compliance claim, and the industry-aware onboarding would
+  make it obvious in the customer's first hour (O4 marks those modules "Required by IATF 16949").
+- *Options.* (a) **Keep the drawn pack map; correct the callout and Core tier copy** so they claim only what Core
+  contains (e.g. "the ISO 9001 baseline"; "IATF core tools are in Quality Engineering + Supplier Network").
+  (b) **Move the IATF core tools into Core** (FMEA, SPC, MSA, PPAP + the supplier record PPAP needs); the packs
+  keep only depth beyond certification (e.g. risk register analytics, SCAR chargebacks, scorecards). (c) Keep
+  both as drawn (not recommended: ships a false claim).
+- *Recommendation: decide commercially; engineering is neutral.* The pack map is **data** in one file (P1 AC2),
+  so (a) or (b) is a data edit plus copy. The PO's product view: (b) matches the design's *stated intent* and the
+  primary market (IATF automotive suppliers), while (a) matches the design's *drawn mapping* and protects the QE
+  pack's revenue. Either way (c) must not ship. **[USER decision required before build; §7 Q-C2]** Until
+  answered, the stories assume (a) — the drawn map — with the callout text held for the user's wording.
+
+**D3 — What a gate blocks: writes, never the customer's own records**
+- *Conflict.* 04 §5 says a locked route "renders the real page blurred", which needs the page's data; a pure API
+  gate would also hide records the customer is obliged to retain (IATF §7.5.3.2.1, ISO 13485 §4.2.5).
+- *Recommendation.* Gated **record** modules (qe, supplier) block create/update/transition (402) but always allow
+  read and export of existing records; **derived-analytics** modules (graph, predictive, AI) are gated on read
+  too (they carry no retention obligation and are the pack's value); **reducing** actions (disconnect/delete an
+  integration, delete a report definition, withdraw a request) are never gated; system jobs are never gated;
+  downgrades warn with the count of open records that become read-only (P4). The blur is presentation, not
+  security; the API is the boundary (P3). Needs the user's approval because it defines what a downgraded
+  customer can still do, including that in-flight records (e.g. an open ECN) freeze until the pack returns
+  (§7 Q-C5 asks whether "close-out" transitions should stay allowed).
+
+**D4 — Trials: real, time-boxed, once per pack**
+- *Conflict.* The prototype's "Start 14-day trial" just turns the pack on permanently.
+- *Recommendation.* 14 days, once per pack per tenant (enforced by the table's primary key), admin-started,
+  available in both modes, not offered for `security`/`support` (no in-product effect / custom-priced), T-3
+  warning, auto-expiry by comparison (no job needed to lock), records readable after expiry (D3). Figma-style
+  provisional access for *member* requests is **not** included (§7 Q-C6).
+
+**D5 — The operator surface is an audited CLI this sprint, not a staff web console**
+- *The brief asked for* "an admin UI to view/change a tenant's plan (likely a control-schema or cross-tenant admin
+  capability)". *Verified:* no staff/operator identity, route, role or design exists in this codebase or the
+  design bundle; the only cross-tenant administration is migrator-role scripts; the built "Cross-tenant
+  analytics" is a current-tenant screen; `phases/README.md` puts platform-admin screens out of scope.
+- *Recommendation.* `pnpm tenant-plan` (P8), in the provisioning-script tradition (R8), writing tenant rows as
+  `actor_kind='support'` with a mandatory reason and control-plane rows with `updated_reason`. The customer-side
+  "admin UI" is the tenant admin's `/pricing` + Billing & plan. A staff console would need a staff identity
+  model outside tenant memberships, support-access auditing (07 "support-role access (with reason)"), network
+  restriction and a design — its own sprint (§7 Q-S4).
+
+### 3.1 Data model (migrations 0073-0075; 0076 reserved buffer)
+
+| Migration | Object | Kind | Notes |
+|---|---|---|---|
+| 0073 | `entitlements` + `source`, `lock_version`, `updated_by` (composite member FK), `pack_id` CHECK | tenant, forced RLS (existing) | Backfill all 9 packs `grandfathered` for existing tenants (P1 AC5) |
+| 0073 | `entitlement_trials` (PK `tenant_id, pack_id`) | tenant, forced RLS | Once-per-pack by PK; expiry by comparison |
+| 0074 | `control.tenant_plans` | control plane | `self_service`, contract fields, CSM fields; app role SELECT only |
+| 0074 | `control.workspace_requests` | control plane | Public intake; the API's public path may INSERT only (never SELECT). Which DB role serves `@Public` routes today (`kaenal_app`, or a `kaenal_public` pool per 02 §1) is confirmed by the architect; the grant is applied to that role only |
+| 0075 | `plan_requests` | tenant, forced RLS | Partial unique open-request index; self composite FK for forwarding |
+| 0075 | `tenant_settings` namespace CHECK + `billing`, `profile`, `onboarding` | tenant (existing) | Backfill onboarding `dismissed` for existing tenants |
+| 0075 | `exports_resource_check` + `plan_quote` | tenant (existing) | Mirrors 0066/0070 widening |
+
+No new audit action (existing `entitlement_changed`, `created`, `status_changed`, `settings_changed`, `exported`
+cover every mutation). New notification kinds: `trial_ending`, `trial_ended`, `plan_request_created`,
+`plan_request_resolved`.
+
+### 3.2 Enforcement architecture
+
+One resolver (`packages/core` `effectivePacks`) → read in the API by `@RequirePack` inside the lifecycle
+interceptor (after RBAC, inside the tenant transaction), by the AI gateway, by the trials job, by the CLI; read
+in the web through `GET /v1/entitlements` + `isModuleGated`. Cache: per request only (no cross-request cache, so
+an unlock is visible on the very next request); the web invalidates on mutation and on the realtime
+`entitlements` event. Fail-closed on resolver error everywhere (matches the AI gateway's existing order).
+
+### 3.3 Commercial boundaries (what this sprint deliberately does not do, Q6)
+
+No payment provider, card capture, invoices, tax calculation, dunning, proration or PCI scope. Prices are the
+catalog's list prices used for an **estimate** and a **quote**; the contract value shown on Billing & plan is
+whatever Kaenal staff recorded. Seat/plant limits ("Up to 500 members · 10 plants") are **not enforced** this
+sprint (§7 Q-C7). All money movement stays outside the product; the product's job is to record what the customer
+may use, what they asked for, and to hand that to sales.
