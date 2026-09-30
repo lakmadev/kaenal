@@ -8,11 +8,14 @@
 import type {
   CreateDocumentBody,
   CreateEightDBody,
+  CreateEcnBody,
   CreateInspectionBody,
   CreateNcrBody,
   CreateRiskBody,
   DocumentCategory,
   DocumentTemplate,
+  EcnChangeRisk,
+  EcnChangeType,
   EightDTemplate,
   EntityPersonInput,
   NcrPriority,
@@ -23,20 +26,23 @@ import type {
 } from "@kaenal/types";
 import type { Capability } from "./rbac.js";
 
-export type WizardType = "inspection" | "ncr" | "8d" | "document" | "risk";
+export type WizardType = "inspection" | "ncr" | "8d" | "document" | "risk" | "ecn";
 
-/** Menu / step-0 order (ENTITY_TYPES in the jsx). */
-export const WIZARD_TYPE_ORDER: readonly WizardType[] = ["inspection", "ncr", "8d", "document", "risk"];
+/** Menu / step-0 order (ENTITY_TYPES in the jsx, `ecn` added as the 6th
+ *  option, SPRINT-06 E3 AC2). */
+export const WIZARD_TYPE_ORDER: readonly WizardType[] = ["inspection", "ncr", "8d", "document", "risk", "ecn"];
 
 /**
  * Step labels, per flow shape. Every type shares the same 4-step
- * Type→Details→Assignees→Review flow EXCEPT `risk` (Sprint 04 R4 AC1/AC3):
- * its `owner` is a single-select field captured inside its own Details step,
- * not the shared Assignees step's multi-role `entity_people` write shape, so
- * risk skips Assignees entirely (Type→Details→Review, 3 steps).
+ * Type→Details→Assignees→Review flow EXCEPT `risk` (Sprint 04 R4 AC1/AC3) and
+ * `ecn` (Sprint 06 E3 AC1, mirroring risk's exact precedent): both have a
+ * single-select `owner` field captured inside their own Details step, not the
+ * shared Assignees step's multi-role `entity_people` write shape, so both skip
+ * Assignees entirely (Type→Details→Review, 3 steps).
  */
 export const WIZARD_STEPS = ["Type", "Details", "Assignees", "Review"] as const;
 export const RISK_WIZARD_STEPS = ["Type", "Details", "Review"] as const;
+export const ECN_WIZARD_STEPS = ["Type", "Details", "Review"] as const;
 export const LAST_STEP = WIZARD_STEPS.length - 1;
 
 export interface WizardTemplateOption {
@@ -129,6 +135,16 @@ export const WIZARD_TYPES: Readonly<Record<WizardType, WizardTypeDef>> = {
     templates: [],
     steps: RISK_WIZARD_STEPS,
   },
+  ecn: {
+    label: "Engineering change",
+    desc: "Draft an ECN — a multi-stage approval workflow for a design, process, tooling, or material change.",
+    capability: "ecn:manage",
+    titlePlaceholder: "e.g. Update weld penetration spec for Volvo VBR-3041 from 5.0–7.0mm to 5.5–7.0mm",
+    areaPlaceholder: "e.g. Welding · Line 3",
+    hasPriorityAndDue: false,
+    templates: [],
+    steps: ECN_WIZARD_STEPS,
+  },
 };
 
 export function isWizardType(value: string): value is WizardType {
@@ -213,6 +229,15 @@ export interface WizardDraft {
   riskPlan: string;
   /** The risk's single owner — a userId, captured as a single-select in Details, not via Assignees. */
   riskOwner: string | null;
+  /** ECN-only fields (Sprint 06 E3 AC1) — captured in ecn's own Details step,
+   *  not shared with the other 5 types. `title`/`description` reuse the
+   *  common fields above. */
+  ecnChangeType: EcnChangeType | null;
+  ecnChangeRisk: EcnChangeRisk | null;
+  /** yyyy-mm-dd or "" (optional at create). */
+  ecnEffectiveDate: string;
+  /** The ECN's single owner — a userId, same single-select shape as `riskOwner`. */
+  ecnOwner: string | null;
 }
 
 export function emptyDraft(type: WizardType | null): WizardDraft {
@@ -234,6 +259,10 @@ export function emptyDraft(type: WizardType | null): WizardDraft {
     riskTreatment: null,
     riskPlan: "",
     riskOwner: null,
+    ecnChangeType: null,
+    ecnChangeRisk: null,
+    ecnEffectiveDate: "",
+    ecnOwner: null,
   };
 }
 
@@ -253,7 +282,11 @@ export function isDirty(d: WizardDraft): boolean {
     d.riskImpact !== null ||
     d.riskTreatment !== null ||
     d.riskPlan.trim() !== "" ||
-    d.riskOwner !== null
+    d.riskOwner !== null ||
+    d.ecnChangeType !== null ||
+    d.ecnChangeRisk !== null ||
+    d.ecnEffectiveDate !== "" ||
+    d.ecnOwner !== null
   );
 }
 
@@ -268,13 +301,25 @@ function riskDetailsComplete(d: WizardDraft): boolean {
   );
 }
 
-/** `canNext()` of the jsx, step by step. Risk branches to its own 3-step
- *  shape (Type→Details→Review) since it skips the shared Assignees step. */
+/** ECN's own Details-step completeness (SPRINT-06 E3 AC1): `changeType`,
+ *  `title`, `changeRisk`, and `owner` are required; `description`/
+ *  `effectiveDate` are optional at create. */
+function ecnDetailsComplete(d: WizardDraft): boolean {
+  return d.ecnChangeType !== null && d.title.trim() !== "" && d.ecnChangeRisk !== null && d.ecnOwner !== null;
+}
+
+/** `canNext()` of the jsx, step by step. Risk and ecn both branch to their own
+ *  3-step shape (Type→Details→Review) since they skip the shared Assignees
+ *  step. */
 export function canAdvance(step: number, d: WizardDraft): boolean {
   if (step === 0) return d.type !== null;
   if (d.type === "risk") {
     if (step === 1) return riskDetailsComplete(d);
     return true; // step 2 = Review for risk
+  }
+  if (d.type === "ecn") {
+    if (step === 1) return ecnDetailsComplete(d);
+    return true; // step 2 = Review for ecn
   }
   if (step === 1) return d.template !== null && d.title.trim() !== "";
   if (step === 2) return d.people.length > 0;
@@ -292,6 +337,13 @@ export function advanceBlocker(step: number, d: WizardDraft): string | null {
     if (d.riskImpact === null) return "Choose an impact.";
     if (d.riskTreatment === null) return "Choose a treatment.";
     if (d.riskOwner === null) return "Choose an owner.";
+    return null;
+  }
+  if (d.type === "ecn") {
+    if (d.ecnChangeType === null) return "Choose a change type.";
+    if (d.title.trim() === "") return "A title is required.";
+    if (d.ecnChangeRisk === null) return "Choose a risk level.";
+    if (d.ecnOwner === null) return "Choose an owner.";
     return null;
   }
   if (step === 1) return d.template === null ? "Choose a template." : "A title is required.";
@@ -353,14 +405,15 @@ export type WizardBody =
   | { type: "ncr"; body: CreateNcrBody }
   | { type: "8d"; body: CreateEightDBody }
   | { type: "document"; body: CreateDocumentBody }
-  | { type: "risk"; body: CreateRiskBody };
+  | { type: "risk"; body: CreateRiskBody }
+  | { type: "ecn"; body: CreateEcnBody };
 
 /** A complete draft → the matching create body. Null if it isn't complete. */
 export function buildCreateBody(d: WizardDraft): WizardBody | null {
   if (d.type === null) return null;
-  // Risk has no templates (WIZARD_TYPES.risk.templates === []) — it returns
-  // early so the template null-check below only ever applies to the other
-  // 4 types, which all require one.
+  // Risk/ecn have no templates (their `templates` arrays are both `[]`) — they
+  // return early so the template null-check below only ever applies to the
+  // other 4 types, which all require one.
   if (d.type === "risk") {
     const { riskCategory, riskLikelihood, riskImpact, riskTreatment, riskOwner } = d;
     if (
@@ -388,6 +441,24 @@ export function buildCreateBody(d: WizardDraft): WizardBody | null {
         status: "active",
         trend: "flat",
         plan: d.riskPlan.trim(),
+      },
+    };
+  }
+  if (d.type === "ecn") {
+    const { ecnChangeType, ecnChangeRisk, ecnOwner } = d;
+    if (ecnChangeType === null || ecnChangeRisk === null || ecnOwner === null || d.title.trim() === "") {
+      return null;
+    }
+    const description = d.description.trim();
+    return {
+      type: "ecn",
+      body: {
+        changeType: ecnChangeType,
+        title: d.title.trim(),
+        ...(description !== "" ? { description } : {}),
+        changeRisk: ecnChangeRisk,
+        effectiveDate: d.ecnEffectiveDate === "" ? null : d.ecnEffectiveDate,
+        owner: ecnOwner,
       },
     };
   }
@@ -504,7 +575,10 @@ export type WizardField =
   | "impact"
   | "treatment"
   | "plan"
-  | "owner";
+  | "owner"
+  | "changeType"
+  | "changeRisk"
+  | "effectiveDate";
 
 /**
  * The wizard field a 422 issue path belongs to. `type` disambiguates fields
@@ -528,6 +602,24 @@ export function wizardFieldFor(path: string, type?: WizardType | null): WizardFi
         return "plan";
       case "owner":
         return "owner";
+      case "title":
+        return "title";
+      default:
+        return "title";
+    }
+  }
+  if (type === "ecn") {
+    switch (head) {
+      case "changeType":
+        return "changeType";
+      case "changeRisk":
+        return "changeRisk";
+      case "effectiveDate":
+        return "effectiveDate";
+      case "owner":
+        return "owner";
+      case "description":
+        return "description";
       case "title":
         return "title";
       default:
