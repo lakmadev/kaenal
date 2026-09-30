@@ -20,8 +20,11 @@ module depth. Two scope decisions are the user's and are **not re-litigated here
 **This sprint carries an APPROVAL GATE (ROADMAP §0 Q2).** Neither the entitlement model beyond 02 §2's one-line
 table nor anything about onboarding has a spec-grade backend design. §3 is the backend + commercial design the
 user must approve. It contains **five decisions with real commercial weight (D1-D5, §3.0)** where the jsx, the
-spec and "make it possible to charge a customer" pull in different directions. **NO BUILD MAY START until the
-user has explicitly approved §3 and answered §7's strategic questions marked [USER].**
+spec and "make it possible to charge a customer" pull in different directions. ~~NO BUILD MAY START until the
+user has explicitly approved §3 and answered §7's strategic questions marked [USER].~~ **[AM2] All five decisions
+and every §7 question are now DECIDED (see Amendment 2 below). What still gates the build is process, not
+decisions: Gate 1 (UI Lead Designer boards, user approval of new designs), then the `planner` architecture review
+(one review for 07 + 07C) and, for 07C, the `security-reviewer` pass.**
 
 **Amendment 1 — user decisions of 2026-09-30 (recorded by the PO the same day).** The user answered five of the
 open items. They are recorded as **DECIDED** in §3.0 and every affected story, table and gate below is rewritten
@@ -34,6 +37,24 @@ to match (amended text is tagged **[AM1]**):
 | U-D3 | **Price book stays placeholder, but staff-editable** through the staff console, in the same data store as the pack catalog — never a file an engineer edits and redeploys | §3.0 D2/§3.1 (versioned price book); P0, P4, P7; console editor in 07C |
 | U-D4 | **Industry (8) / framework (9) lists approved, but must be extensible** without a migration: admin-editable lookup tables, Zod validates "an active catalog value or a free-text fallback" | P0, O1-O3; console editor in 07C |
 | U-D5 | **Build the real staff web console now**, not the audited-CLI-only interim plan | §3.0 D5 (DECIDED); **new sprint file `SPRINT-07C-staff-console.md`** (Increment C) |
+
+**Amendment 2 — final planning amendment, 2026-09-30 (tagged [AM2]).** The user decided Q-C11 ("use what
+industry standard companies use and think if we can make it better", applying the rule that a framework's
+required modules are free for a tenant that declares it) and confirmed full tenant-content access for staff under
+the time-boxed grant (07C). The lead relayed that the user did not object to D3/D4 as recommended, and instructed
+the PO to close every remaining question under CLAUDE.md's standing rule ("make the smallest reasonable choice,
+record it, move on"). Result: **no open decision remains in this file.**
+
+| # | Decision (2026-09-30) | By | Where it lands |
+|---|---|---|---|
+| U-D6 | **Q-C11 decided**: the framework → free-module mapping is finalized from competitive research plus a two-part clause test; the PO's recommendation is to be **more generous than the QMS market on framework-required modules** and charge for depth | user rule; PO applied it | §3.0 D2 "Finalized mapping"; P0, P1, P3, P4, O2, O4 |
+| U-D7 | **D3 CONFIRMED** (gates block writes, never the tenant's own reads/exports) and **D4 CONFIRMED** (real 14-day trials, once per pack) | user (did not object; relayed by the lead) | §3.0 D3, D4 |
+| PO-1 | Q-C12 false declaration: honor system, declaration audited, no verification mechanism | PO (standing rule) | §7 |
+| PO-2 | Q-C13 pack price vs inclusions: no dynamic repricing; the pack card **shows** the overlap ("3 of 5 modules already included in your plan") | PO (standing rule) | P4 AC11, D-S13, §3.3 |
+| PO-3 | Q-S2b keep the plant-size question; Q-S3 existing tenants not force-prompted | PO (as recommended) | O4, O1 AC4 |
+| PO-4 | Q-P1 `provision-tenant` seeding audit gap **fixed in this sprint** | PO (lead instruction; CLAUDE.md rule 3) | P8 AC2, DoD |
+| PO-5 | New gateable unit `supplier_analytics` (weighted scorecards + supplier risk matrix), split out of `suppliers`: without it, U-D6 would give the scorecards the user named as paid depth away for free | PO (consequence of U-D6) | P0, P1, P2, P3, D-S15 |
+| PO-6 | Staff trial reset (07C C5) is the single, audited exception to "once per pack" | PO (standing rule, 07C Q-SC6) | P5 |
 
 **PO scope call: this sprint is split into two sprint files (Amendment 1).** With U-D5 the work grows from two
 increments to three, and the third is a whole new authenticated surface (a staff identity outside tenant
@@ -1146,7 +1167,7 @@ AC
 
 ---
 
-## 3. Backend + commercial design — D1, D2, D5 DECIDED (user, 2026-09-30); D3, D4 still need sign-off
+## 3. Backend + commercial design — ALL DECIDED (D1, D2, D5 user 2026-09-30; D3, D4 confirmed; Q-C11 mapping finalized [AM2])
 
 ### 3.0 Five decisions with commercial weight
 
@@ -1156,9 +1177,9 @@ answers:
 | Decision | Status |
 |---|---|
 | D1 self-service vs request mode | **DECIDED 2026-09-30** — option (c) as recommended |
-| D2 what is included in Core | **DECIDED 2026-09-30** — both proposed options rejected; redesigned as framework-conditional inclusions (below) |
-| D3 gates block writes, never the tenant's own records | **PROPOSED — still needs explicit user approval** (not covered by the 2026-09-30 answers) |
-| D4 real 14-day trials, once per pack | **PROPOSED — still needs explicit user approval** (not covered by the 2026-09-30 answers) |
+| D2 what is included in Core | **DECIDED 2026-09-30** — both proposed options rejected; redesigned as framework-conditional inclusions (below). **[AM2] The day-one mapping (Q-C11) is FINALIZED** below ("Finalized framework → module mapping") |
+| D3 gates block writes, never the tenant's own records | **[AM2] CONFIRMED 2026-09-30** — the user did not object to the PO recommendation (relayed by the lead) |
+| D4 real 14-day trials, once per pack | **[AM2] CONFIRMED 2026-09-30** — as D3; the only exception is an audited staff reset (07C C5, PO-6) |
 | D5 operator surface | **DECIDED 2026-09-30** — real staff web console, built now, in `SPRINT-07C-staff-console.md` |
 
 **D1 — Who can turn a pack on: the customer's admin, or only Kaenal? (the gate's teeth) — DECIDED 2026-09-30:
@@ -1251,8 +1272,8 @@ snapshot as an argument; nothing about which framework includes what is written 
   entitlements = admin"), while industry / size / focus modules keep `settings:manage`; (ii) a removal that
   would make modules ineffective opens the same downgrade confirm as P4 (open records that become read-only);
   (iii) every change is audited (`settings_changed`) and emails Kaenal sales (outbox) so a surprising
-  declaration is visible, and the staff console shows the declaration history (07C C4). Whether staff get a
-  remedy beyond that for a false declaration is §7 Q-C12 [USER].
+  declaration is visible, and the staff console shows the declaration history (07C C4). **[AM2]** No remedy beyond
+  that is built: declarations run on the honor system (§7 Q-C12, DECIDED).
 - **Overlay copy does not advertise framework inclusion** ("declare IATF to get this free") — that would invite
   false attestations. The overlay sells the pack; the profile explains inclusions.
 - **Everything the redesign introduces is data** in the control plane (§3.1): packs' display fields and module
@@ -1260,22 +1281,133 @@ snapshot as an argument; nothing about which framework includes what is written 
   seeded by migration `0073` and read by the API; **editing it is the staff console's job (07C C7, C8)**, with no
   redeploy.
 
-*Initial framework-inclusion seed (proposed; requires the user's commercial sign-off and a QMS SME review before
-it ships — §7 Q-C11 [USER]).* `required` beyond the universal floor, i.e. what each framework adds free:
+#### Finalized framework → module mapping (Q-C11, DECIDED 2026-09-30) [AM2]
 
-| Framework | Adds free beyond the floor (`required`) | `supports` only (suggestion, no commercial effect) |
+*The user's instruction:* "use what industry standard companies use and think if we can make it better", under
+the rule this redesign exists to make true: **a module a declared framework actually requires is free for that
+tenant, full stop.** The Amendment 1 draft table (IATF adds 5, ISO 9001 adds nothing, ISO 13485 adds Risk,
+AS9100 adds Risk + ECN) is **superseded** by the mapping below. Three steps: what the market does, the test that
+decides "requires", and the resulting data.
+
+**Step 1 — What established QMS vendors do (competitive baseline).** Most vendors do not publish price sheets, so
+this is limited to what their public pricing/product pages and reputable third-party listings state, plus
+well-known category practice. Nothing below is a quoted price.
+
+| Vendor | Publicly stated packaging (as of 2026-09) | What it shows |
 |---|---|---|
-| ISO 9001:2015 | — (its required set ⊆ floor) | risk (§6.1), suppliers (§8.4), ecn (§8.5.6) |
-| IATF 16949:2016 | **fmea** (§8.3.5.2), **spc** (§9.1.1.1), **msa** (§7.1.5.1.1), **ppap** (§8.3.4.4), **suppliers** (§8.4.2.4, and PPAP cannot run without supplier records) | risk (§6.1.2.1), ecn (§8.5.6.1), scar (§8.4.2.5) |
-| ISO 13485:2016 | **risk** (§7.1, ISO 14971) | ecn (§7.3.9), suppliers (§7.4) |
-| FDA QMSR (21 CFR 820) | **risk** (alias of ISO 13485) | ecn, suppliers |
-| AS9100D | **risk** (§8.1.1 operational risk), **ecn** (§8.1.2 configuration management) | suppliers (§8.4) |
-| FDA 21 CFR Part 11 / HACCP / ISO 14001 / ISO 45001 | — | per O2's table |
+| Arena (PTC) QMS | "QMS" plan: quality management (CAPAs, NCMRs, complaints), document management, training management. **Supplier Quality Management is listed only in "Enterprise QMS"** ([pricing plans](https://www.arenasolutions.com/pricing-plans/)) | Entry tier = document + training + CAPA/NC/complaints; supplier-quality depth is a higher tier |
+| Qualio | Foundation: document control, training, supplier quality, quality events, design controls, reporting, **3 compliance frameworks included**; Growth: **5 frameworks**; **"Additional Compliance Frameworks" sold as an add-on** ([pricing](https://www.qualio.com/pricing)) | Life-sciences vendor puts supplier control in the entry tier, but **meters the number of frameworks** |
+| Greenlight Guru (medical device) | Packages from $12k/yr, "start with what your team needs today and add capabilities later"; capabilities listed include document, change, training, supplier, quality events, **risk management, design controls** ([quality pricing](https://www.greenlight.guru/quality-pricing)). Third-party reviews report risk management and design controls sit above the core Quality package and are not sold standalone ([SoftwareConnect](https://softwareconnect.com/reviews/greenlight-guru/)) | ISO 14971 risk management — which ISO 13485 §7.1 requires — is typically a paid step-up in med-device eQMS |
+| MasterControl | Modular, named-user licensing; Quality Excellence core is document + training with CAPA/NC; a third-party listing reports the basic plan includes document management and **change control** ([pricing](https://www.mastercontrol.com/pricing/), [Software Advice](https://www.softwareadvice.com/manufacturing/mastercontrol-profile/)) | Change control treated as core |
+| Octave Reliance (formerly ETQ) | Launched a separate **"Reliance Advanced Manufacturing Package"** (2026) with APQP, FMEA, PPAP, change management and supplier qualification per AIAG/VDA and IATF 16949 ([press release](https://www.octave.com/newsroom/press-releases/2026/octave-launches-reliance-advanced-manufacturing-package)) | Automotive core tools packaged as an industry-specific package on top of the base QMS |
+| ComplianceQuest | Markets APQP/PPAP/FMEA as an automotive industry solution on its Salesforce-based QMS; pricing unpublished ([automotive](https://www.compliancequest.com/automotive/quality-management-software/)) | Same: automotive tooling as a vertical solution |
+| DELMIAWorks (IQMS) | SPC, APQP, PPAP presented as distinct modules of the ERP quality suite ([SPC](https://www.solidworks.com/product/delmiaworks/manufacturing-erp/quality/spc/), [APQP](https://www.solidworks.com/product/delmiaworks/manufacturing-erp/quality/apqp/)) | Core tools as separately named modules |
+| Intelex | Per-module / enterprise pricing; apps for NCR, CAPA, suppliers, complaints, audits, training, documents ([listing](https://www.selecthub.com/p/quality-management-software/intelex/)) | Pure à-la-carte by module |
 
-This reproduces the user's example: an IATF tenant's free set is floor + 5 (FMEA, SPC, MSA, PPAP, Suppliers); an
-ISO 9001-only tenant's is the floor, and Quality Engineering / Supplier Network remain legitimate paid add-ons
-for it. SCAR, the supplier portal, Risk and ECN stay in their packs for IATF tenants because IATF can be met
-without them in Kaenal (the PO's reading; the SME confirms or corrects each row as data).
+The pattern, stated only as far as the evidence goes: (1) the **entry tier is document control + training +
+CAPA/NC** (often complaints and audits); (2) **framework-specific tooling is sold on top** — automotive core tools
+(FMEA, APQP/PPAP, SPC) as vertical packages or separate modules, med-device risk management as a step-up; (3) at
+least one major vendor **meters the number of frameworks**; (4) change control is usually core; supplier control
+ranges from entry tier (life-sciences vendors) to top tier (Arena). In other words, **the market routinely charges
+extra for exactly the tools a framework obliges the customer to run.** That is the gap Kaenal can own.
+
+**Step 2 — The test for "a framework requires module M" (applied uniformly, clause by clause).** A module is
+`required` for framework F when **both** hold:
+- **(a) Obligation:** F has a "shall" clause that either requires retained/maintained documented information
+  (records) the module exists to hold, or prescribes a structured analysis method with defined criteria (e.g.
+  statistical studies, risk criteria and acceptance) that the module exists to perform; and
+- **(b) No free alternative:** the tenant cannot reasonably produce that evidence with modules already free to it
+  (the Core floor + F's other `required` modules). "Reasonably" is judged generously: a controlled document used
+  as a makeshift register does **not** count as an alternative to a structured record module.
+
+If (a) holds but (b) fails (a free module is a genuine structured home for the evidence), the module is
+`supports`: it is suggested with the clause, and it is sold as depth. A framework that is used together with
+another by definition (IATF 16949 is a supplement to ISO 9001:2015; AS9100D contains the ISO 9001:2015 text; the
+FDA QMSR incorporates ISO 13485:2016 by reference) **carries that framework's `required` rows too**, seeded as
+explicit rows (no "implies" logic in code). Clauses Kaenal has **no** module for at all (e.g. ISO 13485 §7.3 design
+and development files, AS9102 first-article reports) are a product-coverage question, not a paywall — nothing is
+sold for them — and are recorded in PROGRESS.md Known issues, not invented here.
+
+**Step 3 — The finalized mapping (seed of `control.framework_module_rules`).** R = `required` (free for a tenant
+that declares the framework), S = `supports` (suggestion only, no commercial effect), — = no rule. Floor modules
+(inspections, ncr, eight_d, capa, audits, documents, calibration, training, complaints, reports) are free for
+everyone and are also seeded as R rows where a clause requires them, so onboarding can cite the clause (O2).
+
+| Framework | fmea | spc | msa | risk | ecn | suppliers | ppap | scar | portal | supplier_analytics | graph · predictive · ai · report_builder · integrations |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ISO 9001:2015 | — | S | — | S | **R** | **R** | — | S | — | S | — |
+| IATF 16949:2016 (+ ISO 9001) | **R** | **R** | **R** | **R** | **R** | **R** | **R** | S | — | S | — |
+| ISO 13485:2016 | S | S | — | **R** | **R** | **R** | — | S | — | — | — |
+| FDA QMSR (21 CFR 820, incorporates ISO 13485) | S | S | — | **R** | **R** | **R** | — | S | — | — | — |
+| AS9100D (+ ISO 9001) | S | S | — | **R** | **R** | **R** | S | S | — | S | — |
+| HACCP (Codex CXC 1-1969, rev. 2020) | — | — | — | **R** | S | S | — | — | — | — | — |
+| ISO 14001:2015 | — | — | — | **R** | S | S | — | — | — | — | — |
+| ISO 45001:2018 | — | — | — | **R** | S | S | — | — | — | — | — |
+| FDA 21 CFR Part 11 | — | — | — | — | — | — | — | — | — | — | — |
+
+Clause basis for every R and S above (the `clause` column of each seeded row; reviewed by a QMS SME before it
+ships as copy — Q-S5):
+
+| Framework | `required` (clause → why no free alternative) | `supports` (clause → why a free module suffices) |
+|---|---|---|
+| ISO 9001:2015 | **ecn** §8.5.6 (retain documented information on the review of changes, who authorized, actions) + §8.3.6 — the floor's document revision control covers changes to *documents* (§7.5.3), not production changes. **suppliers** §8.4.1 (criteria for evaluation, selection, performance monitoring, re-evaluation; retain documented information) — no floor module is a supplier register | risk §6.1 (Annex A.4: "no requirement for formal methods for risk management or a documented risk management process"); spc §9.1.1 (methods "as applicable"); scar §8.4.2/§10.2 (CAPA/8D linked to the supplier suffice); supplier_analytics §8.4.1 monitoring (per-supplier KPIs live on the free supplier record) |
+| IATF 16949:2016 | ISO 9001's **ecn**, **suppliers** (plus §8.5.6.1 documented change process; §8.4.2.4 supplier performance indicators). **fmea** §8.3.5.2 (PFMEA is a required process-design output). **spc** §9.1.1.1 (process studies on all new processes, capability) + §9.1.1.2 (statistical tools). **msa** §7.1.5.1.1 (statistical studies of every measurement system in the control plan). **ppap** §8.3.4.4 (product and manufacturing approval process; approve externally provided product before part approval). **risk** §6.1.2.1 (risk analysis with mandated inputs; retain documented information as evidence) + §6.1.2.3 (documented contingency plans) — FMEA covers product/process risk, not the organizational risk analysis | scar §8.4.2.5 / §10.2.3 (supplier development and problem solving are recordable as 8D/CAPA linked to the supplier — both floor); supplier_analytics §8.4.2.4 (the four mandated indicators must be visible on the free supplier record — P3 AC6) |
+| ISO 13485:2016 / FDA QMSR | **risk** §7.1 (documented risk-management processes, records; ISO 14971) + §4.1.2(b). **ecn** §7.3.9 (records of design changes, review, actions) + §4.1.4. **suppliers** §7.4.1 (supplier evaluation/selection/monitoring/re-evaluation criteria; records maintained) | fmea §7.1 (an ISO 14971 technique; the risk module is the risk-management file); spc §8.1 / §8.4 (determine statistical techniques); scar §7.4.1 ("addressed with the supplier" — CAPA linked to the supplier suffices) |
+| AS9100D | ISO 9001's **ecn**, **suppliers** (plus §8.4.1 register of external providers with approval status and scope; §8.1.2 configuration management). **risk** §8.1.1 (operational risk process with prescribed assessment criteria — likelihood, consequence, acceptance — mitigation and acceptance of residual risk) | fmea §8.1.1; spc §8.5.1 (key characteristics); ppap §8.5.1.3 (production process verification; AS9145 is the aerospace analogue — a separate standard); scar §10.2.1 (flow-down of corrective action to the external provider — recordable as CAPA/8D linked to the supplier); supplier_analytics §8.4.1 |
+| HACCP | **risk** Principle 1 (hazard analysis) + Principle 7 (documented) — the only structured home for the hazard analysis. (Principles 4-6: inspections, ncr/capa, calibration/audits — floor) | ecn Principle 6 (review on change); suppliers (supplier approval is a prerequisite programme, not a HACCP principle) |
+| ISO 14001:2015 | **risk** §6.1.1 (maintain documented information on risks and opportunities) + §6.1.2 (environmental aspects and significant aspects, documented) | ecn §8.1 (planned changes); suppliers §8.1 (outsourced processes) |
+| ISO 45001:2018 | **risk** §6.1.1 (maintain documented information on risks and opportunities) + §6.1.2 (hazard identification, OH&S risk assessment) | ecn §8.1.3 (management of change requires a process, not retained records — a documented procedure plus CAPA suffice); suppliers §8.1.4 |
+| FDA 21 CFR Part 11 | Nothing beyond the floor: §11.10(e) audit trails are the **platform audit log** (every mutation, rule 3), §11.10(i) training and §11.10(k) documentation controls are floor. (The Amendment 1 O2 row "audits (§11.10(e))" confused the system audit trail with the internal-audits module and is corrected) | — |
+
+**Resulting free sets** (floor + R), which P1 AC3's golden tests assert:
+
+| Declared | Free beyond the floor | Quality Engineering pack (fmea, spc, msa, risk, ecn) | Supplier Network pack (suppliers, supplier_analytics, ppap, scar, portal) |
+|---|---|---|---|
+| Nothing / "None of these yet" / custom label only | — | Full pack for sale | Full pack for sale |
+| ISO 9001 | ecn, suppliers | 1 of 5 included; adds FMEA, SPC, MSA, Risk | 1 of 5 included; adds scorecards & risk matrix, PPAP, SCAR, portal |
+| IATF 16949 | fmea, spc, msa, risk, ecn, suppliers, ppap | **Fully included** ("Included with your frameworks", no CTA) | 2 of 5 included; adds scorecards & risk matrix, SCAR & chargebacks, portal |
+| ISO 13485 / FDA QMSR / AS9100 | risk, ecn, suppliers | 2 of 5 included; adds FMEA, SPC, MSA | 1 of 5 included; adds the rest |
+| HACCP / ISO 14001 / ISO 45001 | risk | 1 of 5 included | Full pack for sale |
+| FDA Part 11 only | — | Full pack | Full pack |
+
+**Step 4 — PO recommendation: "framework-complete, depth-priced" — be deliberately more generous than the
+market on compliance, and charge for depth.** Reasoning:
+1. **It makes the positioning true and provable.** Where competitors sell the automotive core tools as a vertical
+   package (Octave, ComplianceQuest, DELMIAWorks) or put ISO 14971 risk management above the core package
+   (Greenlight Guru, per third-party reviews), Kaenal includes every tool Kaenal has that the declared framework
+   obliges the customer to run. The claim "a compliance obligation is never paywalled" becomes checkable by any
+   auditor from the clause column, not marketing copy.
+2. **No framework metering.** Declaring a framework is free and unlimited (unlike framework-capped plans such as
+   Qualio's). The `standards` à-la-carte item stays in the catalog as drawn, but it gates nothing (its `routes` are
+   empty in `addons.jsx`) and it never conditions a declaration or an inclusion; its drawn tagline "Add standards
+   beyond IATF 16949 & ISO 9001" would now read as a false charge-to-declare claim, so its seeded tagline is
+   corrected to "Per-standard compliance scorecards beyond IATF 16949 & ISO 9001" (a copy change the UI Lead
+   Designer confirms at Gate 1, D-S13).
+3. **Paid differentiation moves to genuine depth**, which is what automotive and multi-site buyers pay for:
+   Intelligence (predictive scoring, knowledge graph, AI), Supplier Network depth (**weighted scorecards and the
+   supplier risk matrix — `supplier_analytics`**, SCAR & chargebacks, the external portal), Platform (report
+   builder, API, integrations), Multi-Plant (rollups, when the planned multi-tenancy page is built — Q-C3/Q-C4),
+   Security and Premium Support. None of these is required by any framework under the test.
+4. **The commercial cost, stated plainly:** Quality Engineering is fully included for IATF 16949 tenants — the
+   primary market — so QE revenue comes only from ISO 9001-only, ISO 13485, AS9100, food and general-manufacturing
+   tenants that want FMEA/SPC/MSA as depth, and from tenants that declare nothing. IATF revenue is carried by
+   Supplier Network depth, Intelligence, Platform and Multi-Plant. This is the direct consequence of the user's
+   "full stop" rule and the PO recommends accepting it: a QE upsell to an IATF supplier is exactly the "compliance
+   obligation paywalled" experience `pricing.jsx:168` promises never to create.
+5. **It stays data.** Every row is `control.framework_module_rules`, editable in 07C C7 with an impact preview.
+   Policy recorded with it: a later change that **removes** a `required` row (takes a free module away from
+   tenants) is made only for a clause error confirmed by the SME, never for revenue, and always through the 07C
+   impact preview with a typed confirm.
+
+**Consequence built into this sprint (PO-5): `supplier_analytics`.** Under the mapping, `suppliers` is free for
+ISO 9001, IATF, ISO 13485, QMSR and AS9100 tenants. Today the `suppliers` module also carries the weighted
+scorecard ranking (`GET /v1/supplier-scorecard`, the Suppliers → **Scorecards** view) and the **Risk matrix** view
+(`supplier-list.tsx:24-31`), which `addons.jsx` sells as "Weighted supplier scorecards" and "Supplier risk
+matrix" and the user named as paid depth. They become a separate gateable unit **`supplier_analytics`** in the
+Supplier Network pack. What stays in `suppliers` (and therefore free where framework-included): the supplier list,
+create/edit, and the supplier detail including its **Scorecard tab** (per-supplier KPIs under default weights,
+computed server-side — `supplier-detail.tsx:425-460`), which is where the IATF §8.4.2.4 indicators live. Split is
+enforced per P2/P3 (in-page view lock, D-S15).
 
 *The record of the superseded analysis follows.*
 
@@ -1300,7 +1432,8 @@ without them in Kaenal (the PO's reading; the SME confirms or corrects each row 
   Answered 2026-09-30: neither (a) nor (b); see D2 DECIDED above.** (c) is also ruled out by the redesign: the
   callout becomes per-tenant and true.
 
-**D3 — What a gate blocks: writes, never the customer's own records — PROPOSED, needs user approval**
+**D3 — What a gate blocks: writes, never the customer's own records — [AM2] CONFIRMED 2026-09-30 (as recommended
+below; close-out transitions stay blocked per Q-C5, DECIDED)**
 - *Conflict.* 04 §5 says a locked route "renders the real page blurred", which needs the page's data; a pure API
   gate would also hide records the customer is obliged to retain (IATF §7.5.3.2.1, ISO 13485 §4.2.5).
 - *Recommendation.* Gated **record** modules (qe, supplier) block create/update/transition (402) but always allow
@@ -1308,16 +1441,21 @@ without them in Kaenal (the PO's reading; the SME confirms or corrects each row 
   too (they carry no retention obligation and are the pack's value); **reducing** actions (disconnect/delete an
   integration, delete a report definition, withdraw a request) are never gated; system jobs are never gated;
   downgrades warn with the count of open records that become read-only (P4). The blur is presentation, not
-  security; the API is the boundary (P3). Needs the user's approval because it defines what a downgraded
-  customer can still do, including that in-flight records (e.g. an open ECN) freeze until the pack returns
-  (§7 Q-C5 asks whether "close-out" transitions should stay allowed).
+  security; the API is the boundary (P3). ~~Needs the user's approval~~ **[AM2] Confirmed.** It defines what a
+  downgraded customer can still do, including that in-flight records (e.g. an open ECN) freeze until the pack
+  returns (§7 Q-C5, DECIDED: close-out transitions are not exempted this sprint). **[AM2] Derived analytics now
+  includes `supplier_analytics`** (weighted ranking and risk matrix): gated on read like graph and predictive; the
+  per-supplier KPIs on the supplier record are the tenant's own records and stay readable.
 
-**D4 — Trials: real, time-boxed, once per pack — PROPOSED, needs user approval**
+**D4 — Trials: real, time-boxed, once per pack — [AM2] CONFIRMED 2026-09-30 (as recommended below)**
 - *Conflict.* The prototype's "Start 14-day trial" just turns the pack on permanently.
 - *Recommendation.* 14 days, once per pack per tenant (enforced by the table's primary key), admin-started,
   available in both modes, not offered for `security`/`support` (no in-product effect / custom-priced), T-3
   warning, auto-expiry by comparison (no job needed to lock), records readable after expiry (D3). Figma-style
   provisional access for *member* requests is **not** included (§7 Q-C6).
+- **[AM2] One exception:** a Kaenal staff member (`sales`/`admin`) may reset a tenant's **ended** trial of a pack
+  (goodwill re-trial) in the staff console, with a mandatory reason, audited in both logs exactly like a plan change
+  (07C C5, Q-SC6). A running trial cannot be reset or extended.
 
 **D5 — The operator surface — DECIDED 2026-09-30 (U-D5): a real staff web console, built now.**
 - *The user's decision:* build the staff web console in this release, not the audited-CLI-only interim the PO
@@ -1398,8 +1536,11 @@ falls back to a hard-coded map.
 No payment provider, card capture, invoices, tax calculation, dunning, proration or PCI scope. Prices come from
 the **published price-book version** (U-D3: placeholder values, staff-editable in 07C) and are used for an
 **estimate** and a **quote** only; the contract value shown on Billing & plan is whatever Kaenal staff recorded.
-Pack prices are **not** framework-conditional this sprint (an IATF tenant pays the listed QE price even though
-FMEA/SPC/MSA are already free for it; the pack card shows exactly what the pack adds — §7 Q-C13 [USER]).
+Pack prices are **not** framework-conditional this sprint ([AM2] Q-C13 DECIDED): a pack's listed price is what it
+costs. Where some of a pack's modules are already free for the tenant, the card **shows** the overlap ("3 of these
+5 modules are already included in your plan", P4 AC11) so the price is transparent; a fully covered pack is not
+offered at all (P4 AC9). Dynamic per-tenant repricing is a deliberate simplification while the price book is
+placeholder data (U-D3), to be revisited when real prices are set.
 Seat/plant limits ("Up to 500 members · 10 plants") are **not enforced** this sprint (§7 Q-C7). All money movement
 stays outside the product; the product's job is to record what the customer may use, what they asked for, and to
 hand that to sales.
