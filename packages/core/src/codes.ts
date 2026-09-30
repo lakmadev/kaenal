@@ -27,7 +27,11 @@ export type CodeKind =
   // NOT in this list: a competency `code` is a short, author-chosen slug
   // (`iatf`, `fmea`) set once by an admin, never sequence-generated via
   // `counters` (§3.1 item 12) — only instruments get a `PREFIX-YYYY-NNNN` code.
-  | "instrument";
+  | "instrument"
+  // Sprint 06 C1/E1 — customer complaints (COM-YYYY-NNNN) and ECNs
+  // (ECN-YYYY-NNNN).
+  | "complaint"
+  | "ecn";
 
 const PREFIXES: Readonly<Record<CodeKind, string>> = {
   ncr: "NCR",
@@ -42,6 +46,8 @@ const PREFIXES: Readonly<Record<CodeKind, string>> = {
   risk: "RISK",
   msa: "MSA",
   instrument: "CAL",
+  complaint: "COM",
+  ecn: "ECN",
 };
 
 /** Sequence width. Numbers beyond 9999 simply get longer rather than wrapping. */

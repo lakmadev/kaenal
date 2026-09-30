@@ -11,6 +11,8 @@ export * from "./state-machines/complaint.js";
 export * from "./state-machines/ecn.js";
 export * from "./sla.js";
 export * from "./complaint-sla.js";
+export * from "./customer-color.js";
+export * from "./version-bump.js";
 export * from "./codes.js";
 export * from "./rbac.js";
 export * from "./auth-policy.js";
