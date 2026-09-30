@@ -224,22 +224,53 @@ AC
    `idle_expires_at`, `absolute_expires_at`, `revoked_at`, `ip inet`, `user_agent`) and **[AM3]** `control.
    platform_step_up_tokens` (`token_hash` PK, `platform_user_id`, `expires_at` = issue + 5 min, `used_at`) — the re-auth
    artifact `POST /platform/v1/auth/step-up` issues (AC5) and `content`-scope grant creation (C3) consumes — and the DB
-   role **`kaenal_platform`** (LOGIN; no BYPASSRLS; `USAGE` on `control`; SELECT/INSERT/UPDATE on `control.platform_*`
-   (no DELETE); SELECT on `control.tenants`; the commercial control-plane write grants of C5-C8). New env
-   `DATABASE_PLATFORM_URL` (+ `.env.example`), a dedicated `PLATFORM_POOL` provider. **The platform surface never uses
-   `CONTROL_POOL`** (the migrator superuser, a tracked Known issue).
-2. **Lifecycle:** a new `@PlatformRoute(capability?)` class/method decorator. `RequestLifecycleInterceptor` gains a
-   branch evaluated right after the `@Public` check and **before** tenant resolution: (1) host must equal
-   `PLATFORM_HOST` else 404; (2) optional CIDR allowlist else 404; (3) `PlatformAuthenticator` resolves
-   `kaenal_platform_session` (cookie only; bearer refused) through `PLATFORM_POOL`, enforces idle/absolute expiry and
-   slides `idle_expires_at`, and enforces CSRF double-submit (`kaenal_platform_csrf` / `x-platform-csrf-token`) on
-   unsafe methods; (4) platform RBAC (C3); (5) the handler runs in `runWithPlatformContext({ platformUserId, role,
-   requestId, ip, userAgent, tx })` with a **control-plane transaction on `PLATFORM_POOL` — no `app.tenant_id`**.
-   Tenant data is reachable only through C3's `SupportAccess.withTenant(...)`. It is still ONE interceptor (a
-   settled architecture decision); the platform branch never falls through to the tenant branch and vice versa.
-3. Default-deny holds for both planes: a controller under `apps/api/src/platform/**` without `@PlatformRoute` fails a guard
-   test; a controller outside it with `@PlatformRoute` fails the same test; a platform route reached with only a tenant
-   session → 401; a tenant route reached with only a platform session → 401.
+   role **`kaenal_platform`** (**[AR] created `NOLOGIN` by the migration** — `LOGIN` and its credential are set by
+   provisioning / ops from the secret manager, never by a migration, AR29; no BYPASSRLS; `USAGE` on `control`;
+   SELECT/INSERT/UPDATE on `control.platform_*` (no DELETE); SELECT on `control.tenants`; the commercial control-plane
+   write grants of C5-C8). New env `DATABASE_PLATFORM_URL` (+ `.env.example`), a dedicated `PLATFORM_POOL` provider.
+   **[AR] Both exist only in the platform API process (AC2):** the tenant API's env schema (`apps/api/src/env.ts`) does
+   not declare `DATABASE_PLATFORM_URL` or `DATABASE_SUPPORT_URL`, and the tenant `AppModule` has no provider for either
+   (test: the tenant app boots with neither set, and a DI lookup for `PLATFORM_POOL` / `SUPPORT_POOL` in it fails).
+   **The platform surface never uses `CONTROL_POOL`** (the migrator superuser, a tracked Known issue).
+2. **[AR] A separate platform API process — replaces the "platform branch inside the ONE tenant interceptor" of the
+   earlier draft (AR1).** A new entry point `apps/api/src/platform-main.ts` bootstraps a new `PlatformAppModule` with
+   its own `NestFactory.create`, its own listener (`PLATFORM_PORT`, default 3003), its own deployment unit and its own
+   ingress route (`PLATFORM_HOST` → the platform process only); `apps/api/src/main.ts` keeps bootstrapping the tenant
+   `AppModule`, unchanged by this story. Both applications live in `apps/api` and **import** the same building blocks
+   as libraries — `@kaenal/db` (`withAudit`, `withTenant`, the audit observers), the outbox writer, `packages/core`
+   (resolver, RBAC), `CatalogService` — so nothing is copied or forked. `PlatformAppModule` registers **its own single
+   `APP_INTERCEPTOR`**, `PlatformLifecycleInterceptor`, and a new `@PlatformRoute(capability?)` class/method decorator
+   (plus `@PlatformPublic` for the setup and sign-in routes, the platform twin of `@Public`/`@AllowAnonymous`). Per
+   request: (1) `Host` must equal `PLATFORM_HOST` else 404 (defence in depth behind the ingress); (2) optional CIDR
+   allowlist else 404; (3) `PlatformAuthenticator` resolves `kaenal_platform_session` (cookie only; bearer refused)
+   through `PLATFORM_POOL`, enforces idle/absolute expiry and slides `idle_expires_at`, and enforces CSRF double-submit
+   (`kaenal_platform_csrf` / `x-platform-csrf-token`) on unsafe methods; (4) platform RBAC computed from the platform
+   user's **current** `role` and `status`, re-read on every request — never from a value cached in the session (C3
+   AC1, AR15); (5) the handler runs in `runWithPlatformContext({ platformUserId, role, requestId, ip, userAgent, tx })`
+   with a **control-plane transaction on `PLATFORM_POOL` — no `app.tenant_id`**. Tenant data is reachable only through
+   C3's `SupportAccess.withTenant(...)`. The tenant `AppModule`'s `RequestLifecycleInterceptor` gains **no** platform
+   branch; its only change in this increment is C10's support-view principal.
+
+   **Why a second interceptor is not a breach of the settled "the request lifecycle is ONE interceptor" decision
+   (recorded here so no future engineer re-litigates it).** That decision (CLAUDE.md, PROGRESS.md Decisions log) is
+   about the shape of **one application's request pipeline**: authentication and RBAC must run inside a single
+   interceptor, inside the scoped transaction, rather than as middleware + guards that run outside it. It does not
+   limit how many services exist. `PlatformAppModule` is a separate NestJS application with a separate listener and a
+   separate deployment; it has exactly one lifecycle interceptor of its own, which authenticates and authorizes
+   inside its own control-plane transaction. That is the same discipline applied a second time, to a second service —
+   not middleware or guards creeping back into either app. What the decision forbids (a second place in the same
+   pipeline where authentication or RBAC can run) stays forbidden in both apps, and AC3's guard test enforces it for
+   both. SD1 records the trade-off.
+3. **[AR] Default-deny in both apps, proved by enumerating both routers (AR1).** A test boots `AppModule` and
+   `PlatformAppModule`, enumerates every registered route of each (Nest's route explorer / `DiscoveryService`) and
+   asserts: the tenant app mounts **no** `/platform/v1/*` route and no handler carrying `@PlatformRoute`; the platform
+   app mounts **no** `/v1/*` route (its only non-platform route is `/health`) and every handler carries
+   `@PlatformRoute` or `@PlatformPublic`; every platform controller file lives under `apps/api/src/platform/**` and is
+   registered only in `PlatformAppModule`. Mutation checks: registering one tenant controller in `PlatformAppModule`,
+   one platform controller in `AppModule`, or removing one `@PlatformRoute` each make the test fail. A platform route
+   reached with only a tenant session → 401; a tenant route reached with only a platform cookie → 401 (the tenant app
+   contains no code that reads `kaenal_platform_session`). The import-boundary lint rule (CX AC1) keeps the two apps'
+   internals from importing each other.
 4. Cookies: `kaenal_platform_session` (httpOnly, `Secure` in production, `SameSite=Strict`, **host-only** — no
    `Domain` attribute, so it is never sent to tenant subdomains) and `kaenal_platform_csrf`. Distinct names from the
    tenant cookies so neither authenticator can ever read the other's token.
@@ -261,12 +292,16 @@ AC
    configured; cross-plane cookie/bearer isolation both ways; deactivation revokes a live session on its next
    request. **[AM3]** step-up: correct password or TOTP issues a token; wrong credential → generic failure and
    counts toward lockout; the token is single-use (a second use → 422), expires at 5 min, and is rejected if
-   presented by a different platform user than the one who requested it. **The tenant sign-in is re-proved end to
-   end (201) for `demo@acme.test`** — the interceptor is shared (rule 12).
+   presented by a different platform user than the one who requested it. **[AR]** Plus: AC3's two-router enumeration
+   and its mutation checks; the tenant app boots without `DATABASE_PLATFORM_URL` / `DATABASE_SUPPORT_URL`; a
+   role/status change of a signed-in platform user is effective on that user's very next request (AR15). **The tenant
+   sign-in is re-proved end to end (201) for `demo@acme.test`** after every change to `apps/api` in this increment
+   (rule 12) — the tenant interceptor itself changes only in C10.
 
 Web (`apps/platform`): sign-in, TOTP, expired/locked states, sign-out, "My sessions" in the account menu (D-C1).
-Mobile: unaffected (the tenant bearer path is unchanged; proved by its tests). Shared: migration, interceptor
-branch, platform authenticator, platform contract entry point.
+Mobile: unaffected (the tenant bearer path is unchanged; proved by its tests). Shared: migration, the platform API
+process (`platform-main.ts`, `PlatformAppModule`, `PlatformLifecycleInterceptor`), platform authenticator, platform
+contract entry point.
 
 Backend: migration 0078; routes above; audit → platform audit; RBAC → C3; tenancy: no tenant scope on this path by
 construction.
@@ -419,8 +454,9 @@ AC
    importing `packages/types` (platform entry point), `packages/core` and the tokens from
    `project_brain/project/styles/tokens.css` via the same token pipeline as `apps/web`. It **does not** import
    anything from `apps/web` (lint rule) and `apps/web` does not import the platform entry points (lint rule,
-   `no-restricted-imports`). Dev: `pnpm --filter @kaenal/platform dev` on :3002, proxying `/platform-api/*` to the API
-   with `Host` set to `PLATFORM_HOST`. Justification in §3 SD1.
+   `no-restricted-imports`). Dev: `pnpm --filter @kaenal/platform dev` on :3002, proxying `/platform-api/*` to the
+   **[AR] platform API process (`pnpm --filter @kaenal/api dev:platform`, :3003)** with `Host` set to `PLATFORM_HOST`
+   — never to the tenant API on :3001. Justification in §3 SD1.
 2. `GET /platform/v1/tenants?q=&status=&tier=&mode=&hasOpenRequests=&framework=&cursor=` (`platform:tenants:read`;
    cursor-paginated, rule 6) reads `control.tenants` + `control.tenant_plans` + `control.sales_inbox` counts +
    a control-plane **tenant summary** (`control.tenant_commercial_summary`: tier, declared framework keys,
@@ -705,11 +741,25 @@ UC
 - Offline: n/a (online-only, like the console).
 
 AC
-1. `0079` adds `control.support_view_sessions` (`token_hash` UNIQUE, `grant_id` → `support_grants` (scope must be
-   `content`), `created_at`, `expires_at` = the grant's `expires_at`, `revoked_at`, `ip`, `user_agent`) and
-   `control.support_view_exchange_tokens` (`token_hash` PK, `grant_id`, `expires_at` = issue + 60 s, `used_at`).
-   Neither is readable by `kaenal_app` or `kaenal_public` (grant test); the tenant lifecycle validates them through
-   `PLATFORM_POOL`.
+1. `0079` adds `control.support_view_sessions` (`token_hash` UNIQUE, `grant_id`, **[AR] `grant_scope text NOT NULL
+   DEFAULT 'content' CHECK (grant_scope = 'content')` with a composite FK `(grant_id, grant_scope) →
+   control.support_grants (id, scope)` — `support_grants` gains `UNIQUE (id, scope)` for it — so a support-view session
+   can reference only a `content`-scope grant, which a plain FK cannot express (AR14)**, `created_at`, `expires_at` =
+   the grant's `expires_at`, `revoked_at`, `ip`, `user_agent`) and `control.support_view_exchange_tokens` (`token_hash`
+   PK, `grant_id` **[AR] + the same `grant_scope` column, CHECK and composite FK**, `expires_at` = issue + 60 s,
+   `used_at`). Neither is readable by `kaenal_app` or `kaenal_public` (grant test). **[AR] The tenant API validates
+   them through a new, narrow role `kaenal_support_gate` — never through `PLATFORM_POOL`, which exists only in the
+   platform process (C2 AC1) (AR3).** `kaenal_support_gate` is created `NOLOGIN` (AR29) and holds only: SELECT on
+   `control.support_grants`, `control.support_view_sessions`, `control.support_view_exchange_tokens`; column SELECT on
+   `control.platform_users (id, status, role)`; UPDATE(`used_at`) on `support_view_exchange_tokens`; INSERT on
+   `support_view_sessions` and UPDATE(`revoked_at`) on it (the exchange creates the session row and End support view
+   revokes it — the two writes the hand-off cannot avoid, both column-scoped); INSERT on
+   `control.platform_audit_events` (the per-request platform record, AC5). Nothing else: no tenant table, no other
+   control table, no write on `support_grants`, no `platform_users` credential column. New env
+   `DATABASE_SUPPORT_GATE_URL` (primary database only) and pool `SUPPORT_GATE_POOL` in the tenant `AppModule`. An
+   explicit grant test asserts each privilege and its absence everywhere else (e.g. the gate cannot SELECT
+   `platform_users.password_hash` or `mfa_secret_enc`, cannot UPDATE `support_grants`, cannot SELECT any tenant
+   table).
 2. `0079` creates DB role **`kaenal_support_reader`** (LOGIN, no BYPASSRLS; the existing `tenant_isolation` policy
    applies unchanged): SELECT on **every tenant-owned table** except a named credential/secret denylist (at minimum
    `sessions`, API-key secret material, integration secrets, MFA material, idempotency records — the architect
@@ -760,22 +810,47 @@ AC
    (`@AllowAnonymous`, tenant-scoped, rate-limited), which verifies the token (unused, unexpired, grant active,
    grant tenant = request tenant), marks it used and sets a host-only `kaenal_support_view` cookie (httpOnly,
    `Secure` in production, `SameSite=Strict`, expiry = grant expiry) plus its CSRF pair. Refused with 409 when a
-   `kaenal_session` cookie is present.
-4. **Tenant lifecycle interceptor (the ONE interceptor, a settled decision):** in the authenticated branch, a request
-   carrying `kaenal_support_view` (and no `kaenal_session`; both present → 401) is authenticated by a
-   `SupportViewAuthenticator` that checks the session and its grant on every request (expired / ended / revoked /
-   platform user deactivated → 401), then: unsafe methods → **403 `SUPPORT_VIEW_READ_ONLY`** before any handler (except
-   `POST /v1/support-view/end`); a per-user route denylist (own sessions, MFA, password, recovery codes, push
-   tokens, notification preferences, API-key management) → 403; otherwise the handler runs in a tenant transaction
-   opened on the **`kaenal_support_reader`** pool with `app.tenant_id`, `app.support_reason`, `app.platform_user_id`,
-   **[AM3]** `app.grant_id` (SET LOCAL). RBAC treats the caller as a synthetic `support_viewer` holding every tenant
-   **read** capability and no write capability; plant scope = all plants. `GET /v1/me` returns `{ kind:
-   'support_viewer', displayName: 'Kaenal support', capabilities, grant: { expiresAt, reason, reference } }`. No
-   realtime subscription and no notifications for the viewer (lists are refetched on navigation). **[AM3]**
-   `app.grant_id` exists specifically so AC2a's RESTRICTIVE policy can re-verify the grant independently of this
-   authenticator's own per-request check on every row read: this authenticator governs the request's outcome
-   (401/403/200) and error messages; the RESTRICTIVE policy is the fail-safe that still holds even if this
-   authenticator is buggy or bypassed.
+   `kaenal_session` cookie is present. **[AR]** The token check, `used_at` update and session-row insert run on
+   `SUPPORT_GATE_POOL` (AC1); `POST /v1/support-view/end` revokes the support-view session (UPDATE `revoked_at`) —
+   it does not end the grant, whose lifetime stays owned by the platform console (C3 AC7).
+4. **[AR] Tenant lifecycle interceptor (still the ONE tenant interceptor) — the pool is derived from the resolved
+   principal, never from a cookie (AR4).** The interceptor today opens the tenant transaction *before* it
+   authenticates (`lifecycle.interceptor.ts:144`, so that the member lookup runs under RLS). A support-view request
+   therefore gets a principal-first path: when the request carries `kaenal_support_view` (both it and `kaenal_session`
+   → 401), `SupportViewAuthenticator` resolves the principal **before any tenant transaction is opened**, through
+   `SUPPORT_GATE_POOL`: session row valid and unrevoked; grant is `content`, unended, `clock_timestamp() <
+   expires_at`, for **this** request's tenant (else 404, rule 8); the platform user is `active` and their **current**
+   role still holds `platform:tenant:content` (AR15). Any failure → 401 with the ended state, and the request **never**
+   falls through to the member authenticator or the app pool. Only a successfully resolved principal of kind
+   `support_viewer` selects the `kaenal_support_reader` pool; only a resolved `member` principal uses the app pool
+   exactly as today. The cookie only chooses which authenticator *attempts*; a forged, expired or foreign cookie
+   produces no transaction at all. Then:
+   - **Read-only gate (AR11).** Unsafe methods → **403 `SUPPORT_VIEW_READ_ONLY`** before any handler, except (a)
+     `POST /v1/support-view/end` and (b) routes carrying a new **`@ReadOnlyPost()`** decorator — reads that take a
+     body and are therefore POSTs. Seeded allowlist: `POST /v1/query`, `/v1/query/metric`, `/v1/query/series`
+     (`query.controller.ts:48-60`). `@ReadOnlyPost` is a promise that the handler performs no write; a test runs every
+     `@ReadOnlyPost` route in a support-view session and asserts it succeeds **and** that the reader role's lack of
+     write privileges was never hit (no permission error in the transaction), and a guard test fails if a
+     `@ReadOnlyPost` handler reaches `withAudit` or an INSERT/UPDATE/DELETE. A blanket "POST = write" rule is not used.
+   - **Per-user and secrets denylist** (own sessions, MFA, password, recovery codes, push tokens, notification
+     preferences) plus the **secrets exclusion of C12's Settings decision** (API keys, the whole integrations /
+     webhook-endpoint surface, invitation tokens) → 403 `SUPPORT_VIEW_NOT_AVAILABLE` (the web renders the existing
+     "not available" in-shell state for these screens).
+   - **Long-lived and write-on-read routes (AR6, AR7).** `GET /v1/events` (SSE, `realtime.controller.ts:30`) → **403
+     `SUPPORT_VIEW_NO_STREAM`** for a support viewer; see SD7 for why refusal is chosen over per-event re-checking.
+     Attachment downloads presign with `min(60 s, seconds remaining on the grant)` (C12 AC4). Every other GET that
+     writes as a side effect is handled per C12 AC5.
+   - Otherwise the handler runs in a tenant transaction opened on the **`kaenal_support_reader`** pool with
+     `app.tenant_id`, `app.support_reason`, `app.platform_user_id`, **[AM3]** `app.grant_id` (SET LOCAL). A test
+     asserts `SELECT current_user` inside a support-view handler returns **`kaenal_support_reader`**, inside a member
+     handler returns `kaenal_app`, and that a request with an invalid support-view cookie opens no transaction.
+   The caller is the `support_viewer` principal defined in **C12** (read capabilities, all-plant scope, Settings read
+   decision). `GET /v1/me` returns `{ kind: 'support_viewer', displayName: 'Kaenal support', capabilities, grant: {
+   expiresAt, reason, reference } }`. No realtime subscription and no notifications for the viewer (lists are
+   refetched on navigation). **[AM3]** `app.grant_id` exists so AC2a's RESTRICTIVE policy re-verifies the grant
+   independently of this authenticator on every statement: the authenticator governs the request's outcome
+   (401/403/200) and its messages; the RESTRICTIVE policy is the fail-safe that still holds if the authenticator is
+   buggy or bypassed.
 5. **Audit:** grant start writes the tenant "opened read-only access" event (C3 AC6). Every GET whose route has an
    entity-id path parameter, and every attachment download, writes one tenant `support_accessed` event
    `{ entity_kind, entity_id, route }` with the grant's reason, in the request's transaction (the reader role's only
@@ -872,14 +947,30 @@ plane only.
 AC
 1. **Bundle/route isolation:** `apps/web`'s build output contains no platform route or platform contract (a test greps
    the Next build manifest and the client chunks for `/platform/v1` and platform contract symbols); lint rules from C4
-   AC1 enforced in CI.
+   AC1 enforced in CI. **[AR] Import boundaries (recommended DoD item, AR21):** an ESLint boundary rule
+   (`no-restricted-imports` / `eslint-plugin-boundaries`) forbids (a) `apps/api/src/platform/**` from importing
+   tenant-side controllers, services or `lifecycle.interceptor.ts`, and tenant-side `apps/api/src/**` from importing
+   `apps/api/src/platform/**` — both may import only the shared libraries (`@kaenal/db`, `packages/core`, the outbox
+   writer, `CatalogService`); (b) `packages/types/src/platform/**` from importing tenant contract internals and the
+   tenant contract from importing `@kaenal/types/platform`; (c) `apps/web` ↔ `apps/platform` (already C4 AC1). The PO
+   cannot verify a lint rule's effect by reading; the architect confirms it fails on a planted violation.
 2. **Host isolation:** `PLATFORM_HOST` (e.g. `platform.kaenal.localhost` in dev, `platform.<root>` in prod) required when
    the platform module is enabled; `PLATFORM_ALLOWED_CIDRS` optional; `apps/platform` served only there, with a strict CSP
    (`default-src 'self'`, no third-party script), `X-Robots-Tag: noindex`, `Referrer-Policy: no-referrer`,
-   `frame-ancestors 'none'`.
+   `frame-ancestors 'none'`. **[AR]** The ingress routes `PLATFORM_HOST` to the platform API process only and never to
+   the tenant API; the tenant API never receives a request for that host.
+2a. **[AR] Reserved slugs (AR2).** `RESERVED_TENANT_SLUGS` (`packages/types/src/tenant.ts:14`) gains `staff` and
+   `platform`, so no tenant subdomain can ever equal the platform host label (or the historical one). Migration
+   `0078` fails loudly (`RAISE EXCEPTION`) if an existing `control.tenants` row already owns either slug (none does in
+   dev; the check protects any other environment). Test: `TenantSlug.parse('platform')` and `('staff')` fail;
+   `provision-tenant --slug platform` exits 1.
 3. **Env/docs:** `.env.example` gains `DATABASE_PLATFORM_URL`, `DATABASE_SUPPORT_URL`, `DATABASE_SUPPORT_READER_URL`
-   [AM2], `PLATFORM_HOST`, `PLATFORM_ALLOWED_CIDRS`; CLAUDE.md "Commands" gains `pnpm platform-bootstrap …` [AM2] and `pnpm
-   --filter @kaenal/platform dev` (:3002); `apps/platform/README.md` documents the security model in one page (identity,
+   [AM2], **[AR] `DATABASE_SUPPORT_GATE_URL`, `DATABASE_PROJECTOR_URL`, `PLATFORM_PORT`** (each annotated with the one
+   process that may read it: platform API — `DATABASE_PLATFORM_URL`, `DATABASE_SUPPORT_URL`; tenant API —
+   `DATABASE_SUPPORT_READER_URL`, `DATABASE_SUPPORT_GATE_URL`; worker — `DATABASE_PROJECTOR_URL`), `PLATFORM_HOST`,
+   `PLATFORM_ALLOWED_CIDRS`; CLAUDE.md "Commands" gains `pnpm platform-bootstrap …` [AM2], **[AR] `pnpm --filter
+   @kaenal/api dev:platform` (platform API :3003), `pnpm db:dev-roles` (dev-only LOGIN credentials for the new roles,
+   AR29)** and `pnpm --filter @kaenal/platform dev` (:3002); `apps/platform/README.md` documents the security model in one page (identity,
    session, grant scopes, support view, roles, DB roles) and, **[AM2] PO-SC2**, a production runbook line: the platform
    host must sit behind a network restriction (`PLATFORM_ALLOWED_CIDRS` or an ingress-level VPN / zero-trust proxy)
    before production use.
@@ -891,7 +982,7 @@ AC
    rule holds (`--concurrency=1`). After `pnpm test` / `pnpm test:rls`, re-seed both the demo tenant and the platform
    accounts, and prove **both** sign-ins (tenant 201; platform password + TOTP → session).
 6. **Security review:** a `security-reviewer` pass on the design (before build) and on the merged code
-   (interceptor branches incl. the [AM2] support-view authenticator, cookies, CSRF, grants and scopes, the fragment
+   (**[AR]** both lifecycle interceptors — `PlatformLifecycleInterceptor` and the tenant interceptor's [AM2] support-view principal path — the two-router enumeration, cookies, CSRF, grants and scopes, the fragment
    hand-off, DB roles incl. `kaenal_support_reader`, audit triggers, host check) with findings resolved or recorded
    before Gate 2.
 7. **PROGRESS.md:** the `CONTROL_POOL` Known issue is updated to state the platform surface does not use it (the tenant
@@ -916,18 +1007,35 @@ the same as the security gate closing:** the `security-reviewer` still owes (1) 
 before build starts, and (2) the code review already required by CX AC6 / Definition of Ready #3 once 07C is
 built — both stand as before.
 
-**SD1 — A separate app (`apps/platform`) on a separate host, one API process with a separate module and contract.**
+**SD1 — [AR, revised] A separate app (`apps/platform`) on a separate host, served by a separate API process
+(`PlatformAppModule`, entry point `apps/api/src/platform-main.ts`) with its own contract and its own single
+lifecycle interceptor.**
 - *Options.* (a) A `/platform` area inside `apps/web`. (b) A new `apps/platform` Next.js app; API routes in the existing
   NestJS process under `/platform/v1` with a host check. (c) A new app **and** a separate API process.
-- *Decision proposed: (b).* Why not (a): `apps/web`'s root layout wraps every route in the tenant app's providers
-  and i18n, and its route groups assume a tenant (shell, entitlements, realtime) — the console would have to
-  escape all of it; tenant hosts would serve the platform routes' build
-  artefacts; the tenant session cookie and CSRF token live on the same origin; and one misconfigured route guard
-  would expose a cross-tenant tool on customer domains. A separate origin gives host-only cookies (a tenant-page XSS
-  cannot ride a platform session, and vice versa), an independent CSP, independent deploys and a network restriction
-  at the ingress. Why not (c): the API's value here is the ONE lifecycle interceptor, the audit writer, the
-  resolver and the outbox — duplicating them in a second process doubles the security surface to review; the
-  host check + separate contract + guard tests give the isolation at a fraction of the cost.
+- *Decision: (c)* — **[AR] changed from (b)** after the architecture review. Why not (a): `apps/web`'s root layout
+  wraps every route in the tenant app's providers and i18n, and its route groups assume a tenant (shell,
+  entitlements, realtime) — the console would have to escape all of it; tenant hosts would serve the platform routes'
+  build artefacts; the tenant session cookie and CSRF token live on the same origin; and one misconfigured route
+  guard would expose a cross-tenant tool on customer domains. A separate origin gives host-only cookies (a tenant-page
+  XSS cannot ride a platform session, and vice versa), an independent CSP, independent deploys and a network
+  restriction at the ingress.
+- *Why (b) was withdrawn.* The earlier draft rejected (c) because a second process would "duplicate the
+  interceptor, audit writer, resolver and outbox". That was wrong: a second NestJS application inside `apps/api`
+  (`platform-main.ts` → `PlatformAppModule`) **imports** those modules and packages; nothing is copied. Meanwhile (b)
+  left the two planes entangled in ways a host check cannot fix: a platform branch inside the tenant app's one
+  global interceptor (`app.module.ts:545`), tenant routes still mounted on the platform host, and the tenant API
+  process holding the platform and support database credentials (`DATABASE_PLATFORM_URL`,
+  `DATABASE_SUPPORT_URL`), so any tenant-app RCE or SSRF would inherit cross-tenant commercial write access. With (c)
+  the tenant process holds neither credential (C2 AC1); its only platform-adjacent credentials are the two narrow
+  roles C10 needs (`kaenal_support_reader`, `kaenal_support_gate`).
+- *Consequence for the settled "ONE interceptor" decision.* None: each app has exactly one lifecycle interceptor that
+  authenticates and authorizes inside its own scoped transaction. The full reasoning is in C2 AC2 so it is recorded
+  next to the code it governs. The two routers are enumerated by a test (C2 AC3), the two apps' internals cannot
+  import each other (CX AC1 lint rule), and each app's env schema declares only its own credentials.
+- *Cost accepted (ADR trade-off, [AR]):* one more deployable (the platform API) and one more ingress route; a
+  second bootstrap (`platform-main.ts`) and module graph to keep healthy; shared libraries must stay free of
+  app-specific globals so both apps can import them. Accepted because it removes the platform credentials and routes
+  from the customer-facing process entirely.
 - *Cost accepted (ADR trade-off):* `apps/platform` builds its own small set of primitives (table, form fields,
   dialog, tabs, badge, toast) from the shared tokens rather than importing `apps/web` components — some visual
   duplication, in exchange for zero coupling to the tenant app. Extracting a shared `packages/ui` is a separate
@@ -1064,7 +1172,8 @@ sees — which is also what support needs to reproduce a customer's problem.
 |---|---|---|---|
 | 0078 | `control.platform_users`, `control.platform_setup_tokens`, `control.platform_mfa_recovery_codes`, `control.platform_sessions` | control | MFA-required-when-active CHECK; hashed tokens; no DELETE grant |
 | 0078 | **[AM3]** `control.platform_step_up_tokens` (hashed, 5-min expiry, single-use) | control | Backs `POST /platform/v1/auth/step-up`; consumed by content-grant creation (C3) |
-| 0078 | Role `kaenal_platform` + grants on platform tables and `control.tenants` (SELECT) | role | Replaces any temptation to use `CONTROL_POOL` |
+| 0078 | Role `kaenal_platform` (**[AR] `NOLOGIN`**) + grants on platform tables and `control.tenants` (SELECT) | role | Replaces any temptation to use `CONTROL_POOL`; credential only in the platform API process |
+| 0078 | **[AR]** Guard: `RAISE EXCEPTION` if a tenant owns slug `staff` or `platform` (reserved, CX AC2a) | check | No schema object |
 | 0079 | `control.support_grants` (4 h CHECK, scope `commercial` \| `content` [AM2], reference required for content) | control | One tenant per grant |
 | 0079 | **[AM2]** `control.support_view_sessions`, `control.support_view_exchange_tokens` | control | Hashed tokens; never readable by `kaenal_app` / `kaenal_public` |
 | 0079 | **[AM2]** Role `kaenal_support_reader`: SELECT on every tenant-owned table except the credential/secret denylist ([AM3] denylist finalization must also check for column-level secrets); INSERT on `audit_events` only; attribution trigger extended; schema test enumerating tenant tables | role / tenant tables (grants + trigger only) | RLS applies; no write privilege; every future tenant table must grant it SELECT |
@@ -1088,7 +1197,7 @@ New platform-contract route [AM3]: `POST /platform/v1/auth/step-up` (SR2).
 | Story | Migration | Routes (platform contract + controller) | Service / job | Audit | RBAC | Isolation notes |
 |---|---|---|---|---|---|---|
 | C1 | 0078 | `GET /platform/v1/setup/:token`, `POST …/setup/:token/password`, `…/mfa/enrol`, `…/mfa/activate`; script `platform-bootstrap` [AM2] | `PlatformIdentityService`, `platform-bootstrap.ts` | platform | pre-session; script migrator | control only |
-| C2 | 0078 | `POST /platform/v1/auth/sign-in`, `…/auth/mfa`, `…/auth/sign-out`, `GET /platform/v1/me`, `GET/POST /platform/v1/me/sessions[/:id/revoke]`, **[AM3]** `POST /platform/v1/auth/step-up` | `PlatformAuthenticator`, interceptor platform branch, `PLATFORM_POOL` | platform (sign-in/out/fail/step-up) | session | host check, CIDR, host-only cookies, CSRF; no tenant scope |
+| C2 | 0078 | `POST /platform/v1/auth/sign-in`, `…/auth/mfa`, `…/auth/sign-out`, `GET /platform/v1/me`, `GET/POST /platform/v1/me/sessions[/:id/revoke]`, **[AM3]** `POST /platform/v1/auth/step-up` | **[AR]** `platform-main.ts` + `PlatformAppModule` + `PlatformLifecycleInterceptor`, `PlatformAuthenticator`, `PLATFORM_POOL` | platform (sign-in/out/fail/step-up) | session | host check, CIDR, host-only cookies, CSRF; no tenant scope |
 | C3 | 0079 (0078 for step-up tokens) | `POST /platform/v1/tenants/:id/grants` (**[AM3]** `stepUpToken` required for `content`, rate-limited, anomaly-flagged), `POST /platform/v1/grants/:id/end`, `GET /platform/v1/me/grants` | `SupportAccess.withTenant`, `packages/core/platform-rbac.ts`, **[AM3]** Redis `RateLimiter` | tenant `support_accessed` + platform (**[AM3]** incl. `content_grant_anomaly`) | `platform:tenant:access` | `kaenal_support`, RLS, restrictive policy, audit trigger |
 | C4 | 0080 | `GET /platform/v1/tenants`, `GET /platform/v1/tenants/:id`, `GET …/:id/history` | directory + detail services, summary projector | platform `tenant_viewed` | `platform:tenants:read`, grant for detail | directory from control plane only |
 | C5 | (0080 grants; 0079 trials DELETE) | `PUT …/tenants/:id/packs/:packId`, `POST …/apply-bundle`, `PUT …/tenants/:id/plan`, [AM2] `POST …/tenants/:id/trials/:packId/reset` | `PlatformPlanService` | tenant `entitlement_changed` (support) + platform | `platform:plans:write` | via grant; realtime after commit |
