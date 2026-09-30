@@ -1401,28 +1401,34 @@ hand that to sales.
 
 ---
 
-## 4. Backend needs (per story)
+## 4. Backend needs (per story) [AM1]
 
 | Story | Migration | Routes (contract + controller) | Service / job | Audit | RBAC | Tenancy notes |
 |---|---|---|---|---|---|---|
-| P1 | 0073 | — | `packages/core/entitlements/*` | — | — | forced RLS on both tables; composite member FKs |
-| P2 | — | `GET /v1/entitlements` | `EntitlementsService.get` | — | authenticated | RLS read; realtime topic `entitlements` |
-| P3 | — | decorator on existing routes (qe, supplier, platform writes; graph/predictions reads) | lifecycle interceptor, AI gateway | — (refusals write nothing) | after `@RequireCapability` | resolver inside tenant tx; 402 before lookup |
-| P4 | — | `PUT /v1/entitlements/packs/:packId`, `POST /v1/entitlements/apply-bundle`, `GET /v1/entitlements/org-profile`, `GET /v1/entitlements/downgrade-impact` | `EntitlementsService` | `entitlement_changed` | `billing:manage` | `lock_version` / `expectedPacks` 409; self-service flag read from control plane |
-| P5 | — (0073) | `POST /v1/entitlements/trials` | job `entitlement-trials` | `entitlement_changed` (user + system) | `billing:manage` | PK once-per-pack; job tenant-iterating |
-| P6 | 0075 | `POST/GET /v1/entitlements/requests`, `POST …/requests/:id/withdraw` | `PlanRequestsService`, outbox email | `created`, `status_changed` | per kind | partial unique open index; foreign id → 404 |
-| P7 | 0075 | existing `POST /v1/exports` (`plan_quote`) | `run-export.ts` branch | `exported` | `billing:manage` | numbers from core |
-| P8 | 0074 | CLI only | `scripts/tenant-plan.ts`, `provision-tenant` flags | `support` actor + reason | migrator role | db-router for dedicated tenants; control table app-role SELECT only |
-| P9 | 0075 | `GET /v1/billing/plan`, `GET/PUT /v1/settings/billing` | settings service | `settings_changed` | `billing:manage` | `tenant_settings` RLS |
-| O1 | 0075 | `GET/PUT /v1/settings/workspace-profile` | settings service | `settings_changed` | read: member; write: `settings:manage` | backfill `dismissed` |
-| O2 | — | — | `packages/core/onboarding/*` | — | — | pure |
-| O3 | 0074 | `POST /v1/public/workspace-requests` (`@Public`) | intake service, `send-email` | — (no tenant) | public, rate-limited | INSERT-only grant; hashed IP; no PII logs |
+| P0 | 0073 | `GET /v1/catalog`, `GET /v1/public/onboarding-catalog` (`@Public`) | `CatalogService` (snapshot cache keyed on `catalog_meta.version`); `packages/core/entitlements/catalog.ts` (types, accessors, `validateCatalog`, `CORE_FLOOR_GUARANTEED`) | — (read-only here; writes audited in 07C) | authenticated member/partner; public (active keys/labels only) | control-plane, not tenant-owned; explicit grant test (`kaenal_app` SELECT only; `kaenal_public` column SELECT on two tables) |
+| P1 | 0074 (+ `catalog_tiers` in 0073) | — | `packages/core/entitlements/resolver.ts` (`effectiveModules`, `frameworkInclusions`, `packCoverage`, `estimateMonthly`) | — | — | forced RLS on both tenant tables; composite member FKs; reads profile frameworks (O1 AC1-2, wave A) |
+| P2 | — | `GET /v1/entitlements` (+ `modules`, `declaredFrameworks`, `catalogVersion`) | `EntitlementsService.get` | — | authenticated | RLS read; realtime topic `entitlements` |
+| P3 | — | `@RequireModule` on existing routes (every non-guaranteed module's writes; graph/predictions reads) | lifecycle interceptor, AI gateway | — (refusals write nothing) | after `@RequireCapability` | resolver inside tenant tx; 402 before lookup |
+| P4 | — | `PUT /v1/entitlements/packs/:packId`, `POST /v1/entitlements/apply-bundle`, `GET /v1/entitlements/org-profile`, `GET /v1/entitlements/downgrade-impact` (+ `removeFrameworks`) | `EntitlementsService` | `entitlement_changed` | `billing:manage` | `lock_version` / `expectedPacks` 409; self-service flag read from control plane; 422 `already_included` |
+| P5 | — (0074) | `POST /v1/entitlements/trials` | job `entitlement-trials` | `entitlement_changed` (user + system) | `billing:manage` | PK once-per-pack; job tenant-iterating; fully covered pack → 422 |
+| P6 | 0076 | `POST/GET /v1/entitlements/requests`, `POST …/requests/:id/withdraw` | `PlanRequestsService`, outbox email + outbox `plan_request.changed` (07C projects it) | `created`, `status_changed` | per kind | partial unique open index; foreign id → 404; fulfil/decline in 07C |
+| P7 | 0076 | existing `POST /v1/exports` (`plan_quote`) | `run-export.ts` branch | `exported` | `billing:manage` | numbers + price-book version from the same snapshot |
+| P8 | 0075 | CLI only (`provision-tenant --bundle` required, `--from-request`) | `provision-tenant.ts` | `system` events for the rows it seeds | migrator role | db-router for dedicated tenants; `control.tenant_plans` app-role SELECT only |
+| P9 | 0076 | `GET /v1/billing/plan`, `GET/PUT /v1/settings/billing` | settings service | `settings_changed` | `billing:manage` | `tenant_settings` RLS |
+| O1 | 0076 | `GET/PUT /v1/settings/workspace-profile` | settings service; catalog-bound validation | `settings_changed` (+ sales outbox email on frameworks change) | read: member; write: `settings:manage`, `frameworks`: `billing:manage` | backfill `dismissed`; realtime `entitlements` on frameworks change |
+| O2 | — | — | `packages/core/onboarding/suggest.ts` (catalog as argument) | — | — | pure |
+| O3 | 0075 | `POST /v1/public/workspace-requests` (`@Public`) | intake service, `send-email` | — (no tenant) | public, rate-limited | INSERT-only grant; hashed IP; no PII logs; catalog-validated keys |
 | O4 | — | `GET /v1/onboarding`, `POST /v1/onboarding/start|dismiss|resume` | onboarding service | `settings_changed` | `settings:manage` | — |
 | O5 | — | `GET /v1/onboarding` (tasks) | task completion queries | — | `settings:manage` | tenant-scoped EXISTS on indexed columns |
-| X1 | — | — | seed, ledger, excluded.md, audit-log UI, mobile | — | — | — |
+| X1 | — | — | seed (+ `globex`), ledger, excluded.md, audit-log UI, mobile | — | — | — |
 
 Gap proof for every "new" route: none of them exist in `packages/types/src/contract.ts` or any
-`apps/api/src/**/*.controller.ts` (§1a). They are all built this sprint (CLAUDE.md rules 0 and 10).
+`apps/api/src/**/*.controller.ts` (§1a; re-checked 2026-09-30 for the [AM1] additions: `grep -n -i
+"catalog\|entitle\|price" packages/types/src/contract.ts` and the same over `apps/api/src/**/*.controller.ts`
+return only the unrelated training **competency** catalog (`contract.ts:1438,1486`,
+`training/competencies.controller.ts`) — no pack catalog, price-book or entitlement route). They are all built this sprint (CLAUDE.md rules 0 and 10).
+Staff-side routes (catalog/price-book writes, plan administration, request resolution) are specified in
+`SPRINT-07C-staff-console.md` §4.
 
 ## 5. Design needs
 
@@ -1442,7 +1448,7 @@ Gap proof for every "new" route: none of them exist in `packages/types/src/contr
 
 | ID | What to design | Why it is needed |
 |---|---|---|
-| D-S1 | **First-run setup flow** (`/onboarding`): 4 steps (Industry, Frameworks, Size, Recommended modules) + step indicator, Back/Next, Skip for now, Skip setup; "suggested for <industry>" marking; Recommended-modules list grouped Essential/Recommended/Optional with reason copy, checkboxes and lock chip; re-entry (pre-filled) variant; loading, save-error, 409 "completed by someone else", offline; 375px width | O4 — the questionnaire itself has no design anywhere |
+| D-S1 | **First-run setup flow** (`/onboarding`): 4 steps (Industry, Frameworks, Size, Recommended modules) + step indicator, Back/Next, Skip for now, Skip setup; "suggested for <industry>" marking; Recommended-modules list grouped Essential/Recommended/Optional with reason copy, checkboxes and lock chip; re-entry (pre-filled) variant; loading, save-error, 409 "completed by someone else", offline; 375px width. **[AM1]** Plus: catalog-length-agnostic industry/framework layouts (8-9 today, must hold 20+ without redesign, U-D4); "None of these yet" chip; the live "included free with your selection" line under the frameworks chips; the "Included with <framework>" chip on module rows; the manager read-only frameworks state; the `?step=frameworks` entry variant; the framework-removal confirm (reuses D-S8) | O4 — the questionnaire itself has no design anywhere |
 | D-S2 | **Request-mode states** on `/pricing` and the overlay: header note; "Requested" chip + disabled button + Withdraw; request dialog (what is requested, optional note, Send); overlay footer copy in request mode | P4/P6, D1 |
 | D-S3 | **Non-admin overlay variant** (Request access only; "Requested — your admin has been notified") | P2/P6 |
 | D-S4 | **Locked type in CreateWizard / quick-create / palette** (lock chip + inline upsell) | P2 AC7 |
@@ -1453,10 +1459,19 @@ Gap proof for every "new" route: none of them exist in `packages/types/src/contr
 | D-S9 | **Request-a-workspace confirmation** and error states (rate-limited, server error) | O3 |
 | D-S10 | **Notification rows** for the 4 new kinds (web centre; mobile list uses its existing row) | P5/P6 |
 | D-S11 | **Accessibility check of the 9 pack accents** as button backgrounds with white text (WCAG AA); darker token where needed | P2 AC6 |
-| D-S12 | **Guardrail callout and Core tier copy** rewritten per the user's D2 answer | D2 |
+| D-S12 | **[AM1] Tenant-aware guardrail callout and Core tier card** (replaces "rewrite the static copy"): the callout rendered from the tenant's declared frameworks (1, 2, 3+ frameworks; long module lists wrap); the Core card's "Included for <workspace> with <framework>" block; the no-framework variant with the admin-only "Declare frameworks" link; the non-admin read of the same page is not needed (`/pricing` is admin-only) | D2 DECIDED, P4 AC8 |
+| D-S13 | **[AM1] Framework inclusion states on pack cards and the overlay**: "Included · <framework short label>" mark on an include row; "Adds <modules>" line on a partially covered pack; "Included with your frameworks" fully-covered card with no CTA; Billing & plan banner "+ included with …" line (with D-S6) | D2 DECIDED, P4 AC9, P9 AC4 |
+| D-S14 | **[AM1] Catalog-driven intake form**: Request-a-workspace with a longer industry list and more framework chips than drawn (wrapping rules), and the catalog-unavailable fallback (Other + free text, notice) | O3, U-D4 |
 
 Mobile: no `m-*.jsx` for any of this; `m-auth.jsx` has no request stage. Nothing is designed or built on mobile
 except the small X1 items that use existing mobile patterns.
+
+**[AM1] Staff console screens** (sign-in, tenant directory, tenant detail, plan editing, sales inbox, workspace
+requests, catalog and price-book editors, platform audit log) have **no jsx anywhere** — verified 2026-09-30 by
+grepping every `project_brain/project/src/*.jsx` and `project_brain/mobile/src/m-*.jsx` for
+`staff|operator|backoffice|superadmin|impersonat|support access|kaenal support`: the only hits are shop-floor
+"operator" strings (e.g. `operations.jsx:586`, `trust-center.jsx:37`) and none is a console. Every console screen
+is listed as a design gap in `SPRINT-07C-staff-console.md` §5, not here.
 
 ## 6. Dead-end audit (every control this sprint introduces or touches)
 
@@ -1491,44 +1506,82 @@ except the small X1 items that use existing mobile patterns.
 | CSM card: Book 30 min / Slack message / Email | booking URL / chat URL / `mailto:` — each rendered only when the field exists |
 | Helpful right now links | In-product routes from the core catalog (test-checked) |
 | Notification rows (4 kinds, web + mobile) | `/pricing?pack=` (web) / web hand-off (mobile) |
-| CLI flags (`tenant-plan`, `provision-tenant --bundle/--from-request`) | Real writes, audited |
+| CLI flags (`provision-tenant --bundle/--from-request`) [AM1: `tenant-plan` removed] | Real writes, audited (`system` events for seeded rows) |
+| [AM1] Pricing: "Declare frameworks" link (no-framework callout, admins) | `/onboarding?step=frameworks` (O4 deep link), returns to `/pricing` |
+| [AM1] Pricing: fully covered pack card | **No control by design** ("Included with your frameworks"); the API refuses toggles/trials/requests for it with 422 `already_included` |
+| [AM1] Pricing: "Included · <framework>" marks, Core-card inclusion block, per-tenant callout | Informational, computed from real entitlements + catalog (no control) |
+| [AM1] Setup flow: live inclusion line, "Included with <framework>" chip, manager read-only frameworks | Informational / disabled-with-explanation; the only writer is an admin's Next/Finish (profile PUT) |
+| [AM1] Framework-removal confirm: Cancel / Confirm | No change / profile PUT (frameworks) |
+| [AM1] Request-a-workspace: catalog-driven Industry options and framework chips | Real catalog values; fallback (Other + free text) when the catalog is unavailable |
+| [AM1] Anything a staff member does (fulfil/decline, set plan, edit catalog/price book) | Not a tenant-app control; specified with its own dead-end audit in `SPRINT-07C-staff-console.md` §6 |
 | Designed demo tasks: Connect SSO, Connect SAP S/4HANA, IATF audit readiness scan, Add plants & areas | **Not rendered** (no real feature yet); `excluded.md` + §7; *Add plants & areas* joins when Sprint 08 ships Sites |
 | Designed "Helpful right now" video tour / articles / starter pack | Replaced by in-product destinations until Sprint 12 (knowledge base, tours) — D-S5 deviation |
 | Placeholders retired | `/pricing` (`planned:pricing`), settings `billing`, settings `onboarding` |
 
 No "coming soon", no dead control, no placeholder route is introduced.
 
-## 7. Open questions and out of scope
+## 7. Open questions and out of scope [AM1]
+
+**Resolved by the user on 2026-09-30 (retired, kept for traceability).**
+- ~~Q-C2 D2 — IATF core tools in Core or in packs?~~ → **U-D2**: neither; framework-conditional inclusions as data
+  (§3.0 D2 DECIDED).
+- ~~Q-C9 Price book~~ → **U-D3**: jsx prices stay as a **placeholder**, held in the versioned, staff-editable price
+  book (P0; editor in 07C C8).
+- ~~Q-S2 (list part) Industry list and framework list~~ → **U-D4**: the 8 industries and 9 frameworks are approved
+  and must be extensible without a migration (catalog tables, P0). The **size question** part of Q-S2 was not
+  answered — see Q-S2b.
+- ~~Q-S4 Staff web console~~ → **U-D5**: build it now → `SPRINT-07C-staff-console.md`.
+- ~~D1 self-service vs request mode~~ → **U-D1**: confirmed as recommended; new tenants default to request mode.
+
+**Resolved by the PO in this amendment (smallest reasonable choice, recorded; revisitable).**
+- ~~Q-C1 default bundle when `--bundle` is omitted~~ → `--bundle` is **required** by `provision-tenant` (no silent
+  default); request mode is the default per U-D1.
+- ~~Q-S1 build waves~~ → A → B, then C (07C); P0 + P1 (+ O1 AC1-2) first; B and the rest of A in parallel after.
+- Split of Increment C into its own sprint file (§ header, "PO scope call").
 
 **Strategic — the user decides before build ([USER]).**
-- **Q-C1 [USER] Default for new tenants.** Which bundle does `provision-tenant` apply when `--bundle` is omitted
-  (recommend `core`), and does a new tenant start in request mode (recommend `self_service=false`, D1)?
-- **Q-C2 [USER] D2 — IATF core tools in Core or in packs?** (a) keep the drawn map and correct the claim, or (b)
-  move FMEA/SPC/MSA/PPAP into Core. Includes the replacement wording for the guardrail callout / Core tier line.
-- **Q-C9 [USER] Price book.** Are the jsx list prices ($2,400 Core base, $1,200 Intelligence + credits, $18/supplier,
-  $450 QE, $600 Platform, $900/extra plant, $9/inspector, $150/standard, $2,000 support) the real price book to
-  show in the estimate and quote? They are data in `catalog.ts`; if they are placeholders, what should the page
-  show?
-- **Q-S2 [USER] Industry list and the size question.** Confirm the 8 industries (automotive, aerospace & defense,
-  medical devices, electronics, pharmaceutical, food & beverage, general manufacturing, other-with-free-text) and
-  the 9 frameworks. Keep the size question (the design already asks "Plant size" on the request form; its effect
-  on suggestions is deliberately small), or drop it from the first-run flow?
+- **Q-D3 [USER] Approve D3** (gates block create/update/transition, never reading or exporting the tenant's own
+  records; derived analytics gated on read; reducing actions never gated). Not covered by the 2026-09-30 answers.
+- **Q-D4 [USER] Approve D4** (real 14-day trials, once per pack, admin-started, both modes, not for
+  `security`/`support`). Not covered by the 2026-09-30 answers.
+- **Q-C11 [USER, NEW] The framework-inclusion seed** — which modules each framework includes free (§3.0 D2 table:
+  IATF adds FMEA, SPC, MSA, PPAP, Suppliers; ISO 13485 / FDA QMSR add Risk; AS9100 adds Risk + ECN; ISO 9001 and
+  the rest add nothing beyond the floor). This is revenue-defining (every IATF tenant gets those five free) and
+  compliance-defining (the SME must confirm each `required` reading). It is data, so a later change needs no
+  deploy — but the day-one values need the user's commercial sign-off. PO recommendation: approve as proposed.
+- **Q-C12 [USER, NEW] Remedy for a false framework declaration.** Declaring IATF 16949 unlocks five modules for
+  free and is a self-attestation. Designed now: admin-only field, audited, Kaenal sales emailed on every change,
+  history visible in the staff console. Options for more: (a) nothing more — contractual remedy (PO
+  recommendation: IATF certification is publicly verifiable, and a verification step would contradict "free
+  inclusion never needs a request"); (b) a staff "suspend inclusion for framework X, with reason" override per
+  tenant (a 07C story + a resolver input); (c) inclusions apply only after staff verify the declaration (makes the
+  free part sales-gated — contradicts D1 "Final").
+- **Q-C13 [USER, NEW] Framework-aware pack pricing.** An IATF tenant pays the listed Quality Engineering price even
+  though three of its five modules are already free for it. Options: (a) no change — the card shows exactly what
+  the pack adds (current design, PO recommendation while the price book is a placeholder); (b) conditional price
+  items per framework in the price book (schema extension + 07C editor + estimate/quote logic). Decide before the
+  price book stops being a placeholder.
+- **Q-S2b [USER] Keep the plant-size question?** The design already asks "Plant size" on the request form; its
+  effect on suggestions is deliberately small. Assumed: keep it (O4 step 3) unless the user says drop it.
 - **Q-S3 [USER] Existing tenants.** Recommended: not force-prompted (`dismissed` backfill); the checklist is
   available under Settings → Onboarding with "Start setup". Alternative: prompt every existing admin once.
+  **[AM1] Related:** existing tenants are backfilled with an **empty** profile, so they declare no framework and get
+  no inclusions — harmless today because they are backfilled with every pack `grandfathered` (P1 AC5).
 - **Q-S6 [USER] Ongoing nav emphasis.** Should focus modules also change the sidebar (e.g. order focus modules
   first within "Quality system", never hiding any)? Not in this sprint's scope; if yes, it needs a design and a
   story in a later sprint.
 
 **Product/technical — smallest reasonable choice made, recorded, revisitable.**
-- Q-S1 Split into two build waves (A: entitlements, B: onboarding)? PO view: yes, A first; the architect decides.
-- Q-S4 Staff web console for plans/requests (D5) — future sprint; needs a staff identity model and design.
-- Q-S5 QMS SME review of every clause reference in O2's table before it ships as copy (DoD item). If no SME is
-  available, reason copy falls back to "Commonly required by <framework>" without clause numbers.
+- Q-S5 QMS SME review of every clause reference (O2's table **and** Q-C11's `required` levels) before it ships as
+  copy (DoD item). If no SME is available, reason copy falls back to "Commonly required by <framework>" without
+  clause numbers — **but the `required` levels still need the user's Q-C11 sign-off**, because they carry money.
 - Q-C3 `security` and `multiplant` packs gate nothing in-product (their design `routes` are empty or planned
   pages). Already-built settings screens they "include" (legal hold, DLP, white-label, cross-tenant analytics,
-  cost centers) stay ungated, as drawn. Gate them? Not without a user decision.
+  cost centers) stay ungated, as drawn. Gate them? Not without a user decision. [AM1] If decided later, it is a
+  catalog data edit (07C C7) plus `@RequireModule` on those routes.
 - Q-C4 Planned modules (AI governance, developer platform, multi-tenancy) inherit their pack gate when their own
-  sprint builds them (catalog already maps them).
+  sprint builds them: [AM1] that sprint adds the `ModuleId` and a `catalog_pack_modules` seed row in its own
+  migration (ROADMAP §4 updated accordingly).
 - Q-C5 Should close-out transitions (close/withdraw an open ECN or SCAR) stay allowed after a downgrade? Current
   choice: no (all writes blocked, downgrade warns). Revisit if customers report stuck in-flight records.
 - Q-C6 Figma-style provisional access while a member request is pending — not included.
@@ -1539,67 +1592,102 @@ No "coming soon", no dead control, no placeholder route is introduced.
   design). Gating the app would need a mobile design and would risk rule 12 (sign-in).
 - Q-C10 After `platform` is removed, already-connected integrations keep delivering until disconnected (reducing
   is never gated; D3). Stop them instead?
+- **Q-P1 [NEW, found this session]** `provision-tenant` / `scripts/lib/seed.ts` write no audit events for what
+  they seed today (admin membership, SLA config, default plant, example template). P8 audits only what it adds.
+  The pre-existing gap goes to PROGRESS.md Known issues for a later hardening pass; it is not silently fixed here.
+- **Q-C14 [NEW]** Tenants whose declared framework is retired by staff keep its inclusions (D2). If a framework is
+  ever retired because it was wrong (not merely superseded), staff have no bulk "re-evaluate" tool this sprint —
+  recorded, not built.
 
-**Out of scope (named, not silently dropped).** Payment provider, invoices, tax, proration, dunning (Q6); staff
-console (D5); Organization settings section, including its Identity card and Plan & usage card (Sprint 08 —
-it will read and write O1's profile); Sites & areas (Sprint 08); product tours, knowledge base, NPS, adoption
+**Out of scope (named, not silently dropped).** Payment provider, invoices, tax, proration, dunning (Q6); **the
+staff console itself (in `SPRINT-07C-staff-console.md`, same release)**; Organization settings section, including
+its Identity card and Plan & usage card (Sprint 08 — it will read and write O1's profile, with the same
+`billing:manage` rule for frameworks); Sites & areas (Sprint 08); product tours, knowledge base, NPS, adoption
 analytics, release notes (adoption.jsx, Sprint 12); mobile onboarding/pricing (no design); SSO/SCIM (Sprint 14).
 Any unresolved item above moves to PROGRESS.md "Known issues" at close.
 
-## 8. Definition of Done
+## 8. Definition of Done [AM1]
 
-- [ ] User has approved §3 (D1-D5) and answered Q-C1, Q-C2, Q-C9, Q-S2, Q-S3, Q-S6; UI Lead Designer's boards
-      D-S1…D-S12 approved by the user (Gate 1); `planner` architecture review returned SIGN OFF with the slice plan.
-- [ ] Migrations 0073-0075 applied; `pnpm db:migrate` clean on a fresh DB and on a DB with existing tenants
-      (backfill proven: existing tenants keep every pack, onboarding `dismissed`); `pnpm db:check` green;
-      `pnpm test:rls` green including `entitlements` writes, `entitlement_trials`, `plan_requests`; **RLS mutation
-      test** (drop one new policy → suite fails) run and recorded; explicit grant tests for
-      `control.tenant_plans` (app SELECT only) and `control.workspace_requests` (INSERT only).
-- [ ] `packages/core` unit tests: resolver/tier/estimate (P1 AC3), suggestion engine golden + property tests (O2
-      AC4), task/helpful catalogs with the dead-link cross-check (O5 AC3).
-- [ ] Contract + controllers for every route in §4; `@RequirePack` coverage test (P3 AC2) green; 402/403/200
-      matrix tests per pack (P3 AC4); every existing gated-module suite seeds packs via `grantPacks` and stays
-      green.
-- [ ] Every mutation writes its audit event in the same transaction (rule 3), including CLI `support` events with
-      reasons and the trials job's `system` events; idempotency on every create (trials, requests, public
-      intake); optimistic concurrency on toggles, bundle apply, profile and billing settings (rule 6).
-- [ ] Web: `/pricing`, overlay (both variants), sidebar locks, create-surface locks, Billing & plan, sign-in
-      request stage, `/onboarding`, `/settings/onboarding` — each browser-verified side-by-side against its jsx
-      or approved board (rule 9), including loading/empty/error/409/offline/permission states (04 §6), at desktop
-      and 375px.
+- [ ] User has approved **D3 and D4** (Q-D3, Q-D4) and answered **Q-C11, Q-C12, Q-C13, Q-S2b, Q-S3** (D1, D2, D5,
+      the price book and the industry/framework lists were decided 2026-09-30); UI Lead Designer's boards
+      D-S1…D-S14 approved by the user (Gate 1); `planner` architecture review returned SIGN OFF with the slice
+      plan, covering both this file and `SPRINT-07C-staff-console.md` (one review of the release, since 07C
+      writes this file's tables).
+- [ ] Migrations **0073-0076** applied (0077 buffer unused or used for a recorded correction); `pnpm db:migrate`
+      clean on a fresh DB and on a DB with existing tenants (backfill proven: existing tenants keep every pack,
+      onboarding `dismissed`; catalog seeded: 9 packs, 3 tiers, 8 industries, 9 frameworks, every rule, price book
+      v1 published); `pnpm db:check` green; `pnpm test:rls` green including `entitlements` writes,
+      `entitlement_trials`, `plan_requests`; **RLS mutation test** (drop one new policy → suite fails) run and
+      recorded; explicit grant tests for every new `control` table (P0 AC6), `control.tenant_plans` (app SELECT
+      only) and `control.workspace_requests` (public INSERT only).
+- [ ] `packages/core` unit tests: `validateCatalog` on the seed (P0 AC3); resolver/tier/estimate including every
+      framework-inclusion case and the monotonicity property (P1 AC3); suggestion engine golden + property tests
+      including the **essential ⇔ included** no-false-claim property (O2 AC4); task/helpful catalogs with the
+      dead-link cross-check (O5 AC3); the no-hard-coded-catalog guard test (P0 AC3).
+- [ ] **Extensibility proven without a deploy** (U-D2/U-D3/U-D4): a test inserts a framework + rule, an industry
+      and a new published price-book version, and observes them in `GET /v1/catalog`, the public catalog,
+      profile validation, `GET /v1/entitlements`, the estimate and a quote (P0 AC7, P7 AC4).
+- [ ] Contract + controllers for every route in §4; `@RequireModule` coverage test (P3 AC2) green; 402/403/200
+      matrix tests per module including framework-included modules (P3 AC4); every existing gated-module suite
+      seeds packs via `grantPacks` and stays green.
+- [ ] Every mutation writes its audit event in the same transaction (rule 3), including the trials job's `system`
+      events and provisioning's `system` events for the rows it seeds; idempotency on every create (trials,
+      requests, public intake); optimistic concurrency on toggles, bundle apply, profile and billing settings
+      (rule 6).
+- [ ] Web: `/pricing` (tenant-aware: IATF tenant, ISO-only tenant, no-framework tenant), overlay (both variants),
+      sidebar locks, create-surface locks, Billing & plan, sign-in request stage (catalog-driven), `/onboarding`
+      (incl. `?step=frameworks` and manager read-only), `/settings/onboarding` — each browser-verified
+      side-by-side against its jsx or approved board (rule 9), including loading/empty/error/409/offline/
+      permission states (04 §6), at desktop and 375px.
 - [ ] Playwright journeys: lock → trial → unlock → expiry (clock helper) → locked-but-readable; self-service add/
-      remove with downgrade confirm; request mode → sales email in the dev sink → CLI fulfil → unlock without
-      reload; member Request access → admin notification → fulfil → requester notified; public workspace request
-      → `provision-tenant --from-request` → first admin sign-in → first-run flow pre-filled → checklist with module
-      tasks → a task self-completes.
+      remove with downgrade confirm; request mode (`globex`) → sales email in the dev sink → request visible and
+      withdrawable (fulfilment is proven in 07C's journeys); member Request access → admin notification →
+      self-service add → auto-fulfilled → requester notified; **declare IATF 16949 → FMEA unlocks with no request
+      → remove it → confirm → FMEA locks**; public workspace request → `provision-tenant --from-request` → first
+      admin sign-in → first-run flow pre-filled → checklist with module tasks → a task self-completes.
 - [ ] Mobile: X1 AC5 done; `pnpm --filter @kaenal/mobile typecheck` + mobile tests green; `progress_mobile.md`
       updated.
-- [ ] O2 clause copy reviewed by a QMS SME, or the Q-S5 fallback wording used — recorded in PROGRESS.md.
+- [ ] O2 clause copy **and Q-C11's `required` levels** reviewed by a QMS SME, or the Q-S5 fallback wording used
+      for copy — recorded in PROGRESS.md.
 - [ ] Gates green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
-- [ ] Demo re-seeded (`pnpm --filter @kaenal/api exec tsx scripts/seed-demo.ts`), Enterprise bundle +
-      self-service restored after browser verification, **real sign-in returns 201** (rule 12); sign-in stage
-      change (O3) proven not to affect sign-in.
+- [ ] Demo re-seeded (`pnpm --filter @kaenal/api exec tsx scripts/seed-demo.ts`), `acme` Enterprise bundle +
+      self-service restored after browser verification, `globex` present, **real sign-in returns 201** to both
+      workspaces (rule 12); sign-in stage change (O3) proven not to affect sign-in.
 - [ ] Placeholder ledger shrunk by 3 and renumbered; `excluded.md` updated; CLAUDE.md Commands + `.env.example`
-      updated; PROGRESS.md "Current status", Decisions log (D1-D5 outcomes) and Known issues (every unresolved §7
-      item) updated in the same commit as the work.
-- [ ] PO verifies every AC above against code, tests and browser evidence at Gate 2.
+      updated; PROGRESS.md "Current status", Decisions log (U-D1…U-D5 and the PO split decision, with dates) and
+      Known issues (every unresolved §7 item incl. Q-P1, Q-C14) updated in the same commit as the work.
+- [ ] PO verifies every AC above against code, tests and browser evidence at Gate 2. **Release rule:** this file
+      may pass Gate 2 before 07C, but it is not released to any request-mode tenant until 07C passes Gate 2
+      (§ header, release coupling).
 
 ## 9. Out-of-scope confirmation
 
 No scope beyond `pricing.jsx`, `addons.jsx`, `adoption.jsx` `OnboardingWizard`, `auth.jsx` stage `request`,
 `settings.jsx` `Billing` (+ its Industry/Frameworks controls reused in the new flow), 02 §2 `entitlements`, 03 §3,
 04 §5, 06 §3.1, 07 §1 and 09 §1 is introduced, **except** the named additions each required to make a designed
-control real without a payment provider (plan requests, the self-service flag, trial storage, the operator CLI,
-the workspace-request store) and the one new design (the first-run flow) that the user explicitly asked for.
-Each is justified in its story and in §3.0.
+control real without a payment provider (plan requests, the self-service flag, trial storage, the
+workspace-request store) and the one new design (the first-run flow) that the user explicitly asked for, **and
+[AM1] the additions the user's 2026-09-30 decisions require**: the control-plane catalog (packs, pack→module map,
+tiers, framework rules, industry and framework lookups) and the versioned price book as admin-editable data
+(U-D2/U-D3/U-D4), framework-conditional inclusions in the resolver and on `/pricing` (U-D2), and the `globex` demo
+workspace needed to verify them. The operator CLI is removed (U-D5); the staff console is specified in
+`SPRINT-07C-staff-console.md`. Each is justified in its story and in §3.0.
 
 ---
 
-**PO use-case sign-off: PENDING.** Use-case coverage is complete in this draft (15 stories: P1-P9, O1-O5, X1;
-every happy/error/empty/permission/offline/cross-tenant path mapped to testable ACs with a Web/Mobile/Shared
-split). The PO will flip this to SIGNED once the user has answered the [USER] questions in §7 (they change ACs
-marked D1/D2, the industry list and the backfill), because signing before those answers would sign ACs that may
-change.
+**[AM1] Decision record.** D1 DECIDED (user, 2026-09-30). D2 DECIDED (user, 2026-09-30; redesigned as
+framework-conditional inclusions). Price book: placeholder, staff-editable (user, 2026-09-30). Industry/framework
+lists: approved, extensible (user, 2026-09-30). D5 DECIDED (user, 2026-09-30; staff console now, `SPRINT-07C`).
+D3, D4: PROPOSED, awaiting approval. Split into `SPRINT-07` (A+B) and `SPRINT-07C` (C): PO decision, 2026-09-30.
 
-**§3 backend + commercial design sign-off: PENDING (user).** D1-D5 need explicit approval. No build starts before
-it.
+**§3 backend + commercial design sign-off: PARTIAL (user).** D1, D2 and D5 approved 2026-09-30 and recorded as
+DECIDED; the D2 **redesign itself** (the three-layer model, the no-framework = floor rule, frameworks requiring
+`billing:manage`, the tenant-aware pricing page) is the PO's rendering of the user's decision and needs the user's
+confirmation that it matches their intent, together with **Q-D3 (D3), Q-D4 (D4), Q-C11 (inclusion seed), Q-C12,
+Q-C13**. No build starts before those.
+
+**PO use-case sign-off: PENDING.** Use-case coverage is complete in this amended draft (**16 stories**: P0-P9,
+O1-O5, X1; every happy/error/empty/permission/offline/cross-tenant path mapped to testable ACs with a
+Web/Mobile/Shared split, including the new framework-inclusion, extensibility and price-book paths). The PO flips
+this to SIGNED when the §3 items above are answered, because Q-C11/Q-C12/Q-C13 and D3/D4 change ACs (P1 AC3's
+expected sets, P3, P4 AC8-10, P5); signing before those answers would sign ACs that may still change.
