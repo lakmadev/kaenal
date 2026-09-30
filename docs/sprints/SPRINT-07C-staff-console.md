@@ -70,7 +70,7 @@ paths. Proven by `pnpm --filter @kaenal/mobile typecheck` + mobile tests staying
 | **Audit already supports staff actors.** `audit_events.actor_kind` allows `support`; CHECK `actor_kind <> 'support' OR reason IS NOT NULL`; action `support_accessed` exists in the action CHECK; the web audit log already renders `support` as a source | `0001_core.sql:707,727`, `0015_audit_partitioning.sql:47-55`, `0061_audits_module.sql:73-81`, `apps/web/src/features/settings/sections/audit-log.tsx:50` |
 | Reusable auth primitives: argon2id hashing (OWASP floor), TOTP secret encryption, lockout constants (`LOCKOUT_DURATION_MS` 15 min), Redis `RateLimiter`, constant-time compare | `apps/api/src/auth/passwords.ts`, `mfa-crypto.ts`, `packages/core/src/auth-policy.ts:15-37`, `apps/api/src/http/rate-limit.ts` |
 | Dedicated (Model B) tenants: `TenantPoolManager.poolFor(tenantId, secretRef)` opens a pool from the tenant's **app** secret ref; there is no support-role credential for dedicated databases | `apps/api/src/tenant/pool-manager.ts:38-50` |
-| `apps/web` is one Next.js app whose root layout mounts tenant chrome (session, entitlements, realtime, i18n, shell) and proxies `/api/*` to the API for same-origin cookies; no middleware. `pnpm-workspace.yaml` includes `apps/*`, so a new `apps/staff` joins the workspace with no config change | `apps/web/src/app/layout.tsx`, `apps/web/next.config.*:35-37`, `pnpm-workspace.yaml` |
+| `apps/web` is one Next.js app whose root layout wraps every route in `NextIntlClientProvider` + the app `Providers`, with the tenant shell in the `(app)` group layout, and proxies `/api/*` to the API for same-origin cookies; no middleware. `pnpm-workspace.yaml` includes `apps/*`, so a new `apps/staff` joins the workspace with no config change | `apps/web/src/app/layout.tsx:49-50`, `apps/web/src/app/(app)/layout.tsx`, `apps/web/next.config.*:35-37`, `pnpm-workspace.yaml` |
 | **No design exists for any staff screen.** Grep of every `project_brain/project/src/*.jsx` and `project_brain/mobile/src/m-*.jsx` for `staff|operator|backoffice|superadmin|impersonat|support access|kaenal support` → only shop-floor "operator" strings (`operations.jsx:586`, `trust-center.jsx:37`, `settings-extra.jsx:556`, …) | grep, this session |
 | Sprint 07 A provides what this increment edits: `control.catalog_*`, `control.framework_module_rules`, `control.price_book_*`, `control.tenant_plans`, `control.workspace_requests`, tenant `entitlements` / `entitlement_trials` / `plan_requests`, the `plan_request.changed` outbox event, and the `plan_request_resolved` notification kind | `SPRINT-07-entitlements-onboarding.md` §3.1, P0, P6 AC6 |
 
@@ -292,7 +292,9 @@ AC
 2. `GET /staff/v1/tenants?q=&status=&tier=&mode=&hasOpenRequests=&framework=&cursor=` (`staff:tenants:read`;
    cursor-paginated, rule 6) reads `control.tenants` + `control.tenant_plans` + `control.sales_inbox` counts +
    a control-plane **tenant summary** (`control.tenant_commercial_summary`: tier, declared framework keys,
-   refreshed from the `entitlements`/profile change outbox events — no tenant-scoped read needed to list).
+   effective packs, refreshed from Sprint 07's `tenant_commercial.changed` outbox event (Sprint 07 X1 AC8) — no
+   tenant-scoped read needed to list). A summary older than its last event is corrected on the next event; a
+   "Refresh" action on a tenant row re-derives it inside a grant.
 3. `GET /staff/v1/tenants/:id` (grant required, via `SupportAccess.withTenant`) → `StaffTenantDetailDto` (plan,
    packs, trials, `modules` with reasons, contract, CSM, profile, declaration history, counts, open requests).
    `GET /staff/v1/tenants/:id/history?cursor=` (grant; cursor). Foreign/unknown id → 404.
@@ -415,9 +417,10 @@ UC
 - Happy (framework rules): per framework, the module list with level `required` / `supports` / none, clause and
   note; changing a level is the U-D2 lever ("which modules this framework includes free").
 - **Impact preview (RC5):** any edit that can change a tenant's effective modules (module map, rule level,
-  retiring nothing — retiring never removes inclusions) first computes the affected tenants: "3 tenants gain FMEA;
-  12 tenants lose ECN (4 have open records)"; applying requires `admin`, a reason and typing the number of tenants
-  that lose access. Pure display edits apply with a reason and no preview.
+  rule level; retiring never removes inclusions) first computes the affected tenants from the control-plane
+  summary: "3 tenants gain FMEA; 12 tenants lose ECN" with both lists; applying requires `admin`, a reason and
+  typing the number of tenants that lose access. Open-record counts are **not** computed across tenants (that would
+  read tenant data without a grant); staff open an affected tenant with a grant to see its impact. Pure display edits apply with a reason and no preview.
 - Guard rails: mapping a `CORE_FLOOR_GUARANTEED` module to a pack → 422 with the reason (Sprint 07 P0 AC3); a rule
   referencing an unknown module → 422; deleting anything → not offered (retire instead).
 - Propagation: the tenant API enforces the edit on the next request (catalog version, Sprint 07 §3.2); tenant
@@ -436,9 +439,8 @@ AC
    `CatalogKey`; `0080` grants `kaenal_staff` INSERT/UPDATE (never DELETE) on the catalog tables; every write bumps
    `catalog_meta.version` (trigger from 0073) and writes a platform audit event with before/after in the same tx.
 3. The impact preview evaluates `effectiveModules` for each tenant from `control.tenant_commercial_summary` (C4 AC2
-   — declared frameworks + effective packs) so it needs no per-tenant grant; open-record counts for "lose access"
-   tenants are fetched only for those tenants through a system-scoped count job (no staff grant, counts only),
-   or shown as "unknown" if the job times out — the confirm still states the tenant count.
+   — declared frameworks + effective packs), so it needs no per-tenant grant and reads no tenant database; it
+   returns the gained/lost tenant lists only (no cross-tenant record counts, by design — SD7).
 4. Tests: each editor write + audit; floor-guaranteed guard; typed-count confirm enforced server-side (`confirm`
    field must equal the lost-tenant count); a rule change makes a test tenant's module effective/gated on its next
    tenant API request; a new framework/industry appears in `GET /v1/public/onboarding-catalog`; retire keeps
@@ -541,8 +543,9 @@ AC
 **SD1 — A separate app (`apps/staff`) on a separate host, one API process with a separate module and contract.**
 - *Options.* (a) A `/staff` area inside `apps/web`. (b) A new `apps/staff` Next.js app; API routes in the existing
   NestJS process under `/staff/v1` with a host check. (c) A new app **and** a separate API process.
-- *Decision proposed: (b).* Why not (a): `apps/web`'s root layout mounts tenant providers (session, entitlements,
-  realtime, i18n, shell) that the console would have to escape; tenant hosts would serve the staff routes' build
+- *Decision proposed: (b).* Why not (a): `apps/web`'s root layout wraps every route in the tenant app's providers
+  and i18n, and its route groups assume a tenant (shell, entitlements, realtime) — the console would have to
+  escape all of it; tenant hosts would serve the staff routes' build
   artefacts; the tenant session cookie and CSRF token live on the same origin; and one misconfigured route guard
   would expose a cross-tenant tool on customer domains. A separate origin gives host-only cookies (a tenant-page XSS
   cannot ride a staff session, and vice versa), an independent CSP, independent deploys and a network restriction
@@ -658,7 +661,7 @@ without the capability: read-only, no dead buttons), expired-grant and 409 state
 | D-C5 | **Tenant directory** (search, filters, table, pagination, empty) and **tenant detail** header + tabs Plan / Requests / Profile (incl. framework declaration history) / History | C4 |
 | D-C6 | **Plan editing**: pack toggles, bundle apply (incl. Enterprise), self-service switch, contract + CSM form; the **change-reason confirm** with diff ("effective modules +Risk, +ECN") and the downgrade open-records variant | C5 |
 | D-C7 | **Sales inbox** (list, filters, resolve dialog: fulfil / decline with reason; "withdrawn meanwhile" state) and **Workspace requests** (list, decline / spam, provisioning-command row, provisioned link) | C6 |
-| D-C8 | **Catalog**: Packs (edit form, module map editor), Frameworks & rules (framework list + per-framework module rule grid with level/clause/note), Industries (edit form incl. suggested frameworks and priors); **impact-preview confirm** with gained/lost tenant lists and the typed-count confirm | C7 |
+| D-C8 | **Catalog**: Packs (edit form, module map editor), Frameworks & rules (framework list + per-framework module rule grid with level/clause/note), Industries (edit form incl. suggested frameworks and priors); **impact-preview confirm** with gained/lost tenant lists (no record counts) and the typed-count confirm | C7 |
 | D-C9 | **Price book**: versions list (published / draft / archived), draft editor (items table), estimate preview (sample profile / tenant composition), publish confirm with diff, discard draft | C8 |
 | D-C10 | **Platform audit log** (filters, table, row detail) and **My sessions / My active grants** panels | C9, C2, C3 |
 
