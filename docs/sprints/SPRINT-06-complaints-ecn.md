@@ -679,7 +679,10 @@ AC
    unlocked read beforehand** — now that `resubmit` can reopen `owner` after `draft`, checking four-eyes against
    an earlier unlocked read would leave a narrow race window; the atomic check-and-write closes it, in one
    statement: `UPDATE ecns SET stage = $next WHERE id = $1 AND lock_version = $lockVersion AND stage =
-   $currentGatedStage AND owner <> $actorId AND created_by <> $actorId` (no matching row → a follow-up read
+   $currentGatedStage AND owner <> $actorId AND created_by IS DISTINCT FROM $actorId` (`created_by` is a
+   nullable standard audit column per `0001_core.sql:33`; a plain `<>` against NULL is never true and would wrongly
+   make such an ECN unapprovable by anyone — `IS DISTINCT FROM` treats NULL as "not the actor" correctly. `owner`
+   is NOT NULL so its plain `<>` is fine) (no matching row → a follow-up read
    distinguishes 409 stale-lockVersion, 422 wrong-stage, or 403 four-eyes violation, by re-reading the row
    outside the guard). Then: `UPDATE ecn_approvals SET decision=$d, approver=$actor, decided_at=now(), comment=$c
    WHERE ecn_id=$1 AND stage=$stage AND decision='pending'`. Then, only on the specific `pilot→implementation`
@@ -860,7 +863,11 @@ AC
    records of a kind it holds `:view` on with zero visibility check performed. `remove` now calls
    `assertEntityVisible` on **both** the link's `from` and `to` entity, with real `membership` threaded through
    from the controller via `membershipOf()` (the same helper `create` already uses) — a genuinely independent
-   fix from the `ecn`-kind rejection above, since it also closes the gap for the 11 pre-existing kinds.
+   fix from the `ecn`-kind rejection above, since it also closes the gap for the 11 pre-existing kinds. **Order
+   matters (§3 round-4 review Defect A):** `remove` must (1) load the link row (404 if missing/foreign-tenant),
+   (2) run `assertEntityVisible` on both entities (404 if the caller lacks that kind's `:view`), (3) only then
+   apply the `ecn`-kind 422 — never the reverse, or a caller without `ecn:view` could distinguish "link doesn't
+   exist" from "link exists and is ECN-kind" via the 422, leaking existence to someone who can't see it.
    `apps/api/src/ai/chat.ts` `ENTITY_SPECS` gains `complaint: { table: "complaints", label: "subject",
    plantScoped: false, view: "complaint:view" }` (**`label: "subject"`, the real column — §0 S3, matches B5's
    fix — not `"title"`, which the complaints schema doesn't have**) and `ecn: { table: "ecns", label: "title",
@@ -1387,13 +1394,18 @@ not "never say no."
       both reject (422) any link where `fromKind`/`toKind === 'ecn'` outright (§3 round-3 review item 1) — never
       merely "insufficient to bypass the freeze," a real, named rejection.
 - [ ] B4's capability fix tested: an inspector (holding neither `complaint:view` nor `ecn:view`) gets 404 from
-      `GET/POST /v1/entity-links` and `GET/POST /v1/comments` against a complaint/ECN id, and a regression test
-      confirms every one of the 11 pre-existing `EntityKind`s' behavior is unchanged for every role that already
-      holds their `:view` capability. **New (§3 round-3 review item 1):** `entity-links.service.ts`'s `remove`
-      method is tested to call `assertEntityVisible` on both the `from` and `to` entity with real `membership`
-      (previously called zero times) — a caller with `:view` on both kinds but no other check can no longer
-      delete a link between them with no visibility check performed at all; a foreign-tenant link id on `remove`
-      still 404s, not 403 (rule 8).
+      `GET/POST /v1/entity-links` and `GET/POST /v1/comments` against a **complaint** id (§3 round-4 review
+      Defect A — the equivalent ECN-id case is NOT a 404 test: `POST /v1/entity-links`/`.../delete` reject any
+      `ecn`-kind link with a flat 422 for every caller regardless of role, checked before any visibility lookup,
+      since the kind is a plain field in the request body and reveals nothing about a specific record's
+      existence), and a regression test confirms every one of the 11 pre-existing `EntityKind`s' behavior is
+      unchanged for every role that already holds their `:view` capability. **New (§3 round-3 review item 1,
+      ordering fixed per round-4 review Defect A):** `entity-links.service.ts`'s `remove` method now runs, in
+      order: (1) load the link row (404 if it doesn't exist or is foreign-tenant, rule 8), (2)
+      `assertEntityVisible` on both the `from` and `to` entity with real `membership` (404 if the caller lacks
+      that kind's `:view` — previously called zero times), (3) only then the `ecn`-kind 422 — this order is
+      required so a caller without `ecn:view` learns nothing (gets the same 404 as if the link didn't exist)
+      rather than a 422 that would leak "this link exists and involves an ECN" to someone who can't see it.
 - [ ] Web `/complaints` fully real: KPI strip (real formulas), 4 tabs (real counts), register table (customer
       color computed on read, "Linked" column showing the most-advanced record), intake
       dialog (incl. added Contact/Channel fields + attachments), detail panel (Acknowledge/Edit/Convert/Close,

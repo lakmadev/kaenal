@@ -223,7 +223,7 @@ other columns (§3.2's correction; the board's `ppap` column, added by §0 above
 addition to the same set) — no different visual weight for a terminal-failure column than for
 "Closed," which is also terminal. Drag-and-drop has **no existing precedent anywhere else in this
 app's board views** — genuinely new interaction design, not a reskin, per the sprint's own note. Three
-states: **A** the full 8-column board for an `ecn:approve` holder (every card shows a `⠿` grab handle
+states: **A** the full 9-column board for an `ecn:approve` holder (every card shows a `⠿` grab handle
 and a lifted/rotated "dragging" treatment on the one mid-drag card; the one valid adjacent drop target
 is outlined, matching E2 AC1's "immediately-next column only" rule — no other column highlights), **B**
 the identical board for a non-approver (no grab handle rendered anywhere, not merely a disabled cursor
