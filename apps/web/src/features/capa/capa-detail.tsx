@@ -63,6 +63,10 @@ const ENTITY_ROUTE: Record<EntityKind, string | null> = {
   // `openEntity` below special-cases them rather than building `/${route}/${id}`.
   risk: "risk",
   fmea: "fmea",
+  // Sprint 06 X1 AC3 (§0 S3) — complaint/ECN detail routes are `?id=`
+  // deep-links on select-in-list pages, same shape as risk/fmea above.
+  complaint: "complaints",
+  ecn: "ecn",
 };
 
 /** Human label for an entity kind in the linked-records list. */
@@ -78,6 +82,8 @@ const ENTITY_LABEL: Record<EntityKind, string> = {
   finding: "Finding",
   risk: "Risk",
   fmea: "FMEA",
+  complaint: "Complaint",
+  ecn: "ECN",
 };
 
 type Tab = "plan" | "rca" | "effectiveness" | "history";
@@ -152,9 +158,10 @@ function CapaDetailView({
   const openEntity = (kind: EntityKind, entityId: string): void => {
     const route = ENTITY_ROUTE[kind];
     if (route === null) return;
-    // `risk`/`fmea` are select-in-list pages with a `?id=` deep-link (R1 AC7),
-    // not a `/kind/:id` route.
-    router.push(kind === "risk" || kind === "fmea" ? `/${route}?id=${entityId}` : `/${route}/${entityId}`);
+    // `risk`/`fmea`/`complaint`/`ecn` are select-in-list pages with a `?id=`
+    // deep-link (R1 AC7 / Sprint 06 X1 AC3), not a `/kind/:id` route.
+    const deepLink = kind === "risk" || kind === "fmea" || kind === "complaint" || kind === "ecn";
+    router.push(deepLink ? `/${route}?id=${entityId}` : `/${route}/${entityId}`);
   };
 
   const idx = phaseIndex(capa.status);

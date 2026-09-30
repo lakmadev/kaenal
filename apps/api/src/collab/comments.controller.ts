@@ -10,7 +10,7 @@ import {
 import { currentContext, currentTx } from "../context.js";
 import { Internal } from "../decorators.js";
 import { parse } from "../http/validate.js";
-import { actorIdOf, auditCtxOf } from "../ncr/handler-ctx.js";
+import { actorIdOf, auditCtxOf, membershipOf } from "../ncr/handler-ctx.js";
 import { COMMENTS_SERVICE } from "../tokens.js";
 import type { CommentsService } from "./comments.service.js";
 
@@ -33,7 +33,7 @@ export class CommentsController {
   @Get("v1/comments")
   async list(@Query() query: unknown): Promise<Page<CommentDto>> {
     const q = parse(ListQuery, query);
-    return this.comments.list(currentTx(), q.entityKind, q.entityId, {
+    return this.comments.list(currentTx(), q.entityKind, q.entityId, membershipOf(), {
       ...(q.cursor !== undefined ? { cursor: q.cursor } : {}),
       limit: q.limit,
     });
@@ -42,7 +42,7 @@ export class CommentsController {
   @Post("v1/comments")
   async create(@Body() body: unknown): Promise<CommentDto> {
     const input = parse(CreateCommentBody, body);
-    return this.comments.create(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf());
+    return this.comments.create(currentTx(), currentContext().tenantId, actorIdOf(), input, auditCtxOf(), membershipOf());
   }
 
   @Post("v1/comments/:id/delete")

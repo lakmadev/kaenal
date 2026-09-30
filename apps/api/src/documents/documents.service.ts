@@ -394,12 +394,17 @@ export class DocumentsService {
       },
       async (t) => {
         await this.insertVersion(t, tenantId, id, body.nextVersion, body.fileId ?? null, body.changelog ?? null, actorId);
+        // ownerId is additive/optional (§0 B3b): omitted, every existing
+        // caller keeps today's behaviour (owner_id = actorId); ECN's
+        // auto-revise passes the document's own current owner explicitly so
+        // ownership never silently moves to the approving actor.
+        const nextOwnerId = body.ownerId ?? actorId;
         const { rows } = await t.query<DocumentRow>(
           `UPDATE documents
-              SET status = 'draft', version = $3, file_id = $4, approver_id = NULL, owner_id = $5, updated_by = $5
+              SET status = 'draft', version = $3, file_id = $4, approver_id = NULL, owner_id = $5, updated_by = $6
             WHERE id = $1 AND lock_version = $2
             RETURNING ${DOCUMENT_COLUMNS}`,
-          [id, body.version, body.nextVersion, body.fileId ?? null, actorId],
+          [id, body.version, body.nextVersion, body.fileId ?? null, nextOwnerId, actorId],
         );
         const updated = rows[0];
         if (updated === undefined) throw await staleWriteError(t, { table: "documents", key: id, message: "The document changed since you loaded it" });

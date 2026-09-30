@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { queryKeys, unwrap } from "@kaenal/api-client";
-import type { AreaDto, DocumentDto, EightDDto, InspectionDto, NcrDto, PlantDto, RiskDto, TemplateDto, Page } from "@kaenal/types";
+import type { AreaDto, DocumentDto, EcnDto, EightDDto, InspectionDto, NcrDto, PlantDto, RiskDto, TemplateDto, Page } from "@kaenal/types";
 import type { WizardBody } from "@kaenal/core";
 import { getApiClient } from "@/lib/api";
 
@@ -12,7 +12,8 @@ export type WizardCreated =
   | { type: "ncr"; record: NcrDto }
   | { type: "8d"; record: EightDDto }
   | { type: "document"; record: DocumentDto }
-  | { type: "risk"; record: RiskDto };
+  | { type: "risk"; record: RiskDto }
+  | { type: "ecn"; record: EcnDto };
 
 function detailPath(created: WizardCreated): string {
   switch (created.type) {
@@ -28,6 +29,9 @@ function detailPath(created: WizardCreated): string {
       // R4 AC (`?id=` deep-link, uuid not code) — the /risk list page may not
       // exist yet (risk-UI is a separate slice); this is only the nav target.
       return `/risk?id=${created.record.id}`;
+    case "ecn":
+      // Sprint 06 E3 AC (`?id=` deep-link, mirrors risk's exact precedent).
+      return `/ecn?id=${created.record.id}`;
   }
 }
 
@@ -92,6 +96,8 @@ export function useWizardCreate() {
           return { type: "document", record: await client.createDocument({ body: wb.body, extraHeaders }).then((r) => unwrap<DocumentDto>(r)) };
         case "risk":
           return { type: "risk", record: await client.createRisk({ body: wb.body, extraHeaders }).then((r) => unwrap<RiskDto>(r)) };
+        case "ecn":
+          return { type: "ecn", record: await client.createEcn({ body: wb.body, extraHeaders }).then((r) => unwrap<EcnDto>(r)) };
       }
     },
     onSuccess: (created) => {
@@ -104,8 +110,11 @@ export function useWizardCreate() {
               ? queryKeys.eightDs.all
               : created.type === "document"
                 ? queryKeys.documents.list()
-                : queryKeys.risks.list();
+                : created.type === "risk"
+                  ? queryKeys.risks.list()
+                  : queryKeys.ecns.list();
       void qc.invalidateQueries({ queryKey: key });
+      if (created.type === "ecn") void qc.invalidateQueries({ queryKey: queryKeys.ecns.summary() });
     },
   });
 }

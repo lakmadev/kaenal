@@ -9,6 +9,8 @@ import {
   Bell,
   Wrench,
   Award,
+  MessageSquare,
+  GitBranch,
   type LucideIcon,
 } from "lucide-react";
 import { Avatar } from "@/components/avatar";
@@ -43,6 +45,15 @@ export function notifMeta(kind: string, entityKind: string | null): NotifMeta {
     // A never-taken mandatory competency is more severe than a lapsing one.
     case "training_gap":
       return { icon: Award, color: "#dc2626", category: "alert" };
+    // Sprint 06 X1 AC7 — complaint SLA at-risk/breach (rides the existing
+    // 5-minute `sla.sweep` cadence) and the ECN approval-pending broadcast
+    // (fired synchronously on `submit`, draft→feasibility).
+    case "complaint_sla_at_risk":
+      return { icon: MessageSquare, color: "#d97706", category: "alert" };
+    case "complaint_sla_breached":
+      return { icon: MessageSquare, color: "#dc2626", category: "alert" };
+    case "ecn_approval_pending":
+      return { icon: GitBranch, color: "#2563eb", category: "alert" };
     default:
       return { icon: Bell, color: "var(--accent)", category: "system" };
   }

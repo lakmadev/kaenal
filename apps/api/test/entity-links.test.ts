@@ -10,6 +10,7 @@ import type { Membership } from "@kaenal/core";
 import { AppModule } from "../src/app.module.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import { EntityLinksService } from "../src/collab/entity-links.service.js";
+import { isEntityVisible } from "../src/collab/entity-ref.js";
 
 /**
  * Entity-links label resolution (SPRINT-04 R3 `[AMENDED-2]`). Pins: risk<->fmea
@@ -180,10 +181,15 @@ describe("risk <-> fmea entity links (R3)", () => {
     // hold both `risk:view` and `fmea:view` (mirrors `fmea:view`/`spc:view`
     // being broadly granted, §1a) — so there is no real internal role today
     // that exercises the "held one side, not the other" branch over HTTP.
-    // The gate itself is still real: exercised directly against the service
-    // with a role that structurally holds neither (`partner`, the external
-    // portal role) — proving the label is omitted, never fabricated, rather
-    // than trusting the (currently always-true) HTTP-level capability match.
+    // The gate itself is still real: exercised directly against
+    // `isEntityVisible` (the exact function `resolveLabel` calls) with a role
+    // that structurally holds neither (`partner`, the external portal role) —
+    // proving the label-resolution capability gate is real, never fabricated.
+    // (SPRINT-06 §0 B4 widened `assertEntityVisible` itself to ALSO gate the
+    // PRIMARY entity on its own :view capability — a partner calling `list`
+    // on the risk itself now 404s outright, covered in the next test — so
+    // this test exercises the linked-target label gate directly, not via a
+    // `list()` call that would 404 before ever reaching label resolution.)
     const risk = await acme("post", "/v1/risks").send({
       category: "quality",
       title: `${TAG} label-visibility risk`,
@@ -198,18 +204,34 @@ describe("risk <-> fmea entity links (R3)", () => {
     await acme("post", "/v1/entity-links").send({ fromKind: "risk", fromId: riskId, toKind: "fmea", toId: fmeaId });
 
     const partnerMembership: Membership = { role: "partner", plantIds: [] };
-    const service = new EntityLinksService();
-    const page = await withTenant(acmeId, null, (tx) => service.list(tx, "risk", riskId, partnerMembership));
-    const found = page.items.find((l) => l.toKind === "fmea");
-    expect(found).toBeDefined();
-    expect(found?.label).toBeUndefined();
+    const visibleToPartner = await withTenant(acmeId, null, (tx) => isEntityVisible(tx, "fmea", fmeaId, partnerMembership));
+    expect(visibleToPartner).toBe(false);
 
-    // The SAME link, read by a role that holds fmea:view, DOES get a label —
-    // proving the omission above is the capability gate, not a bug that
-    // always omits it.
+    // The SAME target, read by a role that holds fmea:view, IS visible —
+    // proving the gate above is the capability check, not a bug that always
+    // denies it.
     const managerMembership: Membership = { role: "manager", plantIds: [] };
+    const visibleToManager = await withTenant(acmeId, null, (tx) => isEntityVisible(tx, "fmea", fmeaId, managerMembership));
+    expect(visibleToManager).toBe(true);
+
+    const service = new EntityLinksService();
     const seenByManager = await withTenant(acmeId, null, (tx) => service.list(tx, "risk", riskId, managerMembership));
     expect(seenByManager.items.find((l) => l.toKind === "fmea")?.label).toBe(`${TAG}-HIDDEN — ${TAG} hidden part`);
+  });
+
+  it("(SPRINT-06 §0 B4) list() now 404s outright for a caller lacking the PRIMARY entity's own :view capability — closing the gap the moment complaint/ecn join EntityKind", async () => {
+    const risk = await acme("post", "/v1/risks").send({
+      category: "quality",
+      title: `${TAG} primary-visibility risk`,
+      owner: mgrUserId,
+      likelihood: 1,
+      impact: 1,
+      treatment: "accept",
+    });
+    const riskId = risk.body.id as string;
+    const service = new EntityLinksService();
+    const partnerMembership: Membership = { role: "partner", plantIds: [] };
+    await expect(withTenant(acmeId, null, (tx) => service.list(tx, "risk", riskId, partnerMembership))).rejects.toThrow();
   });
 
   it("a foreign-tenant link target is a 404, never a 403 or a leak (rule 8)", async () => {

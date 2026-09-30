@@ -17,6 +17,8 @@ import { AssigneesStep } from "./assignees-step";
 import { ReviewStep } from "./review-step";
 import { RiskDetailsStep } from "./risk-details-step";
 import { RiskReviewStep } from "./risk-review-step";
+import { EcnDetailsStep } from "./ecn-details-step";
+import { EcnReviewStep } from "./ecn-review-step";
 import { useWizardDraft } from "./use-wizard-draft";
 import { usePlants, useWizardCreate, useWizardPublishedTemplates, wizardDetailPath, wizardCode, wizardTitle } from "@/hooks/use-create-wizard";
 
@@ -129,6 +131,8 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
 
   const def = WIZARD_TYPES[requestedType];
   const isRisk = requestedType === "risk";
+  const isEcn = requestedType === "ecn";
+  const skipsAssignees = isRisk || isEcn;
   const step = wiz.step;
   const errorStep = Object.keys(wiz.fieldErrors).length > 0 ? wiz.step : null;
   const submitting = create.isPending;
@@ -221,7 +225,15 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
             fieldsNeedAttentionBanner={fieldsBanner}
           />
         )}
-        {step === 1 && !isRisk && (
+        {step === 1 && isEcn && (
+          <EcnDetailsStep
+            draft={wiz.draft}
+            fieldErrors={wiz.fieldErrors}
+            patch={wiz.patch}
+            fieldsNeedAttentionBanner={fieldsBanner}
+          />
+        )}
+        {step === 1 && !skipsAssignees && (
           <DetailsStep
             type={requestedType}
             draft={wiz.draft}
@@ -234,7 +246,7 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
             fieldsNeedAttentionBanner={fieldsBanner}
           />
         )}
-        {step === 2 && !isRisk && (
+        {step === 2 && !skipsAssignees && (
           <AssigneesStep
             type={requestedType}
             people={wiz.draft.people}
@@ -243,9 +255,10 @@ export function CreateWizard({ typeParam }: { typeParam: string }): React.ReactE
             onRemove={wiz.removePerson}
           />
         )}
-        {/* Risk skips Assignees (R4 AC1(b)): its step 2 is Review, not step 3. */}
+        {/* Risk/ecn skip Assignees (R4 AC1(b), Sprint 06 E3 AC1): their step 2 is Review, not step 3. */}
         {step === 2 && isRisk && <RiskReviewStep draft={wiz.draft} banner={submitFailedBanner} />}
-        {step === 3 && !isRisk && (
+        {step === 2 && isEcn && <EcnReviewStep draft={wiz.draft} banner={submitFailedBanner} />}
+        {step === 3 && !skipsAssignees && (
           <ReviewStep
             type={requestedType}
             draft={wiz.draft}

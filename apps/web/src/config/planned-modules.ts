@@ -1,13 +1,4 @@
-import {
-  Sparkles,
-  MessageSquare,
-  GitBranch,
-  Code,
-  Building2,
-  Package,
-  PenTool,
-  type LucideIcon,
-} from "lucide-react";
+import { Sparkles, Code, Building2, Package, PenTool, type LucideIcon } from "lucide-react";
 
 /**
  * Modules that appear in the sidebar (design rule #9 — the full `shell.jsx` nav)
@@ -25,8 +16,7 @@ export interface PlannedModule {
 export const PLANNED_MODULES: Record<string, PlannedModule> = {
   // Quick-Log, Mobile App and Quality Engine (pqe) are intentionally excluded — see config/excluded.md.
   // training/calibration are built — see app/(app)/training, app/(app)/calibration (Sprint 05). Not placeholders.
-  complaints: { title: "Customer complaints", icon: MessageSquare },
-  ecn: { title: "Engineering changes", icon: GitBranch },
+  // complaints/ecn are built — see app/(app)/complaints, app/(app)/ecn (Sprint 06). Not placeholders.
   // fmea is built — see app/(app)/fmea (Phase F). Left out of PLANNED_MODULES so
   // the real route serves instead of the "coming soon" placeholder.
   // spc is built — see app/(app)/spc (features/spc). Not a placeholder.

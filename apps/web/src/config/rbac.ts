@@ -46,6 +46,10 @@ const ROLE_NAV: Record<string, NavVisibility> = {
     "fmea",
     "calibration",
     "training",
+    // Sprint 06 X1 AC2 — auditor triages/converts complaints and
+    // authors/manages ECNs (not `ecn:approve`, admin/manager-only).
+    "complaints",
+    "ecn",
   ]),
   inspector: new Set([
     "dashboard",
@@ -63,6 +67,10 @@ const ROLE_NAV: Record<string, NavVisibility> = {
     "notifications",
     "calibration",
     "training",
+    // Sprint 06 X1 AC2 — viewer gets read-only visibility of both modules
+    // (broad-oversight precedent, matches viewer's grant for every other module).
+    "complaints",
+    "ecn",
   ]),
   partner: new Set<string>(), // external — routed to /portal, never this shell
 };

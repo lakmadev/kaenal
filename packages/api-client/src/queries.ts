@@ -73,6 +73,12 @@ import type {
   TrainingSummaryDto,
   TrainingGapDto,
   TrainingRecordDto,
+  ComplaintDto,
+  ComplaintSummaryDto,
+  EcnDto,
+  EcnSummaryDto,
+  EcnApprovalDto,
+  EcnLinkDto,
 } from "@kaenal/types";
 import type { ApiClient } from "./client.js";
 import { queryKeys } from "./query-keys.js";
@@ -604,6 +610,44 @@ export const apiQueries = {
     record: (client: ApiClient, id: string): QueryOption<TrainingRecordDto> => ({
       queryKey: queryKeys.training.record(id),
       queryFn: () => client.getTrainingRecord({ params: { id } }).then((r) => unwrap<TrainingRecordDto>(r)),
+    }),
+  },
+
+  complaints: {
+    list: (client: ApiClient, args?: Arg<"listComplaints">): QueryOption<Page<ComplaintDto>> => ({
+      queryKey: queryKeys.complaints.list(args?.query),
+      queryFn: () => client.listComplaints(args).then((r) => unwrap<Page<ComplaintDto>>(r)),
+    }),
+    summary: (client: ApiClient): QueryOption<ComplaintSummaryDto> => ({
+      queryKey: queryKeys.complaints.summary(),
+      queryFn: () => client.getComplaintsSummary().then((r) => unwrap<ComplaintSummaryDto>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<ComplaintDto> => ({
+      queryKey: queryKeys.complaints.detail(id),
+      queryFn: () => client.getComplaint({ params: { id } }).then((r) => unwrap<ComplaintDto>(r)),
+    }),
+  },
+
+  ecns: {
+    list: (client: ApiClient, args?: Arg<"listEcns">): QueryOption<Page<EcnDto>> => ({
+      queryKey: queryKeys.ecns.list(args?.query),
+      queryFn: () => client.listEcns(args).then((r) => unwrap<Page<EcnDto>>(r)),
+    }),
+    summary: (client: ApiClient): QueryOption<EcnSummaryDto> => ({
+      queryKey: queryKeys.ecns.summary(),
+      queryFn: () => client.getEcnsSummary().then((r) => unwrap<EcnSummaryDto>(r)),
+    }),
+    detail: (client: ApiClient, id: string): QueryOption<EcnDto> => ({
+      queryKey: queryKeys.ecns.detail(id),
+      queryFn: () => client.getEcn({ params: { id } }).then((r) => unwrap<EcnDto>(r)),
+    }),
+    approvals: (client: ApiClient, id: string): QueryOption<EcnApprovalDto[]> => ({
+      queryKey: queryKeys.ecns.approvals(id),
+      queryFn: () => client.listEcnApprovals({ params: { id } }).then((r) => unwrap<EcnApprovalDto[]>(r)),
+    }),
+    links: (client: ApiClient, id: string): QueryOption<EcnLinkDto[]> => ({
+      queryKey: queryKeys.ecns.links(id),
+      queryFn: () => client.listEcnLinks({ params: { id } }).then((r) => unwrap<EcnLinkDto[]>(r)),
     }),
   },
 } as const;

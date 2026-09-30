@@ -33,7 +33,6 @@ describe("creatableTypes (capability-gated New menu)", () => {
   });
 
   it("[risk] risk:manage adds risk as the 5th creatable type, in WIZARD_TYPE_ORDER (feeds both the New menu and the Type-step grid)", () => {
-    expect(WIZARD_TYPE_ORDER).toEqual(["inspection", "ncr", "8d", "document", "risk"]);
     expect(creatableTypes(["inspection:perform", "ncr:create", "ncr:manage", "document:manage", "risk:manage"])).toEqual([
       "inspection",
       "ncr",
@@ -42,6 +41,14 @@ describe("creatableTypes (capability-gated New menu)", () => {
       "risk",
     ]);
     expect(creatableTypes(["risk:view"])).toEqual([]);
+  });
+
+  it("[ecn] ecn:manage adds ecn as the 6th creatable type, in WIZARD_TYPE_ORDER (SPRINT-06 E3 AC2)", () => {
+    expect(WIZARD_TYPE_ORDER).toEqual(["inspection", "ncr", "8d", "document", "risk", "ecn"]);
+    expect(
+      creatableTypes(["inspection:perform", "ncr:create", "ncr:manage", "document:manage", "risk:manage", "ecn:manage"]),
+    ).toEqual(["inspection", "ncr", "8d", "document", "risk", "ecn"]);
+    expect(creatableTypes(["ecn:view"])).toEqual([]);
   });
 });
 
@@ -61,6 +68,13 @@ describe("[risk] risk's 3-step branch (Type→Details→Review, no shared Assign
   it("has its own 3-step shape", () => {
     expect(stepsFor("risk")).toEqual(["Type", "Details", "Review"]);
     expect(lastStepFor("risk")).toBe(2);
+  });
+});
+
+describe("[ecn] ecn's 3-step branch (Type→Details→Review, no shared Assignees step, SPRINT-06 E3 AC1)", () => {
+  it("has its own 3-step shape, mirroring risk's exact precedent", () => {
+    expect(stepsFor("ecn")).toEqual(["Type", "Details", "Review"]);
+    expect(lastStepFor("ecn")).toBe(2);
   });
 });
 
@@ -154,6 +168,55 @@ describe("[risk] wizardFieldFor / stepForWizardField", () => {
     expect(stepForWizardField("plan")).toBe(1);
     expect(stepForWizardField("owner")).toBe(1);
     expect(stepForWizardField("people")).toBe(2); // unchanged for the other 4 types
+  });
+});
+
+describe("[ecn] step gating — ecn's 3-step flow (Type→Details→Review)", () => {
+  it("step 1 (Details) needs changeType, title, changeRisk and owner — no template, no Assignees step", () => {
+    const d = emptyDraft("ecn");
+    expect(canAdvance(0, d)).toBe(true); // type already set by emptyDraft("ecn")
+    expect(canAdvance(1, d)).toBe(false);
+    expect(advanceBlocker(1, d)).toBe("Choose a change type.");
+
+    d.ecnChangeType = "design";
+    expect(advanceBlocker(1, d)).toBe("A title is required.");
+    d.title = "Update weld penetration spec";
+    expect(advanceBlocker(1, d)).toBe("Choose a risk level.");
+    d.ecnChangeRisk = "medium";
+    expect(advanceBlocker(1, d)).toBe("Choose an owner.");
+    d.ecnOwner = OWNER;
+    expect(canAdvance(1, d)).toBe(true);
+    expect(advanceBlocker(1, d)).toBeNull();
+
+    // Step 2 is Review for ecn (there is no shared Assignees step at index 2).
+    expect(canAdvance(2, d)).toBe(true);
+  });
+
+  it("isDirty sees ecn-only fields", () => {
+    expect(isDirty(emptyDraft("ecn"))).toBe(false);
+    const d = emptyDraft("ecn");
+    d.ecnChangeType = "material";
+    expect(isDirty(d)).toBe(true);
+    expect(isDirty({ ...emptyDraft("ecn"), ecnOwner: OWNER })).toBe(true);
+    expect(isDirty({ ...emptyDraft("ecn"), ecnEffectiveDate: "2030-01-01" })).toBe(true);
+  });
+});
+
+describe("[ecn] wizardFieldFor / stepForWizardField", () => {
+  it("maps ecn's own field names, disambiguating `owner`/`description`/`title` from the other types' meanings", () => {
+    expect(wizardFieldFor("changeType", "ecn")).toBe("changeType");
+    expect(wizardFieldFor("changeRisk", "ecn")).toBe("changeRisk");
+    expect(wizardFieldFor("effectiveDate", "ecn")).toBe("effectiveDate");
+    expect(wizardFieldFor("owner", "ecn")).toBe("owner");
+    expect(wizardFieldFor("description", "ecn")).toBe("description");
+    expect(wizardFieldFor("title", "ecn")).toBe("title");
+  });
+
+  it("every ecn field lands on step 1 (Details) — ecn has no Assignees step to send `people` errors to", () => {
+    expect(stepForWizardField("changeType")).toBe(1);
+    expect(stepForWizardField("changeRisk")).toBe(1);
+    expect(stepForWizardField("effectiveDate")).toBe(1);
+    expect(stepForWizardField("owner")).toBe(1);
   });
 });
 
@@ -269,6 +332,36 @@ describe("buildCreateBody", () => {
     expect(buildCreateBody(d)?.body).toMatchObject({ plan: "Add SPC checkpoint after reflow" });
 
     d.riskOwner = null;
+    expect(buildCreateBody(d)).toBeNull();
+  });
+
+  it("[ecn] builds an ECN body with a trimmed optional description and nullable effectiveDate, no template required", () => {
+    const d = emptyDraft("ecn");
+    expect(buildCreateBody(d)).toBeNull(); // incomplete
+
+    d.ecnChangeType = "process";
+    d.title = "  Replace MIG with TIG on bracket DTR-201 inner seam  ";
+    d.ecnChangeRisk = "high";
+    d.ecnOwner = OWNER;
+    expect(buildCreateBody(d)).toEqual({
+      type: "ecn",
+      body: {
+        changeType: "process",
+        title: "Replace MIG with TIG on bracket DTR-201 inner seam",
+        changeRisk: "high",
+        effectiveDate: null,
+        owner: OWNER,
+      },
+    });
+
+    d.description = "  Reduces spatter and rework on the inner seam.  ";
+    d.ecnEffectiveDate = "2030-06-12";
+    expect(buildCreateBody(d)?.body).toMatchObject({
+      description: "Reduces spatter and rework on the inner seam.",
+      effectiveDate: "2030-06-12",
+    });
+
+    d.ecnOwner = null;
     expect(buildCreateBody(d)).toBeNull();
   });
 });

@@ -66,3 +66,5 @@ export const MSA_SERVICE = Symbol("MSA_SERVICE");
 export const INSTRUMENTS_SERVICE = Symbol("INSTRUMENTS_SERVICE");
 export const COMPETENCIES_SERVICE = Symbol("COMPETENCIES_SERVICE");
 export const TRAINING_SERVICE = Symbol("TRAINING_SERVICE");
+export const COMPLAINTS_SERVICE = Symbol("COMPLAINTS_SERVICE");
+export const ECN_SERVICE = Symbol("ECN_SERVICE");

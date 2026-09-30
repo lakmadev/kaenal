@@ -11,9 +11,18 @@ import {
   CapaActionStatus,
   CapaPhase,
   CapaType,
+  ComplaintChannel,
+  ComplaintSeverity,
+  ComplaintStatus,
   DocumentCategory,
   DocumentStatus,
   DocumentTemplate,
+  EcnApprovalDecision,
+  EcnApprovalStage,
+  EcnAutoReviseSkipReason,
+  EcnChangeRisk,
+  EcnChangeType,
+  EcnStage,
   EightDStatus,
   EightDTemplate,
   EntityPersonRole,
@@ -606,6 +615,16 @@ export const NewDocumentVersionBody = z.object({
   version: z.number().int().nonnegative(),
   fileId: z.string().uuid().nullable().optional(),
   changelog: z.string().max(4000).nullable().optional(),
+  /**
+   * Small, additive, optional override (SPRINT-06 §0 B3b): when omitted
+   * (every existing caller, incl. `documents.controller.ts`'s own route),
+   * behaviour is unchanged — `owner_id = actorId`, exactly as before this
+   * field existed. ECN's auto-revise (E5) always passes this explicitly, set
+   * to the document's own CURRENT `owner_id` (read before the call), so a
+   * document's ownership never silently changes as a side effect of an ECN
+   * reaching `implementation`.
+   */
+  ownerId: z.string().uuid().optional(),
 });
 export type NewDocumentVersionBody = z.infer<typeof NewDocumentVersionBody>;
 
@@ -673,7 +692,7 @@ export type DownloadFileResult = z.infer<typeof DownloadFileResult>;
 // --- Search -----------------------------------------------------------------
 
 /** The entity kinds the command palette federates over (03 §1, 04). */
-export const SearchEntityKind = z.enum(["inspection", "ncr", "capa", "document", "audit"]);
+export const SearchEntityKind = z.enum(["inspection", "ncr", "capa", "document", "audit", "complaint", "ecn"]);
 export type SearchEntityKind = z.infer<typeof SearchEntityKind>;
 
 export const SearchResultDto = z.object({
@@ -3387,3 +3406,344 @@ export const TrainingRecordsQuery = PageQuery.extend({
   competencyId: z.string().uuid().optional(),
 });
 export type TrainingRecordsQuery = z.infer<typeof TrainingRecordsQuery>;
+
+// --- Customer complaints (Sprint 06 C1-C4, P18) -----------------------------
+//
+// `customerColor`/`slaState` are computed on every read, never stored (§0
+// S6/AC5 — this codebase's established norm for a cheap, derivable display
+// value, `packages/core/customer-color.ts`/`complaint-sla.ts`).
+
+export const ComplaintDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  customer: z.string(),
+  /** Computed on read from `customer` — never persisted (§0 S6). */
+  customerColor: z.string(),
+  contact: z.string(),
+  channel: ComplaintChannel,
+  severity: ComplaintSeverity,
+  status: ComplaintStatus,
+  subject: z.string(),
+  description: z.string(),
+  batchRef: z.string().nullable(),
+  receivedAt: z.string().datetime(),
+  acknowledgedAt: z.string().datetime().nullable(),
+  closedAt: z.string().datetime().nullable(),
+  costUsd: z.number().nullable(),
+  /** Denormalized at creation (or re-derived on a `severity` edit, §0 B7c) —
+   *  never looked up fresh from the matrix on read. */
+  slaTargetHours: z.number().int().positive(),
+  slaCloseTargetDays: z.number().int().positive(),
+  /** Computed on every read via `complaintSlaState` — frozen at `closedAt`
+   *  once set (§0 B7b), never independently persisted. */
+  slaState: SlaState,
+  owner: z.string().uuid(),
+  ncrId: z.string().uuid().nullable(),
+  eightDId: z.string().uuid().nullable(),
+  capaId: z.string().uuid().nullable(),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type ComplaintDto = z.infer<typeof ComplaintDto>;
+
+/** `GET /v1/complaints` (§2 C1 AC2). `unlinked` matches `ncr_id IS NULL`
+ *  specifically (the "Not linked to NCR" tab's own literal label, §0 B8d) —
+ *  it deliberately does not also check `eight_d_id`/`capa_id`. */
+export const ComplaintListQuery = PageQuery.extend({
+  status: ComplaintStatus.optional(),
+  severity: ComplaintSeverity.optional(),
+  channel: ComplaintChannel.optional(),
+  owner: z.string().uuid().optional(),
+  unlinked: z.coerce.boolean().optional(),
+  /** Free-text search over subject/description/customer (C1 AC1). */
+  q: z.string().trim().min(1).max(200).optional(),
+});
+export type ComplaintListQuery = z.infer<typeof ComplaintListQuery>;
+
+/**
+ * `POST /v1/complaints` (§2 C1 AC2, C2 AC1). `contact`/`channel` are the two
+ * fields added beyond `IntakeForm`'s own drawn dialog, flagged plainly, not
+ * invented decoration (§1a/§3.1). `receivedAt` is never client-supplied —
+ * always server-set to `now()` (C2 AC4). `attachmentFileIds` are linked
+ * after server-side verification (tenant + `entity_kind='complaint'` +
+ * `deleted_at IS NULL` + `sha256 IS NOT NULL`, C2 AC1).
+ */
+export const CreateComplaintBody = z.object({
+  customer: z.string().trim().min(1).max(200),
+  contact: z.string().trim().min(1).max(300),
+  channel: ComplaintChannel,
+  severity: ComplaintSeverity,
+  subject: z.string().trim().min(1).max(300),
+  description: z.string().trim().max(10_000).optional(),
+  batchRef: z.string().trim().min(1).max(200).nullable().optional(),
+  attachmentFileIds: z.array(z.string().uuid()).max(50).optional(),
+});
+export type CreateComplaintBody = z.infer<typeof CreateComplaintBody>;
+
+/**
+ * `PATCH /v1/complaints/:id` (§2 C1 AC2, revised §0 S4/B7c). Remains editable
+ * after `closed` (unlike ECN's terminal-stage freeze) — closing a complaint
+ * does not freeze it. Never accepts `status`/`ncrId`/`eightDId`/`capaId`/
+ * `acknowledgedAt`/`closedAt`/`owner` — those change only via the dedicated
+ * acknowledge/close/convert actions, or (owner) not at all this sprint (§0
+ * S4). Changing `severity` re-derives `slaTargetHours`/`slaCloseTargetDays`
+ * from the matrix server-side, in the same transaction (§0 B7c).
+ */
+export const UpdateComplaintBody = z.object({
+  customer: z.string().trim().min(1).max(200).optional(),
+  contact: z.string().trim().min(1).max(300).optional(),
+  channel: ComplaintChannel.optional(),
+  severity: ComplaintSeverity.optional(),
+  subject: z.string().trim().min(1).max(300).optional(),
+  description: z.string().trim().max(10_000).optional(),
+  batchRef: z.string().trim().min(1).max(200).nullable().optional(),
+  costUsd: z.number().nonnegative().nullable().optional(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type UpdateComplaintBody = z.infer<typeof UpdateComplaintBody>;
+
+/** `POST /v1/complaints/:id/acknowledge` (§2 C3 AC1) — 422 if
+ *  `acknowledgedAt` is already set; `.strict()` since this action changes
+ *  only `acknowledgedAt`. */
+export const AcknowledgeComplaintBody = z.object({ lockVersion: z.number().int().nonnegative() }).strict();
+export type AcknowledgeComplaintBody = z.infer<typeof AcknowledgeComplaintBody>;
+
+/** `POST /v1/complaints/:id/close` (§2 C3 AC2) — 422 if already `closed`. */
+export const CloseComplaintBody = z.object({ lockVersion: z.number().int().nonnegative() }).strict();
+export type CloseComplaintBody = z.infer<typeof CloseComplaintBody>;
+
+/**
+ * `POST /v1/complaints/:id/convert` (§2 C4 AC1, discriminated union keyed on
+ * `target` — §0 B6g's fix). `priority`/`source`/`sourceId` are never
+ * client-supplied: they are derived from severity (`packages/core/state-
+ * machines/complaint.ts`'s mapping functions) or set internally by
+ * `ComplaintsService.convert`, exactly as `raiseNcr`/`raiseCapa` already do
+ * today (§0 B6h). Each variant is `.strict()` so a body carrying, say, both
+ * `title` and `existingNcrId` for `target: "ncr"` is rejected rather than
+ * silently matching the wrong branch.
+ */
+const ComplaintConvertToNcrCreate = z
+  .object({
+    target: z.literal("ncr"),
+    lockVersion: z.number().int().nonnegative(),
+    title: z.string().trim().min(1).max(300).optional(),
+  })
+  .strict();
+
+/** Link to an existing NCR (§0 B8c, added back) — `existingNcrId` must be
+ *  `ncr:view`-visible to the caller (tenant-scoped, 404 not 403 on a foreign
+ *  id, rule 8); no new NCR is created. */
+const ComplaintConvertToExistingNcr = z
+  .object({
+    target: z.literal("ncr"),
+    lockVersion: z.number().int().nonnegative(),
+    existingNcrId: z.string().uuid(),
+  })
+  .strict();
+
+const ComplaintConvertToEightD = z
+  .object({
+    target: z.literal("eight_d"),
+    lockVersion: z.number().int().nonnegative(),
+    title: z.string().trim().min(1).max(300).optional(),
+  })
+  .strict();
+
+/** CAPA's `type` has no complaint analog, so the caller must supply it — the
+ *  one field this variant requires beyond what severity can derive (§0
+ *  B6g). */
+const ComplaintConvertToCapa = z
+  .object({
+    target: z.literal("capa"),
+    lockVersion: z.number().int().nonnegative(),
+    title: z.string().trim().min(1).max(300).optional(),
+    type: CapaType,
+  })
+  .strict();
+
+export const ComplaintConvertBody = z.union([
+  ComplaintConvertToNcrCreate,
+  ComplaintConvertToExistingNcr,
+  ComplaintConvertToEightD,
+  ComplaintConvertToCapa,
+]);
+export type ComplaintConvertBody = z.infer<typeof ComplaintConvertBody>;
+
+/** `POST /v1/complaints/:id/convert`'s response — the updated complaint plus
+ *  a small pointer to whichever record was created or linked (§2 C4 AC1/2).
+ *  Never the full NCR/8D/CAPA DTO: the caller re-fetches that module's own
+ *  detail route if it needs the rest, mirroring how `raiseNcr`/`raiseCapa`
+ *  return only the source record today. */
+export const ComplaintConvertResult = z.object({
+  complaint: ComplaintDto,
+  target: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("ncr"), id: z.string().uuid(), code: z.string() }),
+    z.object({ kind: z.literal("eight_d"), id: z.string().uuid(), code: z.string() }),
+    z.object({ kind: z.literal("capa"), id: z.string().uuid(), code: z.string() }),
+  ]),
+});
+export type ComplaintConvertResult = z.infer<typeof ComplaintConvertResult>;
+
+/** `GET /v1/complaints/summary` (§2 C1 AC3) — one round trip for the KPI
+ *  strip + the 4 filter tabs' own counts; a cursor-paginated list cannot
+ *  compute a tenant-wide total client-side (rule 6). `responseWithin24hPct`/
+ *  `avgTimeToCloseDays`/`avgCostPerComplaint` are `null` (never `NaN`/`0`)
+ *  when their denominator is zero. */
+export const ComplaintSummaryDto = z.object({
+  open: z.number().int().nonnegative(),
+  critical: z.number().int().nonnegative(),
+  responseWithin24hPct: z.number().min(0).max(100).nullable(),
+  avgTimeToCloseDays: z.number().nonnegative().nullable(),
+  avgCostPerComplaint: z.number().nonnegative().nullable(),
+  tabCounts: z.object({
+    all: z.number().int().nonnegative(),
+    critical: z.number().int().nonnegative(),
+    noLink: z.number().int().nonnegative(),
+    mine: z.number().int().nonnegative(),
+  }),
+});
+export type ComplaintSummaryDto = z.infer<typeof ComplaintSummaryDto>;
+
+// --- Engineering Change Notices (Sprint 06 E1-E5, P19) ----------------------
+
+/** Persisted E5 auto-revise outcome (`ecns.auto_revise_result`, §0 B3e) —
+ *  readable after the fact via `EcnDto.autoReviseResult`, not only returned
+ *  once in the approval response. */
+export const AutoReviseResult = z.object({
+  revised: z.array(z.string().uuid()),
+  skipped: z.array(
+    z.object({
+      documentId: z.string().uuid(),
+      reason: EcnAutoReviseSkipReason,
+    }),
+  ),
+});
+export type AutoReviseResult = z.infer<typeof AutoReviseResult>;
+
+export const EcnDto = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string(),
+  changeType: EcnChangeType,
+  description: z.string(),
+  changeRisk: EcnChangeRisk,
+  stage: EcnStage,
+  owner: z.string().uuid(),
+  effectiveDate: DateOnly.nullable(),
+  /** Computed on read — `count(*)` over `entity_links WHERE from_kind='ecn'
+   *  AND to_kind='document' AND from_id=:id` (§0 B8a), never a column. */
+  linkedDocumentCount: z.number().int().nonnegative(),
+  autoReviseResult: AutoReviseResult.nullable(),
+  lockVersion: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type EcnDto = z.infer<typeof EcnDto>;
+
+export const EcnListQuery = PageQuery.extend({
+  changeType: EcnChangeType.optional(),
+  stage: EcnStage.optional(),
+  changeRisk: EcnChangeRisk.optional(),
+  owner: z.string().uuid().optional(),
+  /** Free-text search over title/description (E1 AC3). */
+  q: z.string().trim().min(1).max(200).optional(),
+});
+export type EcnListQuery = z.infer<typeof EcnListQuery>;
+
+/** `POST /v1/ecns` (§2 E1 AC3, E3 AC1) — always created at `stage: 'draft'`;
+ *  the 5 `ecn_approvals` rows are pre-created server-side in the same
+ *  transaction (E4 AC1), never client-supplied. */
+export const CreateEcnBody = z.object({
+  changeType: EcnChangeType,
+  title: z.string().trim().min(1).max(300),
+  description: z.string().trim().max(10_000).optional(),
+  changeRisk: EcnChangeRisk,
+  effectiveDate: DateOnly.nullable().optional(),
+  owner: z.string().uuid(),
+});
+export type CreateEcnBody = z.infer<typeof CreateEcnBody>;
+
+/**
+ * `PATCH /v1/ecns/:id` (§2 E1 AC3, revised §0 B2/S4). `title`/`description`/
+ * `effectiveDate` are always editable; `changeType`/`changeRisk`/`owner` only
+ * while `stage = 'draft'` (incl. a `draft` reached again via resubmission,
+ * §0b D3) — 422 otherwise. Rejected entirely (422) once `stage` is `closed`
+ * or `rejected`. Never accepts `stage` directly — that changes only via the
+ * submit/withdraw/approve-reject/close/resubmit routes.
+ */
+export const UpdateEcnBody = z.object({
+  title: z.string().trim().min(1).max(300).optional(),
+  description: z.string().trim().max(10_000).optional(),
+  effectiveDate: DateOnly.nullable().optional(),
+  changeType: EcnChangeType.optional(),
+  changeRisk: EcnChangeRisk.optional(),
+  owner: z.string().uuid().optional(),
+  lockVersion: z.number().int().nonnegative(),
+});
+export type UpdateEcnBody = z.infer<typeof UpdateEcnBody>;
+
+/** Shared shape for the four plain lifecycle actions — submit, withdraw,
+ *  close, resubmit (§0 B1/§0b D3) — each is `lockVersion`-guarded and nothing
+ *  else. */
+export const EcnLifecycleBody = z.object({ lockVersion: z.number().int().nonnegative() }).strict();
+export type EcnLifecycleBody = z.infer<typeof EcnLifecycleBody>;
+
+/** `GET /v1/ecns/summary` (§2 E2 AC2) — `count(*) group by stage`, all 9
+ *  stage keys always present (0 for an empty one, incl. `ppap`). */
+export const EcnSummaryDto = z.object({
+  draft: z.number().int().nonnegative(),
+  feasibility: z.number().int().nonnegative(),
+  risk_review: z.number().int().nonnegative(),
+  ppap: z.number().int().nonnegative(),
+  cab_approval: z.number().int().nonnegative(),
+  pilot: z.number().int().nonnegative(),
+  implementation: z.number().int().nonnegative(),
+  closed: z.number().int().nonnegative(),
+  rejected: z.number().int().nonnegative(),
+});
+export type EcnSummaryDto = z.infer<typeof EcnSummaryDto>;
+
+export const EcnApprovalDto = z.object({
+  id: z.string().uuid(),
+  ecnId: z.string().uuid(),
+  stage: EcnApprovalStage,
+  decision: EcnApprovalDecision,
+  approver: z.string().uuid().nullable(),
+  decidedAt: z.string().datetime().nullable(),
+  comment: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type EcnApprovalDto = z.infer<typeof EcnApprovalDto>;
+
+/** `POST /v1/ecns/:id/approvals/:stage` (§2 E4 AC2) — a rejection must carry
+ *  a reason; `comment` is therefore required when `decision: "reject"`. */
+export const DecideEcnApprovalBody = z
+  .object({
+    decision: z.enum(["approve", "reject"]),
+    comment: z.string().trim().min(1).max(2000).optional(),
+    lockVersion: z.number().int().nonnegative(),
+  })
+  .refine((body) => body.decision !== "reject" || (body.comment?.length ?? 0) > 0, {
+    message: "A rejection must carry a comment",
+    path: ["comment"],
+  });
+export type DecideEcnApprovalBody = z.infer<typeof DecideEcnApprovalBody>;
+
+/** `POST /v1/ecns/:id/link` (§2 E5 AC1) — `document`/`supplier` only, never
+ *  `part` (no `parts` table/`EntityKind` exists anywhere in this codebase,
+ *  §1a/§3.2). */
+export const EcnLinkBody = z.object({
+  kind: z.enum(["document", "supplier"]),
+  targetId: z.string().uuid(),
+});
+export type EcnLinkBody = z.infer<typeof EcnLinkBody>;
+
+export const EcnLinkDto = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(["document", "supplier"]),
+  targetId: z.string().uuid(),
+  createdAt: z.string().datetime(),
+});
+export type EcnLinkDto = z.infer<typeof EcnLinkDto>;

@@ -37,6 +37,6 @@ export class EntityLinksController {
   @Post("v1/entity-links/:id/delete")
   @HttpCode(200)
   async remove(@Param("id") id: string): Promise<EntityLinkDto> {
-    return this.links.remove(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf());
+    return this.links.remove(currentTx(), currentContext().tenantId, actorIdOf(), parse(uuid, id), auditCtxOf(), membershipOf());
   }
 }

@@ -45,6 +45,10 @@ const LABEL_CONFIG: Readonly<Record<EntityKind, LabelConfig>> = {
   },
   risk: { capability: "risk:view", table: "risks", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
   fmea: { capability: "fmea:view", table: "fmeas", build: (r) => `${str(r["part_code"])} — ${str(r["part_name"])}` },
+  // Sprint 06 X1 AC4. `complaint`'s title-bearing column is `subject`, not
+  // `title` (complaints has no `title` column).
+  complaint: { capability: "complaint:view", table: "complaints", build: (r) => `${str(r["code"])} — ${str(r["subject"])}` },
+  ecn: { capability: "ecn:view", table: "ecns", build: (r) => `${str(r["code"])} — ${str(r["title"])}` },
 };
 
 const LABEL_COLUMNS: Readonly<Record<string, readonly string[]>> = {
@@ -59,6 +63,8 @@ const LABEL_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   findings: ["item_ref", "description"],
   risks: ["code", "title"],
   fmeas: ["part_code", "part_name"],
+  complaints: ["code", "subject"],
+  ecns: ["code", "title"],
 };
 
 interface LinkRow {
@@ -159,6 +165,12 @@ export class EntityLinksService {
     if (body.fromKind === body.toKind && body.fromId === body.toId) {
       throw new ApiError("VALIDATION_FAILED", "A record cannot be linked to itself");
     }
+    // ECN links only go through the ECN-specific routes (POST /v1/ecns/:id/link,
+    // POST /v1/ecns/:id/links/:linkId/delete) — never this generic route
+    // (SPRINT-06 §0 B4 / X1 AC4).
+    if (body.fromKind === "ecn" || body.toKind === "ecn") {
+      throw new ApiError("VALIDATION_FAILED", "ECN links can only be created via the ECN-specific routes");
+    }
     await assertEntityVisible(tx, body.fromKind, body.fromId, membership);
     await assertEntityVisible(tx, body.toKind, body.toId, membership);
 
@@ -208,13 +220,28 @@ export class EntityLinksService {
     actorId: string,
     id: string,
     context: AuditContext,
+    membership: Membership,
   ): Promise<EntityLinkDto> {
+    // Order matters (§3 round-4 review Defect A): (1) load the link (404 if
+    // missing/foreign-tenant), (2) assertEntityVisible both ends (404 if the
+    // caller lacks that kind's :view — SPRINT-06 §0 B4/X1 AC4, a pre-existing
+    // gap for all 11 prior kinds too: this method never called
+    // assertEntityVisible at all before), (3) ONLY THEN the ecn-kind 422 —
+    // never the reverse, or a caller without ecn:view could distinguish
+    // "link doesn't exist" from "link exists and is ecn-kind" via the 422.
     const { rows } = await tx.query<LinkRow>(
       `SELECT ${LINK_COLUMNS} FROM entity_links WHERE id = $1 AND deleted_at IS NULL`,
       [id],
     );
     const row = rows[0];
     if (row === undefined) throw notFound();
+
+    await assertEntityVisible(tx, row.from_kind as EntityKind, row.from_id, membership);
+    await assertEntityVisible(tx, row.to_kind as EntityKind, row.to_id, membership);
+
+    if (row.from_kind === "ecn" || row.to_kind === "ecn") {
+      throw new ApiError("VALIDATION_FAILED", "ECN links can only be removed via the ECN-specific routes");
+    }
 
     return withAudit(
       tx,

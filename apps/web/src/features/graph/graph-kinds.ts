@@ -2,7 +2,9 @@ import {
   Brain,
   ClipboardCheck,
   FileText,
+  GitBranch,
   Grid3x3,
+  MessageSquare,
   Search,
   Shield,
   ShieldCheck,
@@ -54,6 +56,15 @@ export const GRAPH_KINDS: Record<EntityKind, GraphKindMeta> = {
   // Q27). Icons match `navigation.ts`'s existing risk/FMEA nav glyphs.
   risk: { label: "Risk", card: "Risk", color: "#be123c", soft: "rgba(190,18,60,0.12)", icon: Shield, layer: 5 },
   fmea: { label: "FMEA", card: "FMEA", color: "#4338ca", soft: "rgba(67,56,202,0.12)", icon: Grid3x3, layer: 5 },
+  // Sprint 06 X1 AC4 — `complaint`/`ecn` joined `EntityKind`, forcing this map
+  // total for TS, but neither renders in the graph explorer this sprint:
+  // `apps/api/src/graph/graph.service.ts` keeps its own separate literal
+  // `GRAPH_KINDS` array, which this sprint does NOT add them to either
+  // (same judgment call as risk/fmea above, Sprint 04 Q27). Icons/colours
+  // match `navigation.ts`'s existing complaints/ECN nav glyphs, and are
+  // distinct from every other kind here (`db2777`/`16a34a` are unused above).
+  complaint: { label: "Complaint", card: "Complaint", color: "#db2777", soft: "rgba(219,39,119,0.12)", icon: MessageSquare, layer: 5 },
+  ecn: { label: "ECN", card: "ECN", color: "#16a34a", soft: "rgba(22,163,74,0.12)", icon: GitBranch, layer: 5 },
 };
 
 /** The 8 kinds the graph explorer actually renders (mirrors `GRAPH_KINDS` in `graph.service.ts`). */

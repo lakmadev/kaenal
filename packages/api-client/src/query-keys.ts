@@ -216,4 +216,20 @@ export const queryKeys = {
     records: (params?: unknown) => ["training", "records", params ?? null] as const,
     record: (id: string) => ["training", "record", id] as const,
   },
+
+  complaints: {
+    all: ["complaints"] as const,
+    list: (params?: unknown) => ["complaints", "list", params ?? null] as const,
+    detail: (id: string) => ["complaints", "detail", id] as const,
+    summary: () => ["complaints", "summary"] as const,
+  },
+
+  ecns: {
+    all: ["ecns"] as const,
+    list: (params?: unknown) => ["ecns", "list", params ?? null] as const,
+    detail: (id: string) => ["ecns", "detail", id] as const,
+    summary: () => ["ecns", "summary"] as const,
+    approvals: (id: string) => ["ecns", "approvals", id] as const,
+    links: (id: string) => ["ecns", "links", id] as const,
+  },
 } as const;

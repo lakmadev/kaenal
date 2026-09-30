@@ -68,12 +68,17 @@ const ENTITY_ROUTE: Record<EntityKind, string> = {
   // rather than building `/${route}/${id}`, so this entry is the base path only.
   risk: "risk",
   fmea: "fmea",
+  // Sprint 06 X1 AC3 (§0 S3) — complaint/ECN detail routes are `?id=`
+  // deep-links on select-in-list pages, same shape as risk/fmea above.
+  complaint: "complaints",
+  ecn: "ecn",
 };
 
-/** `risk`/`fmea` use a `?id=` deep-link, not a `/kind/:id` path segment. */
+/** `risk`/`fmea`/`complaint`/`ecn` use a `?id=` deep-link, not a `/kind/:id` path segment. */
 function entityOpenHref(kind: EntityKind, id: string): string {
   const base = ENTITY_ROUTE[kind];
-  return kind === "risk" || kind === "fmea" ? `/${base}?id=${id}` : `/${base}/${id}`;
+  const deepLink = kind === "risk" || kind === "fmea" || kind === "complaint" || kind === "ecn";
+  return deepLink ? `/${base}?id=${id}` : `/${base}/${id}`;
 }
 const ENTITY_LABEL: Record<EntityKind, string> = {
   inspection: "Inspection",
@@ -87,6 +92,8 @@ const ENTITY_LABEL: Record<EntityKind, string> = {
   scar: "SCAR",
   risk: "Risk",
   fmea: "FMEA",
+  complaint: "Complaint",
+  ecn: "ECN",
 };
 
 export function DocumentDetail({ id }: { id: string }): React.ReactElement {

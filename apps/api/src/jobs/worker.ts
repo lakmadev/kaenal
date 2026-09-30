@@ -44,6 +44,7 @@ import { EnvSecretResolver } from "../tenant/secret-resolver.js";
 import { TenantPoolManager } from "../tenant/pool-manager.js";
 import { RegistryDbRouter } from "../tenant/db-router.js";
 import { recomputeSlaStatesForTenant } from "./processors/sla.js";
+import { checkComplaintSlaForTenant } from "./processors/complaint-sla.js";
 import { scanFile } from "./processors/scan-file.js";
 import { cleanupOrphanedUploadsForTenant } from "./processors/cleanup-orphaned-uploads.js";
 import { deliverNotification } from "./processors/deliver-notification.js";
@@ -128,10 +129,11 @@ async function main(): Promise<void> {
       }
       if (job.name === JOBS.recomputeSla) {
         const tenantId = (job.data as RecomputeSlaJob).tenantId;
-        await recomputeSlaStatesForTenant(tenantId, new Date(), {
-          notifications,
-          pool: await poolFor(tenantId),
-        });
+        const pool = await poolFor(tenantId);
+        await recomputeSlaStatesForTenant(tenantId, new Date(), { notifications, pool });
+        // Sprint 06 §0 B7a/X1 AC7 — complaint SLA checking rides this SAME
+        // 5-minute cadence, no new daily job.
+        await checkComplaintSlaForTenant(tenantId, { notifications, pool });
       }
     },
     { connection, concurrency: 4 },

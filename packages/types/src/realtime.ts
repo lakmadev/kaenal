@@ -26,6 +26,10 @@ export const RealtimeTopic = z.enum([
   "scar",
   "document",
   "fmea",
+  // Sprint 06 X1 AC6 — customer complaints + ECN get realtime cache-
+  // invalidation topics like every other collaborative module.
+  "complaint",
+  "ecn",
   // Phase R4 — live presence / edit-intent on an entity (carries `viewers`, not
   // a cache-invalidation pointer). Delivered only to the entity's current viewers.
   "presence",

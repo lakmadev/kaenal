@@ -184,6 +184,25 @@ import {
   UpdateCapaActionStatusBody,
   UpdateNcrActionStatusBody,
   VerifyNcrBody,
+  ComplaintDto,
+  ComplaintListQuery,
+  CreateComplaintBody,
+  UpdateComplaintBody,
+  AcknowledgeComplaintBody,
+  CloseComplaintBody,
+  ComplaintConvertBody,
+  ComplaintConvertResult,
+  ComplaintSummaryDto,
+  EcnDto,
+  EcnListQuery,
+  CreateEcnBody,
+  UpdateEcnBody,
+  EcnSummaryDto,
+  EcnApprovalDto,
+  DecideEcnApprovalBody,
+  EcnLifecycleBody,
+  EcnLinkBody,
+  EcnLinkDto,
 } from "./dto.js";
 import { ErrorBody, PageQuery, page } from "./http.js";
 import {
@@ -191,6 +210,7 @@ import {
   AuditType,
   CapaPhase,
   CapaType,
+  EcnApprovalStage,
   DocumentCategory,
   DocumentStatus,
   EightDStatus,
@@ -1508,6 +1528,190 @@ export const contract = c.router(
       pathParams: z.object({ id: z.string().uuid() }),
       responses: { 200: TrainingRecordDto, ...commonErrors },
       summary: "One training record with its evidence link, same visibility rule as the list route",
+    },
+
+    // --- Customer complaints (Sprint 06 C1-C4, P18) -------------------------
+    listComplaints: {
+      method: "GET",
+      path: "/v1/complaints",
+      query: ComplaintListQuery,
+      responses: { 200: page(ComplaintDto), ...commonErrors },
+      summary:
+        "The complaint register, cursor-paginated (complaint:view); `unlinked` matches ncr_id IS NULL specifically (§0 B8d); `q` searches subject/description/customer",
+    },
+    getComplaintsSummary: {
+      method: "GET",
+      path: "/v1/complaints/summary",
+      responses: { 200: ComplaintSummaryDto, ...commonErrors },
+      summary:
+        "KPI strip + the 4 filter tabs' own counts (complaint:view) — a cursor-paginated list cannot supply these (rule 6)",
+    },
+    createComplaint: {
+      method: "POST",
+      path: "/v1/complaints",
+      body: CreateComplaintBody,
+      responses: { 201: ComplaintDto, ...commonErrors },
+      summary:
+        "Log a complaint (complaint:manage; Idempotency-Key); code is server-assigned COM-YYYY-NNNN, receivedAt always now(), SLA targets denormalized from the severity matrix at creation",
+    },
+    getComplaint: {
+      method: "GET",
+      path: "/v1/complaints/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: ComplaintDto, ...commonErrors },
+      summary: "One complaint (complaint:view)",
+    },
+    updateComplaint: {
+      method: "PATCH",
+      path: "/v1/complaints/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UpdateComplaintBody,
+      responses: { 200: ComplaintDto, ...commonErrors },
+      summary:
+        "Edit a complaint (complaint:manage; optimistic); remains editable after closed (§0 S4); changing severity re-derives the SLA targets in the same transaction (§0 B7c); never touches status/ncrId/eightDId/capaId/owner/acknowledgedAt/closedAt directly",
+    },
+    acknowledgeComplaint: {
+      method: "POST",
+      path: "/v1/complaints/:id/acknowledge",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: AcknowledgeComplaintBody,
+      responses: { 200: ComplaintDto, ...commonErrors },
+      summary: "Set acknowledgedAt=now() once (complaint:manage; optimistic); 422 if already acknowledged",
+    },
+    closeComplaint: {
+      method: "POST",
+      path: "/v1/complaints/:id/close",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: CloseComplaintBody,
+      responses: { 200: ComplaintDto, ...commonErrors },
+      summary:
+        "Close a complaint from any non-closed status, with or without ever converting (complaint:manage; optimistic); 422 if already closed",
+    },
+    convertComplaint: {
+      method: "POST",
+      path: "/v1/complaints/:id/convert",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: ComplaintConvertBody,
+      responses: { 200: ComplaintConvertResult, ...commonErrors },
+      summary:
+        "Convert/link to NCR (create new or link existing, §0 B8c), 8D, or CAPA (discriminated union on target, §0 B6g) — complaint:manage PLUS the real target capability (ncr:create/ncr:manage/capa:manage, §0 B6f); SELECT...FOR UPDATE + lockVersion + status<>'closed' guard (§0 B6a/b); status advances to rank-max, never backward; audited on every call, even when status doesn't move (§0 B6d)",
+    },
+
+    // --- Engineering Change Notices (Sprint 06 E1-E5, P19) ------------------
+    listEcns: {
+      method: "GET",
+      path: "/v1/ecns",
+      query: EcnListQuery,
+      responses: { 200: page(EcnDto), ...commonErrors },
+      summary:
+        "The ECN register, cursor-paginated (ecn:view); includes linkedDocumentCount/autoReviseResult (§0 B8a/B3e)",
+    },
+    getEcnsSummary: {
+      method: "GET",
+      path: "/v1/ecns/summary",
+      responses: { 200: EcnSummaryDto, ...commonErrors },
+      summary:
+        "Kanban column counts, count(*) group by stage, all 9 stage keys always present incl. ppap (ecn:view) — feeds E2's board",
+    },
+    createEcn: {
+      method: "POST",
+      path: "/v1/ecns",
+      body: CreateEcnBody,
+      responses: { 201: EcnDto, ...commonErrors },
+      summary:
+        "Create an ECN at stage:'draft' (ecn:manage; Idempotency-Key); code is server-assigned ECN-YYYY-NNNN; the 5 ecn_approvals rows are pre-created pending in the same transaction (E4 AC1)",
+    },
+    getEcn: {
+      method: "GET",
+      path: "/v1/ecns/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: EcnDto, ...commonErrors },
+      summary: "One ECN (ecn:view)",
+    },
+    updateEcn: {
+      method: "PATCH",
+      path: "/v1/ecns/:id",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: UpdateEcnBody,
+      responses: { 200: EcnDto, ...commonErrors },
+      summary:
+        "Edit an ECN (ecn:manage; optimistic); changeType/changeRisk/owner only while stage='draft' incl. a draft reached via resubmit (§0 B2/§0b D3), 422 otherwise; rejected entirely (422) once stage is closed or rejected; never sets stage directly",
+    },
+    submitEcn: {
+      method: "POST",
+      path: "/v1/ecns/:id/submit",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: EcnLifecycleBody,
+      responses: { 200: EcnDto, ...commonErrors },
+      summary:
+        "draft -> feasibility (ecn:manage; optimistic); 422 if not currently draft; notifies every ecn:approve holder except owner/created_by (§0 S7)",
+    },
+    withdrawEcn: {
+      method: "POST",
+      path: "/v1/ecns/:id/withdraw",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: EcnLifecycleBody,
+      responses: { 200: EcnDto, ...commonErrors },
+      summary:
+        "draft -> rejected (ecn:manage; optimistic) — an author cancelling their own draft, no four-eyes decision since no ecn_approvals row exists yet at draft",
+    },
+    resubmitEcn: {
+      method: "POST",
+      path: "/v1/ecns/:id/resubmit",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: EcnLifecycleBody,
+      responses: { 200: EcnDto, ...commonErrors },
+      summary:
+        "rejected -> draft (ecn:manage, not owner-restricted; optimistic, §0b D3); 422 if not currently rejected; resets all 5 ecn_approvals rows to pending in the same transaction; owner becomes PATCHable again",
+    },
+    closeEcn: {
+      method: "POST",
+      path: "/v1/ecns/:id/close",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: EcnLifecycleBody,
+      responses: { 200: EcnDto, ...commonErrors },
+      summary: "implementation -> closed (ecn:manage; optimistic); not a four-eyes decision",
+    },
+    listEcnApprovals: {
+      method: "GET",
+      path: "/v1/ecns/:id/approvals",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: z.array(EcnApprovalDto), ...commonErrors },
+      summary: "The 5-row approval tracker for the detail view (ecn:view), incl. ppap",
+    },
+    decideEcnApproval: {
+      method: "POST",
+      path: "/v1/ecns/:id/approvals/:stage",
+      pathParams: z.object({ id: z.string().uuid(), stage: EcnApprovalStage }),
+      body: DecideEcnApprovalBody,
+      responses: { 200: EcnDto, ...commonErrors },
+      summary:
+        "Approve or reject the ECN's current gated stage (ecn:approve, admin/manager only; optimistic) — four-eyes folded into the transition's own WHERE clause (owner/created_by excluded, both decisions, §3 round-3 review item a); 422 if :stage is not the current pending stage; reject requires a comment; approving pilot->implementation runs E5's auto-revise in the same transaction",
+    },
+    listEcnLinks: {
+      method: "GET",
+      path: "/v1/ecns/:id/links",
+      pathParams: z.object({ id: z.string().uuid() }),
+      responses: { 200: z.array(EcnLinkDto), ...commonErrors },
+      summary: "Affected documents/suppliers linked to this ECN (ecn:view)",
+    },
+    linkEcn: {
+      method: "POST",
+      path: "/v1/ecns/:id/link",
+      pathParams: z.object({ id: z.string().uuid() }),
+      body: EcnLinkBody,
+      responses: { 201: EcnLinkDto, ...commonErrors },
+      summary:
+        "Link an affected document or supplier (ecn:manage; SELECT...FOR SHARE on the parent first, §0 S2); 422 once stage is implementation/closed/rejected",
+    },
+    unlinkEcn: {
+      method: "POST",
+      path: "/v1/ecns/:id/links/:linkId/delete",
+      pathParams: z.object({ id: z.string().uuid(), linkId: z.string().uuid() }),
+      body: z.object({}).strict(),
+      responses: { 200: EcnDto, ...commonErrors },
+      summary:
+        "Remove an affected-record link (ecn:manage + stage draft..pilot, else 422; SELECT...FOR SHARE on the parent first, §0 B4/§3 round-3 review item b) — the generic /v1/entity-links delete route rejects any ecn-kind link outright",
     },
 
     // --- Data platform: query engine (B2) ----------------------------------

@@ -1,18 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { Info, TriangleAlert, X } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
 import {
   RISK_CATEGORY_OPTIONS,
   RISK_SCALE_OPTIONS,
   RISK_TREATMENT_OPTIONS,
   type WizardDraft,
 } from "@kaenal/core";
-import type { MemberDto } from "@kaenal/types";
-import { Avatar } from "@/components/avatar";
-import { Skeleton } from "@/components/ui";
-import { useMembers } from "@/hooks/use-members";
+import { OwnerPicker } from "./owner-picker";
 import type { FieldErrors } from "./use-wizard-draft";
 
 function FieldError({ message }: { message?: string | undefined }): React.ReactElement | null {
@@ -69,131 +65,6 @@ function ScalePicker({
           );
         })}
       </div>
-    </div>
-  );
-}
-
-/**
- * Risk's owner: a single-select (search-and-replace), not the shared
- * Assignees step's multi-role add-many picker — R4 AC1(b). Visually a
- * `PeoplePicker`-style row that swaps the selected person instead of
- * appending one.
- */
-function OwnerPicker({
-  ownerId,
-  onSelect,
-  invalid,
-}: {
-  ownerId: string | null;
-  onSelect: (userId: string) => void;
-  invalid: boolean;
-}): React.ReactElement {
-  const t = useTranslations("wizard");
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const { data, isLoading } = useMembers();
-  const byId = useMemo(() => new Map((data?.items ?? []).map((m) => [m.userId, m])), [data]);
-  const owner: MemberDto | undefined = ownerId !== null ? byId.get(ownerId) : undefined;
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  const filtered = useMemo(() => {
-    const all = data?.items ?? [];
-    const query = q.trim().toLowerCase();
-    return all.filter((u) => query === "" || u.name.toLowerCase().includes(query) || u.role.toLowerCase().includes(query));
-  }, [data, q]);
-
-  return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <div id="wizard-risk-owner-label" className="mb-1.5 text-[12px] font-semibold">
-        {t("owner")} <span style={{ color: "var(--danger)" }}>*</span>
-      </div>
-      {owner !== undefined ? (
-        <div className="flex items-center gap-2.5 rounded-md bg-bg-subtle px-3 py-2">
-          <Avatar name={owner.name} size={28} />
-          <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-medium">{owner.name}</div>
-            <div className="text-[11px] text-muted">{owner.role}</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="k-btn k-btn-ghost k-btn-sm"
-            aria-label={t("changeOwner")}
-          >
-            {t("change")}
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          aria-labelledby="wizard-risk-owner-label"
-          aria-invalid={invalid}
-          onClick={() => setOpen((o) => !o)}
-          className="k-input"
-          style={{ textAlign: "left", color: "var(--text-muted)" }}
-        >
-          {t("chooseOwner")}
-        </button>
-      )}
-      {open && (
-        <div
-          className="k-surface fade-in absolute z-[100] flex flex-col overflow-hidden"
-          style={{ top: "calc(100% + 4px)", left: 0, right: 0, maxHeight: 280, boxShadow: "var(--shadow-lg)" }}
-        >
-          <div className="flex items-center border-b border-border p-2">
-            <input
-              className="k-input"
-              placeholder={t("searchPeople")}
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label={t("cancel")}
-              className="k-btn k-btn-icon k-btn-plain ml-1"
-              style={{ height: 28, width: 28 }}
-            >
-              <X size={14} aria-hidden />
-            </button>
-          </div>
-          <div className="overflow-y-auto p-1">
-            {isLoading && <Skeleton className="m-1 h-10 rounded-sm" />}
-            {!isLoading && filtered.length === 0 && (
-              <div className="p-3 text-center text-[12px] text-muted">{t("noMatches")}</div>
-            )}
-            {filtered.map((u) => (
-              <button
-                key={u.userId}
-                type="button"
-                onClick={() => {
-                  onSelect(u.userId);
-                  setOpen(false);
-                  setQ("");
-                }}
-                aria-pressed={u.userId === ownerId}
-                className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-2 text-left hover:bg-bg-subtle"
-              >
-                <Avatar name={u.name} size={26} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium">{u.name}</div>
-                  <div className="text-[11px] text-muted">{u.role}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -311,7 +182,11 @@ export function RiskDetailsStep({
         </div>
 
         <div>
+          <div id="wizard-risk-owner-label" className="mb-1.5 text-[12px] font-semibold">
+            {t("owner")} <span style={{ color: "var(--danger)" }}>*</span>
+          </div>
           <OwnerPicker
+            labelId="wizard-risk-owner-label"
             ownerId={draft.riskOwner}
             onSelect={(userId) => patch({ riskOwner: userId })}
             invalid={fieldErrorFor("owner") !== undefined}

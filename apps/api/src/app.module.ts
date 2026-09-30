@@ -125,6 +125,10 @@ import { CompetenciesController } from "./training/competencies.controller.js";
 import { CompetenciesService } from "./training/competencies.service.js";
 import { TrainingController } from "./training/training.controller.js";
 import { TrainingService } from "./training/training.service.js";
+import { ComplaintsController } from "./complaints/complaints.controller.js";
+import { ComplaintsService } from "./complaints/complaints.service.js";
+import { EcnController } from "./ecn/ecn.controller.js";
+import { EcnService } from "./ecn/ecn.service.js";
 import { BullMqProducer, NoopProducer, type JobProducer } from "./jobs/producer.js";
 import {
   AI_GATEWAY,
@@ -180,6 +184,8 @@ import {
   INSTRUMENTS_SERVICE,
   COMPETENCIES_SERVICE,
   TRAINING_SERVICE,
+  COMPLAINTS_SERVICE,
+  ECN_SERVICE,
   REALTIME,
   PRESENCE_SERVICE,
   COLLAB_SERVICE,
@@ -240,6 +246,8 @@ import {
     InstrumentsController,
     CompetenciesController,
     TrainingController,
+    ComplaintsController,
+    EcnController,
   ],
   providers: [
     { provide: ENV, useFactory: (): Env => loadEnv() },
@@ -514,6 +522,17 @@ import {
     },
     { provide: COMPETENCIES_SERVICE, useFactory: () => new CompetenciesService() },
     { provide: TRAINING_SERVICE, useFactory: () => new TrainingService() },
+    {
+      provide: COMPLAINTS_SERVICE,
+      useFactory: (ncrs: NcrService, eightDs: EightDService, capas: CapaService) =>
+        new ComplaintsService(ncrs, eightDs, capas),
+      inject: [NCR_SERVICE, EIGHT_D_SERVICE, CAPA_SERVICE],
+    },
+    {
+      provide: ECN_SERVICE,
+      useFactory: (documents: DocumentsService, n: NotificationsService) => new EcnService(documents, n),
+      inject: [DOCUMENTS_SERVICE, NOTIFICATIONS_SERVICE],
+    },
     {
       provide: RATE_LIMITER,
       useFactory: (redis: Redis) => new RateLimiter(redis),

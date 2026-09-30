@@ -44,6 +44,10 @@ const KEY_COLUMN = {
   instruments: "id",
   calibration_events: "id",
   competencies: "id",
+  // Sprint 06 C1/E1.
+  complaints: "id",
+  ecns: "id",
+  ecn_approvals: "id",
 } as const;
 
 export type StaleTable = keyof typeof KEY_COLUMN;

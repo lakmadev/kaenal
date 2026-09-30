@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiQueries } from "@kaenal/api-client";
 import { Search, Check, TriangleAlert } from "lucide-react";
 import type { EntityKind } from "@kaenal/types";
-import { useFmeas } from "@/hooks/use-fmea";
-import { entityIcon } from "@/lib/entity-routes";
+import { getApiClient } from "@/lib/api";
+import { entityIcon, entityLabel } from "@/lib/entity-routes";
 import { filterLinkPickerRecords, shouldShowKindChips, type LinkPickerRecord } from "@/lib/link-picker";
 import { Dialog, DialogContent, Button, Spinner, Chip, EmptyState } from "@/components/ui";
 
@@ -15,12 +17,16 @@ export type { LinkPickerRecord };
  * web component previously called `POST /v1/entity-links`, only read it). Mirrors
  * `AssigneePicker`'s search/select pattern rather than inventing a new one.
  *
- * `kinds` is a prop so the component stays reusable for a future NCR/8D/audit/
- * supplier call site, but per the design audit's own flagged inconsistency
+ * `kinds` is a prop so the component stays reusable across call sites. Sprint
+ * 04 R3's own caller passes `kinds={["fmea"]}`; Sprint 06 E5's ECN
+ * affected-records panel passes `kinds={["document", "supplier"]}` — both
+ * scoped kinds are wired here, each backed by the existing unpaginated list
+ * endpoint with client-side filtering (no new search-index work), same as the
+ * FMEA precedent. Per the design audit's own flagged inconsistency
  * (`LinkPicker.dc.html` still drew 5 chips against a single-kind sprint scope),
  * a kind-filter chip row is a DEAD CONTROL when there is only one kind to filter
- * — so it is never rendered in that case, rather than shown with 4 disabled
- * chips. This sprint's only caller passes `kinds={["fmea"]}`.
+ * — so it is never rendered in that case, rather than shown with disabled
+ * chips (`shouldShowKindChips`).
  */
 export function LinkPicker({
   open,
@@ -41,21 +47,61 @@ export function LinkPicker({
   const showKindChips = shouldShowKindChips(kinds);
   const kind = showKindChips ? activeKind : (kinds[0] ?? "fmea");
 
-  // Sprint 04 R3 AC: FMEA-only this sprint, backed by the existing unpaginated
-  // `GET /v1/fmeas` list with client-side filtering — no new search-index work.
-  const fmeas = useFmeas();
-  const loading = kind === "fmea" && fmeas.isLoading;
-  const isError = kind === "fmea" && fmeas.isError;
+  const client = getApiClient();
+  // Sprint 04 R3 AC: FMEA, backed by the existing unpaginated `GET /v1/fmeas`
+  // list with client-side filtering — no new search-index work. Sprint 06 E5
+  // adds document/supplier the same way. Each query only runs (`enabled`)
+  // when its kind is actually offered by this call site, so a caller scoped
+  // to a single kind (e.g. risk's `["fmea"]`) never fetches the others.
+  const wantsFmea = kinds.includes("fmea");
+  const fmeas = useQuery({ ...apiQueries.fmea.list(client), enabled: wantsFmea });
+  const wantsDocument = kinds.includes("document");
+  const documents = useQuery({ ...apiQueries.documents.list(client, { query: { limit: 100 } }), enabled: wantsDocument });
+  const wantsSupplier = kinds.includes("supplier");
+  const suppliers = useQuery({ ...apiQueries.suppliers.list(client, { query: { limit: 100 } }), enabled: wantsSupplier });
+
+  const loading =
+    (kind === "fmea" && wantsFmea && fmeas.isLoading) ||
+    (kind === "document" && wantsDocument && documents.isLoading) ||
+    (kind === "supplier" && wantsSupplier && suppliers.isLoading);
+  const isError =
+    (kind === "fmea" && wantsFmea && fmeas.isError) ||
+    (kind === "document" && wantsDocument && documents.isError) ||
+    (kind === "supplier" && wantsSupplier && suppliers.isError);
+  const activeError = kind === "document" ? documents.error : kind === "supplier" ? suppliers.error : fmeas.error;
+  const retry = (): void => {
+    if (kind === "document") void documents.refetch();
+    else if (kind === "supplier") void suppliers.refetch();
+    else void fmeas.refetch();
+  };
 
   const records: LinkPickerRecord[] = useMemo(() => {
-    if (kind !== "fmea") return [];
-    return (fmeas.data?.items ?? []).map((f) => ({
-      kind: "fmea" as const,
-      id: f.id,
-      title: f.partCode,
-      subtitle: f.partName,
-    }));
-  }, [kind, fmeas.data]);
+    if (kind === "fmea") {
+      return (fmeas.data?.items ?? []).map((f) => ({
+        kind: "fmea" as const,
+        id: f.id,
+        title: f.partCode,
+        subtitle: f.partName,
+      }));
+    }
+    if (kind === "document") {
+      return (documents.data?.items ?? []).map((d) => ({
+        kind: "document" as const,
+        id: d.id,
+        title: d.code,
+        subtitle: d.title,
+      }));
+    }
+    if (kind === "supplier") {
+      return (suppliers.data?.items ?? []).map((s) => ({
+        kind: "supplier" as const,
+        id: s.id,
+        title: s.code,
+        subtitle: s.name,
+      }));
+    }
+    return [];
+  }, [kind, fmeas.data, documents.data, suppliers.data]);
 
   const filtered = useMemo(() => filterLinkPickerRecords(records, query), [records, query]);
 
@@ -92,7 +138,7 @@ export function LinkPicker({
                   <Chip
                     className={k === activeKind ? "border-accent bg-[var(--accent-soft)] text-accent" : ""}
                   >
-                    {k}
+                    {entityLabel(k)}
                   </Chip>
                 </button>
               ))}
@@ -120,9 +166,9 @@ export function LinkPicker({
               <EmptyState
                 icon={TriangleAlert}
                 title="Couldn't load records"
-                {...(fmeas.error instanceof Error ? { body: `Request ID: ${fmeas.error.message}` } : {})}
+                {...(activeError instanceof Error ? { body: `Request ID: ${activeError.message}` } : {})}
                 action={
-                  <Button variant="primary" size="sm" onClick={() => void fmeas.refetch()}>
+                  <Button variant="primary" size="sm" onClick={retry}>
                     Retry
                   </Button>
                 }
