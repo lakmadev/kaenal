@@ -56,6 +56,26 @@ record it, move on"). Result: **no open decision remains in this file.**
 | PO-5 | New gateable unit `supplier_analytics` (weighted scorecards + supplier risk matrix), split out of `suppliers`: without it, U-D6 would give the scorecards the user named as paid depth away for free | PO (consequence of U-D6) | P0, P1, P2, P3, D-S15 |
 | PO-6 | Platform trial reset (07C C5) is the single, audited exception to "once per pack" | PO (standing rule, 07C Q-SC6) | P5 |
 
+**Amendment 3 — architecture review SEND BACK, 2026-09-30 (tagged [AR]).** The `planner` review of this file and
+`SPRINT-07C-staff-console.md` together returned SEND BACK with 23 blocking defects. The full itemized map (AR1-AR29,
+each with its resolution and the PO's code verification) is in 07C's Amendment 4; this file carries the fixes that
+land in Increments A and B. The operator plane is renamed **platform** in both files (07C terminology note); this
+file's references follow. **This answers the SEND BACK in the document; the architecture re-review is still owed**
+(Definition of Ready #2), and nothing here claims Gate 1 — no design board exists yet.
+
+| # | Fix in this file | Where |
+|---|---|---|
+| AR16 | Catalog, `catalog_meta` and `control.tenant_plans` always read from the primary database — never from a dedicated tenant's stale `control.*` copy, which `migrate-tenants` creates in every dedicated DB | P0 AC5, §3.2 |
+| AR17 | Catalog snapshot + its version read in one `REPEATABLE READ` transaction; tenant-side inputs in one statement (one transaction across two physical databases is impossible, stated) | P0 AC5, P1 AC7, §3.2 |
+| AR18 | 9-row `entitlements` invariant made real (provisioning seeds all 9); `apply-bundle` locks all rows `FOR UPDATE` in fixed order and compares inside the transaction | P1 AC5, P4 AC4, P8 UC + AC4 |
+| AR19 | At most one price-book `draft` (partial unique index); catalog writes serialize on `catalog_meta FOR UPDATE` | §3.1, §3.2 (enforced in 07C C7/C8) |
+| AR22 | `plan_request.changed` and `tenant_commercial.changed` become ids-only **internal** outbox events (`outbox.audience`, added in 0076); the customer webhook handler skips them — the drafted payload would have sent requester names and emails to wildcard webhooks | P6 AC6, X1 AC8, §3.1 |
+| AR23 | No AC claims an email is sent "in the same transaction": every email here is enqueued after commit (07C SD12); corrected §1a's claim of an outbox → email processor | §1a, P6 UC + AC3, O1 AC3, O3 AC2 |
+| AR13 (dependency) | Profile / onboarding / billing audit events get dedicated entity kinds so 07C's commercial-scope audit policy can admit exactly them | O1 AC3, O4 AC3, P9 AC2, X1 AC4 |
+| AR27 | `LockedRoute` and create-surface locks cover every module outside `CORE_FLOOR_GUARANTEED`, driven by `MODULE_ROUTES` + the resolver, so a catalog edit (07C C7) cannot leave a newly gated module unlocked in the web | P2 AC4, AC7 |
+| AR28 | `entitlement_trials` gains `id uuid` (audit `entity_id`) and `expiry_processed_at` (exactly-once expiry); `entitlements.created_by` / `updated_by` get composite FKs by `ALTER` on the existing columns (`0001_core.sql:618`) | P1 AC4, P5 AC1-AC2, §3.1 |
+| R3/R7 (re-review items) | O5 completion-on-read is a GET that writes: conditional update, skipped for a support viewer | O5 UC |
+
 **PO scope call: this sprint is split into two sprint files (Amendment 1).** With U-D5 the work grows from two
 increments to three, and the third is a whole new authenticated surface (a platform identity outside tenant
 memberships, a non-tenant-scoped session path through the lifecycle interceptor, a least-privilege support
@@ -1706,19 +1726,19 @@ hand that to sales.
 
 | Story | Migration | Routes (contract + controller) | Service / job | Audit | RBAC | Tenancy notes |
 |---|---|---|---|---|---|---|
-| P0 | 0073 | `GET /v1/catalog`, `GET /v1/public/onboarding-catalog` (`@Public`) | `CatalogService` (snapshot cache keyed on `catalog_meta.version`); `packages/core/entitlements/catalog.ts` (types, accessors, `validateCatalog`, `CORE_FLOOR_GUARANTEED`) | — (read-only here; writes audited in 07C) | authenticated member/partner; public (active keys/labels only) | control-plane, not tenant-owned; explicit grant test (`kaenal_app` SELECT only; `kaenal_public` column SELECT on two tables) |
+| P0 | 0073 | `GET /v1/catalog`, `GET /v1/public/onboarding-catalog` (`@Public`) | `CatalogService` (snapshot cache keyed on `catalog_meta.version`; **[AR]** primary-database pool only, one `REPEATABLE READ` snapshot); `packages/core/entitlements/catalog.ts` (types, accessors, `validateCatalog`, `CORE_FLOOR_GUARANTEED`) | — (read-only here; writes audited in 07C) | authenticated member/partner; public (active keys/labels only) | control-plane, not tenant-owned; explicit grant test (`kaenal_app` SELECT only; `kaenal_public` column SELECT on two tables) |
 | P1 | 0074 (+ `catalog_tiers` in 0073) | — | `packages/core/entitlements/resolver.ts` (`effectiveModules`, `frameworkInclusions`, `packCoverage`, `estimateMonthly`) | — | — | forced RLS on both tenant tables; composite member FKs; reads profile frameworks (O1 AC1-2, wave A) |
 | P2 | — | `GET /v1/entitlements` (+ `modules`, `declaredFrameworks`, `catalogVersion`) | `EntitlementsService.get` | — | authenticated | RLS read; realtime topic `entitlements` |
 | P3 | — | `@RequireModule` on existing routes (every non-guaranteed module's writes; graph/predictions and [AM2] `GET /v1/supplier-scorecard` reads; portal-invite routes → `portal`) | lifecycle interceptor, AI gateway | — (refusals write nothing) | after `@RequireCapability` | resolver inside tenant tx; 402 before lookup |
-| P4 | — | `PUT /v1/entitlements/packs/:packId`, `POST /v1/entitlements/apply-bundle`, `GET /v1/entitlements/org-profile`, `GET /v1/entitlements/downgrade-impact` (+ `removeFrameworks`) | `EntitlementsService` | `entitlement_changed` | `billing:manage` | `lock_version` / `expectedPacks` 409; self-service flag read from control plane; 422 `already_included` |
-| P5 | — (0074) | `POST /v1/entitlements/trials` | job `entitlement-trials` | `entitlement_changed` (user + system) | `billing:manage` | PK once-per-pack; job tenant-iterating; fully covered pack → 422 |
-| P6 | 0076 | `POST/GET /v1/entitlements/requests`, `POST …/requests/:id/withdraw` | `PlanRequestsService`, outbox email + outbox `plan_request.changed` (07C projects it) | `created`, `status_changed` | per kind | partial unique open index; foreign id → 404; fulfil/decline in 07C |
+| P4 | — | `PUT /v1/entitlements/packs/:packId`, `POST /v1/entitlements/apply-bundle`, `GET /v1/entitlements/org-profile`, `GET /v1/entitlements/downgrade-impact` (+ `removeFrameworks`) | `EntitlementsService` | `entitlement_changed` | `billing:manage` | `lock_version` / `expectedPacks` 409 (**[AR]** all 9 rows `FOR UPDATE`); self-service flag read from control plane; 422 `already_included` |
+| P5 | — (0074) | `POST /v1/entitlements/trials` | job `entitlement-trials` (**[AR]** exactly-once via `expiry_processed_at`) | `entitlement_changed` (user + system) | `billing:manage` | PK once-per-pack; job tenant-iterating; fully covered pack → 422 |
+| P6 | 0076 | `POST/GET /v1/entitlements/requests`, `POST …/requests/:id/withdraw` | `PlanRequestsService`, sales email enqueued after commit + **[AR]** ids-only internal outbox event `plan_request.changed` (`audience='internal'`, 07C projects it) | `created`, `status_changed` | per kind | partial unique open index; foreign id → 404; fulfil/decline in 07C |
 | P7 | 0076 | existing `POST /v1/exports` (`plan_quote`) | `run-export.ts` branch | `exported` | `billing:manage` | numbers + price-book version from the same snapshot |
 | P8 | 0075 | CLI only (`provision-tenant --bundle` required, `--from-request`) | `provision-tenant.ts`, `scripts/lib/seed.ts` | `system` events for **every** row it seeds, incl. the pre-existing SLA/plant/template/membership seeding ([AM2] Q-P1 fix) | migrator role | db-router for dedicated tenants; `control.tenant_plans` app-role SELECT only |
 | P9 | 0076 | `GET /v1/billing/plan`, `GET/PUT /v1/settings/billing` | settings service | `settings_changed` | `billing:manage` | `tenant_settings` RLS |
-| O1 | 0076 | `GET/PUT /v1/settings/workspace-profile` | settings service; catalog-bound validation | `settings_changed` (+ sales outbox email on frameworks change) | read: member; write: `settings:manage`, `frameworks`: `billing:manage` | backfill `dismissed`; realtime `entitlements` on frameworks change |
+| O1 | 0076 | `GET/PUT /v1/settings/workspace-profile` | settings service; catalog-bound validation | `settings_changed` (**[AR]** `entity_kind='workspace_profile'`; sales email enqueued after commit on frameworks change) | read: member; write: `settings:manage`, `frameworks`: `billing:manage` | backfill `dismissed`; realtime `entitlements` on frameworks change |
 | O2 | — | — | `packages/core/onboarding/suggest.ts` (catalog as argument) | — | — | pure |
-| O3 | 0075 | `POST /v1/public/workspace-requests` (`@Public`) | intake service, `send-email` | — (no tenant) | public, rate-limited | INSERT-only grant; hashed IP; no PII logs; catalog-validated keys |
+| O3 | 0075 | `POST /v1/public/workspace-requests` (`@Public`) | intake service, `send-email` (**[AR]** enqueued after the insert commits) | — (no tenant) | public, rate-limited | INSERT-only grant; hashed IP; no PII logs; catalog-validated keys |
 | O4 | — | `GET /v1/onboarding`, `POST /v1/onboarding/start|dismiss|resume` | onboarding service | `settings_changed` | `settings:manage` | — |
 | O5 | — | `GET /v1/onboarding` (tasks) | task completion queries | — | `settings:manage` | tenant-scoped EXISTS on indexed columns |
 | X1 | — | — | seed (+ `globex`), ledger, excluded.md, audit-log UI, mobile | — | — | — |
@@ -1909,9 +1929,12 @@ moves to PROGRESS.md "Known issues" at close.
 
 - [x] [AM2] Every §3.0 decision and §7 item DECIDED (D1, D2, D5, price book, lists: user 2026-09-30; D3, D4
       confirmed and Q-C11 decided 2026-09-30; the rest PO under the standing rule) — no decision gates the build.
+- [x] [AR] The architecture review's SEND BACK is answered in this file (Amendment 3) and in 07C (Amendment 4) — a
+      document fix, not a re-review.
 - [ ] UI Lead Designer's boards D-S1…D-S15 [AM2] approved by the user (Gate 1); `planner` architecture review returned SIGN OFF with the slice
       plan, covering both this file and `SPRINT-07C-staff-console.md` (one review of the release, since 07C
-      writes this file's tables).
+      writes this file's tables). **[AR]** The first review returned SEND BACK; this item now means the **re-review**
+      SIGN OFF against 07C's DoR #4 checklist (R1-R10).
 - [ ] Migrations **0073-0076** applied (0077 buffer unused or used for a recorded correction); `pnpm db:migrate`
       clean on a fresh DB and on a DB with existing tenants (backfill proven: existing tenants keep every pack,
       onboarding `dismissed`; catalog seeded: 9 packs, 3 tiers, 8 industries, 9 frameworks, every rule, price book
@@ -1952,6 +1975,14 @@ moves to PROGRESS.md "Known issues" at close.
 - [ ] [AM2] The seeded rules equal §3.0 D2's finalized matrix and O2 AC3's floor rows exactly (a seed test
       compares them); every clause string reviewed by a QMS SME, or the Q-S5 fallback wording used for copy —
       recorded in PROGRESS.md. P3 AC6 (§8.4.2.4 indicators on the free supplier record) green.
+- [ ] **[AR]** Primary-database reads proved with the dedicated-tenant router fake (P0 AC5); catalog snapshot
+      consistency test (P0 AC5); every tenant has exactly 9 `entitlements` rows after migration and provisioning (P1
+      AC5, P8 AC4); a racing toggle and bundle apply never both succeed (P4 AC4); a `*`-subscribed webhook receives
+      no `plan_request.changed` / `tenant_commercial.changed` and no outbox row carries an email or note (P6 AC6, X1
+      AC8); each email path enqueues only after commit and a rolled-back request sends nothing (P6 AC3, O1 AC3, O3
+      AC2); trial expiry writes its audit event exactly once under re-runs and concurrent workers (P5 AC2); the
+      `entitlements` composite FKs reject a non-member id (P1 AC4); moving `complaints` into a pack in a test catalog
+      overlays `/complaints` without a deploy (P2 AC4).
 - [ ] Gates green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
 - [ ] Demo re-seeded (`pnpm --filter @kaenal/api exec tsx scripts/seed-demo.ts`), `acme` Enterprise bundle +
       self-service restored after browser verification, `globex` present, **real sign-in returns 201** to both
@@ -1996,8 +2027,13 @@ tenant-aware pricing page stand as the PO's rendering of the user's decisions; t
 to close planning, given with that rendering in hand, is taken as acceptance. A later user correction would be a
 data or copy change (catalog rules, D-S12/13 copy), not a redesign.
 
-**PO use-case sign-off: SIGNED (= APPROVED for SCRUM.md Gate 1), 2026-09-30.** Verified, not assumed: **16
-stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
+**[AR] Architecture review: SEND BACK (2026-09-30) — answered by Amendment 3 here and Amendment 4 in 07C;
+RE-REVIEW REQUIRED before build.** The PO does not treat the SEND BACK as closed until the `planner` re-review signs
+off.
+
+**PO use-case sign-off: SIGNED (the PO's part of SCRUM.md Gate 1 only — Gate 1 itself is NOT complete: no design
+board exists yet), 2026-09-30; reaffirmed after Amendment 3 [AR], 2026-09-30 (no story added or removed; the [AR]
+fixes amend existing ACs).** Verified, not assumed: **16 stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
 extensibility, price-book versioning, framework inclusion under the finalized mapping, the `supplier_analytics`
 in-page gates, the Q-C13 overlap line, the platform trial-reset exception and the Q-P1 provisioning audit — maps to at
 least one objectively testable AC with a Web / Mobile / Shared split, a §4 backend row, a §5 design source or gap
@@ -2009,5 +2045,7 @@ and a §6 dead-end entry. No AC still depends on an unanswered question (§7 has
    copy deviations (D-S12/13 tenant-aware callout and Core card, the `standards` tagline).
 2. **Architecture review.** `planner` reviews this file and `SPRINT-07C-staff-console.md` together (07C writes this
    file's tables) and returns SIGN OFF with the vertical-slice plan, the exhaustive `@RequireModule` route list
-   (P3 AC2), the per-module "open record" definitions (P4 AC5) and the O5 index confirmations.
+   (P3 AC2), the per-module "open record" definitions (P4 AC5) and the O5 index confirmations. **[AR]** This is now a
+   **re-review** after the SEND BACK, run against the named checklist in `SPRINT-07C-staff-console.md` DoR #4
+   (R1-R10), which includes these three items (R1-R3).
 3. **07C only:** the `security-reviewer` pass on 07C's design (07C §3) before its build starts.
