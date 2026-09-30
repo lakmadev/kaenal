@@ -678,6 +678,7 @@ env badge colours verified.
 | Nav: Tenants, Sales inbox, Workspace requests, Catalog, Price book, Audit log | Real sections C4, C6, C6, C7, C8, C9 (Audit log hidden without `staff:audit:read`) |
 | Account menu: My sessions (revoke), My active grants (end) | C2 / C3 routes |
 | Directory: search, filters, row click, pagination | C4 route; detail |
+| Tenant detail: Refresh summary | Re-derives `control.tenant_commercial_summary` for that tenant inside the active grant (C4 AC2) |
 | Access dialog: Open with reason / Cancel | C3 grant / back to directory |
 | Grant banner: End access | C3 end |
 | Plan tab: pack toggle, Apply bundle (Core/Pro/Ent), Self-service switch, Save contract, Save CSM | C5 routes with reason confirm; hidden for `support` |
