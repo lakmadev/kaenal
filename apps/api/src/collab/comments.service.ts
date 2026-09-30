@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { withAudit, type Tx } from "@kaenal/db";
+import type { Membership } from "@kaenal/core";
 import { extractMentionedUserIds, type CommentDto, type CreateCommentBody, type EntityKind, type Page } from "@kaenal/types";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { ApiError, notFound } from "../errors.js";
@@ -105,9 +106,10 @@ export class CommentsService {
     tx: Tx,
     kind: EntityKind,
     entityId: string,
+    membership: Membership,
     opts: { cursor?: string; limit: number },
   ): Promise<Page<CommentDto>> {
-    await assertEntityVisible(tx, kind, entityId);
+    await assertEntityVisible(tx, kind, entityId, membership);
     const limit = clampLimit(opts.limit);
     const cursor: Cursor | null = opts.cursor !== undefined ? decodeCursor(opts.cursor) : null;
     const params: unknown[] = [kind, entityId];
@@ -131,8 +133,9 @@ export class CommentsService {
     actorId: string,
     body: CreateCommentBody,
     context: AuditContext,
+    membership: Membership,
   ): Promise<CommentDto> {
-    await assertEntityVisible(tx, body.entityKind, body.entityId);
+    await assertEntityVisible(tx, body.entityKind, body.entityId, membership);
 
     // A threaded reply must belong to the same record — otherwise it would
     // graft one entity's thread onto another's.

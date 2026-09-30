@@ -48,6 +48,11 @@ const ENTITY_TOPIC: Readonly<Record<string, TopicBinding>> = {
   document_version: { topic: "document", capability: "document:view" },
   fmea: { topic: "fmea", capability: "fmea:view" },
   fmea_item: { topic: "fmea", capability: "fmea:view" },
+  // Sprint 06 X1 AC6.
+  complaint: { topic: "complaint", capability: "complaint:view" },
+  complaint_attachment: { topic: "complaint", capability: "complaint:view" },
+  ecn: { topic: "ecn", capability: "ecn:view" },
+  ecn_approval: { topic: "ecn", capability: "ecn:view" },
 };
 
 /** Collapse the audit verb to the three actions a client cares about. */

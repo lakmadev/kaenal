@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type { Tx } from "@kaenal/db";
-import { isPlantScoped, type Membership } from "@kaenal/core";
+import { hasCapability, isPlantScoped, type Capability, type Membership } from "@kaenal/core";
 import type { SearchEntityKind, SearchResultDto, SearchResults } from "@kaenal/types";
 
 /** Top N hits per entity kind (03 §1 / 04 — "top 6 per kind"). */
@@ -9,19 +9,29 @@ const LIMIT_PER_KIND = 6;
 interface KindConfig {
   readonly table: string;
   readonly plantScoped: boolean;
+  /** The kind's own `:view` capability (SPRINT-06 §0 B5) — checked in
+   *  `search()` before a kind is even queried, closing the same class of gap
+   *  as `entity-ref.ts`'s `assertEntityVisible` fix. */
+  readonly capability: Capability;
+  /** The title-bearing column for this kind's table — defaults to `"title"`
+   *  for every pre-existing kind, unchanged; `complaint` has no `title`
+   *  column, only `subject` (§0 B5). */
+  readonly titleColumn: string;
 }
 
 /**
  * Fixed table map — the table name is interpolated into SQL, so it must never
- * come from user input. These four are the searchable records the command
- * palette federates over.
+ * come from user input. These are the searchable records the command palette
+ * federates over.
  */
 const KINDS: Readonly<Record<SearchEntityKind, KindConfig>> = {
-  inspection: { table: "inspections", plantScoped: true },
-  ncr: { table: "ncrs", plantScoped: true },
-  capa: { table: "capas", plantScoped: false },
-  document: { table: "documents", plantScoped: false },
-  audit: { table: "audits", plantScoped: true },
+  inspection: { table: "inspections", plantScoped: true, capability: "inspection:view", titleColumn: "title" },
+  ncr: { table: "ncrs", plantScoped: true, capability: "ncr:view", titleColumn: "title" },
+  capa: { table: "capas", plantScoped: false, capability: "capa:view", titleColumn: "title" },
+  document: { table: "documents", plantScoped: false, capability: "document:view", titleColumn: "title" },
+  audit: { table: "audits", plantScoped: true, capability: "audit:view", titleColumn: "title" },
+  complaint: { table: "complaints", plantScoped: false, capability: "complaint:view", titleColumn: "subject" },
+  ecn: { table: "ecns", plantScoped: false, capability: "ecn:view", titleColumn: "title" },
 };
 
 /**
@@ -56,6 +66,9 @@ export class SearchService {
     const items: SearchResultDto[] = [];
     for (const kind of Object.keys(KINDS) as SearchEntityKind[]) {
       if (kind === "audit" && AUDIT_HIDDEN_ROLES.has(membership.role)) continue;
+      // §0 B5 — a caller lacking this kind's own :view capability never even
+      // reaches queryKind for it (was previously unchecked for every kind).
+      if (!hasCapability(membership.role, KINDS[kind].capability)) continue;
       const rows = await this.queryKind(tx, kind, membership, q);
       for (const r of rows) {
         items.push({ kind, id: r.id, code: r.code, title: r.title, rank: r.rank });
@@ -82,7 +95,7 @@ export class SearchService {
     // websearch_to_tsquery tolerates arbitrary user input (no tsquery syntax
     // errors from stray punctuation), which a raw to_tsquery would throw on.
     const { rows } = await tx.query<HitRow>(
-      `SELECT id, code, title, ts_rank(search_vector, query) AS rank
+      `SELECT id, code, ${cfg.titleColumn} AS title, ts_rank(search_vector, query) AS rank
          FROM ${cfg.table}, websearch_to_tsquery('english', $1) query
         WHERE search_vector @@ query AND deleted_at IS NULL${plantFilter}
         ORDER BY rank DESC, created_at DESC

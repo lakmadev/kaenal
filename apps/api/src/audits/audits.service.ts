@@ -731,11 +731,32 @@ export class AuditsService {
       context,
     );
 
-    const linked = await tx.query(
-      "UPDATE audit_findings SET capa_id = $1, updated_by = $3 WHERE id = $2 AND capa_id IS NULL",
-      [capa.id, finding.id, actorId],
+    // Fixed to use withAudit (§0 B6e) — this was previously a bare tx.query
+    // UPDATE escaping the mandatory audit trail (rule 3), unlike raiseNcr's
+    // own already-fixed pattern above, which this now matches exactly.
+    await withAudit(
+      tx,
+      tenantId,
+      {
+        actorId,
+        actorKind: "user",
+        entityKind: "audit_finding",
+        entityId: finding.id,
+        action: "updated",
+        before: { capaId: null },
+        after: { capaId: capa.id },
+        requestId: context.requestId,
+        ip: context.ip,
+        userAgent: context.userAgent,
+      },
+      async (t) => {
+        const linked = await t.query(
+          "UPDATE audit_findings SET capa_id = $1, updated_by = $3 WHERE id = $2 AND capa_id IS NULL",
+          [capa.id, finding.id, actorId],
+        );
+        if (linked.rowCount === 0) throw new ApiError("CONFLICT", "That finding was just linked to another CAPA");
+      },
     );
-    if (linked.rowCount === 0) throw new ApiError("CONFLICT", "That finding was just linked to another CAPA");
     return capa;
   }
 

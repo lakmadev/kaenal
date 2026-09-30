@@ -43,6 +43,10 @@ const ENTITY_SPECS: Readonly<Record<EntityKind, EntitySpec>> = {
   // here, same reasoning as `finding` above.
   risk: { table: "risks", label: "title", plantScoped: false, view: "risk:view" },
   fmea: { table: "fmeas", label: "part_name", plantScoped: false, view: "fmea:view" },
+  // Sprint 06 X1 AC4 (§0 S3). `complaint`'s title-bearing column is `subject`
+  // — complaints has no `title` column at all.
+  complaint: { table: "complaints", label: "subject", plantScoped: false, view: "complaint:view" },
+  ecn: { table: "ecns", label: "title", plantScoped: false, view: "ecn:view" },
 };
 
 export interface PreparedChat {
