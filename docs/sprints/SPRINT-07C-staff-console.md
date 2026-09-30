@@ -346,41 +346,79 @@ UC
 AC
 1. `packages/core/src/platform-rbac.ts`: `PlatformRole` (`platform_support|platform_sales|platform_admin`), `PlatformCapability` and the matrix of §3
    SD2, `authorizePlatform(role, capability)`; unit-tested exhaustively (every role × capability), including "no
-   platform capability is ever returned by tenant `authorize`" and vice versa.
+   platform capability is ever returned by tenant `authorize`" and vice versa. **[AR] Capabilities are evaluated
+   against the platform user's current `role` and `status`, re-read from `control.platform_users` on every request by
+   `PlatformAuthenticator` (C2 AC2), by `SupportAccess.withTenant` (AC5) and by `SupportViewAuthenticator` (C10 AC4) —
+   never against the role at grant-creation or sign-in time (AR15).** The types live in the `@kaenal/types/platform`
+   sub-entry-point, structurally separate from tenant types (no shared union with tenant `Role` / `Capability`).
 2. Migration `0079_support_access.sql`: `control.support_grants` (`id`, `platform_user_id`, `tenant_id`, `reason`
    ≥ 10 chars, `reference` ≤ 120, `scope` CHECK `commercial` | `content` ([AM2]; CHECK `scope <> 'content' OR
    reference IS NOT NULL`), `granted_at`,
-   `expires_at = granted_at + interval '4 hours'` (CHECK), `ended_at`), and `control.platform_audit_events`
+   `expires_at = granted_at + interval '4 hours'` (CHECK), `ended_at`, **[AR]** `end_reason` CHECK `ended_by_user` |
+   `expired` | `user_deactivated` | `role_changed` | `mirror_failed` (NULL while open), `idempotency_key`,
+   `UNIQUE (id, scope)` for C10's composite FK (AR14)), and `control.platform_audit_events`
    (append-only: `kaenal_platform` has INSERT + SELECT only; a trigger rejects UPDATE/DELETE even for owners except
    the migrator's partition maintenance; columns: `id`, `platform_user_id` NULL for CLI/system, `actor_label`,
    `action`, `tenant_id` NULL, `grant_id` NULL, `target_kind`, `target_id`, `before`, `after`, `reason`,
-   `request_id`, `ip`, `user_agent`, `created_at`, `outcome` `ok|failed`).
-3. `0079` creates DB role **`kaenal_support`** (LOGIN, no BYPASSRLS) for tenant-plane access, with **only**:
+   `request_id`, `ip`, `user_agent`, `created_at`, **[AR]** `phase` CHECK `single` | `intent` | `outcome`,
+   `intent_id` (→ `platform_audit_events.id`, required iff `phase='outcome'`), `outcome` `ok|failed` (NULL iff
+   `phase='intent'`) — the two-row intent/outcome shape of SD5, so the table stays strictly append-only, AR24).
+3. `0079` creates DB role **`kaenal_support`** (**[AR] `NOLOGIN`** in the migration, AR29; no BYPASSRLS) for
+   tenant-plane access, used **only by the platform API process**, with **only**:
    SELECT/INSERT/UPDATE on `entitlements`; SELECT **and DELETE** on `entitlement_trials` ([AM2] trial reset, C5
    AC6; a trigger rejects deleting a row whose `ends_at > now()`); SELECT and UPDATE(`status`,
    `resolved_at`, `resolution_note`, `lock_version`) on `plan_requests`; SELECT on `tenant_settings` plus a
    **RESTRICTIVE** policy `TO kaenal_support USING (namespace IN ('profile','onboarding','billing'))`; column
    SELECT on the id/tenant/status columns needed for counts (`memberships`, `plants`, `suppliers`, inspector
-   roles) — never a name, email or content column; INSERT on `audit_events` and `outbox`. The existing permissive
-   `tenant_isolation` policy (no `TO` clause) applies to it unchanged, so RLS is never bypassed (01 §3.2).
+   roles) — never a name, email or content column; INSERT on `audit_events` and `outbox`. **[AR] Added because C5,
+   C6 and C4 need them (AR25):** INSERT on `notifications` (C6's `plan_request_resolved` and C5 AC3's auto-fulfil
+   notifications are rows written in the grant's tenant transaction); SELECT on `notification_prefs` (the insert
+   honours the recipient's preferences, as the tenant notification service does); column SELECT on `memberships
+   (user_id, role, status)` (to address the requester and the tenant's admins — ids and roles only, still no name or
+   email column; the email channel resolves addresses in the worker as today); INSERT + UPDATE(`ended_at`) on
+   `control.support_grant_backstop` (C10 AC2a mirror, dedicated databases only). **[AR] Commercial-scope audit read
+   (AR13):** C4's History tab and declaration history need to read `audit_events`, but a plain SELECT would expose every
+   before/after payload in the tenant — de facto content access without a content grant. So `kaenal_support` gets
+   **column** SELECT on `audit_events` (every column except `ip` and `user_agent`) and a RESTRICTIVE policy
+   `support_commercial_audit_scope` `TO kaenal_support FOR SELECT USING (entity_kind IN ('entitlement',
+   'entitlement_trial', 'plan_request', 'support_grant', 'workspace_profile', 'onboarding_state', 'billing_settings'))`
+   — the commercial entity kinds only, which requires Sprint 07's profile / onboarding / billing events to use those
+   dedicated entity kinds rather than the generic `settings` kind (SPRINT-07 O1 AC3, O4 AC3, P9 AC2 [AR]); the
+   support-view record trail (`support_view`) is deliberately **not** in the list. The existing permissive
+   `tenant_isolation` policy (no `TO` clause) and C10 AC2a's `support_commercial_grant_active` both apply, so RLS is
+   never bypassed (01 §3.2) and no statement runs without a live commercial grant.
 4. A trigger on `audit_events` rejects any row inserted by `current_user = 'kaenal_support'` unless `actor_kind =
    'support'` and `reason = current_setting('app.support_reason')` — the DB proves every support write is
    attributed and justified, not just the service.
 5. `SupportAccess.withTenant(grantId, fn)` is the **only** way platform code reaches tenant data: it verifies the grant
-   (same platform user, not expired, not ended), resolves the tenant's pool (shared → `DATABASE_SUPPORT_URL`;
-   dedicated → a **support secret ref** per dedicated tenant, §3 SD6), opens a transaction with
-   `app.tenant_id`, `app.support_reason` and `app.platform_user_id` via `set_config(..., true)` (SET LOCAL), and after
+   (same platform user, not expired, not ended, **[AR]** grant tenant = the target tenant, and the caller's **current**
+   role still holds the scope's capability — re-checked on every call, AR15), resolves the tenant's pool (shared →
+   `DATABASE_SUPPORT_URL`; dedicated → a **support secret ref** per dedicated tenant, §3 SD6), opens a transaction with
+   `app.tenant_id`, `app.support_reason`, `app.platform_user_id` and **[AR]** `app.grant_id` via `set_config(..., true)`
+   (SET LOCAL — the DB then re-verifies the grant on every statement, C10 AC2a), and after
    commit publishes the tenant realtime signal(s) the audit observer buffered (same after-commit rule as the
    tenant lifecycle). A guard test fails if any file under `apps/api/src/platform/**` imports `withTenant`,
    `appPool` or `CONTROL_POOL` directly.
 6. Grant creation writes, atomically in the tenant tx, a tenant `audit_events` row (`actor_kind='support'`,
-   `action='support_accessed'`, `entity_kind='tenant'`, `reason`) and, in the control tx, a platform audit event;
-   the ordering rule of §3 SD5 guarantees no tenant change can exist without a platform record.
+   `action='support_accessed'`, **[AR]** `entity_kind='support_grant'`, `entity_id` = the grant id, `reason`) and, in
+   the control tx, a platform audit event; the ordering rule of §3 SD5 guarantees no tenant change can exist without a
+   platform record. **[AR]** `support_grant` (like C10's `support_view`) is an internal entity kind the outbox and
+   realtime bridges skip (SD11, AR10) — `entity_kind='tenant'` is replaced so a grant can never become a customer
+   webhook or a realtime refetch.
 7. Routes: `POST /platform/v1/tenants/:tenantId/grants` (body `scope`, reason, reference, **[AM3]** `stepUpToken`
    required when `scope='content'`; `platform:tenant:access` for `commercial`, **`platform:tenant:content` for
    `content`** [AM2]; content without reference → 422), `POST /platform/v1/grants/:id/end`, `GET /platform/v1/me/grants`
    (active grants, with scope). `SupportAccess.withTenant` accepts only a `commercial` grant (a content grant there
-   → 403); the content path is C10's.
+   → 403); the content path is C10's. **[AR] Idempotent and one-per-scope (rule 6, AR19).** The create route takes an
+   `Idempotency-Key` (a replay returns the original response). C3's UC already fixes the rule "one grant of each scope
+   for the same tenant at once" per platform user; it is now enforced: the create transaction takes
+   `pg_advisory_xact_lock(hashtextextended('support_grant:' || platform_user_id || ':' || tenant_id || ':' || scope,
+   0))`, then looks for an open grant (`ended_at IS NULL AND clock_timestamp() < expires_at`) for that triple; if one
+   exists it returns **200 with that grant** (`reused: true`, original reason and expiry unchanged, no new tenant or
+   platform audit row, no step-up token consumed, no rate-limit slot used); otherwise it inserts and returns 201. (A
+   partial unique index cannot express "not yet expired", because `now()` is not immutable — hence the advisory
+   lock.) Test: two concurrent creates for the same triple produce exactly one grant and one audit pair; different
+   scopes or tenants do not block each other.
 8. **[AM3] Step-up re-auth for content-scope grants (SR2).** `POST /platform/v1/tenants/:tenantId/grants` with
    `scope: 'content'` requires a `stepUpToken` (from C2 AC5's `POST /platform/v1/auth/step-up`) in the body: valid,
    unexpired (5 min), unused, and issued to the same `platform_user_id` making this call. Missing, expired, reused or
@@ -410,7 +448,13 @@ AC
     with an expired one, a reused one, or one issued to a different platform user → 422 `STEP_UP_REQUIRED` (and is
     never required for `commercial`); a 6th content grant inside the rolling hour → 429; the write that opens the
     3rd distinct tenant within the rolling hour (and only that write) inserts one `content_grant_anomaly` event,
-    visible via the Flagged filter.
+    visible via the Flagged filter. **[AR]** Plus: `kaenal_support` can read `audit_events` rows only of the seven commercial entity kinds, never
+    `ip` / `user_agent`, never a `support_view` or QMS-record row (mutation test: widening
+    `support_commercial_audit_scope` fails a test); `kaenal_support` can insert a `notifications` row and read
+    `notification_prefs` / the three `memberships` columns, and nothing more on those tables; a commercial write or
+    read after `expires_at` fails at the DB even with `SupportAccess`'s check bypassed (C10 AC2a); the idempotent,
+    one-per-scope create (AC7); a platform user demoted from `platform_support` to `platform_sales` loses their open
+    content grant on the demotion commit and cannot use a commercial grant after deactivation (C11 AC2).
 
 Web (`apps/platform`): access dialog (**[AM3]** incl. the step-up prompt for the content scope), grant banner/countdown,
 expiry state, **[AM3]** the audit log's Flagged filter/badge (C9/D-C10) surfacing `content_grant_anomaly`. Mobile:
@@ -777,33 +821,75 @@ AC
    (mutation test: revoking one grant or adding one write privilege fails the test). Dedicated tenants: provisioning
    / `migrate-tenants` create the role and a **support-reader secret ref** (SD6). New env
    `DATABASE_SUPPORT_READER_URL` (+ `.env.example`).
-2a. **[AM3] DB-level backstop for grant validity (SR1/High finding, finalized mechanism — SD7).** In the same
-    migration, every table in AC2's SELECT set also gets a second, **RESTRICTIVE** policy `support_reader_grant_active`,
-    `TO kaenal_support_reader` only, ANDed with the existing permissive `tenant_isolation` policy — so a row is
-    readable by this role only when *both* pass. It calls a SQL function `support_reader_grant_active()` that
-    mirrors exactly how `current_tenant_id()` already works (`packages/db/migrations/0000_foundation.sql:104-155`:
-    a `STABLE` function reading a session-scoped `current_setting()`, single-argument form so it throws rather than
-    silently passing when unset), except this one re-derives validity from the **persisted grant row**, not from a
-    value the request handler computed, so a bug or omission in `SupportViewAuthenticator` (AC4) cannot by itself
-    make an expired or ended grant readable:
-    - **Shared-model tenants** (control schema and tenant tables share one physical database — 01 §3.2, today's
-      default): `support_reader_grant_active()` is `SECURITY DEFINER` (owned by the migrator, so
-      `kaenal_support_reader` itself is granted no access to `control.support_grants` — its own privilege set stays
-      exactly as small as AC2 requires) and evaluates `EXISTS (SELECT 1 FROM control.support_grants WHERE id =
-      current_setting('app.grant_id')::uuid AND scope = 'content' AND expires_at > now() AND ended_at IS NULL)`.
-    - **Dedicated-model tenants** (a separate physical database — Postgres cannot join across databases): the same
-      function name instead checks a single-row-per-open-grant local mirror table `support_grant_backstop`
-      **inside that tenant's own database** (`grant_id`, `expires_at`, `ended_at`), written by `SupportAccess` /
-      `SupportViewAuthenticator` in the same request that opens or ends the control-plane grant — the control-plane
-      row stays the source of truth (SD5's ordering rule: control-plane write first), the mirror is a same-request,
-      best-effort local copy that exists only so the RESTRICTIVE policy has something local to check. Provisioning
-      (`provision-tenant`, `migrate-tenants`) creates this table alongside the `kaenal_support_reader` role and its
-      secret ref (SD6).
-    `app.grant_id` is added to the `SET LOCAL` context AC4 already opens (alongside `app.tenant_id`,
-    `app.support_reason`, `app.platform_user_id`). The AC2 schema test is extended to also enumerate this RESTRICTIVE
-    policy per table (not just the SELECT grant): a mutation test fails if the policy is dropped, if
-    `support_reader_grant_active()` is stubbed to always return true, or if a table carries the SELECT grant
-    without the policy.
+2a. **[AM3, reconciled in AR] DB-level backstop for grant validity — ONE mechanism for both support roles (SR1/High
+    finding; architecture-review finding 2, AR5).** The architecture review independently proposed the same fix under
+    the name `support_grant_live()`; it is **not** introduced. The single mechanism keeps AM3's name,
+    **`support_reader_grant_active(expected_scope text)`**, although it now also backs `kaenal_support`'s commercial
+    scope — the name is kept for continuity, not accuracy. What AR changed in AM3's text, and why: AM3 checked the
+    grant id, scope and "not ended" only; it compared against `now()` (frozen at transaction start, so a transaction
+    that began before expiry kept reading after it); it did not check the tenant or the platform user; it covered only
+    `kaenal_support_reader`; it relied on each future migration remembering the policy; and it did not say how one
+    migration, run identically on every database, yields a "shared" and a "dedicated" behaviour.
+    - **The function.** `support_reader_grant_active(expected_scope text) RETURNS boolean`, `LANGUAGE plpgsql`,
+      `VOLATILE`, `SECURITY DEFINER` owned by the migrator, `SET search_path = pg_catalog, control` (definer
+      hygiene), `REVOKE EXECUTE … FROM PUBLIC` and `GRANT EXECUTE` to `kaenal_support` and `kaenal_support_reader`
+      only. It reads `current_setting('app.grant_id')` and `current_setting('app.tenant_id')` in the
+      **single-argument form** (throws when unset — the `current_tenant_id()` precedent, `0000_foundation.sql:104-107`)
+      and returns true only when **all** of these hold for the persisted grant row: `id = app.grant_id`; `tenant_id =
+      app.tenant_id`; `scope = expected_scope`; `ended_at IS NULL`; **`clock_timestamp() < expires_at`**; and, on the
+      primary database, the grant's platform user is `status = 'active'` and their **current** `role` is one that
+      holds the scope's capability (`control.platform_scope_roles(scope)`, an immutable SQL function mirroring
+      `packages/core`'s matrix — `content` → `platform_support`, `platform_admin`; `commercial` → all three — with a
+      drift test asserting it equals `authorizePlatform`, AR15).
+    - **Per statement, not per row (cut-off mid-request, cheap).** Every policy calls it as an uncorrelated scalar
+      subquery — `USING ((SELECT support_reader_grant_active('content')))` — so Postgres evaluates it once per
+      statement as an InitPlan rather than once per row (a `SECURITY DEFINER` function is never inlined; per-row
+      evaluation would cost one control-table lookup per scanned row). Because RESTRICTIVE policies are re-evaluated
+      for every statement and the function uses `clock_timestamp()`, the first statement that starts after
+      `expires_at`, after `ended_at` is set, or after the platform user is deactivated or demoted sees **zero rows**
+      even inside a transaction or request that began while the grant was live. The architect confirms the InitPlan
+      shape with `EXPLAIN` on a representative list query (DoR re-review item R6).
+    - **Two policies, both RESTRICTIVE, both `FOR ALL` with `USING` and `WITH CHECK`**, ANDed with the existing
+      permissive `tenant_isolation` (which has no `TO` clause): `support_reader_grant_active` `TO
+      kaenal_support_reader` calling `('content')`, and `support_commercial_grant_active` `TO kaenal_support` calling
+      `('commercial')`. `WITH CHECK` matters: the reader's own `audit_events` INSERT and every commercial write also
+      require a live grant, so an expired commercial grant cannot write even if `SupportAccess` forgot to check.
+    - **Inherited automatically (fail-closed for future tables).** `0079` redefines `apply_tenant_rls(tbl)`
+      (`0000_foundation.sql:141`) so that, besides `tenant_isolation`, it (re)creates both RESTRICTIVE policies on
+      every table it is applied to, and `0079` loops over every existing table that already carries
+      `tenant_isolation` to apply them. A future tenant table therefore gets both policies from the one call it must
+      already make (02 §5). Table **grants** stay explicit per migration (AC2's enumerating schema test), so a new
+      table is unreadable by the support roles until someone deliberately grants it — policy automatic, access opt-in;
+      both directions fail closed.
+    - **Shared vs dedicated, from one migration.** Migrations run identically everywhere (`migrate-tenants` fans them
+      into each dedicated database), so the function has **one** body that branches on a per-database marker:
+      `control.database_identity` (single row, `kind` CHECK `primary` | `dedicated`), created by `0079` as `primary`
+      and set to `dedicated` by `provision-tenant` / `migrate-tenants` for a dedicated tenant's database. `primary` →
+      the checks above against `control.support_grants` + `control.platform_users` (the source of truth, same physical
+      database). `dedicated` → the same grant checks (id, tenant, scope, not ended, `clock_timestamp() < expires_at`)
+      against a local mirror **`control.support_grant_backstop`** (`grant_id` PK, `tenant_id`, `platform_user_id`,
+      `scope`, `expires_at`, `ended_at`) — in the `control` schema so it is not a tenant table (outside the RLS lint,
+      explicit grant test), carrying no business data. The mirror is written only by the **platform API process**
+      through the dedicated tenant's `kaenal_support` credential (INSERT; UPDATE(`ended_at`) — granted in every
+      database, unused on the primary): inserted after the control-plane grant row commits (SD5 intent/outcome
+      order); if the mirror insert fails, the grant is ended with `end_reason = 'mirror_failed'` and creation returns
+      503 — no grant is usable in the app without its backstop. `ended_at` is propagated on End, expiry-sweep,
+      platform-user deactivation and demotion (C11 AC2); a failed propagation is retried by a job until it succeeds,
+      and meanwhile the primary-side checks in `SupportAccess` / `SupportViewAuthenticator` already refuse. On a
+      dedicated database, platform-user status and current role cannot be read locally; that gap is closed by the
+      end-propagation rule, and stated here rather than hidden. (AM3's text had the tenant-side authenticator write
+      the mirror; that authenticator holds no write privilege on it, so the writer moved to the platform process.)
+    - `app.grant_id` joins the `SET LOCAL` context AC4 opens (with `app.tenant_id`, `app.support_reason`,
+      `app.platform_user_id`) and the context `SupportAccess.withTenant` opens (C3 AC5).
+    - **Tests (extends AC2's schema test and AC8).** The schema test enumerates both RESTRICTIVE policies on every
+      table carrying `tenant_isolation`. Mutation checks, each of which must make a test fail: dropping either policy
+      on any table; redefining `apply_tenant_rls` without them (a scratch table created in the test lacks them);
+      stubbing the function to `true`; replacing `clock_timestamp()` with `now()` (a statement issued after
+      `expires_at` inside a transaction opened before it must return zero rows); removing the tenant predicate (a
+      live grant for tenant A with `app.tenant_id` = B must return zero rows); removing the platform-user status or
+      role predicate (deactivating or demoting the user mid-session must cut off the next statement on the primary
+      branch). Each check runs for `kaenal_support_reader` (`content`) and `kaenal_support` (`commercial`, reads and
+      writes), and the dedicated branch runs against the router-fake dedicated database with its local mirror.
 3. Hand-off (SD9): `POST /platform/v1/grants/:id/view-link` (`platform:tenant:content`, own active content grant) returns
    a tenant-host URL carrying a single-use exchange token **in the URL fragment** (never sent to servers or
    `Referer`); the tenant web route `/support-view` posts it to `POST /v1/support-view/exchange`
@@ -915,13 +1001,16 @@ UC
   created by). **Invite platform user** (email, name, role) → the account is created `pending_setup` and a one-time setup
   link (24 h) is emailed to the invitee through the control-plane email path Sprint 07 O3 uses; the admin never sees
   the link. **Resend setup email** issues a fresh link (old one invalidated).
-- Happy: **Change role**, **Deactivate** (reason; revokes every platform session, ends every active grant and
-  support-view session of that person at once), **Reactivate** (reason), **Reset credentials** (reason; new setup
-  link: password + TOTP re-enrolment; existing sessions revoked).
+- Happy: **Change role** (**[AR]** ends, at once, every open grant whose scope the new role cannot hold — e.g.
+  `platform_support` → `platform_sales` ends that person's open `content` grants and revokes their support-view
+  sessions; the confirm dialog names what will be ended), **Deactivate** (reason; revokes every platform session, ends
+  every active grant and support-view session of that person at once), **Reactivate** (reason), **Reset credentials**
+  (reason; new setup link: password + TOTP re-enrolment; existing sessions revoked).
 - Guard rails: an admin cannot change their own role or deactivate themselves; the **last active admin** cannot be
   demoted or deactivated (422 `LAST_ADMIN`); a duplicate email → 409; every change requires a reason.
 - Error: 409 stale (`lockVersion`); email transport failure → the account exists and "Resend setup email" is offered
-  (outbox retries).
+  (**[AR]** the send-email job retries transport failures; the email is enqueued after the control transaction
+  commits — SD12).
 - Empty: only the bootstrap admin → the list shows one row and the Invite action.
 - Permission: `platform:users:manage` (`platform_admin`); other roles do not see the nav entry.
 
@@ -930,11 +1019,18 @@ AC
    `POST /platform/v1/platform-users` (`Idempotency-Key`), `POST /platform/v1/platform-users/:id/resend-setup`, `PUT
    /platform/v1/platform-users/:id/role`, `POST /platform/v1/platform-users/:id/deactivate|reactivate|reset`.
 2. Each write updates `control.platform_*` in one control transaction with a platform audit event (before/after, reason);
-   deactivation revokes `platform_sessions`, ends `support_grants` and revokes `support_view_sessions` in the same
-   transaction.
+   deactivation revokes `platform_sessions`, ends `support_grants` (`end_reason='user_deactivated'`) and revokes
+   `support_view_sessions` in the same transaction. **[AR] A role change does the same for every open grant whose
+   scope the new role cannot hold (`end_reason='role_changed'`, AR15)**, and both paths enqueue the dedicated-database
+   mirror propagation of `ended_at` (C10 AC2a) after commit. Because every authenticator and the DB function re-read
+   the **current** role and status (C3 AC1, C10 AC2a), a demoted or deactivated user's already-open session cannot
+   keep using access their role no longer has, even between the commit and the grant-ending propagation. The invite
+   and resend emails are enqueued after the control transaction commits (SD12), never claimed as same-transaction.
 3. Tests: invite → email in the dev sink → setup → active; resend invalidates the previous token; self-demotion /
    self-deactivation → 422; last-admin → 422; deactivation ends a live grant and a live support-view session on their
-   next request; `platform_sales` / `platform_support` → 403; every write audited.
+   next request; **[AR]** demotion `platform_support` → `platform_sales` ends the open content grant and its
+   support-view session (next request 401, next reader statement zero rows) while leaving the commercial grant open;
+   `platform_sales` / `platform_support` → 403; every write audited.
 
 Web (`apps/platform`): Platform users section (D-C11). Mobile: unaffected. Shared: routes, `PlatformIdentityService` (shared with
 C1's setup routes).
@@ -1126,9 +1222,15 @@ tenants: a `SECURITY DEFINER` function querying `control.support_grants` directl
 dedicated-model tenants: the same function name checking a local `support_grant_backstop` mirror row, since
 Postgres cannot join across physical databases — full mechanism in C10 AC2a), not from a value the request handler
 computed and could get wrong. `app.grant_id` joins `app.tenant_id` / `app.support_reason` / `app.platform_user_id` in
-the `SET LOCAL` context C10 AC4 opens. Every future tenant-table migration must carry this policy the same way it
-must carry `apply_tenant_rls()` — the AC2 schema test enumerates both, and the mutation test proves the RESTRICTIVE
-policy is load-bearing (dropping it, or stubbing the function to always return true, must fail a test).
+the `SET LOCAL` context C10 AC4 opens. ~~Every future tenant-table migration must carry this policy the same way it
+must carry `apply_tenant_rls()`~~ **[AR] Reconciled and completed in C10 AC2a (architecture review, AR5):** the one
+function `support_reader_grant_active(expected_scope)` now also checks the tenant, the platform user's status and
+current role, and `clock_timestamp() < expires_at` (evaluated once per statement as an InitPlan, so access is cut off
+mid-request); it backs two RESTRICTIVE policies (`kaenal_support_reader` for `content`, `kaenal_support` for
+`commercial`, both `USING` + `WITH CHECK`); and `apply_tenant_rls()` itself creates both policies, so future tables
+inherit them without anyone remembering. The shared/dedicated split is one function body branching on
+`control.database_identity`, with the dedicated mirror written by the platform process. The AC2 schema test and the
+mutation tests prove each predicate is load-bearing.
 
 **[AM3] SD10 — Content-grant creation hardening: step-up re-auth, rate limit, anomaly signal (pre-build security
 review, Medium findings SR2/SR3).** Opening a `content` grant is the single highest-privilege action in the
@@ -1177,7 +1279,9 @@ sees — which is also what support needs to reproduce a customer's problem.
 | 0079 | `control.support_grants` (4 h CHECK, scope `commercial` \| `content` [AM2], reference required for content) | control | One tenant per grant |
 | 0079 | **[AM2]** `control.support_view_sessions`, `control.support_view_exchange_tokens` | control | Hashed tokens; never readable by `kaenal_app` / `kaenal_public` |
 | 0079 | **[AM2]** Role `kaenal_support_reader`: SELECT on every tenant-owned table except the credential/secret denylist ([AM3] denylist finalization must also check for column-level secrets); INSERT on `audit_events` only; attribution trigger extended; schema test enumerating tenant tables | role / tenant tables (grants + trigger only) | RLS applies; no write privilege; every future tenant table must grant it SELECT |
-| 0079 | **[AM3]** Second, RESTRICTIVE policy `support_reader_grant_active` (`TO kaenal_support_reader`) on every table in the row above, backed by `support_reader_grant_active()` (SECURITY DEFINER against `control.support_grants` for shared tenants; against a local `support_grant_backstop` mirror row for dedicated tenants) | policy / function (+ one small mirror table, dedicated tenants only) | DB-level backstop for grant validity, independent of the application check (SR1/High); schema test extended |
+| 0079 | **[AM3, reconciled AR]** RESTRICTIVE policies `support_reader_grant_active` (`TO kaenal_support_reader`, scope `content`) and `support_commercial_grant_active` (`TO kaenal_support`, scope `commercial`), both `FOR ALL` `USING` + `WITH CHECK`, on every table with `tenant_isolation`, backed by the one function `support_reader_grant_active(expected_scope)` (SECURITY DEFINER, VOLATILE, InitPlan-wrapped; checks id, tenant, scope, not ended, `clock_timestamp() < expires_at`, platform user active + current role); `apply_tenant_rls()` redefined to create both; `control.database_identity` marker; `control.support_grant_backstop` mirror (used on dedicated databases only) | policy / function / control tables | DB-level backstop for both grant scopes, inherited by future tables (SR1, AR5); schema + mutation tests (C10 AC2a) |
+| 0079 | **[AR]** RESTRICTIVE `support_commercial_audit_scope` on `audit_events` (`TO kaenal_support FOR SELECT`, commercial entity kinds only) + column SELECT excluding `ip`/`user_agent`; `support_grants` `UNIQUE (id, scope)` + `end_reason`; composite `(grant_id, grant_scope)` FKs from the two support-view tables | policy / constraints | AR13, AR14 |
+| 0079 | **[AR]** Role `kaenal_support_gate` (`NOLOGIN`): the tenant API's narrow read of grants / view sessions / platform-user status, `used_at`, session insert + `revoked_at`, platform-audit insert | role | AR3; replaces `PLATFORM_POOL` on the tenant path |
 | 0079 | `control.platform_audit_events` (append-only trigger; `outcome`) | control | Platform audit log |
 | 0079 | Role `kaenal_support` + table/column grants on tenant commercial tables ([AM2] + DELETE on ended `entitlement_trials` rows, trigger-guarded); RESTRICTIVE `tenant_settings` namespace policy `TO kaenal_support`; `audit_events` support-attribution trigger | role / tenant tables (policy + trigger only) | RLS still applies; `pnpm db:check` must stay green (no new tenant table) |
 | 0080 | `control.sales_inbox` (projection), `control.tenant_commercial_summary` (projection: tier, declared frameworks, effective packs) + their outbox consumers | control | Eventually consistent, idempotent upserts |
