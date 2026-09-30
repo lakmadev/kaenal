@@ -134,3 +134,454 @@ onboarding is out of scope: the first-run flow is a web-admin task and **never b
 | Web: `/pricing` is a planned-module placeholder (`planned:pricing`, ledger sprint 10); settings `billing` (10) and `onboarding` (11) are ledger placeholders; `/pricing` is admin-only in role curation (`PLATFORM_ROOTS`) | `config/planned-modules.ts:28`, `config/placeholder-ledger.ts`, `config/rbac.ts:18-24` |
 | Mobile never calls a module this sprint would gate (grep of `apps/mobile/src` for suppliers/ppap/scar/risk/fmea/spc/msa/ecn/graph/predictions/reports → only NCR's own `risk` field). It **does** call the AI gateway for NCR drafts and already treats 402 as "AI unavailable". Its oversight audit feed maps actions containing `entitlement`/`setting` to the settings category | `apps/mobile/src/features/ncr/ai.ts:74`, `apps/mobile/src/app/(app)/audit.tsx:13` |
 | Migration head is `0072_ecn.sql`; this sprint uses **0073-0076** | `ls packages/db/migrations` |
+
+---
+
+## 2. Stories
+
+Ordering is by value and dependency (Scrum/INVEST): P1 is the foundation every gate reads; P2-P3 make gating
+real; P4-P9 make it sellable and administrable; O1-O5 are Increment B; X1 is the standing cross-cutting wiring.
+Each story names its design source. "[D#]" marks an AC whose exact behaviour depends on a §3.0 decision; the AC
+is written for the **recommended** option and changes only as that decision states.
+
+Vocabulary used throughout: a **pack** is one of the 9 catalog entries in `addons.jsx` (6 packs + 3 à la carte).
+A **tier** is one of the 3 bundles in `pricing.jsx` (`core`, `pro`, `ent`); a tenant's tier is **derived** from its
+active packs exactly as `tierMatches` does, and is `null` ("Custom") when no bundle matches. A pack is
+**effective** when it is `active`, or when it has an unexpired trial. A **gated module** is a module whose pack
+is not effective.
+
+### Increment A — Plans & entitlements
+
+### P1 — Pack catalog, entitlement store and resolver (Shared foundation)
+
+**Design:** `addons.jsx:13-199` (catalog, route gate map, estimate), `pricing.jsx:88-111` (tiers, `tierMatches`).
+
+UC
+- Happy: any service or screen asks "is module X usable for this tenant right now?" and gets one consistent
+  answer from one resolver; the tier label, lock icons, overlay, API gate, AI gateway and estimate all agree.
+- Edge: a trial ended one second ago → the pack is no longer effective everywhere at once, without waiting for a
+  job to run (the resolver compares `trial_ends_at` to `now()`).
+- Edge: a tenant whose active set matches no bundle → tier `null`, shown as "Custom" (no tier card marked current).
+- Error: an unknown `pack_id` can never be stored (DB CHECK + Zod enum).
+- Cross-tenant: tenant A's entitlements are invisible to tenant B (forced RLS; foreign ids → 404).
+
+AC
+1. `packages/types`: `PackId` enum = exactly the 9 ids in `addons.jsx` (`intelligence`, `supplier`, `qe`,
+   `platform`, `security`, `multiplant`, `mobile`, `standards`, `support`); `TierId` = `core|pro|ent`;
+   `ModuleId` enum covering every nav module (`inspections`, `ncr`, `eight_d`, `capa`, `audits`, `documents`,
+   `calibration`, `training`, `complaints`, `ecn`, `risk`, `fmea`, `spc`, `msa`, `suppliers`, `ppap`, `scar`,
+   `graph`, `predictive`, `reports`, `report_builder`, `ai`, `integrations`, `portal`); DTOs `EntitlementDto`,
+   `EntitlementsDto`, `TrialDto` (§4).
+2. `packages/core/src/entitlements/catalog.ts` holds the catalog as **data**: per pack its name, tagline, icon,
+   accent, price function, includes list, value line, and `modules: ModuleId[]`, mapping `addons.jsx`'s
+   `routes[]` onto module ids exactly (`intelligence` → graph, predictive, ai; `supplier` → suppliers, ppap,
+   scar, portal; `qe` → fmea, spc, msa, risk, ecn; `platform` → report_builder, integrations [non-SMTP only,
+   09 §1]; `security`, `multiplant`, `mobile`, `standards`, `support` → no gated module [§3.0 D2, §7 Q-C3]).
+   `TIERS` holds the 3 bundles exactly as `pricing.jsx:88-107`. The Core modules (inspections, ncr, eight_d,
+   capa, audits, documents, calibration, training, complaints, reports-read, and every settings screen) map to
+   **no** pack and can never be gated. [D2]
+3. Pure functions, unit-tested with no DB: `effectivePacks(rows, trials, now)`, `tierFor(effective)` (≡
+   `tierMatches`), `isModuleGated(moduleId, effective)`, `packForModule(moduleId)`, `estimateMonthly(effective,
+   orgProfile)` (≡ `billingSummary`: Core base line + one line per effective pack; `hasVariable` when a
+   custom-priced or metered pack is on). Tests cover: all 3 bundles resolve to their tier; a single toggle off a
+   bundle → `null`; a trial ending at `now` is not effective (boundary is exclusive); every `ModuleId` maps to at
+   most one pack; no Core module maps to any pack (a guard test that fails if someone adds one).
+4. Migration `0073_entitlements.sql`: `entitlements` gains `source text NOT NULL DEFAULT 'operator' CHECK
+   (source IN ('operator','self_service','bundle','grandfathered'))`, `lock_version int NOT NULL DEFAULT 0` with
+   the shared bump trigger, `updated_by` composite member FK (`(tenant_id, updated_by) → memberships`, nullable
+   because operator writes have no member), and `CHECK (pack_id IN (<the 9 ids>))`. New table
+   `entitlement_trials` (`tenant_id`, `pack_id` same CHECK, `started_at`, `ends_at`, `started_by` composite member
+   FK, `created_at`; `PRIMARY KEY (tenant_id, pack_id)` — which *is* the once-per-pack rule), forced RLS,
+   leading-`tenant_id` index. Trial state lives only here, so expiry never has to mutate `entitlements`.
+5. **Backfill, so nothing that works today stops working:** for every tenant that exists when `0073` runs, insert
+   all 9 packs `active=true, source='grandfathered'` (`ON CONFLICT (tenant_id, pack_id) DO UPDATE SET
+   active=true` — this also covers the demo's existing `intelligence` row). The `supplier_quality` fixture row
+   (`fixtures.ts:237`) is corrected to `supplier` in the same change. New tenants get what P8's provisioning
+   default says (§3.0 D1, §7 Q-C1).
+6. RLS suite covers `entitlements` (now with writes) and `entitlement_trials`; `pnpm db:check` green; mutation
+   test: removing the `entitlement_trials` policy makes `test:rls` fail.
+
+Web: none directly (consumed by P2/P4). Mobile: none; additive types only, `pnpm --filter @kaenal/mobile
+typecheck` green. Shared: everything above.
+
+Backend: migration 0073; no route (P2 adds the read route); no audit (no mutation in this story); RBAC n/a;
+tenancy: both tables tenant-owned, forced RLS, composite member FKs.
+
+### P2 — `GET /v1/entitlements` + shell gating: sidebar locks, locked-route overlay, create-surface locks
+
+**Design:** `addons.jsx:201-275` `UpgradeOverlay`; `shell.jsx:141,164-166,196` lock icons; `Kaenal.html:485-488`
+wrapping rule; 04 §5. New states (§5): non-admin overlay variant, CreateWizard/quick-create lock.
+
+UC
+- Happy (admin): `qe` not effective → sidebar shows a lock icon on Risk register, FMEA workbench, SPC charts,
+  MSA / Gauge R&R, Engineering changes (tooltip "Add-on — not in your plan"); opening `/risk` renders the real
+  risk page blurred and inert behind the upsell card for "Quality Engineering" with its price, "What unlocks"
+  list and the three CTAs. Add to plan / Start trial behave per P4/P5/P6; Compare plans → `/pricing`.
+- Happy (non-admin): same lock icons and overlay, but the CTAs are replaced by one **Request access** action (R5)
+  that sends a member request to the workspace admins (P6); after sending, the card shows "Requested — your
+  admin has been notified" and the action is disabled. No Add to plan / Start trial / Compare plans (they would
+  403 or lead to an admin-only page; 04 §6 "never render a button that will 403").
+- Happy: the pack becomes effective (any path: toggle, trial, operator CLI, request fulfilled) → the overlay
+  lifts and the lock icons disappear **without a reload**: the entitlements query is invalidated by the
+  mutation, and by the realtime `entity.updated {kind:'entitlements'}` event for changes made elsewhere (CLI,
+  another admin).
+- Create surfaces: in the CreateWizard type step, the quick-create menu and the command palette's quick actions,
+  a type whose module is gated (today: `risk`, `ecn`) shows a lock chip; choosing it shows the inline upsell (§5
+  D-S4) instead of proceeding to a form that would 402.
+- Empty/first load: while entitlements load, nav renders without lock icons and gated routes render a skeleton,
+  never a flash of the unlocked page followed by an overlay.
+- Error: the entitlements fetch fails → the shell treats every gated module as locked (fail closed, same order
+  as the AI gateway) and shows the inline retry card on gated routes; Core modules are unaffected.
+- Offline: cached entitlements are used; overlay CTAs are disabled with the offline tooltip (S1-5).
+- Permission: `GET /v1/entitlements` is readable by every authenticated internal member and by partners (the
+  portal needs to know whether it is gated); the response carries no prices, contract data or counts.
+
+AC
+1. `GET /v1/entitlements` (contract + controller) → `EntitlementsDto` `{ packs: [{ id, active, effective, source,
+   activatedAt, trial: { startedAt, endsAt } | null, trialAvailable }], tier: TierId | null, selfService:
+   boolean, gatedModules: ModuleId[] }`, computed with P1's resolver. Not paginated (a fixed 9-row catalog,
+   exempt from rule 6 like `GET /v1/me`; stated in the contract summary). Cross-tenant: reads only the caller's
+   tenant (RLS).
+2. Web `useEntitlements()` hook (TanStack Query, key `['entitlements']`) is the **only** client source; lock
+   decisions call `packages/core` `isModuleGated`, never a UI-local list (rule 5).
+3. Sidebar: lock icon on each gated root item and child, matching `shell.jsx` (12px, stroke 2, the drawn muted
+   colour, title text as drawn); collapsed rail shows no lock (as drawn).
+4. `LockedRoute` wrapper applied to every route of a gated module that exists today: `/graph`, `/predictive`,
+   `/suppliers` (+ `/suppliers/[id]`, scorecards, risk matrix views), `/ppap`, `/ppap/[id]`, `/scars`, `/fmea`,
+   `/spc`, `/msa`, `/risk`, `/ecn`, and the report-builder authoring surface. It renders the real page
+   `aria-hidden`, `inert`, blurred 3.5px, saturate 0.92, opacity 0.5, scale 1.02, under a
+   `color-mix(var(--bg) 64%)` scrim, with the upsell card (max-width 560, pack-accent banner, overline "Add-on ·
+   locked", chip "Not in your plan", h2 pack name, tagline, price row + note chip, "What unlocks" 2-column list,
+   CTAs, footer info line) — every value from `addons.jsx:209-272`. Planned-module placeholders
+   (`ai-governance`, `dev-platform`, `multi-tenancy`) are **not** wrapped this sprint: they are placeholders until
+   their own sprint builds them, at which point they inherit the gate from the catalog (§7 Q-C4).
+5. The overlay footer line "Billed to <workspace name> · changes take effect immediately" is **true** only in
+   self-service mode; in request mode it reads per §5 D-S2 (e.g. "Requests go to Kaenal sales · you'll be
+   notified when it's added"). [D1]
+6. Keyboard/a11y: focus moves to the upsell card's heading on route entry; the blurred content is unreachable by
+   Tab and by screen readers (`inert` + `aria-hidden`); the card's buttons meet the 36-38px heights drawn and
+   WCAG AA contrast on every pack accent (designer verifies the 9 accents; any failing accent gets a darker
+   token, §5).
+7. Create surfaces (CreateWizard type cards, quick-create menu, palette quick actions) consult the same resolver;
+   Playwright proves choosing a locked type never reaches a form.
+8. Realtime: P4/P5/P6/P8 mutations emit `entity.updated {kind:'entitlements'}` on the tenant channel; the web
+   client invalidates `['entitlements']` on it (04 §7 targeted invalidation).
+
+Web: hook, sidebar, `LockedRoute`, overlay (admin + non-admin variants), create-surface locks. Mobile: no screen
+(nothing mobile uses is gated); the endpoint is available to it but unused this sprint. Shared: route, DTO,
+resolver.
+
+Backend: route `GET /v1/entitlements` (authenticated, no capability); realtime topic `entitlements`; no migration
+beyond P1; no audit (read).
+
+### P3 — Server-side enforcement: write gate (402), analytics read gate, AI gateway alignment
+
+**Design:** none (API behaviour). Spec: 04 §5 (blur is presentation), 06 §3.1 (AI 402), 09 §1 (platform gate).
+Principle: §0 "regulated-industry principle" and §3.0 D3.
+
+UC
+- Happy: `qe` not effective → `POST /v1/risks` returns **402 `ENTITLEMENT_REQUIRED`** with `details.packId='qe'`;
+  `GET /v1/risks`, `GET /v1/risks/:id` and the board-pack export still succeed (the tenant's own records).
+- Happy: `intelligence` not effective → `GET /v1/graph/*` and `GET /v1/predictions*` return 402 (derived
+  analytics are the product, not the tenant's records, and carry no retention obligation); AI calls return 402
+  exactly as today.
+- Happy: `platform` not effective → creating/editing/connecting/testing a non-SMTP integration and creating/
+  editing a report definition return 402; **disconnecting or deleting** an integration and deleting a report
+  never do (reducing is always allowed); SMTP is never gated (09 §1).
+- Happy: `supplier` not effective → supplier/PPAP/SCAR writes and partner `portal:respond` writes return 402;
+  reads and exports succeed.
+- Precedence: a caller without the capability gets 403 first (RBAC), then 402 (pack) — a viewer never learns the
+  plan from a write they could not make anyway. A foreign-tenant id on a gated write returns 402 before the
+  lookup, which reveals nothing about the id.
+- System actors (jobs: SLA sweeps, notifications, predictive scoring for grandfathered tenants) are not gated;
+  the predictive scoring job **skips** tenants without effective `intelligence` (no compute for unused output).
+- Error: 402 envelope per 03 §4; web mutation hooks map 402 to a toast with "See plans" (admin) / "Request
+  access" (others), never a generic error.
+
+AC
+1. A `@RequirePack(packId)` decorator evaluated **inside the lifecycle interceptor** after `@RequireCapability`,
+   within the tenant-scoped transaction, reading P1's resolver once per request (memoised on the request
+   context). It is the only mechanism; no service contains its own entitlement `if`.
+2. Applied, per controller, to every **write** route of: `risk`, `fmea`, `spc` (measurement ingest), `msa`, `ecn`
+   (qe); `suppliers`, `ppap`, `scar`, portal respond routes (supplier); `reports` POST/PUT, `integrations`
+   POST/PUT/connect/webhook/test for non-SMTP kinds (platform). Applied to **read** routes of `graph` and
+   `predictions` (intelligence). The architect produces the exhaustive route list from the controllers as part of
+   the slice plan; a test enumerates every route of these controllers and fails if a write route lacks the
+   decorator (a mutation-style guard, like the placeholder-ledger test).
+3. The AI gateway's entitlement read (`gateway.service.ts:218`) is replaced by P1's resolver, so an unexpired
+   `intelligence` trial passes and an expired one fails closed; existing AI tests stay green plus two new cases
+   (trial active → allowed; trial expired → 402 `ENTITLEMENT_REQUIRED`, `block_reason='entitlement'`).
+4. Tests per pack: 402 on a representative write, 200 on read/export of the same module, 403-before-402 for a
+   role lacking the capability, 402 disappears in the same request after the pack becomes effective (no cache
+   staleness across requests), and SMTP integration writes never 402.
+5. Existing integration suites for gated modules (risk, msa, fmea, spc, ecn, suppliers, ppap, scar, graph,
+   predictions, reports, integrations, portal) seed their tenants with the needed packs via one fixture helper
+   (`grantPacks(tenantId, packs)`), so the suite measures module behaviour, not the default plan. This is
+   required work, not optional: without it those suites fail the moment P3 lands.
+
+Web: 402 handling in the shared mutation error mapper (toast + CTA per role). Mobile: the NCR AI draft already
+maps 402 → "AI unavailable"; verified unchanged against an expired trial (X1). Shared: decorator, resolver use,
+error details shape `{ packId }` added to the `ENTITLEMENT_REQUIRED` envelope (additive).
+
+Backend: no migration; interceptor + decorator; no audit (a refused write writes nothing, matching RBAC 403
+precedent); tenancy: resolver runs in the tenant transaction.
+
+### P4 — Plans & add-ons page (`/pricing`) and admin plan changes
+
+**Design:** `pricing.jsx:5-231` in full (binding), `addons.jsx` catalog values. New states (§5): request-mode
+buttons and pending chips, downgrade confirm, non-self-service header note, loading/error.
+
+UC
+- Happy (self-service mode, admin): the page shows the 3 tier cards (the derived current tier outlined in accent
+  with "Current plan" disabled), the guardrail callout, the 6 pack cards (active ones outlined in pack accent with
+  "Active" chip and "Added to plan"), the 3 à-la-carte rows, and the sticky estimate with real org counts
+  ("<workspace name> · N plants · M members"). "Add to plan" on a pack activates it immediately (04 §5 "toggling
+  updates instantly"); the card, estimate, sidebar and any open overlay update together. "Apply bundle" on Core
+  or Professional sets exactly that bundle's packs. "Remove" on an à-la-carte row deactivates it.
+- Happy (request mode, admin): the same buttons create **plan requests** to Kaenal sales instead of changing
+  entitlements (P6); the card shows a "Requested" chip and the button becomes "Requested" (disabled) with a
+  "Withdraw request" link. [D1]
+- Downgrade (either mode): an action that would make a currently-effective pack ineffective (Remove, or Apply
+  bundle to a smaller tier) first opens a confirm dialog listing the modules that become read-only and the
+  tenant's open records in them (e.g. "3 open ECNs, 2 draft MSA studies will become read-only. Your records stay
+  readable and exportable."). Cancel changes nothing. (Nielsen #5 error prevention; D3.)
+- "Talk to sales" (Enterprise card) → an `enterprise_inquiry` request (P6). "Contact sales" (header) → a
+  `contact_sales` request with an optional note (P6). "Update subscription" → a `confirm_subscription` request
+  carrying the current composition and estimate (P6). "Download quote" → P7. "Back to dashboard" → `/dashboard`.
+- Empty: a tenant with no active packs → Core is the current tier, "0 active", every pack shows "Add to plan".
+- Error: a toggle fails → the optimistic change reverts with an error toast (requestId); 409 `STALE_WRITE` (another
+  admin changed the plan) → the S1-5 reload-and-reapply dialog.
+- Permission: `/pricing` is admin-only in role curation today (`PLATFORM_ROOTS`) and stays so; the mutation
+  routes require `billing:manage`; a non-admin deep link renders the existing "not available for your role"
+  in-shell state (no mutation controls).
+- Offline: every mutating button disabled with the offline tooltip; the page renders from cache.
+- Trial interplay: a pack on trial shows the P5 trial chip and "Add to plan" (converting the trial to active in
+  self-service mode; a request in request mode).
+
+AC
+1. `/pricing` replaces the `planned:pricing` placeholder; ledger entry removed; the page reproduces every element,
+   size, colour and copy string of `pricing.jsx` (web-fidelity review side-by-side), with prices and includes
+   read from P1's catalog, never hard-coded in the component.
+2. Estimate: `GET /v1/entitlements/org-profile` (`billing:manage`) returns `{ plants, activeSuppliers,
+   inspectors, members, extraStandards, workspaceName }` computed server-side (counts only, no names;
+   `extraStandards` = frameworks in the O1 profile other than IATF 16949 and ISO 9001, per `addons.jsx:120`'s
+   "beyond IATF 16949 & ISO 9001"). The summary lines/total come from `estimateMonthly` (P1); the "*" footnote and
+   "Annual billing · taxes calculated at checkout" line render as drawn. **The estimate is labelled an estimate
+   and is never an invoice or charge** (Q6).
+3. `PUT /v1/entitlements/packs/:packId` `{ active: boolean, lockVersion }` (`billing:manage`, `@RequirePack`
+   n/a): allowed only when `selfService` is true, else 403 `FORBIDDEN` with `details.reason='plan_managed_by_
+   contract'` (the UI never offers it in that mode). Writes `source='self_service'`, `activated_at` on activation,
+   and one `entitlement_changed` audit event `{before:{active}, after:{active, source}}` in the same transaction
+   (rule 3). Idempotent (setting the current value is a 200 no-op with no audit event).
+4. `POST /v1/entitlements/apply-bundle` `{ tier: 'core'|'pro', expectedPacks: Record<PackId, boolean> }`
+   (`billing:manage`, self-service only): if the tenant's current active set ≠ `expectedPacks` → 409
+   `STALE_WRITE` with the current set; else sets all 9 rows to the bundle in one transaction, one
+   `entitlement_changed` event per changed row with `source='bundle'`. `ent` is rejected 422 (Enterprise is
+   "Talk to sales", never self-applied).
+5. The downgrade confirm's counts come from `GET /v1/entitlements/downgrade-impact?packs=qe,supplier`
+   (`billing:manage`) → per module `{ moduleId, openCount }` using each module's own "open" definition (risk
+   status ≠ closed, ECN stage not terminal, MSA draft, SCAR open, PPAP not approved/rejected, etc. — the
+   architect lists them per module). Counts only.
+6. Header note in request mode (§5 D-S2) explains that plan changes go through Kaenal sales. [D1]
+7. Playwright: self-service add → overlay lifts on `/risk` without reload; remove with confirm → overlay returns;
+   apply Professional → tier card flips to "Current plan"; request mode → button shows "Requested".
+
+Web: page + dialogs + hooks. Mobile: none (no design; admin plan management is a web task). Shared: routes,
+DTOs, `estimateMonthly`.
+
+Backend: routes above; service `EntitlementsService`; audit `entitlement_changed`; RBAC `billing:manage`
+(existing); tenancy: RLS, per-row `lock_version` + `expectedPacks` snapshot for bundle concurrency; realtime
+event (P2 AC8).
+
+### P5 — Real 14-day trials
+
+**Design:** `addons.jsx:260-262` "Start 14-day trial". New states (§5): trial chip with days left on pack
+cards/overlay, trial-used state, T-3 and expiry notifications.
+
+UC
+- Happy (admin): on a locked module's overlay or a pack card, "Start 14-day trial" → the pack becomes effective
+  immediately for 14 days; overlay lifts; pack card shows "Trial · 14 days left"; the sidebar lock disappears.
+- Happy: 3 days before expiry every admin gets an in-app + email notification "Your Quality Engineering trial
+  ends on <date>" linking to `/pricing?pack=qe` (card highlighted). At expiry, the pack is no longer effective
+  (resolver, no job needed); the daily job sends "Your … trial has ended — your records stay readable" and writes
+  a `system` audit event.
+- Convert: during a trial, "Add to plan" makes it permanently active (self-service) or requests it (request
+  mode); the trial row stays as the record that the trial was used.
+- Error: a second trial of the same pack → 409 `CONFLICT` "Trial already used for this pack" (button replaced by
+  "Trial used" state, never offered again); a trial on an already-active pack → 422.
+- Permission: admin only (`billing:manage`); non-admins see "Request access" (P2), never "Start trial".
+- Offline: button disabled.
+- Trials are available in **both** self-service and request mode (they are how a request-mode tenant evaluates a
+  pack before asking sales; R6). [D4]
+
+AC
+1. `POST /v1/entitlements/trials` `{ packId }` (`billing:manage`, `Idempotency-Key`) inserts `entitlement_trials`
+   (`ends_at = started_at + interval '14 days'`); PK violation → 409; `active=true` pack → 422; `security` and
+   `support` packs are not trialable (no in-product effect; custom-priced) → 422 with the reason. Audit
+   `entitlement_changed` `{after:{trial:{endsAt}}}`.
+2. Daily job `entitlement-trials` (existing BullMQ cadence pattern): notifies at T-3 days (dedupe key
+   `trial_ending:<tenant>:<pack>:<ends_at>`) and after expiry (`trial_ended:<…>`), and writes one `system`
+   `entitlement_changed` event `{before:{effective:true}, after:{effective:false, reason:'trial_expired'}}` per
+   expired trial, exactly once (idempotent on re-run). It never updates `entitlements`.
+3. Notification kinds `trial_ending`, `trial_ended` added to the enum, the preferences matrix defaults (in-app +
+   email on for admins), and the web notification centre click-through (`/pricing?pack=`).
+4. Tests: boundary at exactly `ends_at` (not effective), job idempotence, 409/422 cases, the AI gateway honouring
+   an active `intelligence` trial (P3 AC3), and `?pack=` highlight in Playwright.
+
+Web: trial button/chips/states. Mobile: notification list renders the two kinds and hands off to web (X1).
+Shared: route, job, notification kinds.
+
+Backend: route; job processor `entitlement-trials.ts`; audit `entitlement_changed`; RBAC `billing:manage`;
+tenancy: RLS on `entitlement_trials`, job runs per tenant through the existing tenant-iterating job pattern.
+
+### P6 — Plan requests and the sales hand-off (member → admin, admin → Kaenal sales)
+
+**Design:** `pricing.jsx:125-126` (Contact sales), `:157` (Talk to sales), `:217` (Update subscription);
+`addons.jsx:256-262` in request mode. New states (§5): request dialog (optional note), pending chip + withdraw,
+non-admin Request access, admin notification row, "your request was fulfilled/declined".
+
+UC
+- Happy (member → admin, R5): a viewer on a locked `/fmea` taps "Request access" → a `member_access` request for
+  `qe`; every admin gets an in-app notification "Priya requested Quality Engineering (FMEA workbench)" linking to
+  `/pricing?pack=qe&request=<id>`; the admin adds the pack (self-service) or forwards it (request mode:
+  "Request from Kaenal" creates the sales request and links it); when the pack becomes effective, open
+  `member_access` requests for it are auto-fulfilled and the requester is notified.
+- Happy (admin → sales, request mode): "Add to plan"/"Remove"/"Apply bundle"/"Talk to sales"/"Contact sales"/
+  "Update subscription" open a small dialog (what is being requested, optional note, Send). On Send: an
+  `open` request is stored, Kaenal sales receives an email (outbox → `send-email`, to `SALES_NOTIFY_EMAIL`) with
+  tenant name/slug, requester, kind, pack/tier, composition snapshot and estimate; the button shows "Requested".
+- Fulfil/decline: Kaenal staff run `pnpm tenant-plan --slug acme --fulfil <id>` (applies the change and marks
+  the request fulfilled) or `--decline <id> --reason "…"` (P8); the requesting admin is notified in-app + email.
+- Withdraw: the requester (or any admin) withdraws an open request.
+- Dedupe: one open request per (requester, kind, pack/tier); re-requesting returns the existing request (200),
+  not a duplicate email.
+- Error: email transport failure never loses the request (outbox retries); the UI shows "Requested" once the row
+  is committed.
+- Permission: `member_access` — any internal role (not partner), only for a gated pack; all other kinds —
+  `billing:manage`. Listing requests — `billing:manage`.
+- Offline: Send disabled.
+- Self-service mode: "Talk to sales", "Contact sales" and "Update subscription" still create requests (they are
+  inherently sales conversations); "Update subscription" sends the current composition for invoicing, which is
+  how a self-service tenant's changes reach billing without a payment provider (true-up). [D1]
+
+AC
+1. Migration `0075`: `plan_requests` (`tenant_id`, `id`, `kind` CHECK in (`member_access`, `add_pack`,
+   `remove_pack`, `apply_bundle`, `enterprise_inquiry`, `contact_sales`, `confirm_subscription`), `pack_id`
+   (catalog CHECK, nullable), `tier` (nullable), `composition jsonb` (snapshot of effective packs + estimate at
+   request time), `note text` (≤ 1,000 chars), `status` CHECK in (`open`, `fulfilled`, `declined`, `withdrawn`)
+   DEFAULT `open`, `requested_by` composite member FK NOT NULL, `resolved_at`, `resolution_note`,
+   `linked_request_id` (self composite FK, member→sales forwarding), `lock_version`, standard columns); partial
+   unique index `(tenant_id, requested_by, kind, coalesce(pack_id,''), coalesce(tier,'')) WHERE status='open'`;
+   forced RLS; leading-tenant index `(tenant_id, status, created_at desc)`.
+2. Routes: `POST /v1/entitlements/requests` (`Idempotency-Key`; capability per kind as above; `member_access`
+   for a non-gated pack → 422), `GET /v1/entitlements/requests?status=` (cursor, `billing:manage`), `POST
+   /v1/entitlements/requests/:id/withdraw` (requester or `billing:manage`; non-open → 409 `INVALID_TRANSITION`).
+   Audit: `created` on insert, `status_changed` on withdraw/fulfil/decline/auto-fulfil.
+3. Notifications `plan_request_created` (to admins, member requests only — admin→sales requests notify the other
+   admins too, excluding the requester) and `plan_request_resolved` (to the requester). Email to Kaenal sales
+   via the outbox in the same transaction as the insert (never on rollback). `SALES_NOTIFY_EMAIL` added to
+   `.env.example`; when unset in dev the email is written to the dev mail sink like every other email.
+4. Pricing page and overlay reflect open requests (chip + withdraw) from `GET …/requests?status=open` for admins
+   and from `EntitlementsDto.myOpenRequests: PackId[]` (additive field) for non-admins, so the non-admin overlay
+   shows "Requested" after a reload.
+5. Tests: dedupe, capability per kind, auto-fulfil on activation (via toggle, trial is **not** fulfilment, CLI),
+   outbox row committed atomically, withdraw state machine, cross-tenant id → 404.
+
+Web: dialogs, chips, notification rows. Mobile: notification list renders the two kinds, tap hands off to web
+(X1). Shared: table, routes, notification kinds, outbox email template.
+
+Backend: migration 0075 (shared with P7/P9/O1); `PlanRequestsService`; audit `created`/`status_changed`; RBAC
+per kind; tenancy: RLS, composite FKs; email via existing outbox.
+
+### P7 — Download quote (PDF)
+
+**Design:** `pricing.jsx:125` "Download quote" (prototype toasts `kaenal-quote.pdf`).
+
+UC
+- Happy (admin): "Download quote" → an export job renders a one-page PDF quote (workspace name, date, current
+  effective packs and tier, the estimate lines and total exactly as the sticky summary shows them, the
+  "estimate, not an invoice; annual billing; taxes calculated at checkout" disclaimers, quote reference) and the
+  browser downloads `kaenal-quote-<slug>-<yyyymmdd>.pdf` through the existing exports flow.
+- Error: job failure → the exports flow's existing failure toast with retry.
+- Permission: `billing:manage`. Offline: disabled.
+
+AC
+1. `ExportResource` gains `plan_quote`; `exports_resource_check` widened in `0075`; `run-export.ts` gains the
+   render branch using P1's `estimateMonthly` and P4's org-profile counts (one source of numbers, so the PDF can
+   never disagree with the page).
+2. `ExportsService` requires `billing:manage` for `plan_quote`; audit `exported` (existing).
+3. Test: the PDF's total equals `estimateMonthly` for a fixture composition; non-admin → 403.
+
+Web: button wired to the existing export hook. Mobile: none. Shared: enum + renderer.
+
+### P8 — Operator plane: `pnpm tenant-plan` and provisioning defaults
+
+**Design:** none; CLI (R8). User asked for "an admin UI to view/change a tenant's plan"; §3.0 D5 explains why the
+operator surface is a CLI this sprint and what a staff console would additionally need.
+
+UC
+- Happy: `pnpm tenant-plan --slug acme --show` prints the tenant's packs (active/effective/source/trial), tier,
+  self-service flag, contract fields, CSM fields and open requests.
+- Happy: `--bundle pro --reason "Order form #1042"` sets the Professional bundle; `--pack qe=on --pack
+  supplier=off --reason "…"` sets individual packs; `--self-service on|off --reason "…"`; `--contract-renews
+  2027-04-01 --contract-value 184000 --currency USD --reason "…"`; `--csm-name "Anand Patel" --csm-email …
+  --csm-booking-url … --csm-chat-url …`; `--requests` lists open requests; `--fulfil <id> [--reason]` applies the
+  requested change and marks it fulfilled; `--decline <id> --reason "…"`; `--history` prints entitlement audit
+  events.
+- Error: missing `--reason` on any write → exit 1 before touching the DB; unknown slug/pack/tier → exit 1 with a
+  clear message; a request id from another tenant → "not found".
+- Dedicated (Model B) tenants: tenant-owned rows are written through the same db-router/secret-resolver the
+  provisioning scripts use.
+- Provisioning: `pnpm provision-tenant … --bundle core|pro|ent` seeds the bundle (`source='operator'`) and the
+  `control.tenant_plans` row; `--from-request <workspaceRequestId>` (O3) additionally pre-fills the O1 profile
+  (industry, plant size, frameworks) and marks the request `provisioned`. Re-running stays idempotent.
+
+AC
+1. Migration `0074_control_plane_plans.sql`: `control.tenant_plans` (`tenant_id` PK FK → `control.tenants`,
+   `self_service boolean NOT NULL DEFAULT false` [D1], `contract_renews_on date`, `contract_value_annual
+   numeric(12,2)`, `contract_currency text DEFAULT 'USD'`, `csm_name`, `csm_email`, `csm_booking_url`,
+   `csm_chat_url` (https-only CHECK on both URLs), `updated_at`, `updated_reason text`). `GRANT SELECT` to
+   `kaenal_app` only (the API can read, never write — the same boundary as `control.tenants`); writes only by
+   the migrator role (the CLI). Not tenant-owned → outside the RLS lint by design; its access is covered by an
+   explicit test like `control-identity.test.ts` (app role cannot INSERT/UPDATE/DELETE).
+2. Every tenant-owned write the CLI makes (entitlements, plan-request status) writes an `audit_events` row with
+   `actor_kind='support'` and the given `reason` in the same transaction (the existing CHECK makes a missing
+   reason impossible at the DB level too), and publishes the realtime `entitlements` event (via the outbox) so
+   open browsers update.
+3. `package.json` script `tenant-plan`; `--help` documents every flag; CLAUDE.md "Commands" gains the line.
+4. Tests (script-level, against the test DB): each flag's effect, reason enforcement, idempotent re-run,
+   fulfil applies exactly the requested change, dedicated-tenant routing path unit-tested with the existing
+   router fake.
+
+Web/Mobile: none. Shared: the CLI imports P1's catalog/tiers (one source of truth).
+
+### P9 — Billing & plan settings section (plan-only, Q6)
+
+**Design:** `settings.jsx:848-898` `Billing`. Q6/ROADMAP: "shows plan + entitlements only, and anything needing
+a payment provider is hidden." New state (§5): no-contract variant.
+
+UC
+- Happy (admin): Settings → System → Billing & plan shows the "Current plan" card as drawn (gradient banner,
+  award icon, tier name, the tier's blurb/feature line from the catalog, chips "Renews <date>" and "Annual
+  billing" when the operator recorded a contract, and the annual value + "per year" when recorded) and the
+  Billing email and Tax ID rows, editable with an explicit Save (04 §5 "no auto-save for admin-level settings").
+- No contract recorded: the banner shows the tier and its catalog price line ("$4,050 /mo + units") instead of
+  an annual contract value, and no renewal chip (§5 D-S6).
+- Tier `null` (custom composition): banner shows "Custom plan" and the active pack names.
+- Hidden per Q6: the **Payment method** row and the **Invoices** card are not rendered and are listed in
+  `apps/web/src/config/excluded.md` with the reason ("requires a payment provider; ROADMAP Q6"). A "Manage plan"
+  link to `/pricing` is added under the banner (§5 D-S6, the only new element).
+- Error: save fails → inline error + toast; 409 → reload-and-reapply.
+- Permission: section visible to `billing:manage` holders; others do not see the entry (existing settings-rail
+  permission pattern).
+- Offline: Save disabled.
+
+AC
+1. `settings:billing` ledger entry removed; the section renders per the design minus the two Q6-hidden elements.
+2. `GET /v1/billing/plan` (`billing:manage`) → `{ tier, tierName, packs, contract: { renewsOn, annualValue,
+   currency } | null }` (reads `control.tenant_plans` + resolver). `GET/PUT /v1/settings/billing` (`billing:
+   manage`, `lockVersion`) over `tenant_settings` namespace `billing` (`{ billingEmail: email|null, taxId: string ≤
+   32 | null }`, Zod in `packages/types`); audit `settings_changed` (changed fields only, rule 3).
+3. Namespace CHECK widened in `0075` (`billing`, and O1's `profile`, `onboarding`).
+
+Web: section. Mobile: none (no design; mobile settings has no billing). Shared: routes, schema.
