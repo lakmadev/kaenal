@@ -1135,6 +1135,11 @@ AC
    in `acme` from `/pricing`, restoring the Enterprise bundle afterwards ([AM1] the `pnpm tenant-plan` route is
    gone); the demo login to **both** workspaces is re-verified (201) at the end (rule 12). The catalog seed lives
    in migration `0073`, so `seed-demo.ts` never writes catalog rows.
+8. **[AM1] Commercial-state outbox event (input to 07C's directory and impact preview).** Every change to a tenant's
+   effective commercial state — pack toggle / bundle (P4), trial start (P5) and the trials job's expiry event
+   (P5 AC2), frameworks change (O1), provisioning (P8) — writes an outbox event `tenant_commercial.changed`
+   `{ tenantId, tier, effectivePacks, declaredFrameworkKeys, at }` in the same transaction (identifiers and
+   catalog keys only; no names, no content). Test: each path emits exactly one event; rollback emits none.
 7. **Docs:** [AM1] CLAUDE.md Commands updates the `provision-tenant` line (`--bundle` required, `--from-request`);
    `.env.example` gains `SALES_NOTIFY_EMAIL`, `SUPPORT_EMAIL`; `apps/web/src/config/navigation.ts` unchanged (Plans
    & add-ons already exists).
