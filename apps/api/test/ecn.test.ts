@@ -167,8 +167,9 @@ describe("ECN create (E1/E3/E4 AC1) — 5 pre-created pending approvals", () => 
     const approvals = await acme("get", `/v1/ecns/${id}/approvals`, viewerTok);
     expect(approvals.status).toBe(200);
     expect(approvals.body).toHaveLength(5);
-    expect(approvals.body.every((a: { decision: string }) => a.decision === "pending")).toBe(true);
-    expect(approvals.body.map((a: { stage: string }) => a.stage)).toEqual(["feasibility", "risk_review", "ppap", "cab_approval", "pilot"]);
+    const approvalItems = approvals.body as { decision: string; stage: string }[];
+    expect(approvalItems.every((a) => a.decision === "pending")).toBe(true);
+    expect(approvalItems.map((a) => a.stage)).toEqual(["feasibility", "risk_review", "ppap", "cab_approval", "pilot"]);
   });
 
   it("cross-tenant ECN id -> 404, never 403 (rule 8)", async () => {
