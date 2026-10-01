@@ -76,6 +76,19 @@ file's references follow. **This answers the SEND BACK in the document; the arch
 | AR28 | `entitlement_trials` gains `id uuid` (audit `entity_id`) and `expiry_processed_at` (exactly-once expiry); `entitlements.created_by` / `updated_by` get composite FKs by `ALTER` on the existing columns (`0001_core.sql:618`) | P1 AC4, P5 AC1-AC2, §3.1 |
 | R3/R7 (re-review items) | O5 completion-on-read is a GET that writes: conditional update, skipped for a support viewer | O5 UC |
 
+**Amendment 4 — architecture-review delta check, 2026-09-30 (tagged [AR2]).** A second, narrower `planner` pass —
+run only over 07C's Amendment 4 mechanisms, not a full re-review — found **5 small bugs (B1-B5)**, none of which land
+in this file (they are all in mechanisms 07C's Amendment 4 introduced: `kaenal_support`'s audit-write policy, the
+notifications grant, `notify()`'s enqueue timing, the process-global observers, and the outbox drainer's claim
+query — full detail in `SPRINT-07C-staff-console.md` Amendment 5). Two things the reviewer flagged **do** land here,
+both decided by the PO under CLAUDE.md's standing rule: the risk-record "open" definition (P4 AC5, since the actual
+`risk` status enum has no `closed` value) and the FMEA/SPC/portal "no open-record concept" scope boundary (same AC).
+Three pieces of reference content the reviewer verified are folded into this file's ACs directly: P3 AC2's exhaustive
+`@RequireModule` route list (with the `integrations` row-aware SMTP predicate named explicitly), P4 AC5's per-module
+open-record list (risk's definition, above), and O5 AC2's per-task index confirmation with the `inspection_templates`
+completion-check fix (uses `audit_events_entity_idx`, since the table has no column identifying the seeded example).
+No story is added or removed by this amendment.
+
 **PO scope call: this sprint is split into two sprint files (Amendment 1).** With U-D5 the work grows from two
 increments to three, and the third is a whole new authenticated surface (a platform identity outside tenant
 memberships, a non-tenant-scoped session path through the lifecycle interceptor, a least-privilege support
@@ -551,7 +564,16 @@ AC
    and `predictions` (intelligence) and [AM2] `GET /v1/supplier-scorecard` (`supplier_analytics`; the Risk matrix
    is computed client-side from `GET /v1/suppliers` data the tenant may read anyway, so its gate is the in-page
    lock of P2 AC9 — there is no extra server data to withhold). The architect produces the exhaustive route list from the controllers as part of
-   the slice plan; a test enumerates every route of these controllers and fails if a write route lacks the
+   the slice plan — **[AR2, folded in from the SPRINT-07C delta-check re-review, DoR R1]** every POST/PUT/PATCH/DELETE
+   route on `risk`, `fmea`, `spc`, `msa`, `ecn`, `suppliers`, `ppap`, `scar`, `portal`, `ppap`, `scar` (as controllers
+   name them), `reports` (except its DELETE, which is a reducing action and never gated per D3), and
+   `integrations` (every non-SMTP write); plus the specific **read**-gated routes: the three `graph` routes, the two
+   `predictions` routes, and `GET /v1/supplier-scorecard`. **The `integrations` non-SMTP predicate is row-aware, not
+   controller-wide:** because SMTP writes on the same controller are never gated (09 §1), `@RequireModule('platform')`
+   on the integrations connect/test/webhook routes cannot be a blanket per-route decorator — it must read the
+   request body/row's integration `kind` and skip the check when `kind === 'smtp'`, exactly mirroring how the AC4
+   test already asserts "SMTP integration writes never 402". The architect verifies this list against the actual
+   controllers (SPRINT-07C DoR R1 — answered here as reference content, confirmed not derived from scratch) — a test enumerates every route of these controllers and fails if a write route lacks the
    decorator (a mutation-style guard, like the placeholder-ledger test). **[AM1]** Because the pack→module map is
    now data (P0), a module can be moved into a pack by staff (07C C7) — so the decorator is applied to **every**
    non-floor-guaranteed module's write routes regardless of today's mapping; for a module currently in the floor
@@ -668,9 +690,20 @@ AC
    with the new set) or waits and then gets 409 `STALE_WRITE` itself. Test: a toggle and a bundle apply racing on the
    same tenant never both succeed, and the final state equals exactly one of them.
 5. The downgrade confirm's counts come from `GET /v1/entitlements/downgrade-impact?packs=qe,supplier`
-   (`billing:manage`) → per module `{ moduleId, openCount }` using each module's own "open" definition (risk
-   status ≠ closed, ECN stage not terminal, MSA draft, SCAR open, PPAP not approved/rejected, etc. — the
-   architect lists them per module). Counts only. **[AM1]** Modules that stay effective through a framework
+   (`billing:manage`) → per module `{ moduleId, openCount }` using each module's own "open" definition. **[AR2, PO
+   decision R2a, 2026-09-30 — corrects the "risk status ≠ closed" wording below, which cannot be built as written]**
+   Migration `0064_risk_register.sql`'s actual `risk` status enum is `active` / `monitoring` / `accepted` — there is
+   no `closed` status. For the downgrade-warning context, a risk record is **open** when its status is `active` or
+   `monitoring`; `accepted` is **not** open (an accepted risk is a closed decision the organisation already made to
+   accept the residual risk — it is not an in-flight record a downgrade would interrupt, so warning about it would be
+   noise). This is the PO's smallest-reasonable, revisitable call under CLAUDE.md's standing rule. ECN stage not
+   terminal, MSA draft, SCAR open, PPAP not approved/rejected, etc. — the
+   architect lists the rest per module (SPRINT-07C DoR re-review item R2). **[AR2, PO decision R2b]** FMEA (no status
+   column exists at all), SPC and the customer/supplier portal (no lifecycle concept at all) have **no** open-record
+   downgrade-warning behaviour — a deliberate scope boundary (there is no in-flight state to freeze, so there is
+   nothing to warn about), not an oversight; they are omitted from this endpoint's response entirely for those
+   modules, never returned with a fabricated `openCount: 0` that would imply a check was made. Counts only. **[AM1]**
+   Modules that stay effective through a framework
    inclusion are excluded from the impact (count 0, not listed). The same endpoint accepts
    `?removeFrameworks=iatf_16949` for O1's framework-removal confirm.
 6. Header note in request mode (§5 D-S2) explains that plan changes go through Kaenal sales. [D1]
@@ -1269,7 +1302,14 @@ AC
    description, status: done|pending, progress?: {done,total}, estimateMinutes, href, gated, doneBy?:{id,name},
    doneAt? }], csm: {...} | null, helpful: [{ title, subtitle, href }] }`. Each task's completion query is a
    tenant-scoped `EXISTS`/count on indexed columns (no full scans; the architect confirms the index for each),
-   evaluated in one request.
+   evaluated in one request. **[AR2, folded in from the SPRINT-07C delta-check re-review, DoR R3]** Every task's
+   completion query is served by a `tenant_id`-leading index, **with one named gap**: *Set up inspection templates*'
+   completion check ("done when a member has published a template, not counting the seeded example") cannot identify
+   the seeded example by any column on `inspection_templates` — the table has no flag distinguishing it. Fix: the
+   check finds the earliest qualifying record via **`audit_events_entity_idx`** instead (the seeded example's own
+   `created` audit event, written by provisioning with `actor_kind='system'`, is excluded by actor kind; the first
+   `created` event with `actor_kind` other than `system`/`support` on `entity_kind='inspection_template'` is the
+   qualifying record), rather than adding a column to the templates table for this one check.
 3. Task and helpful catalogs are data in `packages/core`, unit-tested: only tasks whose `href` is a real, built
    route are in the catalog (a test cross-checks every `href` against the web route list, failing on a dead
    link); focus-module tasks appear only for focus modules.
@@ -1901,6 +1941,12 @@ copied to PROGRESS.md "Known issues" at close, per CLAUDE.md "No invented scope"
   sprint builds them: that sprint adds the `ModuleId` and a `catalog_pack_modules` seed row in its own migration.
 - **Q-C5 [AM2] Close-out transitions after a downgrade → not exempted** (all writes blocked; the downgrade confirm
   warns with open-record counts). Revisit only if customers report stuck in-flight records (→ Known issues).
+- **[AR2] Risk "open" definition, decided (Amendment 4, per the reviewer's flag).** `active`/`monitoring` = open;
+  `accepted` = closed (a closed decision, not an in-flight record). Applied in P4 AC5.
+- **[AR2] FMEA / SPC / portal "open record" scope, decided (Amendment 4, per the reviewer's flag).** No open-record
+  downgrade-warning behaviour for these three — a deliberate boundary (no lifecycle concept exists to warn about), not
+  an oversight. Applied in P4 AC5; the corresponding `kaenal_support` grant in `SPRINT-07C-staff-console.md` C3 AC3
+  excludes a status column for all three accordingly.
 - **Q-C6** Figma-style provisional access while a member request is pending → not included.
 - **Q-C7** Seat/plant/API limits shown in the design are not enforced this sprint; whether limits exist at all is a
   Sprint 08 Organization-section question (→ Known issues).
@@ -1931,10 +1977,15 @@ moves to PROGRESS.md "Known issues" at close.
       confirmed and Q-C11 decided 2026-09-30; the rest PO under the standing rule) — no decision gates the build.
 - [x] [AR] The architecture review's SEND BACK is answered in this file (Amendment 3) and in 07C (Amendment 4) — a
       document fix, not a re-review.
+- [x] [AR2] The architecture-review delta check's items that land in this file (P4 AC5's risk-open definition and the
+      FMEA/SPC/portal scope boundary; P3 AC2's exhaustive route list with the SMTP row-aware predicate; O5 AC2's
+      index confirmation and the `inspection_templates` fix) are answered in this file (Amendment 4) — a document fix.
+      B1-B5 land entirely in `SPRINT-07C-staff-console.md` Amendment 5 and do not require a change here.
 - [ ] UI Lead Designer's boards D-S1…D-S15 [AM2] approved by the user (Gate 1); `planner` architecture review returned SIGN OFF with the slice
       plan, covering both this file and `SPRINT-07C-staff-console.md` (one review of the release, since 07C
       writes this file's tables). **[AR]** The first review returned SEND BACK; this item now means the **re-review**
-      SIGN OFF against 07C's DoR #4 checklist (R1-R10).
+      SIGN OFF against 07C's DoR #4 checklist (R1-R10). **[AR2]** — now a delta check against Amendment 4's fixes here
+      and 07C's Amendment 5, per the reviewer's own framing, not a repeat of the full re-review.
 - [ ] Migrations **0073-0076** applied (0077 buffer unused or used for a recorded correction); `pnpm db:migrate`
       clean on a fresh DB and on a DB with existing tenants (backfill proven: existing tenants keep every pack,
       onboarding `dismissed`; catalog seeded: 9 packs, 3 tiers, 8 industries, 9 frameworks, every rule, price book
@@ -2031,13 +2082,24 @@ data or copy change (catalog rules, D-S12/13 copy), not a redesign.
 RE-REVIEW REQUIRED before build.** The PO does not treat the SEND BACK as closed until the `planner` re-review signs
 off.
 
+**[AR2] Architecture-review delta check (2026-09-30) — a second, narrower pass over 07C's Amendment 4 mechanisms
+returned 5 small bugs (B1-B5, none of which touch this file's own mechanisms directly) plus two PO decisions this
+file owns (risk's "open" definition, P4 AC5; FMEA/SPC/portal's scope boundary, same AC) and reference content this
+file benefits from (P3 AC2's exhaustive route list and SMTP row-aware predicate; O5 AC2's index confirmation and the
+`inspection_templates` gap fix). All are applied above; full detail and the B1-B5 fixes (which land entirely in
+`SPRINT-07C-staff-console.md`, since Amendment 4's own new mechanisms live there) are in that file's Amendment 5.**
+The PO does not treat this as closing the architecture gate either — see 07C's DoR #2 for what the delta-check
+`planner` pass still owes.
+
 **PO use-case sign-off: SIGNED (the PO's part of SCRUM.md Gate 1 only — Gate 1 itself is NOT complete: no design
-board exists yet), 2026-09-30; reaffirmed after Amendment 3 [AR], 2026-09-30 (no story added or removed; the [AR]
-fixes amend existing ACs).** Verified, not assumed: **16 stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
+board exists yet), 2026-09-30; reaffirmed after Amendment 3 [AR], 2026-09-30, and again after 07C's Amendment 5
+delta check [AR2], 2026-09-30 (no story added or removed either time; the [AR]/[AR2] fixes amend existing ACs — P3
+AC2 and P4 AC5 and O5 AC2 here).** Verified, not assumed: **16 stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
 extensibility, price-book versioning, framework inclusion under the finalized mapping, the `supplier_analytics`
 in-page gates, the Q-C13 overlap line, the platform trial-reset exception and the Q-P1 provisioning audit — maps to at
 least one objectively testable AC with a Web / Mobile / Shared split, a §4 backend row, a §5 design source or gap
-and a §6 dead-end entry. No AC still depends on an unanswered question (§7 has none).
+and a §6 dead-end entry. No AC still depends on an unanswered question (§7 has none — the risk-open and
+FMEA/SPC/portal decisions the reviewer flagged are DECIDED in P4 AC5 above).
 
 **Definition of Ready — what remains before build (process gates, no decisions):**
 1. **Gate 1 — design.** `ui-lead-designer` audits the binding jsx (§5 table) and produces boards D-S1…D-S15 in
@@ -2045,7 +2107,8 @@ and a §6 dead-end entry. No AC still depends on an unanswered question (§7 has
    copy deviations (D-S12/13 tenant-aware callout and Core card, the `standards` tagline).
 2. **Architecture review.** `planner` reviews this file and `SPRINT-07C-staff-console.md` together (07C writes this
    file's tables) and returns SIGN OFF with the vertical-slice plan, the exhaustive `@RequireModule` route list
-   (P3 AC2), the per-module "open record" definitions (P4 AC5) and the O5 index confirmations. **[AR]** This is now a
+   (P3 AC2 — **[AR2] now stated in text, including the `integrations` row-aware SMTP predicate**), the per-module "open record" definitions (P4 AC5 — **[AR2] risk's definition now DECIDED in text**) and the O5 index confirmations (**[AR2] now stated in text, including the `inspection_templates` gap fix**). **[AR]** This is now a
    **re-review** after the SEND BACK, run against the named checklist in `SPRINT-07C-staff-console.md` DoR #4
-   (R1-R10), which includes these three items (R1-R3).
+   (R1-R10), which includes these three items (R1-R3) — **[AR2] a delta check against Amendment 5's fixes, per the
+   reviewer's own framing, not a repeat of the full re-review.**
 3. **07C only:** the `security-reviewer` pass on 07C's design (07C §3) before its build starts.
