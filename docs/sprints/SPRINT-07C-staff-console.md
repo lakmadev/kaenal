@@ -192,6 +192,25 @@ amendment to an existing story; no story is added or removed.
   explicitly in §5 and in the Definition of Ready as a required `ui-lead-designer` re-sync pass, to be dispatched
   separately.
 
+**Amendment 6 — architecture-review delta check #2, 2026-10-01 (tagged [AR3]).** A third, narrower `planner` pass —
+explicitly scoped by the reviewer to Amendment 5's own fixes only ("a delta check limited to D1, D2, and S1-S6 is
+enough for the next pass") — found **2 blocking defects (D1, D2)** in B1's RESTRICTIVE-policy mechanics and B3's
+job-processor coverage, plus **6 small fixes (S1-S6)**. Every fix below is a text amendment to an existing story or
+to §3/§3.4; no story is added or removed.
+
+| # | Defect / fix (reviewer finding) | Fix | Where it lands |
+|---|---|---|---|
+| D1(a) | RESTRICTIVE policies are ANDed, not overridden — AM5's "`audit_events` additionally carries … supersedes …" wording for `support_audit_write_scope` is impossible to build as written: the generic `support_commercial_grant_active` FOR-ALL policy would still block a content grant's INSERT into `audit_events` even with the new policy present | `apply_tenant_rls()` (0079) gets a named, explicit exception: `audit_events` is skipped for the commercial FOR-ALL policy specifically (it keeps the reader policy for content-scope reads) and instead gets only the two dedicated, command-scoped policies (`support_commercial_audit_scope` FOR SELECT, `support_audit_write_scope` FOR INSERT) already named in C3 AC3 | C10 AC2a; C3 AC3; §3.1's 0079 row; schema + mutation tests |
+| D1(b) | `support_commercial_audit_scope`'s USING clause filters by `entity_kind` only, with no liveness check — an expired grant or a content-only grant could still read commercial audit rows if `SupportAccess`'s application-layer check were bypassed | Add `AND (SELECT support_content_grant_active('commercial'))` to the USING clause (safe: the `withAudit` INSERT path has no RETURNING, `packages/db/src/audit.ts:174-178`) | C3 AC3; new DB-level tests, C3 AC10 |
+| D1(c) | A dedicated-database `support_grant_backstop` mirror can stay live after an activation failure: if the mirror insert (step 2) commits and a later step (step 3, the tenant audit-transparency write) fails, nothing un-lives the mirror — `activation_failed` was missing from the list of outcomes that propagate `ended_at` to it | `activation_failed` added to that list: the same request that ends the grant `activation_failed` also immediately sets `ended_at` on the mirror row if it was already committed, synchronously, not queued for the retry job | C10 AC2a; SD5's grant-activation ordering note; new test, C3 AC10 |
+| D2 | `notify()` is called from numerous job processors (`scan-file`, `complaint-sla`, `document-expiry`, `training-expiry` ×2, `run-export`, `calibration-due` ×2, the `sla` sweep, Sprint 07's P5 trial-notification processor) running inside `withTenant` with **no** HTTP request context at all; SD13's after-commit store is scoped only to the tenant-request or platform-request context, and "no context" is silently a no-op today (confirmed `apps/api/src/context.ts:66-72`'s `bufferRealtimeSignal`) — B3's fix, as worded, would silently **drop** every one of these deliveries | Four-part fix: (i) SD12's buffer and SD13's store are named explicitly as the **same single mechanism**, not two similar ones; (ii) a **third scope type** — a processor-opened scope, flushed after the processor's own transaction commits — is added for job processors, which have no HTTP context to piggyback on; (iii) a job-enqueue call made with **no** active scope (HTTP-tenant, HTTP-platform, or processor) **throws immediately** instead of silently no-op'ing; (iv) a DoD test proves a processor-path `notify()` call enqueues exactly one delivery job after that processor's transaction commits, and that `notifyMinimal()` goes through the identical path | SD12; SD13; DoD |
+| S1 | C3/C5/C6's ACs call `NotificationsService.notifyMinimal()` directly from platform code, but `NotificationsService` lives in `apps/api/src/notifications` — violating CX AC1's import-boundary rule (platform code may import only `shared/**` on the tenant side) | Named: the actual writer is a shared, context-agnostic `notifyMinimal()` in `apps/api/src/shared/notifications.ts` (the writer SD13 already places in `shared/**`); `NotificationsService.notify()` delegates to it internally for its own INSERT; platform code imports the shared `notifyMinimal()` directly, never `apps/api/src/notifications` | C3 AC3; C5 AC3; C6 AC3; SD13 |
+| S2 | Nothing stated that `PlatformAppModule.onModuleInit` installs the shared audit/realtime bridges — without it the platform process has empty observer slots and C5 AC4 ("overlay lifts without reload") stays broken even after B4's fix; SD13 cites the audit-bridge path as `apps/api/src/...audit.ts:57,85` (wrong — it is `packages/db/src/audit.ts:57,85`) | Explicit requirement added: `PlatformAppModule.onModuleInit` installs the same shared bridges `AppModule.onModuleInit` does; the sequential two-router test (C2 AC3) also asserts both processes' observer slots are populated after boot; citation corrected | SD13; C2 AC3 |
+| S3 | SD7's own R6 paragraph says `current_setting` uses the "single-argument form wrapped in `NULLIF(..., '')`" while showing `current_setting('app.grant_id', true)` — the two-argument form — contradicting itself and C10 AC2a's own correct text | Wording fixed to "two-argument, non-throwing form" | SD7 (R6 paragraph) |
+| S4 | §3.4 R1 gives the tenant-summary-refresh route `platform:tenants:read`, but C4 AC2 (the actual story AC) says `platform:tenant:access`; R1's first row mislabels the pre-session `sign-in`/`mfa` routes as "session only" | R1's table row split: `GET /tenants` (list) keeps `platform:tenants:read`; `GET /tenants/:id`, `/:id/history` and `POST /:id/summary/refresh` (all grant-required) now say `platform:tenant:access`, matching C4 AC2/AC3's own wording; `sign-in`/`mfa` relabelled `@PlatformPublic` (pre-session), separated from the session-only row | §3.4 R1 |
+| S5 | Circular reference: 07C's DoR R2 says the open-record module list "was already produced in P4 AC5"; Sprint 07's P4 AC5 says "the architect lists the rest (SPRINT-07C DoR re-review item R2)" and also opens with a stale "corrects the wording below" pointing at text a prior amendment already removed | Both reworded: P4 AC5 states its per-module examples are a slice-plan **input**, not a finished list, feeding 0079's column-grant list; the dangling "corrects … below" clause is dropped; 07C's DoR R2 says the architect **produces** the remaining per-module definitions from that input, not that they are "already produced" | SPRINT-07 P4 AC5; 07C DoR item R2 |
+| S6 | The spec states a fixed call-site count ("195 sites/38 files", "~204/36 files") in several places; a fresh grep today gives **195 matches/38 files** for the three named helpers, **202/42** once direct `.membership`/`requireMembership` sites are counted, **plus** a previously-uncounted helper family (`inspections.controller.ts`'s local `membership(ctx)`/`actorId(ctx)` at lines 176/180); `query.controller.ts:68` is inside a helper's own definition, not a call site — the real call sites are `:41` and `:86` | No AC depends on an exact number again: the **grep pattern** (the named helper/method set) is recorded as the authoritative definition of scope; any count given is explicitly labelled an illustrative, approximate snapshot; the local-helper family and the `:41`/`:86` correction are folded in; §4's C12 row no longer cites "195" | C12 "Verified current state"; §3.4 R8; §4 C12 row |
+
 ---
 
 ## 0. Research grounding — the patterns this increment borrows
@@ -500,9 +519,17 @@ AC
    fail the permission check under `kaenal_support` and break C6 AC3 (plan-request fulfil) and C5 AC3 (auto-fulfil).
    Granting blanket SELECT on `notifications` is wrong regardless, because bodies can carry real QMS content. **Fix:**
    `kaenal_support` gets INSERT on `notifications` **plus a column-scoped `SELECT (id)`** grant on it — never a
-   full-row SELECT — and the platform code path for C5 AC3 / C6 AC3 calls a narrower writer,
-   `NotificationsService.notifyMinimal()` (same row shape as `notify()`, `INSERT … RETURNING id` only), instead of
-   `notify()` directly, so the RETURNING clause never touches a column the role cannot read; SELECT on
+   full-row SELECT — and the platform code path for C5 AC3 / C6 AC3 calls a narrower writer, `notifyMinimal()` (same
+   row shape as `notify()`, `INSERT … RETURNING id` only), instead of `notify()` directly, so the RETURNING clause
+   never touches a column the role cannot read. **[AR3, S1] `notifyMinimal()` lives in the shared layer, not in
+   `apps/api/src/notifications`.** The earlier wording named it `NotificationsService.notifyMinimal()`, which platform
+   code would have to import from `apps/api/src/notifications` — a tenant-side module, which CX AC1's import-boundary
+   rule forbids platform code from reaching into directly (it may import only `shared/**` on the tenant side, SD13).
+   Fix: `notifyMinimal()` is exported from the shared, context-agnostic writer SD13 already places at
+   `apps/api/src/shared/notifications.ts`; `NotificationsService.notify()` (tenant-side) delegates to this same shared
+   `notifyMinimal()` internally for its own row insert, then does its tenant-only work (preference resolution, the
+   full-row shape its own callers need) on top — so there is exactly one INSERT implementation, and platform code
+   calls the shared `notifyMinimal()` directly, never `apps/api/src/notifications`. SELECT on
    `notification_prefs` (the insert honours the recipient's preferences, as the tenant notification service does);
    column SELECT on `memberships
    (user_id, role, status)` (to address the requester and the tenant's admins — ids and roles only, still no name or
@@ -522,10 +549,22 @@ AC
    before/after payload in the tenant — de facto content access without a content grant. So `kaenal_support` gets
    **column** SELECT on `audit_events` (every column except `ip` and `user_agent`) and a RESTRICTIVE policy
    `support_commercial_audit_scope` `TO kaenal_support FOR SELECT USING (entity_kind IN ('entitlement',
-   'entitlement_trial', 'plan_request', 'support_grant', 'workspace_profile', 'onboarding_state', 'billing_settings'))`
+   'entitlement_trial', 'plan_request', 'support_grant', 'workspace_profile', 'onboarding_state', 'billing_settings')
+   AND (SELECT support_content_grant_active('commercial')))`
    — the commercial entity kinds only, which requires Sprint 07's profile / onboarding / billing events to use those
    dedicated entity kinds rather than the generic `settings` kind (SPRINT-07 O1 AC3, O4 AC3, P9 AC2 [AR]); the
-   support-view record trail (`support_view`) is deliberately **not** in the list. **[AR2, B1] The commercial write
+   support-view record trail (`support_view`) is deliberately **not** in the list. **[AR3, D1b] The entity-kind filter
+   alone is not a liveness check.** Without the added `support_content_grant_active('commercial')` clause, an
+   **expired** commercial grant, or a platform user holding only a **content** grant (no commercial grant at all),
+   could still read every commercial audit row on this table if `SupportAccess`'s application-layer check were ever
+   bypassed — silently undoing the point of the B1/D1(a) fix for this one table. The added clause closes that: the
+   same per-statement InitPlan check C10 AC2a already uses elsewhere now also gates reads here. Confirmed safe to add:
+   the `withAudit` INSERT path has no `RETURNING` (`packages/db/src/audit.ts:174-178`), so the write path this policy
+   does not govern is unaffected. New tests (C3 AC10): a read of `audit_events` after the grant's `expires_at` has
+   passed returns zero rows / a permission error even with the application check bypassed; a read attempted while
+   holding only a `content`-scope grant for the tenant (no commercial grant) likewise returns zero rows / a
+   permission error — both proving the liveness check gates reads on this table, not only the generic policy's writes
+   elsewhere. **[AR2, B1] The commercial write
    path's usual RESTRICTIVE policy does not, on its own, cover this table.** `audit_events` is excluded from the
    generic `support_commercial_grant_active` `FOR ALL` policy for `kaenal_support` (it already needed the bespoke
    `FOR SELECT` policy above, per AR13) and instead carries **two** command-scoped RESTRICTIVE policies that together
@@ -639,8 +678,18 @@ AC
     dedicated-tenant mirror insert or on the `recordGrantStart` insert ends the grant with `end_reason =
     'activation_failed'` and the create call returns 503, for both scopes. **[AR2, B2]** Plus: `kaenal_support` can
     `INSERT … RETURNING id` on `notifications` but a `RETURNING` of any other column fails the permission check
-    (proving the grant is genuinely column-scoped, not accidentally blanket); the C5/C6 platform code paths call
-    `notifyMinimal()`, never `notify()`, under this role.
+    (proving the grant is genuinely column-scoped, not accidentally blanket); the C5/C6 platform code paths call the
+    shared `notifyMinimal()` (`apps/api/src/shared/notifications.ts`, **[AR3, S1]** never
+    `NotificationsService.notifyMinimal()`), never `notify()`, under this role. **[AR3, D1b]** Plus: a `kaenal_support`
+    read of `audit_events` attempted after the grant's `expires_at` has passed returns zero rows / a permission error
+    even with `SupportAccess`'s application-layer check bypassed; a read attempted while holding only a `content`-scope
+    grant for the tenant (no commercial grant at all) likewise returns zero rows / a permission error (mutation test:
+    removing `support_commercial_audit_scope`'s `support_content_grant_active('commercial')` clause makes both fail).
+    **[AR3, D1a]** Plus: creating the generic `support_commercial_grant_active` policy directly on `audit_events` in a
+    scratch migration, or dropping either of its two dedicated policies, each makes the schema test fail (C10 AC2a).
+    **[AR3, D1c]** Plus: failure injected on `recordGrantStart`'s insert for a dedicated tenant, *after* its
+    `support_grant_backstop` mirror row has already committed, leaves that mirror row's `ended_at` set (read directly
+    from `control.support_grant_backstop`) in the same request that returns 503 — not only the control-plane grant row.
 
 Web (`apps/platform`): access dialog (**[AM3]** incl. the step-up prompt for the content scope), grant banner/countdown,
 expiry state, **[AM3]** the audit log's Flagged filter/badge (C9/D-C10) surfacing `content_grant_anomaly`. Mobile:
@@ -759,9 +808,10 @@ AC
    by `lock_version`; the `control.tenant_plans` write is `UPDATE … WHERE tenant_id = $t AND lock_version = $v`. A
    platform write racing a tenant admin's self-service write resolves to one 409, never a merged state.
 3. Any activation auto-fulfils the tenant's open `member_access` requests for that pack (Sprint 07 P6 rule) and
-   sends `plan_request_resolved` to those requesters. **[AR2, B2]** This insert runs through
-   `NotificationsService.notifyMinimal()` (`INSERT … RETURNING id` only), not `notify()`, matching `kaenal_support`'s
-   column-scoped `SELECT (id)` grant (C3 AC3).
+   sends `plan_request_resolved` to those requesters. **[AR2, B2]** This insert runs through the shared
+   `notifyMinimal()` (`apps/api/src/shared/notifications.ts`, `INSERT … RETURNING id` only), **[AR3, S1]** not
+   `NotificationsService.notifyMinimal()` (platform code never imports `apps/api/src/notifications`, CX AC1) and not
+   `notify()`, matching `kaenal_support`'s column-scoped `SELECT (id)` grant (C3 AC3).
 4. Realtime `entitlements` signal published to the tenant after commit (C3 AC5); the tenant-side overlay lifts
    without reload (proved in Playwright against `apps/web`).
 5. Tests: each write + its two audit records; reason required (422 without); 409 on stale `lockVersion` /
@@ -830,11 +880,12 @@ AC
    `control.workspace_requests`).
 3. Fulfil applies the change through `PlatformPlanService` (C5) in the same tenant tx as the status change; audit
    `status_changed` + `entitlement_changed` (support, reason) + platform event (SD5 intent/outcome); notification row
-   `plan_request_resolved` (kind defined in Sprint 07) **inserted** in the same tx via **[AR2, B2]
-   `NotificationsService.notifyMinimal()`** (`kaenal_support` INSERT + column-scoped `SELECT (id)` on
-   `notifications`, C3 AC3 — never `notify()`, whose `RETURNING <columns>` would fail the permission check under this
-   role) and its email-channel job **enqueued after commit** (SD12, **[AR2, B3]** including `notify()`'s own
-   underlying delivery-job enqueue, now routed through the same after-commit buffer). **[AR] Double-fulfilment guard
+   `plan_request_resolved` (kind defined in Sprint 07) **inserted** in the same tx via **[AR2, B2]** the shared
+   `notifyMinimal()` (`apps/api/src/shared/notifications.ts`, `kaenal_support` INSERT + column-scoped `SELECT (id)` on
+   `notifications`, C3 AC3 — **[AR3, S1]** not `NotificationsService.notifyMinimal()` [platform code never imports
+   `apps/api/src/notifications`, CX AC1] and never `notify()`, whose `RETURNING <columns>` would fail the permission
+   check under this role) and its email-channel job **enqueued after commit** (SD12, **[AR2, B3]** including
+   `notify()`'s own underlying delivery-job enqueue, now routed through the same after-commit buffer). **[AR] Double-fulfilment guard
    (AR20):** the guarded transition `UPDATE plan_requests SET status = 'fulfilled' | 'declined', … WHERE id = $id AND
    status = 'open' AND lock_version = $v` runs **first** in the tenant transaction, **before** any entitlement change;
    if it affects zero rows the transaction rolls back and returns 409 (`INVALID_TRANSITION` if no longer open,
@@ -1099,16 +1150,35 @@ AC
       **`support_commercial_grant_active`** `TO kaenal_support` calling
       `support_content_grant_active('commercial')`. `WITH CHECK` matters: the reader's own `audit_events` INSERT and every commercial write also
       require a live grant, so an expired commercial grant cannot write even if `SupportAccess` forgot to check.
-      (`audit_events` additionally carries the AC3 [AR2, B1] dedicated INSERT policy, `support_audit_write_scope`,
-      which supersedes `support_commercial_grant_active` for that one table's INSERT command only, so a content grant
-      can write its one transparency row — see C3 AC3/AC6.)
-    - **Inherited automatically (fail-closed for future tables).** `0079` redefines `apply_tenant_rls(tbl)`
-      (`0000_foundation.sql:141`) so that, besides `tenant_isolation`, it (re)creates both RESTRICTIVE policies on
-      every table it is applied to, and `0079` loops over every existing table that already carries
-      `tenant_isolation` to apply them. A future tenant table therefore gets both policies from the one call it must
-      already make (02 §5). Table **grants** stay explicit per migration (AC2's enumerating schema test), so a new
-      table is unreadable by the support roles until someone deliberately grants it — policy automatic, access opt-in;
-      both directions fail closed.
+      **[AR3, D1a — "supersedes" is impossible, fixed.]** `audit_events` does **not** additionally carry
+      `support_audit_write_scope` on top of `support_commercial_grant_active` — Postgres ANDs RESTRICTIVE policies
+      together, so a second RESTRICTIVE policy can never override or "supersede" a first one that already blocks a
+      statement: if the generic `support_commercial_grant_active` FOR-ALL policy were present on `audit_events`, its
+      `WITH CHECK` would still refuse a content grant's INSERT regardless of what `support_audit_write_scope` allows.
+      The actual mechanism is **exclusion, not supersession**: `audit_events` is the one named exception to "every
+      table gets both policies" (below) — the generic `support_commercial_grant_active` FOR-ALL policy is never
+      created on it at all. In its place, `audit_events` carries exactly the two narrower, command-scoped RESTRICTIVE
+      policies C3 AC3 defines by name: `support_commercial_audit_scope` (FOR SELECT, the commercial entity kinds,
+      **[AR3, D1b]** now also gated on a live commercial grant) and `support_audit_write_scope` (FOR INSERT, admitting
+      either a live commercial grant or — by name — the one content-grant transparency-row case). The reader's own
+      `support_reader_grant_active` policy (content scope) is **unaffected** by this exception and still applies to
+      `audit_events` as it does to every other table, since the reader's content-scope SELECT is what the content
+      grant's own read access needs. Because a content grant can never satisfy `support_content_grant_active('commercial')`,
+      without this exclusion the generic policy would refuse the content-grant's one transparency-row INSERT outright —
+      exactly the gap AC6 below exists to close.
+    - **Inherited automatically (fail-closed for future tables), with one named exception.** `0079` redefines
+      `apply_tenant_rls(tbl)` (`0000_foundation.sql:141`) so that, besides `tenant_isolation`, it (re)creates
+      **`support_reader_grant_active` on every table it is applied to, and `support_commercial_grant_active` on every
+      table it is applied to EXCEPT `audit_events`** (an explicit `IF tbl <> 'audit_events'` branch inside the
+      function, not a convention someone must remember), and `0079` loops over every existing table that already
+      carries `tenant_isolation` to apply them under that same rule. `0079` separately creates
+      `support_commercial_audit_scope` and `support_audit_write_scope` directly on `audit_events` (C3 AC3), outside
+      the loop, since they are specific to that one table and not something a future tenant table inherits. A future
+      tenant table therefore gets both generic policies from the one call it must already make (02 §5); only
+      `audit_events` is the named exception, and the exception lives in the function body, not in a human's memory.
+      Table **grants** stay explicit per migration (AC2's enumerating schema test), so a new table is unreadable by
+      the support roles until someone deliberately grants it — policy automatic, access opt-in; both directions fail
+      closed.
     - **Shared vs dedicated, from one migration.** Migrations run identically everywhere (`migrate-tenants` fans them
       into each dedicated database), so the function has **one** body that branches on a per-database marker:
       `control.database_identity` (single row, `kind` CHECK `primary` | `dedicated`), created by `0079` as `primary`
@@ -1125,23 +1195,47 @@ AC
       ended with `end_reason = 'activation_failed'` (widened from the narrower `mirror_failed`, which named only this
       one of the two propagation failures the reason now covers) and creation returns
       503 — no grant is usable in the app without its backstop, and (C3 AC6) none is usable without its tenant-visible
-      record either. `ended_at` is propagated on End, expiry-sweep,
-      platform-user deactivation and demotion (C11 AC2); a failed propagation is retried by a job until it succeeds,
-      and meanwhile the primary-side checks in `SupportAccess` / `SupportViewAuthenticator` already refuse. On a
-      dedicated database, platform-user status and current role cannot be read locally; that gap is closed by the
-      end-propagation rule, and stated here rather than hidden. (AM3's text had the tenant-side authenticator write
-      the mirror; that authenticator holds no write privilege on it, so the writer moved to the platform process.)
+      record either. **[AR3, D1c — a failed activation could otherwise leave a live-looking mirror behind, fixed.]**
+      The case the prior text missed: step 2 (the mirror insert) can itself **succeed** and commit, and a *later* step
+      (step 3, the tenant audit-transparency write via `recordGrantStart` or `withTenant`) can then fail — at which
+      point the control-plane grant is marked `end_reason = 'activation_failed'`, but nothing before this fix un-lived
+      the mirror row that had already committed in step 2, and the dedicated-database backstop function checks
+      *only* that local mirror (it has no path to the control-plane's definitive `support_grants` row to notice the
+      grant was ended). Fix: `activation_failed` is added to the list of outcomes that propagate `ended_at` to the
+      mirror, and — unlike End / expiry-sweep / deactivation / demotion, which may propagate asynchronously — this one
+      propagates **synchronously, in the same request** that discovers the failure and marks the grant
+      `activation_failed`: the request already holds the `kaenal_support` credential and knows whether the mirror
+      insert (step 2) committed before step 3 failed, so it issues the mirror's `UPDATE … SET ended_at = now()`
+      itself before returning 503, rather than queuing it for the retry job. `ended_at` is propagated on End,
+      expiry-sweep, platform-user deactivation, demotion (C11 AC2), and now **`activation_failed`** (synchronously, as
+      above); a failed *asynchronous* propagation (End, expiry-sweep, deactivation, demotion) is retried by a job
+      until it succeeds, and meanwhile the primary-side checks in `SupportAccess` / `SupportViewAuthenticator` already
+      refuse. On a dedicated database, platform-user status and current role cannot be read locally; that gap is
+      closed by the end-propagation rule, and stated here rather than hidden. (AM3's text had the tenant-side
+      authenticator write the mirror; that authenticator holds no write privilege on it, so the writer moved to the
+      platform process.)
     - `app.grant_id` joins the `SET LOCAL` context AC4 opens (with `app.tenant_id`, `app.support_reason`,
       `app.platform_user_id`) and the context `SupportAccess.withTenant` opens (C3 AC5).
-    - **Tests (extends AC2's schema test and AC8).** The schema test enumerates both RESTRICTIVE policies on every
-      table carrying `tenant_isolation`. Mutation checks, each of which must make a test fail: dropping either policy
-      on any table; redefining `apply_tenant_rls` without them (a scratch table created in the test lacks them);
+    - **Tests (extends AC2's schema test and AC8).** **[AR3, D1a]** The schema test enumerates
+      `support_reader_grant_active` on every table carrying `tenant_isolation`, and `support_commercial_grant_active`
+      on every such table **except `audit_events`**, which it instead asserts carries exactly
+      `support_commercial_audit_scope` (FOR SELECT) and `support_audit_write_scope` (FOR INSERT) in place of the
+      generic policy — a named special case the test checks explicitly, not a table the generic-policy enumeration
+      silently skips. Mutation checks, each of which must make a test fail: dropping either generic policy on any
+      table **other than `audit_events`**; for `audit_events` specifically, creating the generic
+      `support_commercial_grant_active` policy on it (proving the exclusion branch in `apply_tenant_rls` is load-bearing,
+      not cosmetic) and, separately, dropping either of `audit_events`'s own two dedicated policies; redefining
+      `apply_tenant_rls` without the reader policy, or without the commercial-policy exclusion for `audit_events` (a
+      scratch table created in the test lacks the reader policy; `audit_events` itself regains the generic policy);
       stubbing the function to `true`; replacing `clock_timestamp()` with `now()` (a statement issued after
       `expires_at` inside a transaction opened before it must return zero rows); removing the tenant predicate (a
       live grant for tenant A with `app.tenant_id` = B must return zero rows); removing the platform-user status or
       role predicate (deactivating or demoting the user mid-session must cut off the next statement on the primary
       branch). Each check runs for `kaenal_support_reader` (`content`) and `kaenal_support` (`commercial`, reads and
-      writes), and the dedicated branch runs against the router-fake dedicated database with its local mirror.
+      writes), and the dedicated branch runs against the router-fake dedicated database with its local mirror. **[AR3,
+      D1c]** Plus: failure injected on `recordGrantStart`'s insert (step 3) *after* a dedicated tenant's mirror insert
+      (step 2) has already committed leaves `control.support_grant_backstop.ended_at` set for that grant in the same
+      request that returns 503 — read directly from the mirror table, not inferred from the control-plane row alone.
 3. Hand-off (SD9): `POST /platform/v1/grants/:id/view-link` (`platform:tenant:content`, own active content grant) returns
    a tenant-host URL carrying a single-use exchange token **in the URL fragment** (never sent to servers or
    `Referer`); the tenant web route `/support-view` posts it to `POST /v1/support-view/exchange`
@@ -1343,11 +1437,24 @@ Settings sections PO-SC10 excludes). Split out of C10 by the architecture review
 content grant yields a read-only viewer; nothing defined *what that principal is* to the ~200 places in the API that
 assume a real tenant member. That is its own vertical slice, not something C10 can absorb silently.
 
-**Verified current state.** `membershipOf()` / `actorIdOf()` / `currentActorId()` are called at **195 sites in 38
-files** under `apps/api/src` (grep, 2026-09-30, excluding tests) — **[AR2, R8] the delta-check re-review independently
-re-ran the same grep and counted ~204 matches across 36 files; the difference is immaterial (grep-based counts move
-slightly on a live codebase) and the reviewer's verified count is the one the architect's slice plan works from, not
-the PO's earlier estimate** — and each throws `UNAUTHENTICATED` when there is no
+**Verified current state.** **[AR3, S6 — stop stating a fixed count; record the grep pattern instead.]** The
+authoritative definition of this slice's scope is the **grep pattern**, not a number: every call site of
+`membershipOf()`, `actorIdOf()` or `currentActorId()` under `apps/api/src` (excluding tests), plus every direct
+`currentContext().membership` / `.userId` read, plus every local per-controller re-implementation of the same idea
+(see the `inspections.controller.ts` note below). A count is given below only as an **illustrative, approximate
+snapshot of the day it was taken** — no AC depends on it being exact, because a grep-based count on a live codebase
+drifts every time someone re-runs it. Snapshot, 2026-09-30: `membershipOf()` / `actorIdOf()` / `currentActorId()`
+alone, **195 matches across 38 files**; widening to also count direct `.membership`/`requireMembership` call sites,
+**202 matches across 42 files**; **[AR2, R8]** an independent delta-check re-run the same day counted **~204 matches
+across 36 files** for a similarly-scoped query — the two re-runs differ because they counted slightly different
+patterns, not because the codebase changed meaningfully between them, which is itself the point: **any one of these
+numbers is a snapshot, not a target.** **[AR3, S6]** A further helper family the earlier snapshots missed entirely:
+`inspections.controller.ts`'s own local `membership(ctx)` / `actorId(ctx)` helpers (lines 176/180) re-implement the
+same member-assuming pattern ad hoc and must be classified alongside the three named helpers, not left out because
+they have different names. **[AR3, S6]** `query.controller.ts:68` was previously cited as a call site; it is actually
+**inside a helper's own definition**, not a call site — the real call sites in that file are `query.controller.ts:41`
+and `:86`. The architect's slice plan works from a fresh run of the grep pattern above against the actual codebase at
+build time, not from any number fixed in this document. Each site throws `UNAUTHENTICATED` when there is no
 member (`apps/api/src/ncr/handler-ctx.ts:13-23`); further code reads `currentContext().membership` directly (e.g.
 `query.controller.ts` `requireMembership()`, `realtime.controller.ts:35`). Read handlers use the membership for
 capability filtering and plant scoping (e.g. `GET /v1/query/sources` filters by `hasCapability(membership.role, …)`),
@@ -1427,7 +1534,7 @@ AC
 5. **Member-assuming call sites (the slice's bulk).** The three helpers keep their signatures for write paths and now
    throw **`ApiError('SUPPORT_VIEW_READ_ONLY')` (403)** — not `UNAUTHENTICATED` — when the principal is a support viewer,
    so any write path a support viewer somehow reaches fails as a clean 403 and can never run with a fabricated actor
-   id. Every **read** path among the ~204 sites (R8) and the direct `currentContext().membership` / `.userId` reads moves to
+   id. Every **read** path among the member-assuming sites matched by **[AR3, S6]** the grep pattern above (R8) and the direct `currentContext().membership` / `.userId` reads moves to
    `accessScopeOf(currentPrincipal())` for capability and plant decisions, per **R8**'s `AccessScope`-carries-the-filter
    refactor (AC1). The architect's slice plan classifies all
    sites against **§3.4 R8's named read-migrate and per-user-deny lists** (read → migrate; per-user route → deny, never
@@ -1720,7 +1827,8 @@ inlined, so a per-row evaluation would cost one control-table lookup per scanned
 intended and accepted performance characteristic, not an incidental optimisation the architect must re-derive; the
 architect's job (DoR re-review item R6) is only to confirm it holds with `EXPLAIN` on a representative list query,
 not to decide whether it is wanted. Inside the function, every `current_setting(...)` read (`app.grant_id`,
-`app.tenant_id`, `app.support_reason`, `app.platform_user_id`) uses the **single-argument form wrapped in
+`app.tenant_id`, `app.support_reason`, `app.platform_user_id`) uses the **[AR3, S3 — wording fixed; was
+self-contradictory] two-argument, non-throwing form wrapped in
 `NULLIF(..., '')`** — `NULLIF(current_setting('app.grant_id', true), '')` — never a bare
 `current_setting('app.grant_id')` call: a connection reused from a pool can read back an empty string rather than
 raising, and a bare call would then silently treat that as "unset" only if it also threw, which it does not for an
@@ -1830,40 +1938,95 @@ instant the job is visible. Emails that notify a tenant user go through the exis
 written in the transaction and whose delivery job is now enqueued after commit (this fix). The pre-existing in-handler enqueues named
 above (`auth.controller.ts:221`, `suppliers.controller.ts:186`) are **not** changed by these sprints (they are outside their scope) and are recorded as a Known issue.
 
-**[AR2, NEW] SD13 — B4: a genuine `apps/api/src/shared/**` layer for process-global, single-slot observers.**
+**[AR3, D2] The B3 fix above, as worded, would have silently DROPPED every job-processor `notify()` delivery — fixed
+by SD13's third scope type.** `notify()` is not only called from HTTP request handlers; it is called from **numerous
+BullMQ job processors** running inside `withTenant(tenantId, null, async (tx) => { … })` with **no** HTTP request
+context at all (verified: `scan-file.ts`, `complaint-sla.ts`, `document-expiry.ts`, `training-expiry.ts` ×2,
+`run-export.ts`, `calibration-due.ts` ×2, the `sla.ts` sweep, and Sprint 07's own new P5 `entitlement-trials`
+trial-notification job). Before this fix, "the after-commit job buffer" named above was scoped only to the tenant
+HTTP-request context or the platform HTTP-request context (`apps/api/src/context.ts`'s `bufferRealtimeSignal`, which
+silently no-ops when `storage.getStore()` is `undefined` — i.e. exactly the case inside a job processor, confirmed at
+`apps/api/src/context.ts:70-73`, not `packages/api/src/context.ts`). Applying the B3 fix literally — "route `notify()`'s
+enqueue through the after-commit buffer" — without first giving job processors a scope of their own would have moved
+the bug from "enqueues too early" to "silently enqueues nothing at all" for every processor-path `notify()` call,
+including the very `trial_ending`/`trial_ended` notifications SD12/SD13 exist to cover. **This is one mechanism, not
+two.** SD12's "after-commit job buffer" and SD13's "context-agnostic after-commit store" (below) are the **same
+single implementation**, described from two angles in two SDs that were drafted before either amendment settled on
+final wording; "the same shape as SD12's buffer" in SD13's original text read ambiguously as "a second, similar
+buffer" — it is not: there is exactly one store, and SD13 below is where its three scope types are specified. See
+SD13 for the processor scope itself and the fail-loud rule for "no scope at all".
 AR1/SD1's "the platform process is a separate app that just imports shared libraries" claim has a real gap the
-architecture review's own re-review found: the realtime and outbox audit bridges (`apps/api/src/...audit.ts:57,85`)
-are **process-global singletons**, installed once by `AppModule.onModuleInit` (`app.module.ts:555-563`), and the
-realtime bridge writes into the **tenant** `RequestContext` (`context.ts:69-72`), which is a no-op outside a tenant
-request. A `withAudit` call made inside `SupportAccess.withTenant`'s platform-process context therefore silently
-drops its realtime signal entirely — breaking C5 AC4 ("the tenant's open browsers update without reload") and giving
-`notify()`'s realtime nudge the identical problem. CX AC1's cross-app import allowlist never named the bridges, the
-realtime publisher, the job producer or the notification writer as shared, so nothing stopped a future edit from
-forking them per app.
-- **The fix: a real shared layer, named explicitly.** `apps/api/src/shared/**` holds (a) a **context-agnostic
-  after-commit store** for signals and jobs — the same shape as SD12's buffer, but keyed off *whichever* context is
-  active (tenant `RequestContext` or the platform/`SupportAccess` context) rather than hard-coded to the tenant one —
-  used by both; (b) the audit bridges (realtime + outbox), the realtime publisher, the job producer, `CatalogService`
-  and a notification writer. Both apps may import **only** from `shared/**` on the other's side, never each other's
-  internals directly — this sharpens CX AC1's lint rule, which already forbids `apps/api/src/platform/**` ↔
-  tenant-side controllers/services/`lifecycle.interceptor.ts` and now additionally requires that every import crossing
-  that boundary resolve to a `shared/**` path (a planted violation importing a non-`shared` tenant-side file from
-  `platform/**`, or vice versa, must fail the lint rule — architect-confirmed, CX AC1).
+architecture review's own re-review found: the realtime and outbox audit bridges (**[AR3, S2 — citation corrected]**
+`packages/db/src/audit.ts:57,85`, not `apps/api/src/...audit.ts`) are **process-global singletons**, installed once
+by `AppModule.onModuleInit` (`app.module.ts:555-563`), and the realtime bridge writes into the **tenant**
+`RequestContext` (`apps/api/src/context.ts:69-72`), which is a no-op outside a tenant request. A `withAudit` call made
+inside `SupportAccess.withTenant`'s platform-process context therefore silently drops its realtime signal entirely —
+breaking C5 AC4 ("the tenant's open browsers update without reload") and giving `notify()`'s realtime nudge the
+identical problem. CX AC1's cross-app import allowlist never named the bridges, the realtime publisher, the job
+producer or the notification writer as shared, so nothing stopped a future edit from forking them per app.
+- **The fix: a real shared layer, named explicitly.** `apps/api/src/shared/**` holds (a) **one context-agnostic
+  after-commit store** for signals and jobs — this is the exact same mechanism SD12 calls "the after-commit job
+  buffer" above, not a second, similarly-shaped one (**[AR3, D2(i)]** SD12's and SD13's wording describe one
+  implementation from two angles — the email/job angle in SD12, the shared-layer/import-boundary angle here — "the
+  same shape as SD12's buffer" in the earlier draft read ambiguously as "a second, similar buffer"; it is one); (b)
+  the audit bridges (realtime + outbox), the realtime publisher, the job producer, `CatalogService` and a notification
+  writer, including the shared `notifyMinimal()` (**[AR3, S1]**, `apps/api/src/shared/notifications.ts`). Both apps
+  may import **only** from `shared/**` on the other's side, never each other's internals directly — this sharpens CX
+  AC1's lint rule, which already forbids `apps/api/src/platform/**` ↔ tenant-side controllers/services/
+  `lifecycle.interceptor.ts` and now additionally requires that every import crossing that boundary resolve to a
+  `shared/**` path (a planted violation importing a non-`shared` tenant-side file from `platform/**`, or vice versa,
+  must fail the lint rule — architect-confirmed, CX AC1).
+- **[AR3, D2(ii)] A third scope type, for job processors.** The store is keyed off **one of three** active scopes:
+  (1) the tenant HTTP-request context (`RequestContext`, flushed by the tenant lifecycle interceptor after its
+  transaction commits); (2) the platform HTTP-request / `SupportAccess` context (flushed the same way, after the
+  platform process's control or tenant-support transaction commits); and (3) a **processor scope**, which a BullMQ job
+  processor opens explicitly around its own `withTenant(...)` call (e.g. `runWithProcessorScope(tx, fn)`, mirroring
+  `runWithContext`'s shape) and which flushes **after that processor's own transaction commits** — the same
+  after-commit discipline the other two scopes already have, opened by code that has no HTTP request to piggyback on.
+  Every job processor that calls `notify()` or buffers a realtime signal (`scan-file`, `complaint-sla`,
+  `document-expiry`, `training-expiry`, `run-export`, `calibration-due`, `sla`, Sprint 07's `entitlement-trials`) opens
+  this scope; `notifyMinimal()` and `notify()` both resolve "the active scope" the same way (whichever of the three is
+  open), so they share one enqueue path regardless of caller.
+- **[AR3, D2(iii)] No active scope at all is a loud error, not a silent no-op.** Before this fix, a signal or job
+  buffered with no `RequestContext`, no platform context and (before this story) no processor scope open was silently
+  dropped (`bufferRealtimeSignal`'s existing `storage.getStore() === undefined` no-op,
+  `apps/api/src/context.ts:70-73`, and the job-buffer's equivalent check). That stays acceptable for the realtime
+  signal buffer's pre-existing non-request callers (seed scripts, unit tests calling services directly) — but the
+  **job-enqueue** half of the shared store changes: a call to enqueue a job (via `notify()`, `notifyMinimal()`, or a
+  direct job-producer call) with no active scope of any of the three kinds now **throws immediately** at the call
+  site, rather than silently doing nothing — turning "a future code path forgets to open a scope and quietly drops
+  deliveries forever" into an immediate, loud failure the first time that path runs.
+- **[AR3, D2(iv)] DoD test.** A processor-path `notify()` call (run inside one of the processors named above, with a
+  processor scope opened around its `withTenant` transaction) enqueues exactly one delivery job, visible only after
+  that transaction commits (a rollback enqueues none); `notifyMinimal()` called from the same processor scope goes
+  through the identical enqueue path — proven by one shared test helper exercising both, not two assertions that
+  could silently diverge later. A second test asserts that invoking the job-enqueue path with no scope open (no
+  tenant `RequestContext`, no platform context, no processor scope) throws rather than returning having silently done
+  nothing.
 - **Effect on `SupportAccess.withTenant` and `SupportAccess.recordGrantStart` (B1):** both now write their audit
-  events through the shared context-agnostic buffer, so a realtime `entitlements` signal fired inside a grant (C5
-  AC4) and the tenant audit row (B1) both flush correctly after the platform-process transaction commits, exactly as
-  the tenant lifecycle interceptor already does for member requests.
+  events through the shared context-agnostic buffer (scope 2, above), so a realtime `entitlements` signal fired inside
+  a grant (C5 AC4) and the tenant audit row (B1) both flush correctly after the platform-process transaction commits,
+  exactly as the tenant lifecycle interceptor already does for member requests.
+- **[AR3, S2] `PlatformAppModule.onModuleInit` must install the same shared bridges `AppModule.onModuleInit` does.**
+  Stated explicitly because it is easy to miss: the fix above only works if **both** Nest applications actually
+  register the shared audit/realtime bridges at boot — a `PlatformAppModule` that imports the shared layer's types but
+  never calls its own `onModuleInit` registration would leave the platform process with genuinely empty observer
+  slots, and C5 AC4 would stay broken even with the shared store and the processor scope in place.
+  `PlatformAppModule.onModuleInit` therefore installs the identical bridge registrations `AppModule.onModuleInit`
+  does, against the same shared singletons.
 - **Effect on the two-router enumeration test (C2 AC3).** Because the bridges are process-global single-slot
   registrations, **the test must boot `AppModule` and `PlatformAppModule` one after the other, never simultaneously**
   — a simultaneous boot would let the second module's `onModuleInit` silently clobber the first's bridge
   registration, which would show up later as flaky, hard-to-reproduce realtime/audit gaps rather than a test failure
   at the point of the actual bug. This ordering requirement is stated here explicitly, in the spec, specifically so
   it is never "discovered" as a flaky-test mystery during build: C2 AC3's test harness boots `AppModule`, runs its
-  assertions, tears it down, then boots `PlatformAppModule` and runs its assertions — never both processes' Nest
-  contexts alive in the same test process at once.
+  assertions — **[AR3, S2]** now including an assertion that both the realtime bridge and the outbox audit bridge
+  are populated, not only that routes don't overlap — tears it down, then boots `PlatformAppModule` and runs the
+  identical assertions (routes plus observer-slot population) — never both processes' Nest contexts alive in the
+  same test process at once.
 - **Cost accepted (ADR trade-off).** One more internal boundary to keep honest (a shared module that both processes
   depend on, so a breaking change to it is a breaking change for both) in exchange for removing an entire class of
-  "works in the tenant app, silently no-ops in the platform app" bugs.
+  "works in the tenant app, silently no-ops in the platform app (or in a job processor)" bugs.
 
 **SD8 — [AM2, amended] Tenant-side changes are limited to what the access model needs.** 07C adds no tenant table.
 It adds two roles (`kaenal_support`, `kaenal_support_reader`), a restrictive policy and audit-attribution triggers,
@@ -1900,8 +2063,8 @@ sees — which is also what support needs to reproduce a customer's problem.
 | 0079 | `control.support_grants` (4 h CHECK, scope `commercial` \| `content` [AM2], reference required for content) | control | One tenant per grant |
 | 0079 | **[AM2]** `control.support_view_sessions`, `control.support_view_exchange_tokens` | control | Hashed tokens; never readable by `kaenal_app` / `kaenal_public` |
 | 0079 | **[AM2]** Role `kaenal_support_reader`: SELECT on every tenant-owned table except the credential/secret denylist ([AM3] denylist finalization must also check for column-level secrets); INSERT on `audit_events` only; attribution trigger extended; schema test enumerating tenant tables | role / tenant tables (grants + trigger only) | RLS applies; no write privilege; every future tenant table must grant it SELECT |
-| 0079 | **[AM3, reconciled AR]** RESTRICTIVE policies `support_reader_grant_active` (`TO kaenal_support_reader`, scope `content`) and `support_commercial_grant_active` (`TO kaenal_support`, scope `commercial`), both `FOR ALL` `USING` + `WITH CHECK`, on every table with `tenant_isolation`, backed by the one function `support_content_grant_active(expected_scope)` (SECURITY DEFINER, VOLATILE, InitPlan-wrapped; checks id, tenant, scope, not ended, `clock_timestamp() < expires_at`, platform user active + current role); `apply_tenant_rls()` redefined to create both; `control.database_identity` marker; `control.support_grant_backstop` mirror (used on dedicated databases only) | policy / function / control tables | DB-level backstop for both grant scopes, inherited by future tables (SR1, AR5); schema + mutation tests (C10 AC2a) |
-| 0079 | **[AR]** RESTRICTIVE `support_commercial_audit_scope` on `audit_events` (`TO kaenal_support FOR SELECT`, commercial entity kinds only) + column SELECT excluding `ip`/`user_agent`; `support_grants` `UNIQUE (id, scope)` + `end_reason`; composite `(grant_id, grant_scope)` FKs from the two support-view tables | policy / constraints | AR13, AR14 |
+| 0079 | **[AM3, reconciled AR]** RESTRICTIVE policies `support_reader_grant_active` (`TO kaenal_support_reader`, scope `content`) and `support_commercial_grant_active` (`TO kaenal_support`, scope `commercial`), both `FOR ALL` `USING` + `WITH CHECK`, on every table with `tenant_isolation` — **[AR3, D1a] except `audit_events`, which never gets `support_commercial_grant_active`** (RESTRICTIVE policies AND together, so a second one can never "supersede" it; `apply_tenant_rls()` has a named `IF tbl <> 'audit_events'` branch, not a convention) and instead gets only the two dedicated policies in the row below — backed by the one function `support_content_grant_active(expected_scope)` (SECURITY DEFINER, VOLATILE, InitPlan-wrapped; checks id, tenant, scope, not ended, `clock_timestamp() < expires_at`, platform user active + current role); `apply_tenant_rls()` redefined to create the reader policy on every table and the commercial policy on every table except `audit_events`; `control.database_identity` marker; `control.support_grant_backstop` mirror (used on dedicated databases only, and now propagated on `activation_failed` too, synchronously — [AR3, D1c]) | policy / function / control tables | DB-level backstop for both grant scopes, inherited by future tables (SR1, AR5); schema + mutation tests (C10 AC2a) |
+| 0079 | **[AR]** RESTRICTIVE `support_commercial_audit_scope` on `audit_events` (`TO kaenal_support FOR SELECT`, commercial entity kinds only, **[AR3, D1b] AND a live commercial grant** — `support_content_grant_active('commercial')` — closing a read-side liveness gap the entity-kind filter alone left open) + column SELECT excluding `ip`/`user_agent`; `support_audit_write_scope` (`TO kaenal_support FOR INSERT`, C3 AC3) — together these two replace `support_commercial_grant_active` on this one table (AR3, D1a); `support_grants` `UNIQUE (id, scope)` + `end_reason`; composite `(grant_id, grant_scope)` FKs from the two support-view tables | policy / constraints | AR13, AR14, AR3 D1a/D1b |
 | 0079 | **[AR]** Role `kaenal_support_gate` (`NOLOGIN`): the tenant API's narrow read of grants / view sessions / platform-user status, `used_at`, session insert + `revoked_at`, platform-audit insert | role | AR3; replaces `PLATFORM_POOL` on the tenant path |
 | 0079 | `control.platform_audit_events` (append-only trigger; `outcome`) | control | Platform audit log |
 | 0079 | Role `kaenal_support` + table/column grants on tenant commercial tables ([AM2] + DELETE on ended `entitlement_trials` rows, trigger-guarded); RESTRICTIVE `tenant_settings` namespace policy `TO kaenal_support`; `audit_events` support-attribution trigger | role / tenant tables (policy + trigger only) | RLS still applies; `pnpm db:check` must stay green (no new tenant table) |
@@ -1926,8 +2089,9 @@ capability it requires (SD2); `—` means every authenticated platform role (no 
 
 | Route | Capability |
 |---|---|
-| `POST /platform/v1/auth/sign-in`, `/auth/mfa`, `/auth/sign-out`, `GET /platform/v1/me`, `/me/sessions`, `POST /me/sessions/:id/revoke`, `POST /auth/step-up` | — (session only; C2) |
-| `GET /platform/v1/setup/:token`, `POST /setup/:token/password`, `/mfa/enrol`, `/mfa/activate` | — (pre-session; C1) |
+| `POST /platform/v1/auth/sign-in`, `/auth/mfa` | — (**[AR3, S4 — relabelled]** `@PlatformPublic`, pre-session: these routes are how a session gets created, so by definition none exists yet when they run; C2) |
+| `POST /platform/v1/auth/sign-out`, `GET /platform/v1/me`, `/me/sessions`, `POST /me/sessions/:id/revoke`, `POST /auth/step-up` | — (session only, no additional capability; C2) |
+| `GET /platform/v1/setup/:token`, `POST /setup/:token/password`, `/mfa/enrol`, `/mfa/activate` | — (pre-session, `@PlatformPublic`; C1) |
 | `GET /platform/v1/tenants`, `/sales-inbox`, `/workspace-requests`, `GET /catalog`, `GET /price-book/versions[/:id]` | `platform:tenants:read` / `platform:catalog:read` / `platform:pricebook:read` (read-only; every role) |
 | `POST /platform/v1/tenants/:id/grants` (`scope=commercial`), `GET /me/grants`, `POST /grants/:id/end` | `platform:tenant:access` (every role) |
 | `POST /platform/v1/tenants/:id/grants` (`scope=content`), `POST /grants/:id/view-link` | `platform:tenant:content` (**`platform_support`, `platform_admin` only — `platform_sales` denied**) |
@@ -1939,7 +2103,7 @@ capability it requires (SD2); `—` means every authenticated platform role (no 
 | `GET /platform/v1/audit`, `/audit/export.csv` | `platform:audit:read` (**admin only — support, sales denied**) |
 | `GET /platform/v1/me/audit`, `/me/audit/export.csv` | `platform:audit:own` (every role, forced to caller) |
 | `GET/POST /platform/v1/platform-users`, `/:id/resend-setup`, `PUT /:id/role`, `POST /:id/deactivate\|reactivate\|reset` | `platform:users:manage` (**admin only**) |
-| `GET /platform/v1/tenants/:id`, `/:id/history`, `POST /tenants/:id/summary/refresh` (new, below) | `platform:tenants:read` + an active grant for the detail/history reads |
+| `GET /platform/v1/tenants/:id`, `/:id/history`, `POST /tenants/:id/summary/refresh` (new, below) | **[AR3, S4 — fixed]** `platform:tenant:access`, grant required (not `platform:tenants:read` — these three routes all read *through* an active grant via `SupportAccess.withTenant`, exactly like the other `platform:tenant:access` row above, so they share its capability, matching C4 AC2/AC3's own wording) |
 
 Consequence, stated as the explicit per-role denylist R5 asks for: **`platform_support`** is denied every
 `platform:plans:write`, `platform:requests:resolve`, `platform:workspace_requests:manage`, `platform:catalog:write`,
@@ -1997,18 +2161,28 @@ attachment-download code path being able to ask for a TTL shorter than the globa
 this is the same presigned-URL-expiry parameterisation the earlier AR7 fix already assumed exists; it is named here
 explicitly as a small, concrete change to `files.service.ts`'s signing call, not left implicit.
 
-**R8 — the confirmed member-assuming-site count, and the migration lists (C12 AC5).** The reviewer's own count,
-independently run over the same code, is **~204 matches across 36 files** — not the PO's earlier estimate of 195
-sites in 38 files quoted in C12's "Verified current state". The difference is immaterial (grep-based counts on a
-moving codebase rarely land exactly on a re-run) and the reviewer's verified count is the one the architect's slice
-plan works from. **Read-routes-to-migrate** (to `accessScopeOf(currentPrincipal())`): audits, training, instruments,
-ncr, graph, members, comments, entity-links, complaints-summary, findings, search, `entity-ref.ts`, plus the direct
-`requireMembership()` call sites at `query.controller.ts:68` and `inspections.controller.ts:176`. **Per-user routes
-to deny** (throw `SUPPORT_VIEW_READ_ONLY`/`SUPPORT_VIEW_NOT_AVAILABLE`, never migrate to a read path): exports,
-notifications, preferences, the workspace list, the dashboard, realtime/collab/presence, MFA/sessions/push-tokens,
-and `portal.controller.ts:36`. Everything else among the ~204 sites is confirmed a genuine **write** path (403,
+**R8 — the member-assuming-site scope (defined by grep pattern, not a fixed count), and the migration lists (C12
+AC5).** **[AR3, S6 — the spec no longer states a single fixed number anywhere.]** The authoritative definition of this
+slice's scope is the grep pattern itself — every call site of `membershipOf()` / `actorIdOf()` / `currentActorId()`,
+every direct `.membership`/`requireMembership()` read, and every local per-controller re-implementation of the same
+pattern (e.g. `inspections.controller.ts`'s own `membership(ctx)`/`actorId(ctx)` helpers at lines 176/180, previously
+uncounted) — not any number derived from running it once. Counts drift every time the grep is re-run on a live
+codebase: the PO's snapshot was 195 matches/38 files for the three named helpers alone (202/42 once direct
+`.membership`/`requireMembership` sites are added), and an independent re-run the same day counted ~204/36 for a
+similarly-scoped query; both are given only as illustrative, approximately-labelled snapshots, and the architect's
+slice plan works from a fresh run of the pattern against the real codebase at build time, never from a number fixed in
+this document. **Citation correction:** `query.controller.ts:68` is inside a helper's own definition, not a call
+site — the real call sites in that file are `query.controller.ts:41` and `:86`. **Read-routes-to-migrate** (to
+`accessScopeOf(currentPrincipal())`): audits, training, instruments, ncr, graph, members, comments, entity-links,
+complaints-summary, findings, search, `entity-ref.ts`, plus the direct `requireMembership()` call sites at
+`query.controller.ts:41`, `:86` and `inspections.controller.ts:176`, and the `inspections.controller.ts:180` local
+`actorId(ctx)` helper alongside it. **Per-user routes to deny** (throw
+`SUPPORT_VIEW_READ_ONLY`/`SUPPORT_VIEW_NOT_AVAILABLE`, never migrate to a read path): exports, notifications,
+preferences, the workspace list, the dashboard, realtime/collab/presence, MFA/sessions/push-tokens, and
+`portal.controller.ts:36`. Everything else matched by the grep pattern is confirmed a genuine **write** path (403,
 `UNAUTHENTICATED` → `SUPPORT_VIEW_READ_ONLY`, no migration needed) — the architect's slice plan classifies each site
-against these two lists plus "stays a write", not from scratch.
+against these two lists plus "stays a write", not from scratch, and re-derives the exhaustive site list from the
+pattern rather than trusting any count given here.
 
 **R8 (continued) — the `AccessScope` plant-filter refactor these read services need (C12 AC1, AC5).** Read services today test
 plant scoping **directly and inconsistently**, e.g. `graph.service.ts:210`, `training.service.ts:103` and
@@ -2021,7 +2195,7 @@ admin roles) and is also exactly what C12 AC3 already specifies for a support vi
 **no behaviour for a real member** (an all-plant member's query still sees `[]` = unrestricted; a plant-scoped
 member's query still sees their own plant ids, now sourced from `accessScopeOf` instead of an inline
 `isPlantScoped` check) and is what makes a support viewer's all-plant read fall out of the same code path rather than
-needing its own branch at every one of the ~204 sites. Test: for a fixture plant-scoped member and a fixture
+needing its own branch at every one of the grep-matched sites (R8). Test: for a fixture plant-scoped member and a fixture
 all-plant member, the migrated services return byte-identical results before and after the refactor (a
 characterisation test run once per migrated service, per DoR item R8).
 
@@ -2042,7 +2216,7 @@ characterisation test run once per migrated service, per DoR item R8).
 | C9 | 0079 | `GET /platform/v1/audit`, [AM2] `GET /platform/v1/audit/export.csv`, `GET /platform/v1/me/audit`, `GET /platform/v1/me/audit/export.csv` | audit reader, CSV writer | platform `audit_exported` | `platform:audit:read`; `platform:audit:own` | append-only; own-export forced to the caller |
 | C10 [AM2] | 0079 | `POST /platform/v1/grants/:id/view-link`; tenant contract `POST /v1/support-view/exchange` (`@AllowAnonymous`), `POST /v1/support-view/end` | `SupportViewAuthenticator` in the lifecycle interceptor (**[AR]** principal resolved first via `SUPPORT_GATE_POOL`, then the reader pool), **[AM3/AR]** `support_content_grant_active(scope)` | tenant `support_accessed` with **[AR]** internal kinds `support_grant` / `support_view` (grant start, each detail view / attachment; never outbox or realtime) + platform per request (**[AM3]** incl. entity ids on list views) | `platform:tenant:content`; synthetic read-only `support_viewer` | `kaenal_support_reader` (no write privilege), RLS, grant-bound tenant, unsafe methods 403, **[AM3]** RESTRICTIVE-policy DB backstop on `app.grant_id` |
 | C11 [AM2] | (0078) | `GET/POST /platform/v1/platform-users`, `…/:id/resend-setup`, `PUT …/:id/role`, `POST …/:id/deactivate\|reactivate\|reset` | `PlatformIdentityService`, control-plane email | platform `platform_user_*` | `platform:users:manage` | control only; last-admin and self-change guards |
-| C12 [AR] | — | none new; `@ReadOnlyPost` on `POST /v1/query`, `/metric`, `/series`; route policy table over every tenant route | `packages/core` `Principal`, `accessScopeOf`, `SUPPORT_VIEWER_READ_CAPABILITIES`, `SUPPORT_VIEW_ROUTE_POLICY`; helper change + read-path migration of the 195 member-assuming sites | per C10 AC5 (`support_view` on detail + download) | synthetic read-only `support_viewer`, 20 read capabilities, PO-SC10 settings reads | all-plant, grant-bound tenant; secrets/credentials routes denied |
+| C12 [AR] | — | none new; `@ReadOnlyPost` on `POST /v1/query`, `/metric`, `/series`; route policy table over every tenant route | `packages/core` `Principal`, `accessScopeOf`, `SUPPORT_VIEWER_READ_CAPABILITIES`, `SUPPORT_VIEW_ROUTE_POLICY`; helper change + read-path migration of the member-assuming sites matched by **[AR3, S6]** the grep pattern (§3.4 R8) — no fixed count | per C10 AC5 (`support_view` on detail + download) | synthetic read-only `support_viewer`, 20 read capabilities, PO-SC10 settings reads | all-plant, grant-bound tenant; secrets/credentials routes denied |
 | CX | — | — | lint rules, build-manifest test, seed-platform, env, docs | — | — | host/CSP headers |
 
 [AM2] Gap proof for the added routes: `grep -n -i "support.view\|support_view\|platform-users\|view-link\|audit/export" packages/types/src/contract.ts` and the same over `apps/api/src/**/*.controller.ts` return nothing (2026-09-30); all are built here.
@@ -2305,6 +2479,39 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
       mutation that boots them concurrently in a scratch test demonstrates the clobber the sequential ordering avoids.
       **B5** — a drain cycle on a tenant with `batchSize` held internal rows plus one real webhook row still delivers
       the real row that cycle.
+- [x] **[AR3]** Amendment 6's two blocking defects (D1, D2) and six small fixes (S1-S6) are resolved in this document
+      (C3 AC3/AC10, C10 AC2a, SD5, SD7, SD12, SD13, §3.4 R1/R8, C12 "Verified current state", §4 C12 row; SPRINT-07
+      P4 AC5 and this file's DoR item R2) — a **document fix**, matching the reviewer's own framing that a delta check
+      limited to D1, D2 and S1-S6 is enough for the *next* pass. See the next line for what still requires the
+      architect.
+- [ ] **[AR3] `planner` delta-check SIGN OFF on Amendment 6's fixes specifically**, each independently proven:
+      **D1(a)** — the schema test asserts `audit_events` as a named exception (reader policy present, generic
+      commercial policy absent, the two dedicated command-scoped policies present in its place), not merely that
+      "both policies exist on every table"; planting the generic policy on `audit_events` in a scratch migration
+      fails the test.
+      **D1(b)** — a `kaenal_support` read of `audit_events` after `expires_at`, or while holding only a `content`
+      grant, returns zero rows / a permission error even with the application check bypassed; a mutation test on
+      `support_commercial_audit_scope`'s added clause fails without it.
+      **D1(c)** — failure injected on `recordGrantStart`'s insert after a dedicated tenant's mirror row has already
+      committed leaves that mirror's `ended_at` set, read directly from `control.support_grant_backstop`, in the same
+      request that returns 503.
+      **D2** — a processor-scope test proves a job-processor-path `notify()` call enqueues exactly one delivery job
+      after that processor's own transaction commits (not the caller's HTTP request, since there is none), that
+      `notifyMinimal()` goes through the identical path, and that invoking the enqueue path with no active scope at
+      all (tenant, platform, or processor) throws rather than silently doing nothing.
+      **S1** — `apps/api/src/shared/notifications.ts` exports `notifyMinimal()`; no file under `apps/api/src/platform/**`
+      imports anything from `apps/api/src/notifications` (lint/import-boundary check).
+      **S2** — `PlatformAppModule.onModuleInit` registers the same shared audit/realtime bridges `AppModule.onModuleInit`
+      does; the sequential two-router test asserts both processes' observer slots are populated after boot, not only
+      that their routes don't overlap.
+      **S3** — SD7's R6 paragraph no longer contradicts itself (reads "two-argument, non-throwing form").
+      **S4** — §3.4 R1's table gives `platform:tenant:access` for `GET /tenants/:id`, `/:id/history` and
+      `POST /:id/summary/refresh`, matching C4 AC2/AC3; `sign-in`/`mfa` are labelled `@PlatformPublic`, not "session only".
+      **S5** — SPRINT-07 P4 AC5 and this file's DoR item R2 no longer each point at the other as "already produced
+      elsewhere"; P4 AC5 states its examples as a slice-plan input, and this file's R2 says the architect produces the
+      remaining definitions from them.
+      **S6** — no AC or test anywhere in either file depends on an exact member-assuming-site count; the grep pattern
+      in §3.4 R8 is what the architect's slice plan is built from, re-run fresh against the real codebase.
 - [ ] Gates green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
 - [ ] Demo tenant re-seeded **and** platform accounts re-seeded after the suites; **tenant sign-in 201** and **platform
       sign-in (password + TOTP) succeed**.
@@ -2314,7 +2521,8 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
       Decisions log: U-D5, U-SC3, PO-SC1…PO-SC9 [AM3] and SD1-SD10 [AM3] outcomes, **[AR2] SD13 and the two Amendment
       5 PO decisions (risk "open" definition; FMEA/SPC/portal scope boundary)**; Known issues: every "→ Known
       issues" item of §7, the updated `CONTROL_POOL` note, [AM3] the pre-build security review's SR1-SR5
-      findings and how each was resolved, and **[AR2] the B1-B5 delta-check bugs and their fixes**) updated in the same commit as the work.
+      findings and how each was resolved, **[AR2] the B1-B5 delta-check bugs and their fixes**, and **[AR3] Amendment
+      6's D1(a)/D1(b)/D1(c)/D2 fixes and the S1-S6 small fixes**) updated in the same commit as the work.
 - [ ] PO verifies every AC against code, tests and browser evidence at Gate 2; release of Sprint 07 (A+B+C)
       happens only after this passes.
 
@@ -2331,7 +2539,8 @@ should be read as the security gate being closed.**
 **[AR] Architecture review: SEND BACK (2026-09-30) — answered in this document by Amendment 4; RE-REVIEW REQUIRED.**
 The 23 blocking defects are itemized and resolved in text (AR1-AR29). The PO does **not** consider the SEND BACK
 closed: several resolutions are designs that only the architect can confirm are sound in this codebase (the InitPlan
-shape, the principal-first interceptor path, the ~204-site classification, the two-router test), and the reviewer's
+shape, the principal-first interceptor path, the member-assuming-site classification [§3.4 R8, scoped by grep pattern,
+not a fixed count — AR3, S6], the two-router test), and the reviewer's
 own theme-15 list is carried as DoR #4. The `security-reviewer` must also re-read §3, which [AR] changed materially
 (SD1, SD5, SD6, SD7, SD11, SD12, C10 AC2a, the new roles).
 
@@ -2346,14 +2555,32 @@ items are fixed (C1 AC4, SD7's un-struck paragraph, the function/policy name col
 this as closing the architecture gate on its own: a `planner` delta-check pass must still confirm B1-B5's fixes
 actually work as specified in this codebase (DoD item, new bullet after Amendment 4's SEND BACK line), and DoR #4's
 broader R1-R10 checklist (now mostly answered in text per the table above) still needs the architect's own
-verification against the real controllers, schema and 195-vs-204 site count — a lighter pass than the original
+verification against the real controllers, schema and a fresh run of §3.4 R8's grep pattern (never a fixed site
+count, AR3 S6) — a lighter pass than the original
 re-review, consistent with the reviewer's own framing, but a real one. `DESIGN-07C-staff-console.md`'s staleness
 (`apps/staff`, "C1-C11", no C12/step-up board) is **flagged, not fixed** here — that is `ui-lead-designer`'s job, to
 be dispatched separately; it does not block this delta check, only Gate 1.
 
+**[AR3] Delta-check re-review #2 (2026-10-01) — answered in this document by Amendment 6. The reviewer scoped this
+pass explicitly to Amendment 5's own fixes and said a delta check limited to D1, D2 and S1-S6 is enough for the next
+pass.** Two blocking defects (D1(a)/(b)/(c) in B1's RESTRICTIVE-policy mechanics; D2 in B3's job-processor coverage)
+and six small fixes (S1-S6) are resolved: D1(a) gives `apply_tenant_rls()` a named `audit_events` exception instead of
+an impossible "supersedes" claim (C10 AC2a, C3 AC3, §3.1); D1(b) adds a liveness check to
+`support_commercial_audit_scope`'s USING clause (C3 AC3); D1(c) propagates `ended_at` to a dedicated tenant's mirror
+row synchronously on `activation_failed` (C10 AC2a, SD5); D2 gives job processors a third after-commit scope and makes
+a scope-less enqueue throw instead of silently dropping (SD12, SD13); S1 moves `notifyMinimal()` into `shared/**`
+(C3/C5/C6, SD13); S2 requires `PlatformAppModule.onModuleInit` to install the shared bridges and corrects a citation
+(SD13, C2 AC3); S3 fixes SD7's self-contradictory "single-argument form" wording; S4 reconciles §3.4 R1's capability
+table with C4 AC2's own wording and fixes a route mislabel; S5 removes the circular reference between this file's DoR
+R2 and SPRINT-07's P4 AC5; S6 replaces every fixed member-assuming-site count with the grep pattern that defines the
+scope, labelling any number an illustrative snapshot. The PO does **not** treat this as closing the architecture gate:
+a `planner` delta-check pass must still confirm D1/D2/S1-S6's fixes actually work as specified in this codebase (new
+DoD bullet after Amendment 5's delta-check line); the broader DoR #4 R1-R10 checklist is unchanged by this amendment
+and still needs the architect's own verification.
+
 **PO use-case sign-off: SIGNED (the PO's part of SCRUM.md Gate 1 only — Gate 1 itself is NOT complete: the D-C
-design boards do not exist yet), 2026-09-30; reaffirmed after Amendment 3, again after Amendment 4 [AR], and again
-after Amendment 5 [AR2], 2026-09-30.** **[AR]** Verified, not assumed: **13 stories** (C1-C12, CX) — C12 (the `support_viewer` principal) is
+design boards do not exist yet), 2026-09-30; reaffirmed after Amendment 3, again after Amendment 4 [AR], again
+after Amendment 5 [AR2], 2026-09-30, and again after Amendment 6 [AR3], 2026-10-01.** **[AR]** Verified, not assumed: **13 stories** (C1-C12, CX) — C12 (the `support_viewer` principal) is
 new; its use cases (all-plant reads, PO-SC10 readable and denied Settings sections, the 403 for any member-only path)
 each map to C12 ACs, a §4 row, a D-C12 state and §6 entries. Earlier count: 12 stories (C1-C11, CX). Every use case — platform bootstrap and console
 platform account management, sign-in / MFA / sessions / **[AM3] step-up re-auth**, commercial and content grants (4 h, reason,
@@ -2363,12 +2590,15 @@ backstop on every content-scope read independent of the application check, plan 
 sales inbox and workspace requests, catalog and price-book editing with impact preview, the platform audit log with
 own-activity and admin CSV export, and cross-plane / cross-tenant isolation — maps to at least one objectively
 testable AC with a Web (`apps/platform`, and `apps/web` for C10) / Mobile / Shared split, a §4 backend row, a §5 design
-gap (unchanged by Amendment 3 and by Amendment 5 — no new screen was introduced by either; Amendment 5 only amends ACs
-of C3/C10/C2/C1/CX and adds no story) and a §6 dead-end entry (Amendment 5 adds one: the "Refresh summary" route). No
+gap (unchanged by Amendment 3, Amendment 5 and Amendment 6 — no new screen was introduced by any of them; Amendment 6
+only amends ACs of C3/C10/SD5/SD7/SD12/SD13/§3.4 and adds no story) and a §6 dead-end entry (Amendment 5 adds one: the
+"Refresh summary" route; Amendment 6 adds none). No
 AC depends on an unanswered question (§7 has none — Amendment 5's two PO decisions close the reviewer's R2 flag).
 **[AM3]** Story count is unchanged (no new story; SR1-SR5 amend
 existing stories C2, C3, C10 and §3). **[AR2]** Story count still unchanged after Amendment 5 (B1-B5 and the R1-R9
-reference content amend existing stories C1-C3, C10, C12, CX and §3; no story added or removed).
+reference content amend existing stories C1-C3, C10, C12, CX and §3; no story added or removed). **[AR3]** Story count
+still unchanged after Amendment 6 (D1, D2 and S1-S6 amend existing stories C3, C5, C6, C10, C12, CX and §3/§3.4; no
+story added or removed).
 
 **Definition of Ready — what remains before build (process gates, no decisions):**
 1. **Gate 1 — design.** `ui-lead-designer` produces D-C1…D-C12 in `docs/design/` (no jsx exists for any of them;
@@ -2377,8 +2607,8 @@ reference content amend existing stories C1-C3, C10, C12, CX and §3; no story a
    re-sync pass regardless of Gate 1 timing — it still names `apps/staff` and "C1-C11" and has no board or state for
    C12 or the D-C4 step-up flow; flagged here as a required follow-up, not fixed by this role (design-doc edits are
    not the PO's).
-2. **Architecture review — [AR2] now a delta-check on Amendment 5, not a full re-review of Amendment 4's fixes,
-   per the reviewer's own framing.** `planner` reviews 07C together with `SPRINT-07-entitlements-onboarding.md` and returns
+2. **Architecture review — [AR3] now a delta-check on Amendment 6 (D1, D2, S1-S6), not a full re-review of Amendment
+   5's fixes, per the reviewer's own framing.** `planner` reviews 07C together with `SPRINT-07-entitlements-onboarding.md` and returns
    SIGN OFF with the slice plan, the reader-role table denylist (C10 AC2 — **[AM3] including the column-level-secret
    check this amendment adds to that AC, [AR2] now finalized as the §3.4 R4 list**), the per-user route denylist (C10 AC4) and the list of GET routes with
    write side effects (C10 AC6).
@@ -2413,9 +2643,13 @@ reference content amend existing stories C1-C3, C10, C12, CX and §3; no story a
    - **R2 — Open-record definitions — ANSWERED (PO decisions, Amendment 5).** Risk's "open" = `active` or
      `monitoring`, not `accepted` (SPRINT-07 P4 AC5, this file's C3 AC3). FMEA / SPC / the portal have **no**
      open-record concept at all (deliberate scope boundary, not an oversight) and are excluded from C3 AC3's
-     column-scoped grant accordingly. The architect's remaining job is to verify every other module's "open"
-     definition (SCAR, PPAP, ECN, MSA) against SPRINT-07 P4 AC5's per-module list, which was already produced there;
-     *PO* only if one of those remaining definitions turns out ambiguous.
+     column-scoped grant accordingly. **[AR3, S5 — reworded; no longer a circular reference.]** The architect's
+     remaining job is to **produce** the complete per-module "open" definition for every other module (SCAR, PPAP,
+     ECN, MSA) from SPRINT-07 P4 AC5's illustrative starting points (ECN stage not terminal, MSA draft, SCAR open,
+     PPAP not approved/rejected), verified against each module's actual status/stage column — that list is a
+     slice-plan **input** the architect produces, not something "already produced elsewhere" to merely cite, and it
+     feeds directly into 0079's column-grant list (C3 AC3); *PO* only if one of those remaining definitions turns out
+     ambiguous.
    - **R3 — O5 checks — ANSWERED.** SPRINT-07 O5 AC2/O5 UC name the per-task index requirement and the one gap found:
      `inspection_templates` has no column identifying the seeded example, so its completion check uses
      `audit_events_entity_idx` to find the earliest qualifying record instead (fixed in SPRINT-07 O5). The architect's
@@ -2435,11 +2669,13 @@ reference content amend existing stories C1-C3, C10, C12, CX and §3; no story a
    - **R7 — GET routes that write — ANSWERED, two more added.** `GET /v1/exports/:id` and `GET /v1/audit-log/export`
      join the enumeration (C12 AC6, §3.4 R7), both denied to support viewers; the `presignGet` TTL-parameter change
      C12 AC6's `min(60 s, …)` rule needs is named explicitly.
-   - **R8 — The ~204 member-assuming call sites (36 files, reviewer's verified recount) — ANSWERED.** The
+   - **R8 — The member-assuming call sites, scoped by grep pattern (not a fixed count) — ANSWERED. [AR3, S6]** The
      read-vs-write classification lists (which sites migrate, which per-user routes are denied, confirmation
-     everything else is a write) are §3.4 R8 / C12 AC5; the `AccessScope`-carries-a-resolved-plant-filter refactor
-     these migrated sites need is C12 AC1/AC5. The architect verifies the lists are exhaustive against the actual
-     ~204 sites, not that a classification scheme exists.
+     everything else is a write) are §3.4 R8 / C12 AC5, which now also folds in the previously-uncounted
+     `inspections.controller.ts` local-helper family and the `query.controller.ts:68` → `:41`/`:86` correction; the
+     `AccessScope`-carries-a-resolved-plant-filter refactor these migrated sites need is C12 AC1/AC5. The architect
+     verifies the lists are exhaustive against a fresh run of the named grep pattern on the actual codebase, not
+     against any count fixed in this document.
    - **R9 — Process separation mechanics — ANSWERED.** The concrete deployment/tooling deliverables (`start:platform`,
      both new Dockerfiles, the `env.ts` split, the lint-zone rule's planted-violation fixture test) are CX AC1/AC8
      (§3.4 references CX). B4's shared-layer fix (SD13) and the two-router test's sequential-boot requirement are the

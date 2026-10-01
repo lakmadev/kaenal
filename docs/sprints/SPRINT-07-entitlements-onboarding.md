@@ -89,6 +89,15 @@ open-record list (risk's definition, above), and O5 AC2's per-task index confirm
 completion-check fix (uses `audit_events_entity_idx`, since the table has no column identifying the seeded example).
 No story is added or removed by this amendment.
 
+**Amendment 5 — architecture-review delta check #2, 2026-10-01 (tagged [AR3]).** A third, narrower `planner` pass —
+scoped explicitly to Amendment 4's ([AR2] tag) own fixes in both sprint files — found 2 blocking defects (D1, D2) and
+6 small fixes (S1-S6), all of which land in `SPRINT-07C-staff-console.md` Amendment 6, **except one that lands here**:
+S5, a circular reference between this file's P4 AC5 (which pointed at 07C's DoR item R2 for "the rest" of the
+per-module open-record definitions) and 07C's R2 (which said that list "was already produced" here) — each pointing
+at the other with nothing actually landing. Fixed in P4 AC5 above: it now states its named examples (ECN, MSA, SCAR,
+PPAP) are a slice-plan **input**, not a finished list, and the dangling "corrects the wording below" clause (pointing
+at text a prior amendment had already removed) is dropped. No story is added or removed by this amendment.
+
 **PO scope call: this sprint is split into two sprint files (Amendment 1).** With U-D5 the work grows from two
 increments to three, and the third is a whole new authenticated surface (a platform identity outside tenant
 memberships, a non-tenant-scoped session path through the lifecycle interceptor, a least-privilege support
@@ -691,14 +700,19 @@ AC
    same tenant never both succeed, and the final state equals exactly one of them.
 5. The downgrade confirm's counts come from `GET /v1/entitlements/downgrade-impact?packs=qe,supplier`
    (`billing:manage`) → per module `{ moduleId, openCount }` using each module's own "open" definition. **[AR2, PO
-   decision R2a, 2026-09-30 — corrects the "risk status ≠ closed" wording below, which cannot be built as written]**
+   decision R2a, 2026-09-30]**
    Migration `0064_risk_register.sql`'s actual `risk` status enum is `active` / `monitoring` / `accepted` — there is
    no `closed` status. For the downgrade-warning context, a risk record is **open** when its status is `active` or
    `monitoring`; `accepted` is **not** open (an accepted risk is a closed decision the organisation already made to
    accept the residual risk — it is not an in-flight record a downgrade would interrupt, so warning about it would be
    noise). This is the PO's smallest-reasonable, revisitable call under CLAUDE.md's standing rule. ECN stage not
-   terminal, MSA draft, SCAR open, PPAP not approved/rejected, etc. — the
-   architect lists the rest per module (SPRINT-07C DoR re-review item R2). **[AR2, PO decision R2b]** FMEA (no status
+   terminal, MSA draft, SCAR open, PPAP not approved/rejected, etc. — **[AR3, S5 — reworded; this is a slice-plan
+   input, not a finished list, and the circular pointer to 07C's R2 ("the architect lists the rest") is removed.]**
+   these are illustrative starting points only. The complete, per-module "open" definition — verified against each
+   module's actual status/stage column — is a slice-plan **input** the architect produces during the architecture
+   re-review, feeding directly into `SPRINT-07C-staff-console.md`'s 0079 column-grant list (C3 AC3); it is not
+   something "already produced elsewhere" for the architect to merely cite, and 07C's DoR item R2 is worded to match.
+   **[AR2, PO decision R2b]** FMEA (no status
    column exists at all), SPC and the customer/supplier portal (no lifecycle concept at all) have **no** open-record
    downgrade-warning behaviour — a deliberate scope boundary (there is no in-flight state to freeze, so there is
    nothing to warn about), not an oversight; they are omitted from this endpoint's response entirely for those
@@ -1981,6 +1995,10 @@ moves to PROGRESS.md "Known issues" at close.
       FMEA/SPC/portal scope boundary; P3 AC2's exhaustive route list with the SMTP row-aware predicate; O5 AC2's
       index confirmation and the `inspection_templates` fix) are answered in this file (Amendment 4) — a document fix.
       B1-B5 land entirely in `SPRINT-07C-staff-console.md` Amendment 5 and do not require a change here.
+- [x] [AR3] The second architecture-review delta check's one item that lands in this file (S5's circular reference
+      between P4 AC5 and 07C's DoR R2) is answered here (Amendment 5) — a document fix. D1, D2 and the other five
+      small fixes (S1-S4, S6) land entirely in `SPRINT-07C-staff-console.md` Amendment 6 and do not require a change
+      here.
 - [ ] UI Lead Designer's boards D-S1…D-S15 [AM2] approved by the user (Gate 1); `planner` architecture review returned SIGN OFF with the slice
       plan, covering both this file and `SPRINT-07C-staff-console.md` (one review of the release, since 07C
       writes this file's tables). **[AR]** The first review returned SEND BACK; this item now means the **re-review**
@@ -2091,9 +2109,18 @@ file benefits from (P3 AC2's exhaustive route list and SMTP row-aware predicate;
 The PO does not treat this as closing the architecture gate either — see 07C's DoR #2 for what the delta-check
 `planner` pass still owes.
 
+**[AR3] Architecture-review delta check #2 (2026-10-01) — a third, narrower pass scoped to Amendment 4's ([AR2])
+own fixes found 2 blocking defects (D1, D2) and 6 small fixes (S1-S6), of which only S5 (the P4 AC5 ↔ 07C DoR R2
+circular reference) touches this file.** Fixed above (Amendment 5, this file) and in `SPRINT-07C-staff-console.md`
+Amendment 6 for its own side of the same circularity. D1, D2 and S1-S4/S6 land entirely in that file, since they amend
+mechanisms (B1's RESTRICTIVE policies, B3's job-processor coverage, SD7/SD12/SD13, §3.4) that live there. The PO does
+not treat this as closing the architecture gate — see 07C's DoD for the new `planner` delta-check sign-off this
+amendment still owes.
+
 **PO use-case sign-off: SIGNED (the PO's part of SCRUM.md Gate 1 only — Gate 1 itself is NOT complete: no design
-board exists yet), 2026-09-30; reaffirmed after Amendment 3 [AR], 2026-09-30, and again after 07C's Amendment 5
-delta check [AR2], 2026-09-30 (no story added or removed either time; the [AR]/[AR2] fixes amend existing ACs — P3
+board exists yet), 2026-09-30; reaffirmed after Amendment 3 [AR], 2026-09-30, after 07C's Amendment 5
+delta check [AR2], 2026-09-30, and again after the second delta check [AR3], 2026-10-01 (no story added or removed
+in any of these; the [AR]/[AR2]/[AR3] fixes amend existing ACs — P3
 AC2 and P4 AC5 and O5 AC2 here).** Verified, not assumed: **16 stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
 extensibility, price-book versioning, framework inclusion under the finalized mapping, the `supplier_analytics`
 in-page gates, the Q-C13 overlap line, the platform trial-reset exception and the Q-P1 provisioning audit — maps to at
@@ -2107,8 +2134,8 @@ FMEA/SPC/portal decisions the reviewer flagged are DECIDED in P4 AC5 above).
    copy deviations (D-S12/13 tenant-aware callout and Core card, the `standards` tagline).
 2. **Architecture review.** `planner` reviews this file and `SPRINT-07C-staff-console.md` together (07C writes this
    file's tables) and returns SIGN OFF with the vertical-slice plan, the exhaustive `@RequireModule` route list
-   (P3 AC2 — **[AR2] now stated in text, including the `integrations` row-aware SMTP predicate**), the per-module "open record" definitions (P4 AC5 — **[AR2] risk's definition now DECIDED in text**) and the O5 index confirmations (**[AR2] now stated in text, including the `inspection_templates` gap fix**). **[AR]** This is now a
+   (P3 AC2 — **[AR2] now stated in text, including the `integrations` row-aware SMTP predicate**), the per-module "open record" definitions (P4 AC5 — **[AR2] risk's definition now DECIDED in text; [AR3] restated as a slice-plan input, not a finished list**) and the O5 index confirmations (**[AR2] now stated in text, including the `inspection_templates` gap fix**). **[AR]** This is now a
    **re-review** after the SEND BACK, run against the named checklist in `SPRINT-07C-staff-console.md` DoR #4
-   (R1-R10), which includes these three items (R1-R3) — **[AR2] a delta check against Amendment 5's fixes, per the
-   reviewer's own framing, not a repeat of the full re-review.**
+   (R1-R10), which includes these three items (R1-R3) — **[AR3] now a delta check against Amendment 6's fixes in that
+   file, per the reviewer's own framing, not a repeat of the full re-review.**
 3. **07C only:** the `security-reviewer` pass on 07C's design (07C §3) before its build starts.
