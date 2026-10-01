@@ -202,8 +202,8 @@ to §3/§3.4; no story is added or removed.
 |---|---|---|---|
 | D1(a) | RESTRICTIVE policies are ANDed, not overridden — AM5's "`audit_events` additionally carries … supersedes …" wording for `support_audit_write_scope` is impossible to build as written: the generic `support_commercial_grant_active` FOR-ALL policy would still block a content grant's INSERT into `audit_events` even with the new policy present | `apply_tenant_rls()` (0079) gets a named, explicit exception: `audit_events` is skipped for the commercial FOR-ALL policy specifically (it keeps the reader policy for content-scope reads) and instead gets only the two dedicated, command-scoped policies (`support_commercial_audit_scope` FOR SELECT, `support_audit_write_scope` FOR INSERT) already named in C3 AC3 | C10 AC2a; C3 AC3; §3.1's 0079 row; schema + mutation tests |
 | D1(b) | `support_commercial_audit_scope`'s USING clause filters by `entity_kind` only, with no liveness check — an expired grant or a content-only grant could still read commercial audit rows if `SupportAccess`'s application-layer check were bypassed | Add `AND (SELECT support_content_grant_active('commercial'))` to the USING clause (safe: the `withAudit` INSERT path has no RETURNING, `packages/db/src/audit.ts:174-178`) | C3 AC3; new DB-level tests, C3 AC10 |
-| D1(c) | A dedicated-database `support_grant_backstop` mirror can stay live after an activation failure: if the mirror insert (step 2) commits and a later step (step 3, the tenant audit-transparency write) fails, nothing un-lives the mirror — `activation_failed` was missing from the list of outcomes that propagate `ended_at` to it | `activation_failed` added to that list: the same request that ends the grant `activation_failed` also immediately sets `ended_at` on the mirror row if it was already committed, synchronously, not queued for the retry job | C10 AC2a; SD5's grant-activation ordering note; new test, C3 AC10 |
-| D2 | `notify()` is called from numerous job processors (`scan-file`, `complaint-sla`, `document-expiry`, `training-expiry` ×2, `run-export`, `calibration-due` ×2, the `sla` sweep, Sprint 07's P5 trial-notification processor) running inside `withTenant` with **no** HTTP request context at all; SD13's after-commit store is scoped only to the tenant-request or platform-request context, and "no context" is silently a no-op today (confirmed `apps/api/src/context.ts:66-72`'s `bufferRealtimeSignal`) — B3's fix, as worded, would silently **drop** every one of these deliveries | Four-part fix: (i) SD12's buffer and SD13's store are named explicitly as the **same single mechanism**, not two similar ones; (ii) a **third scope type** — a processor-opened scope, flushed after the processor's own transaction commits — is added for job processors, which have no HTTP context to piggyback on; (iii) a job-enqueue call made with **no** active scope (HTTP-tenant, HTTP-platform, or processor) **throws immediately** instead of silently no-op'ing; (iv) a DoD test proves a processor-path `notify()` call enqueues exactly one delivery job after that processor's transaction commits, and that `notifyMinimal()` goes through the identical path | SD12; SD13; DoD |
+| D1(c) | A dedicated-database `support_grant_backstop` mirror can stay live after an activation failure: if the mirror insert (step 2) commits and a later step (step 3, the tenant audit-transparency write) fails, nothing un-lives the mirror — `activation_failed` was missing from the list of outcomes that propagate `ended_at` to it | `activation_failed` added to that list: the same request that ends the grant `activation_failed` also immediately sets `ended_at` on the mirror row if it was already committed, synchronously, not queued for the retry job | C10 AC2a; SD5's grant-activation ordering note; new test, C3 AC10 — **[AR4] superseded by Amendment 7: the mirror insert and the audit-row insert are restructured into one atomic transaction, removing the failure window instead of clearing it up after the fact; the synchronous `UPDATE … SET ended_at` described here is no longer built** |
+| D2 | `notify()` is called from numerous job processors (`scan-file`, `complaint-sla`, `document-expiry`, `training-expiry` ×2, `run-export`, `calibration-due` ×2, the `sla` sweep, Sprint 07's P5 trial-notification processor) running inside `withTenant` with **no** HTTP request context at all; SD13's after-commit store is scoped only to the tenant-request or platform-request context, and "no context" is silently a no-op today (confirmed `apps/api/src/context.ts:66-72`'s `bufferRealtimeSignal`) — B3's fix, as worded, would silently **drop** every one of these deliveries | Four-part fix: (i) SD12's buffer and SD13's store are named explicitly as the **same single mechanism**, not two similar ones; (ii) a **third scope type** — a processor-opened scope, flushed after the processor's own transaction commits — is added for job processors, which have no HTTP context to piggyback on; (iii) a job-enqueue call made with **no** active scope (HTTP-tenant, HTTP-platform, or processor) **throws immediately** instead of silently no-op'ing; (iv) a DoD test proves a processor-path `notify()` call enqueues exactly one delivery job after that processor's transaction commits, and that `notifyMinimal()` goes through the identical path | SD12; SD13; DoD — **[AR4] (iii) narrowed by Amendment 7: the blanket throw-on-no-scope broke seed scripts, tests and `@Public` routes; it now applies only to the shared buffer's job-enqueue path, with an exhaustive caller table (SD13 D2(v)) naming every category, and seed/test code fixed by opening a processor scope rather than being broken or silently exempted. Amendment 7 also fixed a separate, pre-existing bug found while building that table: the worker's `NotificationsService` has no real producer (SD13 D2(vi))** |
 | S1 | C3/C5/C6's ACs call `NotificationsService.notifyMinimal()` directly from platform code, but `NotificationsService` lives in `apps/api/src/notifications` — violating CX AC1's import-boundary rule (platform code may import only `shared/**` on the tenant side) | Named: the actual writer is a shared, context-agnostic `notifyMinimal()` in `apps/api/src/shared/notifications.ts` (the writer SD13 already places in `shared/**`); `NotificationsService.notify()` delegates to it internally for its own INSERT; platform code imports the shared `notifyMinimal()` directly, never `apps/api/src/notifications` | C3 AC3; C5 AC3; C6 AC3; SD13 |
 | S2 | Nothing stated that `PlatformAppModule.onModuleInit` installs the shared audit/realtime bridges — without it the platform process has empty observer slots and C5 AC4 ("overlay lifts without reload") stays broken even after B4's fix; SD13 cites the audit-bridge path as `apps/api/src/...audit.ts:57,85` (wrong — it is `packages/db/src/audit.ts:57,85`) | Explicit requirement added: `PlatformAppModule.onModuleInit` installs the same shared bridges `AppModule.onModuleInit` does; the sequential two-router test (C2 AC3) also asserts both processes' observer slots are populated after boot; citation corrected | SD13; C2 AC3 |
 | S3 | SD7's own R6 paragraph says `current_setting` uses the "single-argument form wrapped in `NULLIF(..., '')`" while showing `current_setting('app.grant_id', true)` — the two-argument form — contradicting itself and C10 AC2a's own correct text | Wording fixed to "two-argument, non-throwing form" | SD7 (R6 paragraph) |
@@ -592,32 +592,49 @@ AC
    commit publishes the tenant realtime signal(s) the audit observer buffered (same after-commit rule as the
    tenant lifecycle). A guard test fails if any file under `apps/api/src/platform/**` imports `withTenant`,
    `appPool` or `CONTROL_POOL` directly.
-6. **[AR2, B1 — rewritten: fixed three-step activation ordering, both scopes].** Grant creation's control-plane row
-   commit is the SD5 intent row (§3 SD5). After it commits, activation proceeds in a fixed order, matching the
-   "[AR2, B1] Grant-activation write ordering" note in §3 SD5:
-   1. **For a dedicated tenant only:** the `control.support_grant_backstop` mirror row is inserted through
-      `kaenal_support` (C10 AC2a).
-   2. The tenant `audit_events` "opened access" row is written — `actor_kind='support'`, `action='support_accessed'`,
-      `entity_kind='support_grant'`, `entity_id` = the grant id, `reason` (and, for a `content` grant, the message
-      includes the reference and the expiry time, per the UC). **For a `commercial` grant** this write happens inside
-      `SupportAccess.withTenant`'s own transaction, exactly as AC5 already opens one (this row is the grant's first,
-      and typically only, use of that transaction if the caller does nothing else in the same call). **For a
-      `content` grant**, which `SupportAccess.withTenant` refuses outright (AC7), a new narrow method
-      **`SupportAccess.recordGrantStart(grantId)`** opens its own tenant transaction on the `kaenal_support` role
-      (not `kaenal_support_reader` — that role holds no INSERT privilege at all) with `app.tenant_id`,
-      `app.support_reason` and `app.grant_id` set to the **content** grant's id (SET LOCAL), and inserts **only** this
-      one row — no other read or write. AC3's dedicated `support_audit_write_scope` policy is what lets this INSERT
-      succeed under a content-scoped `app.grant_id` even though `kaenal_support` otherwise requires a commercial
-      grant for everything else.
-   3. In the control tx, the SD5 outcome row (a platform audit event) is appended, `ok` or `failed`.
-   If step 1 or step 2 fails, the grant is ended in the same request (`end_reason = 'activation_failed'`, AC2) and
-   grant creation returns **503**: there is no path where a usable grant exists with no tenant-visible record of it.
-   **[AR]** `support_grant` (like C10's `support_view`) is an internal entity kind the outbox and
-   realtime bridges skip (SD11, AR10) — `entity_kind='tenant'` is replaced so a grant can never become a customer
-   webhook or a realtime refetch. Test: failure injection on the mirror insert and on the audit-row insert each yield
-   an ended grant (`activation_failed`) and a 503, for both scopes and for both shared and dedicated tenants; a
-   successful content-grant creation always leaves exactly one tenant `support_accessed` row visible via the tenant's
-   own `GET /v1/audit…` before the create call returns.
+6. **[AR2, B1 — rewritten; [AR4] renumbered to one consistent scheme and the mirror+audit write made atomic (Blocking
+   A fix of the 2026-10-01 delta check — see C10 AC2a for the full mechanism and rationale).** Grant creation's
+   control-plane row commit is **step 1** — the SD5 intent row (§3 SD5) — using the one numbering scheme now shared
+   verbatim by this AC, by §3 SD5's "Grant-activation write ordering" note and by C10 AC2a (previously these three
+   places numbered the same writes two different ways; fixed here, once, for all three). After step 1 commits:
+   - **Step 2 — one atomic tenant-side transaction, opened once, on the `kaenal_support` role.** **[AR4]** The
+     dedicated-tenant mirror insert and the tenant audit-transparency row are no longer two writes that can succeed
+     and fail independently — they are the **same transaction**: for a dedicated tenant, the first statement inside
+     it inserts the `control.support_grant_backstop` mirror row (C10 AC2a); the next (and, for a shared tenant, the
+     *only*) statement inserts the tenant `audit_events` "opened access" row — `actor_kind='support'`,
+     `action='support_accessed'`, `entity_kind='support_grant'`, `entity_id` = the grant id, `reason` (and, for a
+     `content` grant, the message includes the reference and the expiry time, per the UC). **For a `commercial`
+     grant** this transaction is `SupportAccess.withTenant`'s own transaction, exactly as AC5 already opens one (the
+     mirror insert, where it applies, is prepended as that call's first statement; the audit row is typically its
+     only other statement if the caller does nothing else in the same call). **For a `content` grant**, which
+     `SupportAccess.withTenant` refuses outright (AC7), the same narrow method
+     **`SupportAccess.recordGrantStart(grantId)`** opens this one transaction on the `kaenal_support` role (not
+     `kaenal_support_reader` — that role holds no INSERT privilege at all) with `app.tenant_id`, `app.support_reason`
+     and `app.grant_id` set to the **content** grant's id (SET LOCAL), does the mirror insert first (dedicated tenant
+     only) and then inserts **only** the one audit row — no other read or write. AC3's dedicated
+     `support_audit_write_scope` policy is what lets this INSERT succeed under a content-scoped `app.grant_id` even
+     though `kaenal_support` otherwise requires a commercial grant for everything else. **Why one transaction removes
+     the failure window, not just narrows it:** the dedicated backstop function reads `control.support_grant_backstop`
+     from the *same* database connection the mirror row was just inserted on, inside the *same still-open*
+     transaction — Postgres's own read-your-writes guarantee makes the just-inserted mirror row visible to the
+     audit-row INSERT's own policy check without needing it to be committed first. So either both rows commit
+     together, or (the dedicated database is unreachable, the audit insert is refused, anything else fails) **neither**
+     commits — there is no longer a moment where a mirror row is live on disk with no corresponding tenant audit row,
+     because that moment required two separate commits and there is now only one.
+   - **Step 3.** In the control tx, the SD5 outcome row (a platform audit event) is appended, `ok` or `failed`.
+   If step 2 fails (whether the failure originates in the mirror insert, where one applies, or in the audit-row
+   insert later in the same transaction — both roll back together), the grant is ended in the same request
+   (`end_reason = 'activation_failed'`, AC2) and grant creation returns **503**: there is no path where a usable
+   grant exists with no tenant-visible record of it, and (new, by construction) no path where a dedicated tenant's
+   mirror row exists with no corresponding tenant audit row either. **[AR]** `support_grant` (like C10's
+   `support_view`) is an internal entity kind the outbox and realtime bridges skip (SD11, AR10) —
+   `entity_kind='tenant'` is replaced so a grant can never become a customer webhook or a realtime refetch. Test:
+   failure injected at either point inside step 2's transaction (the mirror insert, where it applies, or the
+   audit-row insert) rolls back the whole transaction and yields an ended grant (`activation_failed`) and a 503, for
+   both scopes and for both shared and dedicated tenants, with **neither** the mirror row **nor** the audit row
+   visible afterward (not "one cleared after the other failed" — neither was ever committed); a successful
+   content-grant creation always leaves exactly one tenant `support_accessed` row visible via the tenant's own
+   `GET /v1/audit…` before the create call returns.
 7. Routes: `POST /platform/v1/tenants/:tenantId/grants` (body `scope`, reason, reference, **[AM3]** `stepUpToken`
    required when `scope='content'`; `platform:tenant:access` for `commercial`, **`platform:tenant:content` for
    `content`** [AM2]; content without reference → 422), `POST /platform/v1/grants/:id/end`, `GET /platform/v1/me/grants`
@@ -674,9 +691,11 @@ AC
     visible via the tenant's own `GET /v1/audit…`, even though `SupportAccess.withTenant` refuses content grants
     (proves `recordGrantStart`'s separate path actually runs); `kaenal_support` cannot insert an `audit_events` row
     for any `action`/`entity_kind` other than `support_accessed`/`support_grant` while holding only a content grant
-    (mutation test: widening `support_audit_write_scope`'s `WITH CHECK` fails a test); failure injected on the
-    dedicated-tenant mirror insert or on the `recordGrantStart` insert ends the grant with `end_reason =
-    'activation_failed'` and the create call returns 503, for both scopes. **[AR2, B2]** Plus: `kaenal_support` can
+    (mutation test: widening `support_audit_write_scope`'s `WITH CHECK` fails a test); **[AR4]** failure injected
+    anywhere inside step 2's one atomic transaction — the dedicated-tenant mirror insert or the `recordGrantStart`
+    audit-row insert that follows it in the same transaction — rolls back both together, leaving **neither** row
+    committed, and ends the grant with `end_reason = 'activation_failed'` and the create call returns 503, for both
+    scopes and for both shared and dedicated tenants (C10 AC2a, SD5). **[AR2, B2]** Plus: `kaenal_support` can
     `INSERT … RETURNING id` on `notifications` but a `RETURNING` of any other column fails the permission check
     (proving the grant is genuinely column-scoped, not accidentally blanket); the C5/C6 platform code paths call the
     shared `notifyMinimal()` (`apps/api/src/shared/notifications.ts`, **[AR3, S1]** never
@@ -687,9 +706,12 @@ AC
     removing `support_commercial_audit_scope`'s `support_content_grant_active('commercial')` clause makes both fail).
     **[AR3, D1a]** Plus: creating the generic `support_commercial_grant_active` policy directly on `audit_events` in a
     scratch migration, or dropping either of its two dedicated policies, each makes the schema test fail (C10 AC2a).
-    **[AR3, D1c]** Plus: failure injected on `recordGrantStart`'s insert for a dedicated tenant, *after* its
-    `support_grant_backstop` mirror row has already committed, leaves that mirror row's `ended_at` set (read directly
-    from `control.support_grant_backstop`) in the same request that returns 503 — not only the control-plane grant row.
+    **[AR3, D1c; [AR4] superseded by the atomic step-2 transaction]** Plus: for a dedicated tenant, failure injected on
+    the audit-row insert inside the *same* step-2 transaction as an already-attempted `support_grant_backstop` mirror
+    insert rolls the whole transaction back — **neither** row is visible afterward (read directly from
+    `control.support_grant_backstop` and from the tenant's `audit_events`), not a committed mirror with its `ended_at`
+    cleared after the fact; the control-plane grant row is marked `activation_failed` in the same request that returns
+    503.
 
 Web (`apps/platform`): access dialog (**[AM3]** incl. the step-up prompt for the content scope), grant banner/countdown,
 expiry state, **[AM3]** the audit log's Flagged filter/badge (C9/D-C10) surfacing `content_grant_anomaly`. Mobile:
@@ -811,7 +833,10 @@ AC
    sends `plan_request_resolved` to those requesters. **[AR2, B2]** This insert runs through the shared
    `notifyMinimal()` (`apps/api/src/shared/notifications.ts`, `INSERT … RETURNING id` only), **[AR3, S1]** not
    `NotificationsService.notifyMinimal()` (platform code never imports `apps/api/src/notifications`, CX AC1) and not
-   `notify()`, matching `kaenal_support`'s column-scoped `SELECT (id)` grant (C3 AC3).
+   `notify()`, matching `kaenal_support`'s column-scoped `SELECT (id)` grant (C3 AC3). **[AR4]** This call runs inside
+   the platform HTTP-request / `SupportAccess` scope (SD13 D2(ii)'s scope type 2, opened by `PlatformPlanService`'s
+   own transaction), not a job processor, so it is unaffected by the worker's pre-existing no-op-producer bug (SD13
+   D2(vi)) — that bug affects only job-processor-originated notifications (SD13 D2(v) row 8).
 4. Realtime `entitlements` signal published to the tenant after commit (C3 AC5); the tenant-side overlay lifts
    without reload (proved in Playwright against `apps/web`).
 5. Tests: each write + its two audit records; reason required (422 without); 409 on stale `lockVersion` /
@@ -885,7 +910,9 @@ AC
    `notifications`, C3 AC3 — **[AR3, S1]** not `NotificationsService.notifyMinimal()` [platform code never imports
    `apps/api/src/notifications`, CX AC1] and never `notify()`, whose `RETURNING <columns>` would fail the permission
    check under this role) and its email-channel job **enqueued after commit** (SD12, **[AR2, B3]** including
-   `notify()`'s own underlying delivery-job enqueue, now routed through the same after-commit buffer). **[AR] Double-fulfilment guard
+   `notify()`'s own underlying delivery-job enqueue, now routed through the same after-commit buffer). **[AR4]** This
+   call likewise runs inside the platform HTTP-request / `SupportAccess` scope (SD13 D2(ii) scope type 2), not a job
+   processor, so SD13 D2(vi)'s worker no-op-producer bug does not affect it. **[AR] Double-fulfilment guard
    (AR20):** the guarded transition `UPDATE plan_requests SET status = 'fulfilled' | 'declined', … WHERE id = $id AND
    status = 'open' AND lock_version = $v` runs **first** in the tenant transaction, **before** any entitlement change;
    if it affects zero rows the transaction rolls back and returns 409 (`INVALID_TRANSITION` if no longer open,
@@ -1189,31 +1216,42 @@ AC
       `scope`, `expires_at`, `ended_at`) — in the `control` schema so it is not a tenant table (outside the RLS lint,
       explicit grant test), carrying no business data. The mirror is written only by the **platform API process**
       through the dedicated tenant's `kaenal_support` credential (INSERT; UPDATE(`ended_at`) — granted in every
-      database, unused on the primary): inserted after the control-plane grant row commits, as step 1 of the
-      **[AR2, B1]** three-step activation ordering (SD5's "Grant-activation write ordering" note; C3 AC6) — the
-      mirror commits before the tenant audit-transparency row is attempted; if the mirror insert fails, the grant is
-      ended with `end_reason = 'activation_failed'` (widened from the narrower `mirror_failed`, which named only this
-      one of the two propagation failures the reason now covers) and creation returns
-      503 — no grant is usable in the app without its backstop, and (C3 AC6) none is usable without its tenant-visible
-      record either. **[AR3, D1c — a failed activation could otherwise leave a live-looking mirror behind, fixed.]**
-      The case the prior text missed: step 2 (the mirror insert) can itself **succeed** and commit, and a *later* step
-      (step 3, the tenant audit-transparency write via `recordGrantStart` or `withTenant`) can then fail — at which
-      point the control-plane grant is marked `end_reason = 'activation_failed'`, but nothing before this fix un-lived
-      the mirror row that had already committed in step 2, and the dedicated-database backstop function checks
-      *only* that local mirror (it has no path to the control-plane's definitive `support_grants` row to notice the
-      grant was ended). Fix: `activation_failed` is added to the list of outcomes that propagate `ended_at` to the
-      mirror, and — unlike End / expiry-sweep / deactivation / demotion, which may propagate asynchronously — this one
-      propagates **synchronously, in the same request** that discovers the failure and marks the grant
-      `activation_failed`: the request already holds the `kaenal_support` credential and knows whether the mirror
-      insert (step 2) committed before step 3 failed, so it issues the mirror's `UPDATE … SET ended_at = now()`
-      itself before returning 503, rather than queuing it for the retry job. `ended_at` is propagated on End,
-      expiry-sweep, platform-user deactivation, demotion (C11 AC2), and now **`activation_failed`** (synchronously, as
-      above); a failed *asynchronous* propagation (End, expiry-sweep, deactivation, demotion) is retried by a job
-      until it succeeds, and meanwhile the primary-side checks in `SupportAccess` / `SupportViewAuthenticator` already
-      refuse. On a dedicated database, platform-user status and current role cannot be read locally; that gap is
-      closed by the end-propagation rule, and stated here rather than hidden. (AM3's text had the tenant-side
-      authenticator write the mirror; that authenticator holds no write privilege on it, so the writer moved to the
-      platform process.)
+      database, unused on the primary): inserted as part of **step 2** of the three-step activation ordering (§3 SD5's
+      "Grant-activation write ordering" note; C3 AC6) — **this is the one, single numbering now used identically in
+      all three places that describe it (SD5, C3 AC6, here): step 1 is the control-plane row's commit; step 2 is one
+      atomic tenant-side transaction; step 3 is the SD5 outcome row.** If step 2 fails, the grant is ended with
+      `end_reason = 'activation_failed'` (widened from the narrower `mirror_failed`, which named only one of the two
+      writes step 2 now covers) and creation returns 503 — no grant is usable in the app without its backstop, and
+      (C3 AC6) none is usable without its tenant-visible record either.
+      **[AR3, D1c — a failed activation could otherwise leave a live-looking mirror behind] [AR4, Blocking A fix,
+      2026-10-01 delta check — restructured so the gap cannot occur, rather than patched after the fact.]** The D1(c)
+      finding: a failed activation could leave a dedicated tenant's mirror row committed with **no** corresponding
+      tenant audit row, if the mirror insert and the audit-transparency insert were two separate writes and the
+      second failed after the first had already committed — and the dedicated-database backstop function checks
+      *only* that local mirror, with no path to the control-plane's definitive `support_grants` row to notice the
+      grant was ended. **The fix removes the window instead of racing to close it:** the mirror insert (where it
+      applies) and the tenant audit-transparency row insert are now **one transaction**, opened once on the
+      `kaenal_support` role against the dedicated tenant's own database, not two separate calls. The mirror insert
+      runs first as a normal statement inside that transaction; the audit-row insert runs second, in the same
+      not-yet-committed transaction — and can safely rely on the mirror row it just inserted, because
+      `support_content_grant_active()`'s check (run implicitly by the audit insert's own RESTRICTIVE policy) reads
+      `control.support_grant_backstop` through the *same* database connection and transaction, so Postgres's
+      read-your-writes guarantee makes the uncommitted mirror row visible to it without needing a prior commit.
+      Either both rows commit together, or (the dedicated database is unreachable, the audit insert is refused for
+      any reason, anything else fails) the whole transaction rolls back and **neither** row exists — there is no
+      longer a state where the mirror is live and the audit row is missing, because producing that state required two
+      independent commits and there is now only one. This supersedes the earlier design (a synchronous
+      `UPDATE … SET ended_at = now()` issued against an already-committed mirror row after the fact): that design
+      would have worked, but restructuring into one transaction is simpler and removes the failure window entirely
+      rather than closing it after the fact, so it is preferred as the smaller, safer change. The *asynchronous*
+      end-propagation rule for every other end reason is unaffected and unchanged: `ended_at` still propagates to an
+      **already-activated, already-live** grant's mirror row on End, expiry-sweep, platform-user deactivation and
+      demotion (C11 AC2), each retried by a job until it succeeds, with the primary-side checks in `SupportAccess` /
+      `SupportViewAuthenticator` refusing in the meantime — that is a different lifecycle event (ending a grant that
+      activated successfully), not an activation failure, and a dedicated database's platform-user status/role still
+      cannot be read locally, which is why that propagation exists at all (stated here, not hidden). (AM3's text had
+      the tenant-side authenticator write the mirror; that authenticator holds no write privilege on it, so the
+      writer is the platform process, as above.)
     - `app.grant_id` joins the `SET LOCAL` context AC4 opens (with `app.tenant_id`, `app.support_reason`,
       `app.platform_user_id`) and the context `SupportAccess.withTenant` opens (C3 AC5).
     - **Tests (extends AC2's schema test and AC8).** **[AR3, D1a]** The schema test enumerates
@@ -1233,9 +1271,11 @@ AC
       role predicate (deactivating or demoting the user mid-session must cut off the next statement on the primary
       branch). Each check runs for `kaenal_support_reader` (`content`) and `kaenal_support` (`commercial`, reads and
       writes), and the dedicated branch runs against the router-fake dedicated database with its local mirror. **[AR3,
-      D1c]** Plus: failure injected on `recordGrantStart`'s insert (step 3) *after* a dedicated tenant's mirror insert
-      (step 2) has already committed leaves `control.support_grant_backstop.ended_at` set for that grant in the same
-      request that returns 503 — read directly from the mirror table, not inferred from the control-plane row alone.
+      D1c; [AR4] superseded, atomic design]** Plus: for a dedicated tenant, failure injected on the audit-row insert
+      within step 2's one transaction, after its mirror insert has already run (but not yet committed, since both are
+      the same transaction), rolls back the whole transaction — `control.support_grant_backstop` carries **no** row
+      for that grant id afterward (not a committed row with `ended_at` set), read directly from the mirror table, and
+      the control-plane row is marked `activation_failed` in the same request that returns 503.
 3. Hand-off (SD9): `POST /platform/v1/grants/:id/view-link` (`platform:tenant:content`, own active content grant) returns
    a tenant-host URL carrying a single-use exchange token **in the URL fragment** (never sent to servers or
    `Referer`); the tenant web route `/support-view` posts it to `POST /v1/support-view/exchange`
@@ -1724,17 +1764,27 @@ tenant transaction, is authoritative for whether the change happened). Actions w
 `phase='single'` row. Test: failure injection between (1)/(2) and (2)/(3) yields, respectively, an intent + `failed`
 outcome with no tenant change, and a flagged outcome-less intent with the tenant change present.
 
-**[AR2, B1] Grant-activation write ordering (fixed, three steps).** Opening a support grant (either scope) is a
-special case of step (2) above, because it fans out across up to three writes before the outcome row: (1) the
-control-plane `support_grants` row commits (the SD5 intent row, above); (2) **for a dedicated tenant only**, the
-`control.support_grant_backstop` mirror row is inserted through `kaenal_support` (C10 AC2a); (3) the tenant
-`audit_events` "opened access" row is written — for a `commercial` grant, inside `SupportAccess.withTenant`'s own
-transaction as today (C3 AC5-6); for a `content` grant, through the new `SupportAccess.recordGrantStart` method (C3
-AC6), because `SupportAccess.withTenant` refuses content grants (AC7). If step (2) or step (3) fails, the grant is
-ended in the same request with `end_reason = 'activation_failed'` (widened from the narrower `mirror_failed` — it
-now names either propagation failure, not only the mirror) and grant creation returns 503: **there is no path where
-a usable grant exists with no tenant-visible record of it.** The SD5 outcome row records the failure the same way
-any other tenant-transaction failure would.
+**[AR2, B1; [AR4] re-numbered and made atomic] Grant-activation write ordering (fixed, three steps — one numbering
+scheme, shared verbatim with C3 AC6 and C10 AC2a).** Opening a support grant (either scope) is a special case of step
+(2) above, with three numbered steps of its own: **step 1**, the control-plane `support_grants` row commits (the SD5
+intent row, above); **step 2**, one atomic tenant-side transaction, opened once on `kaenal_support` — **for a
+dedicated tenant only**, its first statement inserts the `control.support_grant_backstop` mirror row, and then (the
+only statement, for a shared tenant) the tenant `audit_events` "opened access" row is inserted in the **same**
+transaction — for a `commercial` grant, inside `SupportAccess.withTenant`'s own transaction as today (C3 AC5-6); for
+a `content` grant, through the new `SupportAccess.recordGrantStart` method (C3 AC6), because `SupportAccess.withTenant`
+refuses content grants (AC7); **step 3**, the SD5 outcome row is appended in the control transaction, `ok` or
+`failed`. **[AR4] Why step 2 is one transaction, not two:** the mirror insert and the audit-row insert used to be
+two separate writes that could succeed and fail independently, leaving a dedicated tenant's mirror row committed
+with no corresponding tenant audit row if the second write failed after the first had already committed (the gap
+D1(c), below, first found). Folding both into one transaction removes that window structurally — see C10 AC2a for
+the full mechanism (the backstop function reads the just-inserted, not-yet-committed mirror row via Postgres's
+read-your-writes guarantee inside that same transaction, so there is nothing unsafe about writing both before either
+commits). If step 2 fails (anywhere inside that one transaction), the grant is ended in the same request with
+`end_reason = 'activation_failed'` (widened from the narrower `mirror_failed` — it now names either write inside
+step 2, not only the mirror) and grant creation returns 503: **there is no path where a usable grant exists with no
+tenant-visible record of it, and no path where a dedicated tenant's mirror row exists with no corresponding tenant
+audit row** — step 2's atomicity makes the second guarantee as structural as the first. The SD5 outcome row records
+the failure the same way any other tenant-transaction failure would.
 
 **SD6 — Least-privilege database roles; RLS never bypassed.** `kaenal_platform` (control plane: platform tables,
 tenants read, commercial control tables write) and `kaenal_support` (tenant plane: commercial tables only,
@@ -1987,15 +2037,27 @@ producer or the notification writer as shared, so nothing stopped a future edit 
   `document-expiry`, `training-expiry`, `run-export`, `calibration-due`, `sla`, Sprint 07's `entitlement-trials`) opens
   this scope; `notifyMinimal()` and `notify()` both resolve "the active scope" the same way (whichever of the three is
   open), so they share one enqueue path regardless of caller.
-- **[AR3, D2(iii)] No active scope at all is a loud error, not a silent no-op.** Before this fix, a signal or job
-  buffered with no `RequestContext`, no platform context and (before this story) no processor scope open was silently
-  dropped (`bufferRealtimeSignal`'s existing `storage.getStore() === undefined` no-op,
-  `apps/api/src/context.ts:70-73`, and the job-buffer's equivalent check). That stays acceptable for the realtime
-  signal buffer's pre-existing non-request callers (seed scripts, unit tests calling services directly) — but the
-  **job-enqueue** half of the shared store changes: a call to enqueue a job (via `notify()`, `notifyMinimal()`, or a
-  direct job-producer call) with no active scope of any of the three kinds now **throws immediately** at the call
-  site, rather than silently doing nothing — turning "a future code path forgets to open a scope and quietly drops
-  deliveries forever" into an immediate, loud failure the first time that path runs.
+- **[AR3, D2(iii)] No active scope at all is a loud error, not a silent no-op — [AR4] scoped precisely, after the
+  2026-10-01 delta check found the blanket version would have broken real, working code (Blocking A).** Before this
+  fix, a signal or job buffered with no `RequestContext`, no platform context and (before this story) no processor
+  scope open was silently dropped (`bufferRealtimeSignal`'s existing `storage.getStore() === undefined` no-op,
+  `apps/api/src/context.ts:70-73`, and the job-buffer's equivalent check). The realtime-signal buffer's pre-existing
+  no-op for non-request callers (seed scripts, unit tests calling services directly) is unaffected and stays exactly
+  as it is. **The throw-on-no-scope rule applies to exactly one thing: the shared after-commit buffer path that
+  `notify()` / `notifyMinimal()` use to enqueue a delivery job when a caller claims to be inside a transactional
+  context.** It does **not** apply indiscriminately to every job-enqueue call site in the codebase — a direct
+  `JobProducer` call (`scanFile`, `sendEmail`, `runExport`, `deliverNotification` called directly rather than through
+  `notify()`) never touches the shared buffer at all and so can never hit this throw, and a caller with **no**
+  transactional context to buffer against (a `@Public` route with no tenant transaction) is correctly exempt by
+  design, not by oversight — see the exhaustive table below (D2(v)), which is the authoritative enumeration of every
+  caller category and whether this rule applies to it. **Fix to the gap the 2026-10-01 delta check found:** the
+  realtime-signal exemption for seed scripts and tests did **not**, before this fix, extend to `notify()`'s job-enqueue
+  half — so a seed script or a test that calls `notify()` with no scope open would have hit the throw and broken (the
+  demo-seed script is CLAUDE.md rule 12 territory: breaking it is not acceptable). Fix, stated in the table below: both
+  `apps/api/scripts/seed-demo.ts` and test code calling `notify()` directly open a **processor scope** around their
+  `withTenant(...)` calls — the same scope a job processor opens — so the throw never fires for them and their
+  delivery-job enqueues work correctly (rather than being silently dropped, which is what today's un-scoped
+  `bufferRealtimeSignal` no-op would otherwise still do for the realtime half).
 - **[AR3, D2(iv)] DoD test.** A processor-path `notify()` call (run inside one of the processors named above, with a
   processor scope opened around its `withTenant` transaction) enqueues exactly one delivery job, visible only after
   that transaction commits (a rollback enqueues none); `notifyMinimal()` called from the same processor scope goes
@@ -2003,6 +2065,65 @@ producer or the notification writer as shared, so nothing stopped a future edit 
   could silently diverge later. A second test asserts that invoking the job-enqueue path with no scope open (no
   tenant `RequestContext`, no platform context, no processor scope) throws rather than returning having silently done
   nothing.
+- **[AR4, D2(v)] Exhaustive caller inventory — the enumeration table the 2026-10-01 delta check asked for, so no
+  caller category is missed again.** The prior rounds patched this mechanism's scope rule piecemeal — first for HTTP
+  handlers, then job processors, then the `@Public` routes, seed scripts and tests were each found missing in turn.
+  Rather than add another prose patch, every job/notification-enqueue call site in the codebase is enumerated here
+  once, by caller category, with its scope and whether the throw-on-no-scope rule (D2(iii)) applies to it. This table
+  is the spec's source of truth for this mechanism; a future caller that doesn't fit a listed row is a spec gap to
+  fix here, not to patch around in code.
+
+  | # | Caller | Scope held or opened | Throw-on-no-scope applies? |
+  |---|---|---|---|
+  | 1 | `auth.controller.ts:221` — `jobs.sendEmail()` direct call (invite email) | Tenant `RequestContext` is open (inside an authenticated request) | **No.** A direct `JobProducer` call never touches the shared after-commit buffer — it enqueues immediately, synchronously, bypassing the buffer entirely. Pre-existing bug (enqueues *before* commit, not after): disclosed, out of this sprint's scope (Known issues), unrelated to the throw rule. |
+  | 2 | `auth.controller.ts:255` — `jobs.sendEmail()` direct call, inside `forgotPassword` | **None.** `@Public()`, no tenant transaction, no platform context, no processor scope — verified against the file: the method has no `withTenant`/transaction of any kind | **No, by design, not by gap.** There is no transaction to buffer against, so immediate, unbuffered enqueue *is* the correct strategy here — "enqueue now, no buffering" is a valid, different strategy for a route with nothing to commit against. The throw rule exists to catch a caller that *should* have a scope and doesn't; this caller correctly has none. |
+  | 3 | `suppliers.controller.ts:186` — `jobs.sendEmail()` direct call | Tenant `RequestContext` is open | **No**, same reasoning as row 1 — direct producer call, pre-existing before-commit bug, disclosed, out of scope. |
+  | 4 | `files.service.ts:208` — `jobs.scanFile()` direct call, after `withAudit`'s inner transaction returns | Tenant `RequestContext` is open (the call site is reached only from an authenticated upload-completion request) | **No**, same reasoning as row 1 — direct producer call, same before-commit pattern (newly named here for completeness; not previously called out in this spec, but the same disclosed, out-of-scope category, since this sprint does not touch `files.service.ts`). |
+  | 5 | `exports/exports.service.ts:152` — `jobs.runExport()` direct call | Tenant `RequestContext` is open | **No**, same reasoning as row 1/4. |
+  | 6 | `notifications.service.ts:244` — `jobs.deliverNotification()`, inside `notify()` | Varies — this is the **one** direct-producer call this sprint's B3/D2 fix moves *into* the shared after-commit buffer, so its scope is whatever `notify()`'s own caller has (rows 7-11) | **Yes.** After the fix, this is literally the call that resolves "the active scope" and is what throws when none is open — it is the implementation of the rule, not a caller subject to it in addition. |
+  | 7 | `notify()` / future `notifyMinimal()` callers inside an HTTP-handler tenant transaction: `comments.service.ts`, `ncr.service.ts`, `scar.service.ts`, `http/create-extras.ts`, `eight-d.service.ts`, `audits.service.ts`, `inspections.service.ts`, `ecn.service.ts` (8 call sites) | Tenant `RequestContext`, opened by the tenant lifecycle interceptor, flushed after its transaction commits | **Yes, in principle — never fires in practice**, since every one of these runs inside an authenticated tenant request, which always has this scope open. This is the pre-existing case SD12 already covers. |
+  | 8 | `notify()` callers inside job processors: `scan-file.ts`, `complaint-sla.ts`, `document-expiry.ts`, `training-expiry.ts` (×2), `run-export.ts`, `calibration-due.ts` (×2), `sla.ts` (9 call sites across 7 files), plus Sprint 07's new `entitlement-trials` processor (P5) | **Processor scope**, which each processor must open explicitly around its own `withTenant(...)` call (D2(ii)) | **Yes, and this is the case D2 exists to fix** — before D2(ii) gave processors a scope of their own, these calls would have hit the throw (or, under the pre-D2 buffer, silently dropped). After D2(ii), every one of these opens the scope, so the throw never fires once built correctly; a processor that *forgets* to open it is exactly the bug this rule is designed to catch loudly instead of silently. |
+  | 9 | `@Public` routes with no transaction at all: `auth.controller.ts`'s `forgotPassword` (row 2, repeated here for the category) and Sprint 07 O3's `POST /v1/public/workspace-requests` (public-intake controller — `@Public`, "no tenant transaction or outbox on this public, control-plane path," per SPRINT-07-entitlements-onboarding.md O3 AC2) | **None**, by design — both routes are `@Public`: no tenant, no session, no scope of any of the three kinds | **No, explicitly exempt.** Both enqueue their email immediately after their own local write (if any) commits, with no buffering. This is a valid, different strategy for a route with no transaction to defer against — not a gap. |
+  | 10 | Seed scripts: `apps/api/scripts/seed-demo.ts`, which calls `AuditsService.create` (→ `notify()` at `audits.service.ts:424`) and `runExport` (→ `notify()` at `run-export.ts:718`) inside a bare `withTenant(tenantId, null, ...)` with no HTTP/processor scope | **None today** — this is the gap D2(iii)'s original exemption missed (it covered realtime signals, not job enqueues) | **Would throw today; fixed by having the script open a scope.** The seed script's `withTenant` calls that can reach `notify()` are wrapped in a **processor scope** (`runWithProcessorScope`), exactly as a job processor would — the smallest change that makes the throw never fire here, chosen because breaking `seed-demo.ts` is a CLAUDE.md rule 12 violation (never break the demo login) and because this exercises the real enqueue path rather than special-casing around it. |
+  | 11 | Test code calling `notify()` directly: `apps/api/test/notifications.test.ts` (`beforeAll`, two groups, inside bare `withTenant(acmeId, null, ...)`), and any other test following the same pattern | **None today** — same gap as row 10 | **Would throw today; fixed the same way as row 10.** Test setup opens a processor scope around its `withTenant` call before calling `notify()` directly, rather than being granted a special exemption — this is the smallest reasonable, most consistent choice (one rule: "call `notify()` → have a scope," with no silent carve-out for tests) and it has the side benefit of actually exercising the real after-commit enqueue path the test is meant to validate, including the dedupe behaviour these tests assert on. |
+
+  **Net effect:** rows 1, 3, 4, 5 are pre-existing, out-of-scope, disclosed legacy call sites that bypass this
+  mechanism entirely (direct producer calls, never touch the buffer). Row 2 and row 9's second route are `@Public`
+  and correctly, permanently exempt by design. Rows 7 and 8 are the two scopes SD12 (HTTP) and D2 (processor) already
+  build for. Rows 10 and 11 are this fix's actual new requirement: seed scripts and tests that call `notify()`
+  directly must open a processor scope, exactly like a real processor, so the throw rule — which is otherwise correct
+  and desirable — never fires on code that is working as intended.
+- **[AR4, D2(vi)] Pre-existing bug, found incidentally while building the table above: the worker constructs
+  `NotificationsService` with no real job producer, so every processor-originated `notify()` call enqueues nothing,
+  silently, today.** Verified against the code: `apps/api/src/jobs/worker.ts:87` reads `const notifications = new
+  NotificationsService();` — no argument — and `NotificationsService`'s constructor
+  (`apps/api/src/notifications/notifications.service.ts:81`) is `constructor(private readonly jobs: JobProducer = new
+  NoopProducer())`, so the worker's instance silently falls back to a `NoopProducer`. Every job processor's `notify()`
+  call (row 8 above) therefore writes its in-app notification row correctly but **never enqueues the delivery job** —
+  no email, no push, nothing — today, in the deployed worker, independent of anything this sprint changes. This is
+  not optional to fix: Sprint 07 P5 AC3's trial-ending/trial-ended emails run from exactly this path (the
+  `entitlement-trials` processor) and **cannot possibly work** without it — it is a hard dependency of this sprint's
+  own new feature, not a pre-existing issue merely disclosed and deferred. **Fix:** the worker constructs its
+  `NotificationsService` with a real producer, gated on the same `JOBS_ENABLED` check the main API process already
+  uses for the identical choice (`apps/api/src/app.module.ts:471-472`: `env.JOBS_ENABLED ? new
+  BullMqProducer(env.REDIS_URL) : new NoopProducer()`) — `worker.ts` applies the same ternary rather than hard-coding
+  `new NotificationsService()`. **Realtime signals from processor-originated notifications: explicitly dropped this
+  sprint, by decision, not left ambiguous.** `notify()` also buffers a realtime "refetch your notifications" nudge
+  (`bufferRealtimeSignal`); publishing that nudge across instances requires a Redis publisher, and the worker process
+  has none today (verified: no `Redis`/publish usage anywhere in `apps/api/src/jobs/worker.ts`). Building one is a
+  bigger lift than this sprint needs, and nothing today depends on a processor-originated notification's live-update
+  ping (the in-app list still shows it on the next poll or page load; email/push delivery — the part P5 AC3 actually
+  needs — works once the producer fix above lands). **Decision (smallest reasonable choice): this sprint fixes the
+  producer so email/push/in-app-row delivery works for every processor-originated notification, and explicitly does
+  not add a worker-side realtime publisher** — the live "ping" nudge simply does not fire for a processor-originated
+  notification this sprint; a user sees it on next refresh, not instantly. A worker-side Redis publisher is named
+  here as a deliberate, scoped-out follow-up (→ Known issues), not a silent gap. **DoD test, pinned to a real, named
+  processor through the actual fixed wiring, not a mock:** Sprint 07's own new `entitlement-trials` expiry processor
+  (P5) is run end-to-end through the **actual worker wiring** (the same `NotificationsService` construction path
+  fixed above, with `JOBS_ENABLED=true` and a real `BullMqProducer` against a test Redis) — a trial crossing its T-3
+  or expiry boundary produces an in-app notification row **and** a delivery job actually enqueued and actually
+  processed by `deliverNotification`, proving the fix end to end rather than asserting the wiring in isolation with a
+  mock producer.
 - **Effect on `SupportAccess.withTenant` and `SupportAccess.recordGrantStart` (B1):** both now write their audit
   events through the shared context-agnostic buffer (scope 2, above), so a realtime `entitlements` signal fired inside
   a grant (C5 AC4) and the tenant audit row (B1) both flush correctly after the platform-process transaction commits,
@@ -2165,24 +2286,37 @@ explicitly as a small, concrete change to `files.service.ts`'s signing call, not
 AC5).** **[AR3, S6 — the spec no longer states a single fixed number anywhere.]** The authoritative definition of this
 slice's scope is the grep pattern itself — every call site of `membershipOf()` / `actorIdOf()` / `currentActorId()`,
 every direct `.membership`/`requireMembership()` read, and every local per-controller re-implementation of the same
-pattern (e.g. `inspections.controller.ts`'s own `membership(ctx)`/`actorId(ctx)` helpers at lines 176/180, previously
-uncounted) — not any number derived from running it once. Counts drift every time the grep is re-run on a live
-codebase: the PO's snapshot was 195 matches/38 files for the three named helpers alone (202/42 once direct
-`.membership`/`requireMembership` sites are added), and an independent re-run the same day counted ~204/36 for a
-similarly-scoped query; both are given only as illustrative, approximately-labelled snapshots, and the architect's
-slice plan works from a fresh run of the pattern against the real codebase at build time, never from a number fixed in
-this document. **Citation correction:** `query.controller.ts:68` is inside a helper's own definition, not a call
-site — the real call sites in that file are `query.controller.ts:41` and `:86`. **Read-routes-to-migrate** (to
-`accessScopeOf(currentPrincipal())`): audits, training, instruments, ncr, graph, members, comments, entity-links,
-complaints-summary, findings, search, `entity-ref.ts`, plus the direct `requireMembership()` call sites at
-`query.controller.ts:41`, `:86` and `inspections.controller.ts:176`, and the `inspections.controller.ts:180` local
-`actorId(ctx)` helper alongside it. **Per-user routes to deny** (throw
-`SUPPORT_VIEW_READ_ONLY`/`SUPPORT_VIEW_NOT_AVAILABLE`, never migrate to a read path): exports, notifications,
-preferences, the workspace list, the dashboard, realtime/collab/presence, MFA/sessions/push-tokens, and
-`portal.controller.ts:36`. Everything else matched by the grep pattern is confirmed a genuine **write** path (403,
-`UNAUTHENTICATED` → `SUPPORT_VIEW_READ_ONLY`, no migration needed) — the architect's slice plan classifies each site
-against these two lists plus "stays a write", not from scratch, and re-derives the exhaustive site list from the
-pattern rather than trusting any count given here.
+pattern (e.g. `inspections.controller.ts`'s own `membership(ctx)`/`actorId(ctx)` helpers, defined at lines 175 and
+180 respectively, previously uncounted) — not any number derived from running it once. Counts drift every time the
+grep is re-run on a live codebase: the PO's snapshot was 195 matches/38 files for the three named helpers alone
+(202/42 once direct `.membership`/`requireMembership` sites are added), and an independent re-run the same day
+counted ~204/36 for a similarly-scoped query; both are given only as illustrative, approximately-labelled snapshots,
+and the architect's slice plan works from a fresh run of the pattern against the real codebase at build time, never
+from a number fixed in this document. **Citation correction:** `query.controller.ts:68` is inside a helper's own
+definition, not a call site — the real call sites in that file are `query.controller.ts:41` and `:86`.
+**[AR4] Second citation correction (the mistake S6 was supposed to have already fixed, re-verified against the
+actual file): `inspections.controller.ts:176` is inside the `membership(ctx)` helper's own definition (lines
+175-178), not a call site.** The real call sites of `inspections.controller.ts`'s local `membership(ctx)` helper are
+at lines **56, 69, 100, 114, 129, 147 and 165** (verified against the file; `:165`, inside `complete`, was missing
+from this correction's first draft and is included now). Of these, **three are on read (GET) routes** — `:56`
+(`list`), `:69` (`get`), `:114` (`listOccurrences`) — and belong in the read-routes-to-migrate list below; the other
+four — `:100` (`start`), `:129` (`setRecurrence`), `:147` (`assign`), `:165` (`complete`) — are on
+`@RequireCapability("inspection:perform")` POST/PUT routes and are confirmed **write** paths needing no migration,
+same as every other write site the grep pattern matches. **`actorId(ctx)` is reclassified from "read" to "write":**
+it is called only at lines 85, 101, 130, 148 and 166 — every one of them inside a POST/PUT handler (`create`,
+`start`, `setRecurrence`, `assign`, `complete`), to get the actor id for the mutation's audit record, never to make a
+read/access-scope decision — so it was misfiled under read-routes-to-migrate and belongs instead with the confirmed
+write paths, needing no migration. **Read-routes-to-migrate** (to `accessScopeOf(currentPrincipal())`): audits,
+training, instruments, ncr, graph, members, comments, entity-links, complaints-summary, findings, search,
+`entity-ref.ts`, plus the direct `requireMembership()` call sites at `query.controller.ts:41`, `:86`, and
+`inspections.controller.ts`'s local `membership(ctx)` helper at its three GET-route call sites (`:56`, `:69`,
+`:114`) only. **Per-user routes to deny** (throw `SUPPORT_VIEW_READ_ONLY`/`SUPPORT_VIEW_NOT_AVAILABLE`, never migrate
+to a read path): exports, notifications, preferences, the workspace list, the dashboard, realtime/collab/presence,
+MFA/sessions/push-tokens, and `portal.controller.ts:36`. Everything else matched by the grep pattern — including
+`inspections.controller.ts`'s four write-route `membership(ctx)` call sites and all five `actorId(ctx)` call sites —
+is confirmed a genuine **write** path (403, `UNAUTHENTICATED` → `SUPPORT_VIEW_READ_ONLY`, no migration needed) — the
+architect's slice plan classifies each site against these two lists plus "stays a write", not from scratch, and
+re-derives the exhaustive site list from the pattern rather than trusting any count given here.
 
 **R8 (continued) — the `AccessScope` plant-filter refactor these read services need (C12 AC1, AC5).** Read services today test
 plant scoping **directly and inconsistently**, e.g. `graph.service.ts:210`, `training.service.ts:103` and
@@ -2349,12 +2483,24 @@ issues" at close; none blocks Gate 1, the architecture review or the security re
   real usage shows either threshold is too tight or too loose.
 
 **[AR] Known issues recorded by this amendment** (copied to PROGRESS.md "Known issues" at close):
-- **Pre-existing: emails enqueued before commit.** `auth.controller.ts:221` (invite) and
-  `suppliers.controller.ts:186` call `jobs.sendEmail` inside the handler, i.e. before the interceptor's tenant
-  transaction commits, so a request that rolls back after that line still sends its email. **[AR2, citation
-  correction]** `auth.controller.ts:255` is a `@Public` route with no tenant transaction and is not an instance of
-  this issue — removed from this list (SD12). Not changed by these
-  sprints (outside their scope); the SD12 after-commit buffer is the fix when someone takes it on.
+- **Pre-existing: emails/jobs enqueued before commit via a direct `JobProducer` call.** `auth.controller.ts:221`
+  (invite) and `suppliers.controller.ts:186` call `jobs.sendEmail` inside the handler, i.e. before the interceptor's
+  tenant transaction commits, so a request that rolls back after that line still sends its email. **[AR4, found
+  incidentally while building SD13's exhaustive caller table]** The same pattern exists at `files.service.ts:208`
+  (`jobs.scanFile`, after upload completion) and `exports/exports.service.ts:152` (`jobs.runExport`) — both enqueue
+  immediately after their own inner transaction returns but still inside the outer HTTP request's tenant
+  `RequestContext`, so a later failure in the same request can roll back the write while the job already fired. All
+  four are direct `JobProducer` calls that bypass the shared after-commit buffer entirely (SD13 D2(v) row 1/3/4/5);
+  none is changed by these sprints (outside their scope, pre-existing); the SD12/SD13 after-commit buffer mechanism
+  this amendment builds is the fix when someone takes these four on, by routing them through it instead of calling
+  the producer directly. **[AR2, citation correction]** `auth.controller.ts:255` is a `@Public` route with no tenant
+  transaction and is not an instance of this issue.
+- **[AR4] No worker-side realtime publisher for processor-originated notifications (conscious scope decision, SD13
+  D2(vi)).** `notify()`'s realtime "refetch your notifications" nudge is dropped for notifications created from a job
+  processor (the worker process has no Redis publisher) — email/push/in-app-row delivery works once this sprint's
+  worker-producer fix lands; only the live ping doesn't fire, so an affected user sees the notification on next
+  refresh rather than instantly. Adding a worker-side Redis publisher is named as a future candidate, not built this
+  sprint (nothing today depends on it).
 - **Support view: integration health without configuration.** PO-SC10 excludes the integrations surface because its
   config and delivery logs can hold credentials; a config-free health projection for support is a future candidate.
 - **Dedicated databases: platform-user status/role not checkable locally.** C10 AC2a's dedicated branch relies on
@@ -2492,9 +2638,12 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
       **D1(b)** — a `kaenal_support` read of `audit_events` after `expires_at`, or while holding only a `content`
       grant, returns zero rows / a permission error even with the application check bypassed; a mutation test on
       `support_commercial_audit_scope`'s added clause fails without it.
-      **D1(c)** — failure injected on `recordGrantStart`'s insert after a dedicated tenant's mirror row has already
-      committed leaves that mirror's `ended_at` set, read directly from `control.support_grant_backstop`, in the same
-      request that returns 503.
+      **D1(c)** — **[AR4] superseded, restructured as one atomic transaction (Blocking A of the 2026-10-01 delta
+      check), not merely patched** — the mirror insert and the `recordGrantStart` audit-row insert are now one
+      transaction, so failure injected on the audit-row insert rolls the mirror insert back with it: for a dedicated
+      tenant, `control.support_grant_backstop` carries no row for that grant afterward (not a committed row with
+      `ended_at` set), read directly from the table, in the same request that returns 503 with the control-plane grant
+      marked `activation_failed`.
       **D2** — a processor-scope test proves a job-processor-path `notify()` call enqueues exactly one delivery job
       after that processor's own transaction commits (not the caller's HTTP request, since there is none), that
       `notifyMinimal()` goes through the identical path, and that invoking the enqueue path with no active scope at
@@ -2512,6 +2661,36 @@ Every "→ Known issues" item above moves to PROGRESS.md "Known issues" at close
       remaining definitions from them.
       **S6** — no AC or test anywhere in either file depends on an exact member-assuming-site count; the grep pattern
       in §3.4 R8 is what the architect's slice plan is built from, re-run fresh against the real codebase.
+- [x] **[AR4]** Amendment 7's two blocking defects (Blocking A, Blocking B) and four small fixes are resolved in this
+      document (SD12/SD13's D2(iii)/D2(v)/D2(vi), C3 AC6/AC10, SD5, C10 AC2a, §3.4 R8; SPRINT-07 P5 AC2) — a
+      **document fix**, naming two genuine pre-existing/would-be bugs (the worker's no-op producer; the over-broad
+      throw rule) without building any product-code fix for them yet (that is build-phase work, tracked by the DoD
+      item below and by Known issues). See the next line for what still requires the architect.
+- [ ] **[AR4] `planner` delta-check SIGN OFF on Amendment 7's fixes specifically**, each independently proven:
+      **Blocking A** — the exhaustive caller table (SD13 D2(v)) is re-verified row-by-row against the actual
+      codebase (line numbers, file names) and found complete — no job/notification-enqueue call site exists that
+      isn't one of the table's 11 rows; the scoped throw-on-no-scope rule (D2(iii)) is implemented so that a direct
+      `JobProducer` call (rows 1, 3, 4, 5) and a `@Public`-route immediate enqueue (rows 2, 9) never throw, while a
+      `notify()`/`notifyMinimal()` call with no scope of the three kinds open (tenant, platform, processor) does;
+      `seed-demo.ts` and `notifications.test.ts` open a processor scope around their direct `notify()` calls and run
+      without throwing after the fix lands.
+      **Blocking B** — `apps/api/src/jobs/worker.ts` constructs `NotificationsService` with a real `BullMqProducer`
+      when `JOBS_ENABLED`, matching `app.module.ts`'s own ternary, not a bare `new NotificationsService()`; the
+      `entitlement-trials` processor's T-3/expiry notification, run through the actual fixed worker wiring (not a
+      mock), both writes its in-app row and enqueues a real delivery job that a real `deliverNotification` processor
+      consumes; no worker-side realtime publisher was added, and that omission is confirmed to be this sprint's
+      conscious, named scope decision (Known issues), not an oversight.
+      **D1(c) restructure** — C10 AC2a's one-transaction mirror+audit write actually lands as one transaction in the
+      built code (not two calls that merely both succeed in the happy path); failure injected on the audit-row
+      insert leaves zero rows in both `control.support_grant_backstop` and the tenant's `audit_events` for that grant,
+      not a partially-committed pair.
+      **Step-numbering fix** — SD5's ordering note, C3 AC6 and C10 AC2a all refer to the same three steps with the
+      same numbers (1 = control-plane commit, 2 = the one atomic tenant-side write, 3 = the SD5 outcome row); no
+      cross-reference among the three uses a different count.
+      **§3.4 R8 citation fix** — `inspections.controller.ts`'s real `membership(ctx)` call sites (56, 69, 100, 114,
+      129, 147, 165) and `actorId(ctx)` call sites (85, 101, 130, 148, 166) match the architect's own fresh grep
+      against the file; the three GET-route `membership(ctx)` sites are the ones actually migrated, and `actorId(ctx)`
+      is treated as a write-path helper, not a read-routes-to-migrate one.
 - [ ] Gates green: `pnpm typecheck && pnpm lint`, `pnpm test`, `pnpm test:rls`, `pnpm db:check`.
 - [ ] Demo tenant re-seeded **and** platform accounts re-seeded after the suites; **tenant sign-in 201** and **platform
       sign-in (password + TOTP) succeed**.
@@ -2578,9 +2757,39 @@ a `planner` delta-check pass must still confirm D1/D2/S1-S6's fixes actually wor
 DoD bullet after Amendment 5's delta-check line); the broader DoR #4 R1-R10 checklist is unchanged by this amendment
 and still needs the architect's own verification.
 
+**[AR4] Delta-check re-review #3 (2026-10-01) — answered in this document by Amendment 7. The reviewer's diagnosis:
+Amendment 6's D2 fix had been patched incrementally across rounds (HTTP handlers, then job processors, then
+`@Public` routes, seed scripts and tests each found missing in turn); the fix is to stop patching prose and build one
+exhaustive table instead.** Two blocking defects and four small fixes are resolved: **Blocking A** — D2(iii)'s
+throw-on-no-scope rule, as worded, would have thrown for working code (seed scripts, test setup, and would have been
+read as applying to direct `JobProducer` calls and `@Public` routes that correctly have no scope); fixed by scoping
+the rule to exactly the shared after-commit buffer `notify()`/`notifyMinimal()` use, and by the new exhaustive
+11-category caller table (SD13 D2(v)) that names every job/notification-enqueue call site in the codebase, its scope,
+and whether the rule applies — including the fix seed scripts and test code need (open a processor scope, same as a
+real job processor, rather than being silently exempted or silently broken). **Blocking B** — a genuine pre-existing
+bug, found incidentally while building that table: the worker constructs `NotificationsService` with no real job
+producer (`worker.ts:87`, falls back to `NoopProducer`), so every processor-originated `notify()` call enqueues
+nothing today — a hard dependency of Sprint 07 P5 AC3's trial-ending/trial-ended emails, not an optional fix; resolved
+by gating the worker's producer construction on `JOBS_ENABLED`, matching `app.module.ts`'s own pattern (SD13 D2(vi)),
+with the DoD test pinned to Sprint 07's real `entitlement-trials` processor through the actual fixed wiring, and an
+explicit, named decision to drop (not silently omit) the realtime nudge for processor-originated notifications this
+sprint. **Four small fixes:** D1(c)'s mirror-clearing design is restructured into one atomic transaction (mirror
+insert + tenant audit-row insert, opened once on the dedicated database) instead of a synchronous clear-up after the
+fact, removing the failure window structurally rather than racing to close it (C10 AC2a, cross-referenced from SD5's
+ordering note and from C3 AC6, which previously described the same mechanism without mentioning it at all); the three
+places that numbered these steps (SD5, C3 AC6, C10 AC2a) now use one consistent numbering throughout; and §3.4 R8's
+reference table is corrected — `inspections.controller.ts:176` is inside the `membership(ctx)` helper's own
+definition, not a call site (the real sites are `:56, :69, :100, :114, :129, :147, :165`), and `actorId(ctx)` moves
+from the read-routes-to-migrate list to the confirmed-write list, since its five call sites are all on POST/PUT
+routes. The PO does **not** treat this as closing the architecture gate: a `planner` delta-check pass must still
+confirm Blocking A/B and the four small fixes actually work as specified in this codebase (new DoD bullet after
+Amendment 6's delta-check line); the broader DoR #4 R1-R10 checklist is unchanged by this amendment and still needs
+the architect's own verification.
+
 **PO use-case sign-off: SIGNED (the PO's part of SCRUM.md Gate 1 only — Gate 1 itself is NOT complete: the D-C
 design boards do not exist yet), 2026-09-30; reaffirmed after Amendment 3, again after Amendment 4 [AR], again
-after Amendment 5 [AR2], 2026-09-30, and again after Amendment 6 [AR3], 2026-10-01.** **[AR]** Verified, not assumed: **13 stories** (C1-C12, CX) — C12 (the `support_viewer` principal) is
+after Amendment 5 [AR2], 2026-09-30, again after Amendment 6 [AR3], 2026-10-01, and again after Amendment 7 [AR4],
+2026-10-01.** **[AR]** Verified, not assumed: **13 stories** (C1-C12, CX) — C12 (the `support_viewer` principal) is
 new; its use cases (all-plant reads, PO-SC10 readable and denied Settings sections, the 403 for any member-only path)
 each map to C12 ACs, a §4 row, a D-C12 state and §6 entries. Earlier count: 12 stories (C1-C11, CX). Every use case — platform bootstrap and console
 platform account management, sign-in / MFA / sessions / **[AM3] step-up re-auth**, commercial and content grants (4 h, reason,
@@ -2590,15 +2799,17 @@ backstop on every content-scope read independent of the application check, plan 
 sales inbox and workspace requests, catalog and price-book editing with impact preview, the platform audit log with
 own-activity and admin CSV export, and cross-plane / cross-tenant isolation — maps to at least one objectively
 testable AC with a Web (`apps/platform`, and `apps/web` for C10) / Mobile / Shared split, a §4 backend row, a §5 design
-gap (unchanged by Amendment 3, Amendment 5 and Amendment 6 — no new screen was introduced by any of them; Amendment 6
-only amends ACs of C3/C10/SD5/SD7/SD12/SD13/§3.4 and adds no story) and a §6 dead-end entry (Amendment 5 adds one: the
-"Refresh summary" route; Amendment 6 adds none). No
+gap (unchanged by Amendment 3, Amendment 5, Amendment 6 and Amendment 7 — no new screen was introduced by any of them;
+Amendment 7 only amends ACs of C3/C10/SD5/SD12/SD13/§3.4 and adds no story) and a §6 dead-end entry (Amendment 5 adds
+one: the "Refresh summary" route; Amendment 6 and Amendment 7 add none). No
 AC depends on an unanswered question (§7 has none — Amendment 5's two PO decisions close the reviewer's R2 flag).
 **[AM3]** Story count is unchanged (no new story; SR1-SR5 amend
 existing stories C2, C3, C10 and §3). **[AR2]** Story count still unchanged after Amendment 5 (B1-B5 and the R1-R9
 reference content amend existing stories C1-C3, C10, C12, CX and §3; no story added or removed). **[AR3]** Story count
 still unchanged after Amendment 6 (D1, D2 and S1-S6 amend existing stories C3, C5, C6, C10, C12, CX and §3/§3.4; no
-story added or removed).
+story added or removed). **[AR4]** Story count still unchanged after Amendment 7 (Blocking A, Blocking B and the four
+small fixes amend existing stories C3, C10 and §3/§3.4 — no new story, and SPRINT-07's P5 AC2 gains a cross-reference
+only).
 
 **Definition of Ready — what remains before build (process gates, no decisions):**
 1. **Gate 1 — design.** `ui-lead-designer` produces D-C1…D-C12 in `docs/design/` (no jsx exists for any of them;
@@ -2607,8 +2818,8 @@ story added or removed).
    re-sync pass regardless of Gate 1 timing — it still names `apps/staff` and "C1-C11" and has no board or state for
    C12 or the D-C4 step-up flow; flagged here as a required follow-up, not fixed by this role (design-doc edits are
    not the PO's).
-2. **Architecture review — [AR3] now a delta-check on Amendment 6 (D1, D2, S1-S6), not a full re-review of Amendment
-   5's fixes, per the reviewer's own framing.** `planner` reviews 07C together with `SPRINT-07-entitlements-onboarding.md` and returns
+2. **Architecture review — [AR4] now a delta-check on Amendment 7 (Blocking A, Blocking B, four small fixes), not a
+   full re-review of Amendment 6's fixes, per the reviewer's own framing.** `planner` reviews 07C together with `SPRINT-07-entitlements-onboarding.md` and returns
    SIGN OFF with the slice plan, the reader-role table denylist (C10 AC2 — **[AM3] including the column-level-secret
    check this amendment adds to that AC, [AR2] now finalized as the §3.4 R4 list**), the per-user route denylist (C10 AC4) and the list of GET routes with
    write side effects (C10 AC6).
@@ -2669,13 +2880,17 @@ story added or removed).
    - **R7 — GET routes that write — ANSWERED, two more added.** `GET /v1/exports/:id` and `GET /v1/audit-log/export`
      join the enumeration (C12 AC6, §3.4 R7), both denied to support viewers; the `presignGet` TTL-parameter change
      C12 AC6's `min(60 s, …)` rule needs is named explicitly.
-   - **R8 — The member-assuming call sites, scoped by grep pattern (not a fixed count) — ANSWERED. [AR3, S6]** The
-     read-vs-write classification lists (which sites migrate, which per-user routes are denied, confirmation
-     everything else is a write) are §3.4 R8 / C12 AC5, which now also folds in the previously-uncounted
-     `inspections.controller.ts` local-helper family and the `query.controller.ts:68` → `:41`/`:86` correction; the
-     `AccessScope`-carries-a-resolved-plant-filter refactor these migrated sites need is C12 AC1/AC5. The architect
-     verifies the lists are exhaustive against a fresh run of the named grep pattern on the actual codebase, not
-     against any count fixed in this document.
+   - **R8 — The member-assuming call sites, scoped by grep pattern (not a fixed count) — ANSWERED. [AR3, S6; AR4
+     citation fix]** The read-vs-write classification lists (which sites migrate, which per-user routes are denied,
+     confirmation everything else is a write) are §3.4 R8 / C12 AC5, which now also folds in the previously-uncounted
+     `inspections.controller.ts` local-helper family and the `query.controller.ts:68` → `:41`/`:86` correction.
+     **[AR4]** A second citation in the same paragraph had the identical mistake S6 was meant to have already fixed:
+     `inspections.controller.ts:176` was listed as a call site but is inside the `membership(ctx)` helper's own
+     definition; corrected to the real call sites (`:56, :69, :100, :114, :129, :147, :165`), of which only the three
+     GET-route ones migrate, and `actorId(ctx)` (five call sites, all on write routes) moves from
+     read-routes-to-migrate to confirmed-write. The `AccessScope`-carries-a-resolved-plant-filter refactor these
+     migrated sites need is C12 AC1/AC5. The architect verifies the lists are exhaustive against a fresh run of the
+     named grep pattern on the actual codebase, not against any count fixed in this document.
    - **R9 — Process separation mechanics — ANSWERED.** The concrete deployment/tooling deliverables (`start:platform`,
      both new Dockerfiles, the `env.ts` split, the lint-zone rule's planted-violation fixture test) are CX AC1/AC8
      (§3.4 references CX). B4's shared-layer fix (SD13) and the two-router test's sequential-boot requirement are the
