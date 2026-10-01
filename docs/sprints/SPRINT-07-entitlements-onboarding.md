@@ -2143,11 +2143,24 @@ D1(c) mirror-write restructure; the step-numbering fix; the §3.4 R8 citation fi
 live there. The PO does not treat this as closing the architecture gate — see 07C's DoD for the new `planner`
 delta-check sign-off this amendment still owes.
 
+**Amendment 6 — architecture-review SIGN OFF received; build-time polish pass, 2026-10-01 (tagged [POLISH]).** The
+`planner` delta-check `SPRINT-07C-staff-console.md` Amendment 7 asked for (its Blocking A, Blocking B and four small
+fixes) returned **SIGN OFF** — the sixth and final round of architecture review across both files. The architecture
+gate (Definition of Ready #2, below) is now **CLOSED**. This file's own share of that round's remaining notes is
+limited to one item, already fixed above (Amendment 5/[AR4]): P5 AC2's dependency on 07C's worker-producer fix,
+stated explicitly and cross-referenced. The reviewer's other build-time corrections (the exhaustive enqueue-scope
+table; the single-enqueue-function framing; the corrected Redis/worker statement and the new producer-shutdown
+requirement; the three D1(c) implementation pins; the superseded-numbering cosmetic fix; the processor-scope
+placement note and the `seed-demo.ts` correction) all amend mechanisms that live entirely in
+`SPRINT-07C-staff-console.md` (SD12, SD13, C3 AC6, C10 AC2a) — see that file's own Amendment 8. No story is added or
+removed here, and no decision in this file is reopened.
+
 **PO use-case sign-off: SIGNED (the PO's part of SCRUM.md Gate 1 only — Gate 1 itself is NOT complete: no design
 board exists yet), 2026-09-30; reaffirmed after Amendment 3 [AR], 2026-09-30, after 07C's Amendment 5
-delta check [AR2], 2026-09-30, after the second delta check [AR3], 2026-10-01, and again after the third delta check
-[AR4], 2026-10-01 (no story added or removed in any of these; the [AR]/[AR2]/[AR3]/[AR4] fixes amend existing ACs — P3
-AC2, P4 AC5, O5 AC2 and now P5 AC2 here).** Verified, not assumed: **16 stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
+delta check [AR2], 2026-09-30, after the second delta check [AR3], 2026-10-01, after the third delta check
+[AR4], 2026-10-01, and again after Amendment 6's SIGN OFF + polish pass [POLISH], 2026-10-01 (no story added or
+removed in any of these; the [AR]/[AR2]/[AR3]/[AR4]/[POLISH] fixes amend existing ACs — P3
+AC2, P4 AC5, O5 AC2 and P5 AC2 here).** Verified, not assumed: **16 stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
 extensibility, price-book versioning, framework inclusion under the finalized mapping, the `supplier_analytics`
 in-page gates, the Q-C13 overlap line, the platform trial-reset exception and the Q-P1 provisioning audit — maps to at
 least one objectively testable AC with a Web / Mobile / Shared split, a §4 backend row, a §5 design source or gap
@@ -2157,13 +2170,13 @@ FMEA/SPC/portal decisions the reviewer flagged are DECIDED in P4 AC5 above).
 **Definition of Ready — what remains before build (process gates, no decisions):**
 1. **Gate 1 — design.** `ui-lead-designer` audits the binding jsx (§5 table) and produces boards D-S1…D-S15 in
    `docs/design/`; the user approves every new board (SCRUM.md: the user approves new visual design) and the named
-   copy deviations (D-S12/13 tenant-aware callout and Core card, the `standards` tagline).
-2. **Architecture review.** `planner` reviews this file and `SPRINT-07C-staff-console.md` together (07C writes this
-   file's tables) and returns SIGN OFF with the vertical-slice plan, the exhaustive `@RequireModule` route list
-   (P3 AC2 — **[AR2] now stated in text, including the `integrations` row-aware SMTP predicate**), the per-module "open record" definitions (P4 AC5 — **[AR2] risk's definition now DECIDED in text; [AR3] restated as a slice-plan input, not a finished list**) and the O5 index confirmations (**[AR2] now stated in text, including the `inspection_templates` gap fix**). **[AR]** This is now a
-   **re-review** after the SEND BACK, run against the named checklist in `SPRINT-07C-staff-console.md` DoR #4
-   (R1-R10), which includes these three items (R1-R3) — **[AR4] now a delta check against Amendment 7's fixes in that
+   copy deviations (D-S12/13 tenant-aware callout and Core card, the `standards` tagline). **Still open.**
+2. **Architecture review — [POLISH] CLOSED, 2026-10-01 (Amendment 6; full detail in `SPRINT-07C-staff-console.md`
+   Amendment 8).** `planner` reviewed this file and `SPRINT-07C-staff-console.md` together (07C writes this
+   file's tables) and returned SIGN OFF with the vertical-slice plan, the exhaustive `@RequireModule` route list
+   (P3 AC2 — **[AR2] now stated in text, including the `integrations` row-aware SMTP predicate**), the per-module "open record" definitions (P4 AC5 — **[AR2] risk's definition now DECIDED in text; [AR3] restated as a slice-plan input, not a finished list**) and the O5 index confirmations (**[AR2] now stated in text, including the `inspection_templates` gap fix**). This was the **re-review** after the SEND BACK, run against the named checklist in `SPRINT-07C-staff-console.md` DoR #4
+   (R1-R10), which includes these three items (R1-R3), culminating in the delta check against Amendment 7's fixes in that
    file (Blocking A's exhaustive caller table, Blocking B's worker-producer fix pinned to this file's
-   `entitlement-trials` processor, and the four small fixes), per the reviewer's own framing, not a repeat of the full
-   re-review.**
-3. **07C only:** the `security-reviewer` pass on 07C's design (07C §3) before its build starts.
+   `entitlement-trials` processor, and the four small fixes) plus this file's own Amendment 6 polish items.
+3. **07C only:** the `security-reviewer` pass on 07C's design (07C §3) — **CLOSED at the design level** (07C DoD item
+   3); the post-build pass required by CX AC6 remains, same as any other sprint's code-level review.
