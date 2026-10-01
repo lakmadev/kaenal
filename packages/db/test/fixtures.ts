@@ -234,9 +234,23 @@ export async function seedTenant(tx: Tx, tenantId: string, tag: string): Promise
   );
 
   await q(
-    `INSERT INTO entitlements (tenant_id, pack_id, active) VALUES ($1, 'supplier_quality', true)
+    `INSERT INTO entitlements (tenant_id, pack_id, active) VALUES ($1, 'supplier', true)
      RETURNING id`,
     [t],
+  );
+
+  // Sprint 07 P1/P5/P6 — entitlement_trials (PK is (tenant_id, pack_id); `id`
+  // is a separate uuid for the audit entity_id) and plan_requests.
+  await q(
+    `INSERT INTO entitlement_trials (tenant_id, pack_id, ends_at, started_by)
+     VALUES ($1, 'intelligence', now() + interval '14 days', $2) RETURNING id`,
+    [t, userId],
+  );
+
+  await q(
+    `INSERT INTO plan_requests (tenant_id, kind, requested_by)
+     VALUES ($1, 'member_access', $2) RETURNING id`,
+    [t, userId],
   );
 
   await q(
