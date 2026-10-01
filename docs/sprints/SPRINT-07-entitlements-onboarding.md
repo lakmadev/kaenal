@@ -779,8 +779,16 @@ AC
    (AR28):** per tenant, one transaction runs `UPDATE entitlement_trials SET expiry_processed_at = now() WHERE ends_at
    <= now() AND expiry_processed_at IS NULL RETURNING id, pack_id, ends_at` and writes the audit event
    (`entity_kind='entitlement_trial'`, `entity_id` = the trial's `id`), the notification rows and the internal
-   `tenant_commercial.changed` event for exactly the returned rows; emails are enqueued after commit (07C SD12). A
-   re-run or a concurrent worker finds no unprocessed row. (Effectiveness never depends on this job — the resolver
+   `tenant_commercial.changed` event for exactly the returned rows; emails are enqueued after commit (07C SD12), via
+   the processor scope every job processor opens around its `withTenant` transaction (07C SD13 D2(ii)). **[AR4, 07C
+   Amendment 7, Blocking B]** This claim has a hard, previously-undisclosed dependency: the worker process that runs
+   this job constructs its `NotificationsService` with no real job producer today (`apps/api/src/jobs/worker.ts:87`),
+   so every `notify()` call from *any* processor — including this one — currently enqueues no delivery job at all,
+   silently. 07C SD13 D2(vi) fixes the worker's producer construction (gated on `JOBS_ENABLED`, matching
+   `app.module.ts`'s own pattern); this AC's trial-ending/trial-ended emails cannot work without that fix landing
+   first, and 07C's DoD test for that fix is pinned to this exact processor, run through the real worker wiring (not
+   a mock), as the proof.
+   A re-run or a concurrent worker finds no unprocessed row. (Effectiveness never depends on this job — the resolver
    compares `ends_at` to `now()`, P1.) A platform trial reset (07C C5 AC6) deletes the row, so a new trial starts with
    `expiry_processed_at` NULL.
 3. Notification kinds `trial_ending`, `trial_ended` added to the enum, the preferences matrix defaults (in-app +
@@ -1999,6 +2007,11 @@ moves to PROGRESS.md "Known issues" at close.
       between P4 AC5 and 07C's DoR R2) is answered here (Amendment 5) — a document fix. D1, D2 and the other five
       small fixes (S1-S4, S6) land entirely in `SPRINT-07C-staff-console.md` Amendment 6 and do not require a change
       here.
+- [x] [AR4] The third architecture-review delta check's one item that lands in this file (P5 AC2's dependency on
+      07C's pre-existing worker-producer bug fix) is answered here (Amendment 6) — a document fix naming a real build
+      dependency between the two sprint files, not a product-code change. The exhaustive caller table, the D1(c)
+      restructure, the step-numbering fix and the §3.4 R8 citation fix land entirely in
+      `SPRINT-07C-staff-console.md` Amendment 7 and do not require a change here.
 - [ ] UI Lead Designer's boards D-S1…D-S15 [AM2] approved by the user (Gate 1); `planner` architecture review returned SIGN OFF with the slice
       plan, covering both this file and `SPRINT-07C-staff-console.md` (one review of the release, since 07C
       writes this file's tables). **[AR]** The first review returned SEND BACK; this item now means the **re-review**
@@ -2117,11 +2130,24 @@ mechanisms (B1's RESTRICTIVE policies, B3's job-processor coverage, SD7/SD12/SD1
 not treat this as closing the architecture gate — see 07C's DoD for the new `planner` delta-check sign-off this
 amendment still owes.
 
+**[AR4] Architecture-review delta check #3 (2026-10-01) — a fourth pass, scoped to 07C Amendment 6's D2 fix, found
+one item that touches this file: P5 AC2's "emails are enqueued after commit" claim has a hard, previously-undisclosed
+dependency on a genuine pre-existing bug the reviewer found incidentally (the worker's `NotificationsService` has no
+real job producer, so no processor-originated `notify()` call — including this AC's trial-ending/trial-ended
+emails — can work today).** Fixed above (Amendment 6, this file): P5 AC2 now states the dependency explicitly and
+points to 07C SD13 D2(vi), which fixes the worker's producer construction and pins its own DoD test to this file's
+`entitlement-trials` processor specifically, run through the real fixed worker wiring. Everything else in this
+round's two blocking defects and four small fixes (the exhaustive job/notification-enqueue caller table; the
+D1(c) mirror-write restructure; the step-numbering fix; the §3.4 R8 citation fix) lands entirely in
+`SPRINT-07C-staff-console.md` Amendment 7, since they amend mechanisms (SD12/SD13, C3 AC6, C10 AC2a, SD5, §3.4) that
+live there. The PO does not treat this as closing the architecture gate — see 07C's DoD for the new `planner`
+delta-check sign-off this amendment still owes.
+
 **PO use-case sign-off: SIGNED (the PO's part of SCRUM.md Gate 1 only — Gate 1 itself is NOT complete: no design
 board exists yet), 2026-09-30; reaffirmed after Amendment 3 [AR], 2026-09-30, after 07C's Amendment 5
-delta check [AR2], 2026-09-30, and again after the second delta check [AR3], 2026-10-01 (no story added or removed
-in any of these; the [AR]/[AR2]/[AR3] fixes amend existing ACs — P3
-AC2 and P4 AC5 and O5 AC2 here).** Verified, not assumed: **16 stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
+delta check [AR2], 2026-09-30, after the second delta check [AR3], 2026-10-01, and again after the third delta check
+[AR4], 2026-10-01 (no story added or removed in any of these; the [AR]/[AR2]/[AR3]/[AR4] fixes amend existing ACs — P3
+AC2, P4 AC5, O5 AC2 and now P5 AC2 here).** Verified, not assumed: **16 stories** (P0-P9, O1-O5, X1). Every use case — happy, error, empty, permission, offline, cross-tenant, catalog
 extensibility, price-book versioning, framework inclusion under the finalized mapping, the `supplier_analytics`
 in-page gates, the Q-C13 overlap line, the platform trial-reset exception and the Q-P1 provisioning audit — maps to at
 least one objectively testable AC with a Web / Mobile / Shared split, a §4 backend row, a §5 design source or gap
@@ -2136,6 +2162,8 @@ FMEA/SPC/portal decisions the reviewer flagged are DECIDED in P4 AC5 above).
    file's tables) and returns SIGN OFF with the vertical-slice plan, the exhaustive `@RequireModule` route list
    (P3 AC2 — **[AR2] now stated in text, including the `integrations` row-aware SMTP predicate**), the per-module "open record" definitions (P4 AC5 — **[AR2] risk's definition now DECIDED in text; [AR3] restated as a slice-plan input, not a finished list**) and the O5 index confirmations (**[AR2] now stated in text, including the `inspection_templates` gap fix**). **[AR]** This is now a
    **re-review** after the SEND BACK, run against the named checklist in `SPRINT-07C-staff-console.md` DoR #4
-   (R1-R10), which includes these three items (R1-R3) — **[AR3] now a delta check against Amendment 6's fixes in that
-   file, per the reviewer's own framing, not a repeat of the full re-review.**
+   (R1-R10), which includes these three items (R1-R3) — **[AR4] now a delta check against Amendment 7's fixes in that
+   file (Blocking A's exhaustive caller table, Blocking B's worker-producer fix pinned to this file's
+   `entitlement-trials` processor, and the four small fixes), per the reviewer's own framing, not a repeat of the full
+   re-review.**
 3. **07C only:** the `security-reviewer` pass on 07C's design (07C §3) before its build starts.
